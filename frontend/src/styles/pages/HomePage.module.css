@@ -1,0 +1,147 @@
+.root {
+  position: relative;
+  isolation: isolate;
+  min-height: calc(100vh - 72px);
+  margin: -20px;
+  padding: 28px clamp(20px, 2.2vw, 34px) 36px;
+  background: #f1f3f5;
+  color: #182b49;
+  font-family: Inter, Pretendard, "Noto Sans KR", sans-serif;
+}
+.root::before { position: absolute; z-index: -1; top: -20px; right: -24px; left: -24px; height: 184px; background: linear-gradient(135deg, #ee7373 0%, #ec0a0a 100%); content: ''; }
+.dashboardHeader { position: relative; overflow: hidden; padding: 21px 24px; border: 1px solid #ffffffb8; border-radius: 12px; background: #ffffffed; box-shadow: 0 12px 28px #7f1d1d1c; backdrop-filter: blur(10px); }
+.pageHeading { position: relative; z-index: 1; width: 100%; min-height: 68px; gap: 24px; }
+.headerCopy { position: relative; z-index: 1; }
+.dashboardHeader .pageTitle { color: #263448; font-size: clamp(26px, 2.2vw, 32px); font-weight: 850; letter-spacing: -0.045em; line-height: 1.2; }
+.dashboardHeader .pageTitle span { color: #e62222; }
+.dashboardHeader .pageSubtitle { margin-top: 7px; color: #778395; font-size: 13px; line-height: 1.5; }
+.sampleNotice { width: fit-content; min-height: 22px; margin-top: 11px; padding: 3px 9px; border: 1px solid #e6e9ee; border-radius: 20px; background: #f8f9fb; color: #657286; }
+.sampleNotice :global(.mantine-Text-root) { color: inherit; font-size: 10px; }
+.statusDot { width: 7px; height: 7px; border-radius: 50%; background: #e62222; box-shadow: 0 0 0 3px #e6222217; }
+.noticeDivider { width: 1px; height: 11px; background: #dce1e8; }
+.periodToolbar { padding: 13px 16px; border-color: #e4e7ec; border-radius: 10px; background: #fff; box-shadow: 0 3px 10px #27374d08; }
+.periodHeading { display: flex; align-items: baseline; gap: 10px; }
+.periodControls { color: #526583; gap: 10px; }
+.periodLabel { color: #34445a; font-size: 12px; font-weight: 750; white-space: nowrap; }
+.periodInputs { flex-wrap: nowrap; }
+.dateRange { display: flex; min-width: 340px; height: 40px; align-items: center; gap: 8px; padding: 0 11px; border: 1px solid #dce4ee; border-radius: 8px; background: #fff; color: #71819a; }
+.dateRange:focus-within { border-color: #5084e6; box-shadow: 0 0 0 3px #5084e61a; }
+.dateRange input { width: 125px; min-width: 0; border: 0; outline: 0; background: transparent; color: #344761; font: inherit; font-size: 12px; }
+.dateRange input::-webkit-calendar-picker-indicator { width: 13px; height: 13px; opacity: 0.55; cursor: pointer; }
+.rangeSeparator { color: #a5b0c0; font-size: 13px; }
+.periodToggle { min-height: 40px; padding: 3px; border: 1px solid #e1e5eb; border-radius: 8px; background: #f5f6f8; }
+.periodIndicator { border: 1px solid #f0cccc; border-radius: 6px; background: #fff; box-shadow: 0 1px 3px #9e1b1b12; }
+.periodOption { min-width: 66px; color: #69778a; font-size: 12px; font-weight: 600; }
+.periodOption[data-active] { color: #245fcb; }
+
+.metricGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.metricCard { min-height: 190px; padding: 18px 18px 15px; border-color: #e4e9f0; border-radius: 10px; background: #fff; box-shadow: 0 2px 8px #24375208; transition: box-shadow 160ms ease, transform 160ms ease; }
+.metricCard:hover { transform: translateY(-2px); box-shadow: 0 7px 18px #24375212; }
+.metricIcon { flex: 0 0 auto; }
+.metricTitle { color: #344761; font-size: 13px; font-weight: 650; }
+.metricAmount { margin-top: 14px; color: #172b49; font-size: clamp(19px, 1.65vw, 24px); font-weight: 750; letter-spacing: -0.04em; white-space: nowrap; }
+.metricChange { margin-top: 4px; }
+.metricChange svg { padding: 2px; border-radius: 50%; background: #d9f5ee; color: #08a882; }
+.metricChange :global(.mantine-Text-root:last-child) { color: #08a882; }
+.metricDetail { margin-top: 14px; padding-top: 11px; border-top: 1px solid #e8edf3; }
+.receivableBadge { margin-top: 13px; padding: 5px 12px; border-radius: 20px; background: #22a47f; font-size: 11px; font-weight: 600; }
+.green { border-top: 2px solid #35b994; }
+.green .metricIcon, .alert_green .alertIcon { color: #11a786; background: #e6f7f2; }
+.blue { border-top: 2px solid #5e91e8; }
+.blue .metricIcon { color: #2474db; background: #eaf1ff; }
+.purple { border-top: 2px solid #9d70e8; }
+.purple .metricIcon, .alert_purple .alertIcon { color: #792bd0; background: #f2eaff; }
+.orange { border-top: 2px solid #f2a04a; }
+.orange .metricIcon, .alert_orange .alertIcon { color: #e9822c; background: #fff1e3; }
+
+.analyticsGrid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 0.88fr); align-items: stretch; gap: 16px; }
+.chartPanel, .mixPanel, .alertPanel { min-width: 0; padding: 20px 20px 16px; border-color: #e3e8ef; border-radius: 12px; background: #fff; box-shadow: 0 2px 10px #24375207; }
+.sectionTitle { color: #20334f; font-size: 15px; font-weight: 700; letter-spacing: -0.02em; }
+.panelCaption { margin-top: 5px; color: #8a96a8; font-size: 11px; }
+.chartTools { color: #667791; font-size: 12px; }
+.legend { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.legend i { width: 9px; height: 9px; border-radius: 50%; }
+.salesDot { background: #496aa6; }
+.purchaseDot { background: #a9bfdc; }
+.profitDot { background: #0bbfae; }
+.chartModeToggle { min-height: 34px; padding: 2px; border: 1px solid #e3e8ef; border-radius: 7px; background: #f6f8fb; }
+.chartModeIndicator { border: 1px solid #e9edf3; border-radius: 5px; background: #fff; box-shadow: 0 1px 2px #182b490d; }
+.chartModeOption { min-width: 56px; color: #667791; font-size: 11px; font-weight: 600; }
+.chartModeOption[data-active] { color: #245fcb; }
+.chart { width: 100%; height: 228px; margin-top: 6px; }
+.mixPanel { display: flex; flex-direction: column; }
+.donutWrap { position: relative; width: 100%; height: 174px; margin: 3px auto 5px; }
+.donutCenter { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; pointer-events: none; }
+.donutCenter strong { color: #243750; font-size: 18px; font-weight: 750; letter-spacing: -0.04em; }
+.donutCenter span { margin-top: 3px; color: #8a96a8; font-size: 10px; }
+.mixList { border-top: 1px solid #edf0f4; }
+.mixRow { display: grid; grid-template-columns: minmax(0, 1fr) 38px 72px; align-items: center; gap: 7px; min-height: 32px; border-bottom: 1px solid #f0f2f6; }
+.mixName { display: flex; min-width: 0; align-items: center; gap: 7px; color: #52637a; font-size: 11px; }
+.mixName i { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; }
+.mixRow > :global(.mantine-Text-root:last-child) { color: #364960; text-align: right; white-space: nowrap; }
+
+.alertPanel { padding-bottom: 16px; }
+.alertHeadingIcon { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: #edf3ff; color: #4679df; }
+.alertSummary { padding: 7px 10px; border: 1px solid #edf0f4; border-radius: 8px; background: #fafbfd; }
+.pendingBadge { border: 1px solid #f5dfbd; background: #fff6e8; color: #a96613; font-size: 10px; font-weight: 650; }
+.alertRow { display: grid; min-height: 96px; grid-template-columns: 44px minmax(220px, 1fr) minmax(260px, 0.95fr) auto; align-items: center; gap: 16px; padding: 12px 14px; border-color: #e7ebf1; border-radius: 9px; background: #fff; transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease; }
+.alertRow:hover { border-color: #d6dfeb; background: #fcfdff; box-shadow: 0 3px 10px #24375208; }
+.alertRow.needsAttention { border-left: 3px solid #e8a23b; padding-left: 12px; }
+.alertRow.isComplete { border-left: 3px solid #41b99a; padding-left: 12px; }
+.alertIcon { flex: 0 0 auto; }
+.alert_blue .alertIcon { color: #4679df; background: #edf3ff; }
+.alertCopy { min-width: 0; }
+.alertGroup { color: #8a96a8; font-size: 10px; font-weight: 650; letter-spacing: 0.02em; }
+.alertTitle { margin-top: 2px; color: #263a56; font-size: 13px; }
+.alertDescription { line-height: 1.45; }
+.alertAction { display: inline-flex; align-items: center; gap: 3px; color: #65758d; font-weight: 650; }
+.alertStats { display: grid; width: 100%; min-height: 58px; grid-template-columns: 1fr 1fr; align-items: center; gap: 12px; padding: 8px 13px; border: 1px solid #edf0f5; border-radius: 8px; background: #f8fafd; }
+.alert_blue .alertStats { background: #f5f8fe; }
+.alert_orange .alertStats { background: #fff9f2; }
+.alert_green .alertStats { background: #f3faf7; }
+.state_warning, .state_critical, .state_success { border: 1px solid transparent; font-size: 10px; font-weight: 650; white-space: nowrap; }
+.state_warning { border-color: #f5dfbd; background: #fff6e8; color: #a96613; }
+.state_critical { border-color: #f3d0d0; background: #fff0f0; color: #c24343; }
+.state_success { border-color: #cdeade; background: #edf9f3; color: #22875f; }
+.alertStat { min-width: 0; color: #263b5b; }
+.alertStat :global(.mantine-Text-root:last-of-type) { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.progressTrack { height: 4px; margin-top: 5px; overflow: hidden; border-radius: 5px; background: #ded9ff; }
+.progressTrack span { display: block; height: 100%; border-radius: inherit; background: #8b70f5; }
+
+@media (max-width: 1100px) {
+  .root { padding-right: 18px; padding-left: 18px; }
+  .metricGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .periodControls { gap: 7px; }
+  .dateRange { min-width: 305px; }
+  .dateRange input { width: 112px; }
+  .chartTools { gap: 9px; }
+  .analyticsGrid { grid-template-columns: minmax(0, 1fr); }
+  .alertRow { grid-template-columns: 44px minmax(0, 1fr) auto; row-gap: 10px; }
+  .alertStats { grid-column: 2 / 4; grid-row: 2; }
+  .pageHeading { align-items: flex-start; }
+  .periodControls { flex-wrap: wrap; justify-content: flex-start; }
+}
+
+@media (max-width: 720px) {
+  .root { margin: -20px; padding: 18px 12px 24px; }
+  .dashboardHeader { padding: 18px 16px; }
+  .dashboardHeader .pageTitle { font-size: 23px; }
+  .periodControls { width: 100%; flex-wrap: wrap; }
+  .periodHeading { width: 100%; justify-content: flex-start; }
+  .periodInputs { width: 100%; flex-wrap: wrap; }
+  .periodLabel { width: auto; }
+  .dateRange { min-width: 0; flex: 1 1 100%; justify-content: space-between; gap: 5px; padding: 0 8px; }
+  .dateRange input { width: min(38%, 125px); font-size: 11px; }
+  .periodToggle { flex: 1; }
+  .metricCard { min-height: 190px; padding: 15px; }
+  .metricGrid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .metricAmount { font-size: 20px; }
+  .chartPanel, .alertPanel { padding: 14px 12px; }
+  .mixPanel { padding: 16px 14px; }
+  .chartTools { width: 100%; flex-wrap: wrap; }
+  .chart { height: 230px; }
+  .alertRow { grid-template-columns: 42px minmax(0, 1fr) auto; gap: 10px; padding: 12px; }
+  .alertIcon { width: 42px; height: 42px; }
+  .alertCopy { min-width: 0; }
+  .alertStats { grid-column: 1 / -1; grid-row: 2; }
+}
