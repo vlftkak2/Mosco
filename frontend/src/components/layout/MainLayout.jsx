@@ -24,11 +24,64 @@ const mockdata = [
     initiallyOpened: false,
     MenuID:null,
   },
-    {
-    label: '시스템 관리',
+  {
+    label: '매입 관리',
     icon: <IconPackage size={17} stroke={1.8} />,
     initiallyOpened: false,
     links: [
+      { label: '매입등록', link: '/InventoryMonitorPage', icon: '', MenuID:'M-9' },
+      { label: '매입현황', link: '/InventoryMonitorPage', icon: '', MenuID:'M-10' },
+    ],
+  },  
+  {
+    label: '매출 관리',
+    icon: <IconPackage size={17} stroke={1.8} />,
+    initiallyOpened: false,
+    links: [
+      { label: '매출등록', link: '/OMSSAPVerifPage', icon: '', MenuID:'M-11' },
+      { label: '매출현황', link: '/WMSOMSVerifPage', icon: '', MenuID:'M-12' },
+      { label: '매출이익률', link: '/WMSOMSVerifPage', icon: '', MenuID:'M-13' },
+    ],
+  },  
+
+  {
+    label: '재고 관리',
+    icon: <IconPackage size={17} stroke={1.8} />,
+    initiallyOpened: false,
+    links: [
+      { label: '재고조회', link: '/OMSSAPVerifPage', icon: '', MenuID:'M-11' },
+      { label: '재고가공', link: '/WMSOMSVerifPage', icon: '', MenuID:'M-12' },
+    ],
+  },    
+
+  {
+    label: '거래처 관리',
+    icon: <IconPackage size={17} stroke={1.8} />,
+    initiallyOpened: false,
+    links: [
+      { label: '거래처등록', link: '/CustomerPage', icon: '', MenuID:'M-11' },
+      { label: '거래처원장', link: '/WMSOMSVerifPage', icon: '', MenuID:'M-12' },
+    ],
+  },   
+  {
+    label: '자금 관리',
+    icon: <IconPackage size={17} stroke={1.8} />,
+    initiallyOpened: false,
+    links: [
+      { label: '수금/지급', link: '/UserPage', icon: '✔️', MenuID:'M-14' },
+      { label: '계산서등록', link: '/DepartmentPage', icon: '✔️', MenuID:'M-16' },
+    ],
+  },
+
+    {
+    label: '기본정보 관리',
+    icon: <IconPackage size={17} stroke={1.8} />,
+    initiallyOpened: false,
+    links: [
+      {
+        label: '품목코드',
+        links: [{ label: '품목등록', MenuID: 'M7' }],
+      },
       {
         label: '일반코드',
         links: [
@@ -40,44 +93,6 @@ const mockdata = [
           { label: '착지', MenuID: 'M6' },
         ],
       },
-      {
-        label: '품목코드',
-        links: [{ label: '품목등록', MenuID: 'M7' }],
-      },
-      {
-        label: '거래처코드',
-        links: [{ label: '거래처등록', link: '/CustomPage', MenuID: 'M8' }],
-      },
-    ],
-  },
-  {
-    label: '매입 관리',
-    icon: <IconPackage size={17} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '매입등록', link: '/InventoryMonitorPage', icon: '', MenuID:'M-9' },
-      { label: '매입현황', link: '/InventoryMonitorPage', icon: '', MenuID:'M-10' },
-    ],
-  },
-  {
-    label: '매출 관리',
-    icon: <IconPackage size={17} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '매출등록', link: '/OMSSAPVerifPage', icon: '', MenuID:'M-11' },
-      { label: '매출현황', link: '/WMSOMSVerifPage', icon: '', MenuID:'M-12' },
-      { label: '매출이익률', link: '/WMSOMSVerifPage', icon: '', MenuID:'M-13' },
-    ],
-  },
-
-  {
-    label: '자금 관리',
-    icon: <IconPackage size={17} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '수금/지급', link: '/UserPage', icon: '✔️', MenuID:'M-14' },
-      { label: '거래처원장', link: '/UserAuthPage', icon: '✔️', MenuID:'M-15' },
-      { label: '계산서등록', link: '/DepartmentPage', icon: '✔️', MenuID:'M-16' },
     ],
   },
 
