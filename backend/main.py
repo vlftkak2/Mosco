@@ -30,6 +30,7 @@ from routes import userauth_routes as userauth_routes
 from routes import teamauth_routes as teamauth_routes
 from routes import Department_routes as department_routes
 from routes import home_dashboard_routes as home_dashboard_routes
+from routes import Customer_routes as customer_routes
 
 import uvicorn
 
@@ -67,51 +68,6 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # 로그인 API
 app.include_router(login_router.router)
 
-# # 재고데이터 API
-# app.include_router(inv_router.router)
-
-# # PG API
-# app.include_router(pg_router.router)
-
-# # OMSSAP API
-# app.include_router(omssap_router.router)
-
-# # WMSOMS API
-# app.include_router(wmsoms_router.router)
-
-# # HKTVMALL STANDARD OMS API
-# app.include_router(hktvmall_oms_standard_router.router)
-
-# # HKTVMALL MERCHANT OMS API
-# app.include_router(hktvmall_oms_merchant_router.router)
-
-# # HKTVMALL IMPROVE API
-# app.include_router(hktvmall_improve_standard_router.router)
-
-# # HKTVMALL Allocate API
-# app.include_router(hktvmall_allocate_router.router)
-
-# # ShopPay API
-# app.include_router(shoppay_routes.router)
-
-# # 국내 모니터링 API
-# app.include_router(domestic_routes.router)
-
-# # 국내 D2C 통계 API
-# app.include_router(D2C_Statistics_routes.router)
-
-# # 국내 D2C 월별출고량 API
-# app.include_router(D2CMonth_routes.router)
-
-# # 국내 D2C 주별출고량 API
-# app.include_router(D2CWeek_routes.router)
-
-# # 일별 D2C 주별출고량 API
-# app.include_router(D2CDay_routes.router)
-
-# # 일별 D2C 품목별 API
-# app.include_router(D2CItem_routes.router)
-
 # User Password API
 app.include_router(user_routes.router)
 
@@ -129,6 +85,9 @@ app.include_router(department_routes.router)
 
 # Home dashboard API
 app.include_router(home_dashboard_routes.router)
+
+# Customer API
+app.include_router(customer_routes.router)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
