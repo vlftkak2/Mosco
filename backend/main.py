@@ -1,0 +1,134 @@
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware  
+from config import ALLOWED_ORIGINS
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from contextlib import asynccontextmanager
+
+# import scheduler as scheduler_module
+# from routes import inventory_routes as inv_router
+# from routes import pg_routes as pg_router
+# from routes import omssap_routes as omssap_router
+# from routes import wmsoms_routes as wmsoms_router
+# from routes import hktvmalloms_standard_routes as hktvmall_oms_standard_router
+# from routes import hktvmalloms_merchant_routes as hktvmall_oms_merchant_router
+# from routes import hktvmallimprove_standard_routes as hktvmall_improve_standard_router
+# from routes import hktvmall_allocate_routes as hktvmall_allocate_router
+# from routes import shoppay_routes as shoppay_routes
+# from routes import domesticlogistics_routes as domestic_routes
+# from routes import D2CStatistics_routes as D2C_Statistics_routes
+# from routes import D2CMonth_routes as D2CMonth_routes
+# from routes import D2CWeek_routes as D2CWeek_routes
+# from routes import D2CDay_routes as D2CDay_routes
+# from routes import D2CItem_routes as D2CItem_routes
+
+from routes import login_routes as login_router
+from routes import user_routes as user_routes
+from routes import userinfo_routes as userinfo_routes
+from routes import userauth_routes as userauth_routes
+from routes import teamauth_routes as teamauth_routes
+from routes import Department_routes as department_routes
+from routes import home_dashboard_routes as home_dashboard_routes
+
+import uvicorn
+
+app = FastAPI()
+
+# 스케줄 설정
+# scheduler = BackgroundScheduler()
+
+# # 2. 수명 주기(lifespan) 설정
+# @asynccontextmanager
+# async def lifespan(app: FastAPI):
+    
+#     # OMS/SAP 검증 [StartUp] 서버 가동 시 실행
+#     # scheduler_module.setup_scheduler()
+#     # scheduler_module.scheduler.start()
+    
+#     yield  # --- 서버 운영 중 ---
+    
+#     # [ShutDown] 서버 종료 시 실행
+#     scheduler_module.scheduler.shutdown()
+
+# app = FastAPI(lifespan=lifespan)
+
+# CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=".*",  # 모든 도메인/IP 허용
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# 로그인 API
+app.include_router(login_router.router)
+
+# # 재고데이터 API
+# app.include_router(inv_router.router)
+
+# # PG API
+# app.include_router(pg_router.router)
+
+# # OMSSAP API
+# app.include_router(omssap_router.router)
+
+# # WMSOMS API
+# app.include_router(wmsoms_router.router)
+
+# # HKTVMALL STANDARD OMS API
+# app.include_router(hktvmall_oms_standard_router.router)
+
+# # HKTVMALL MERCHANT OMS API
+# app.include_router(hktvmall_oms_merchant_router.router)
+
+# # HKTVMALL IMPROVE API
+# app.include_router(hktvmall_improve_standard_router.router)
+
+# # HKTVMALL Allocate API
+# app.include_router(hktvmall_allocate_router.router)
+
+# # ShopPay API
+# app.include_router(shoppay_routes.router)
+
+# # 국내 모니터링 API
+# app.include_router(domestic_routes.router)
+
+# # 국내 D2C 통계 API
+# app.include_router(D2C_Statistics_routes.router)
+
+# # 국내 D2C 월별출고량 API
+# app.include_router(D2CMonth_routes.router)
+
+# # 국내 D2C 주별출고량 API
+# app.include_router(D2CWeek_routes.router)
+
+# # 일별 D2C 주별출고량 API
+# app.include_router(D2CDay_routes.router)
+
+# # 일별 D2C 품목별 API
+# app.include_router(D2CItem_routes.router)
+
+# User Password API
+app.include_router(user_routes.router)
+
+# User Password API
+app.include_router(userinfo_routes.router)
+
+# User Auth API
+app.include_router(userauth_routes.router)
+
+# Team Auth API
+app.include_router(teamauth_routes.router)
+
+# Department API
+app.include_router(department_routes.router)
+
+# Home dashboard API
+app.include_router(home_dashboard_routes.router)
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -1,0 +1,138 @@
+.control {
+  position: relative;
+  display: block !important;
+  width: 100% !important;
+  min-height: 42px !important;
+  margin: 3px 0 !important;
+  padding: 9px 12px !important;
+  border: 0 !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+  color: #d7e0ed !important;
+  cursor: pointer !important;
+  text-align: left;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.control:hover {
+  background: #172338 !important;
+  color: #fff !important;
+}
+
+.controlActive,
+.controlOpen.controlActive {
+  padding-left: 12px !important;
+  border-left: 0 !important;
+  background: #d92f32 !important;
+  color: #fff !important;
+}
+
+.innerControl {
+  display: flex !important;
+  min-width: 0;
+  align-items: center;
+}
+
+.icon {
+  display: flex !important;
+  width: 19px;
+  flex: 0 0 19px;
+  align-items: center;
+  justify-content: center;
+  color: #91a0b5;
+}
+
+.controlActive .icon { color: #fff; }
+.control:hover .icon { color: #fff; }
+
+.label {
+  overflow: hidden;
+  margin-left: 10px !important;
+  color: inherit;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  margin-left: 8px;
+  color: #91a0b5;
+  font-size: 10px;
+  transition: transform 180ms ease;
+}
+
+.chevronOpened { transform: rotate(180deg); }
+.controlActive .chevron { color: #fff; }
+
+.subLinkContainer {
+  margin: 2px 0 6px 9px !important;
+  padding: 4px 5px !important;
+  border-left: 1px solid #263449 !important;
+  border-radius: 0 7px 7px 0;
+  background: #101c2e;
+}
+
+.subGroupControl {
+  display: flex !important;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 9px 7px 14px !important;
+  border-radius: 5px;
+  color: #d7e0ed !important;
+  font-size: 12px !important;
+  font-weight: 400;
+  text-align: left;
+}
+
+.subGroupLabel {
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  line-height: 1.2;
+}
+
+.subGroupControl:hover {
+  background: #1a2940;
+  color: #fff !important;
+}
+
+.subGroupChildren {
+  margin: 2px 0 4px 12px;
+  padding-left: 5px;
+  border-left: 1px solid #314158;
+}
+
+.subLink {
+  display: flex !important;
+  min-height: 34px;
+  align-items: center;
+  padding: 7px 9px 7px 14px !important;
+  border-radius: 5px;
+  color: #c5d0df !important;
+  cursor: pointer !important;
+  font-size: 13px !important;
+  line-height: 1.35;
+  text-decoration: none !important;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.subLink:hover {
+  background: #1a2940;
+  color: #fff !important;
+}
+
+.subLinkActive {
+  background: #d92f32 !important;
+  color: #fff !important;
+  font-weight: 650 !important;
+}
+
+.subIcon {
+  display: flex;
+  align-items: center;
+  margin-right: 8px;
+  color: #91a0b5;
+  font-size: 12px;
+}

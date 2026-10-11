@@ -1,0 +1,38 @@
+.pageWrapper {
+  background-color: #f4f6f8;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.title {
+  font-weight: 900;
+  font-size: 36px;
+  letter-spacing: -1.5px;
+  color: #1a1b1e;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.subtitle {
+  color: #868e96;
+  font-size: 18px;
+  text-align: center;
+  font-weight: 500;
+  margin-bottom: 40px;
+}
+
+.loginCard {
+  background-color: white;
+  border: 1px solid #dee2e6;
+  border-radius: 12px;
+  padding: 60px; /* 대화면 여백 */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.loginButton {
+  height: 54px;
+  font-size: 18px;
+  margin-top: 24px;
+}

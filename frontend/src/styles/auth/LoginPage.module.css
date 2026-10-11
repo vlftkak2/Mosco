@@ -1,0 +1,300 @@
+.pageWrapper {
+  min-height: 100vh;
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: clamp(16px, 4vw, 48px);
+  background: #f3f4f6;
+  font-family: "Pretendard", "Noto Sans KR", sans-serif;
+}
+
+.mainContainer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(1024px, 100%);
+  min-height: min(620px, calc(100svh - 64px));
+  overflow: hidden;
+  border: 1px solid rgba(203, 213, 225, 0.7);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 20px 35px rgba(15, 23, 42, 0.12);
+}
+
+.leftPanel {
+  position: relative;
+  display: flex;
+  min-height: 620px;
+  overflow: hidden;
+  background: #0f172a;
+  color: #fff;
+}
+
+.brandContent {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding: 48px clamp(32px, 6.25vw, 64px);
+}
+
+.brandTopline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.leftBrandLogo {
+  display: block;
+  width: 110px;
+  max-width: 100%;
+  height: auto;
+  flex: 0 0 auto;
+}
+
+.brandMessage {
+  max-width: 520px;
+  margin: clamp(120px, 18vh, 160px) 0 0;
+}
+
+.brandAccentLine {
+  width: 32px;
+  height: 4px;
+  margin-bottom: 20px;
+  border-radius: 2px;
+  background: #dc2626;
+}
+
+.brandEyebrow {
+  margin-bottom: 18px;
+  color: #e62222ff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.brandTitle {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(30px, 3vw, 38px);
+  font-weight: 750;
+  line-height: 1.2;
+  word-break: keep-all;
+}
+
+.brandMessage .brandDescription {
+  margin-top: 18px;
+  color: #94a3b8;
+  font-size: 14px;
+  line-height: 1.7;
+  word-break: keep-all;
+}
+
+.rightPanel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px clamp(28px, 5vw, 64px);
+  background: #fff;
+}
+
+.formWrapper {
+  width: 100%;
+  max-width: 384px;
+  margin: auto;
+}
+
+.signInLabel {
+  margin-bottom: 7px;
+  color: #dc2626 !important;
+  font-size: 12px;
+  font-weight: 700 !important;
+  letter-spacing: 0.12em;
+}
+
+.loginHeaderTitle {
+  margin: 0;
+  color: #202823;
+  font-size: 30px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.loginDescription {
+  margin-top: 10px;
+  color: #747c77;
+  font-size: 14px;
+}
+
+.rightPanel :global(.mantine-TextInput-label),
+.rightPanel :global(.mantine-PasswordInput-label) {
+  margin-bottom: 8px;
+  color: #343d37;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rightPanel :global(.mantine-Input-input) {
+  min-height: 42px;
+  border-radius: 8px;
+  border-color: #dce1dd;
+  background: #fff;
+  color: #202823;
+  font-size: 14px;
+}
+
+.rightPanel :global(.mantine-Input-input:focus) {
+  border-color: #dc2626;
+}
+
+.rightPanel :global(.mantine-Input-input::placeholder) {
+  color: #a1a8a3;
+}
+
+.formOptions {
+  display: flex;
+  min-height: 22px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: -2px;
+}
+
+.rightPanel :global(.mantine-Checkbox-label) {
+  color: #545d57;
+  font-size: 12px;
+}
+
+.rightPanel :global(.mantine-Checkbox-input:checked) {
+  background: #dc2626;
+  border-color: #dc2626;
+}
+
+.secureLabel {
+  color: #939b95;
+  font-size: 9px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.loginButton {
+  height: 44px !important;
+  min-height: 44px !important;
+  margin-top: 2px;
+  border-radius: 8px !important;
+  background: #dc2626 !important;
+  color: #fff !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  transition: background-color 160ms ease, transform 160ms ease;
+}
+
+.loginButton:hover {
+  transform: translateY(-1px);
+  background: #b91c1c !important;
+}
+
+.loginButton:focus-visible {
+  outline: 3px solid rgba(220, 38, 38, 0.25);
+  outline-offset: 3px;
+}
+
+.footerDivider {
+  width: 100%;
+  height: 1px;
+  margin-top: 24px;
+  background: #e6e9e6;
+}
+
+.footerText {
+  margin-top: 15px;
+  color: #929994;
+  font-size: 10px !important;
+}
+
+@media (max-width: 960px) {
+  .mainContainer {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .brandContent {
+    padding-right: 36px;
+    padding-left: 36px;
+  }
+
+  .brandTitle {
+    font-size: 32px;
+  }
+
+  .rightPanel {
+    padding-right: 28px;
+    padding-left: 28px;
+  }
+}
+
+@media (max-width: 720px) {
+  .pageWrapper {
+    display: block;
+    padding: 0;
+  }
+
+  .mainContainer {
+    display: flex;
+    min-height: 100vh;
+    min-height: 100svh;
+    flex-direction: column;
+    border-radius: 0;
+  }
+
+  .leftPanel {
+    min-height: 250px;
+  }
+
+  .brandContent {
+    padding: 24px 26px 20px;
+  }
+
+  .brandMessage {
+    margin-top: 52px;
+  }
+
+  .brandEyebrow {
+    margin-bottom: 8px;
+    font-size: 9px;
+  }
+
+  .brandTitle {
+    font-size: 25px;
+    line-height: 1.4;
+  }
+
+  .brandDescription,
+  .brandCaption {
+    display: none;
+  }
+
+  .rightPanel {
+    flex: 1;
+    align-items: flex-start;
+    padding: 34px 26px 24px;
+  }
+
+  .loginHeaderTitle {
+    font-size: 27px;
+  }
+
+  .footerDivider {
+    margin-top: 30px;
+  }
+}
+
+@media (max-width: 380px) {
+  .secureLabel {
+    max-width: 112px;
+  }
+
+  .rightPanel {
+    padding-right: 20px;
+    padding-left: 20px;
+  }
+}

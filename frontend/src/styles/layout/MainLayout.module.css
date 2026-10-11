@@ -1,0 +1,148 @@
+/* MainLayout.module.css */
+
+
+.navSection {
+  font-size: 16px !important;
+}
+
+.contentWrapper {
+  background-color: white;
+  border-radius: 8px;
+  padding: 20px;
+  min-height: calc(100vh - 100px);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.footerText {
+  border-top: 1px solid #eee;
+}
+
+.logo {
+  font-weight: 800;
+  font-size: 50px;
+  color: red;
+}
+
+.navLabel {
+  font-size: 16px !important;
+}
+
+/* MainLayout.module.css */
+
+/* 상단 헤더 로고 텍스트 */
+.logoText {
+  font-weight: 800 !important;
+  font-size: 50px !important;
+  color: #e62222ff !important; /* red */
+}
+
+.appHeader {
+  border-bottom: 1px solid #e6e9ef !important;
+  background: #fff !important;
+  box-shadow: 0 2px 8px rgba(31, 43, 61, 0.04) !important;
+}
+
+.navBar {
+  border-right: 1px solid #1a2638 !important;
+  background: #0b1423 !important;
+  color: #d7e0ed;
+}
+
+.headerBrand {
+  display: flex;
+  width: auto;
+  height: 68px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  margin-left: -16px;
+  padding: 0 16px;
+  background: transparent;
+}
+
+.logoMark {
+  display: flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #d32f2f;
+}
+
+.logoMark img {
+  display: block;
+  width: 25px;
+  height: 25px;
+  object-fit: contain;
+}
+
+.brandCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.brandName {
+  color: #070000 !important;
+  font-size: 15px !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.04em;
+  line-height: 1 !important;
+}
+
+.brandCaption {
+  color: #64748b !important;
+  font-size: 7px !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+}
+
+.logoContainer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 6px;
+  background: transparent;
+}
+
+.logoImage {
+  display: block;
+  width: 188px;
+  height: auto;
+  max-height: 58px;
+  object-fit: contain;
+}
+
+/* 사이드바 링크 컨테이너 */
+.linksContainer {
+  padding: 12px 10px !important;
+}
+
+.navFooter {
+  flex: 0 0 auto;
+  padding: 0 12px 10px;
+  background: #0b1423;
+}
+
+/* 하단 푸터 영역 */
+.footer {
+  border-top: 1px solid #263449 !important;
+  padding: 13px 14px !important;
+  color: #8291a7 !important;
+  font-size: 10px !important;
+}
+
+/* 메인 콘텐츠 흰색 박스 */
+.contentCard {
+  background-color: #f1f3f5 !important;
+  border-radius: 8px !important;
+  padding: 20px !important;
+  min-height: calc(100vh - 108px) !important; /* 헤더 높이 등을 고려하여 조정 */
+  box-shadow: none !important;
+}
