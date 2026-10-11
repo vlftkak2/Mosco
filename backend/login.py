@@ -26,7 +26,7 @@ def process_login(item: LoginRequest):
         cursor = conn.cursor()
         
         # 쿼리 실행
-        query = "SELECT CompanyID, UserName, Email FROM User01t WHERE Email = %s AND Password = %s"
+        query = "SELECT CompanyID,companyname, UserName, Email FROM User01t WHERE Email = %s AND Password = %s"
         cursor.execute(query, (item.email, item.password))
         user = cursor.fetchone()
         
@@ -35,8 +35,9 @@ def process_login(item: LoginRequest):
                 "success": True,
                 "message": "로그인 성공",
                 "user_company": user[0],
-                "user_name": user[1],
-                "user_email": user[2],
+                "user_companyname": user[1],
+                "user_name": user[2],
+                "user_email": user[3],
             }
         else:
             return {"success": False, "message": "계정 정보가 일치하지 않습니다."}

@@ -45,6 +45,7 @@ function LoginPage() {
         localStorage.setItem('user_name', response.data.user_name);
         localStorage.setItem('user_email', response.data.user_email);
         localStorage.setItem('user_company', response.data.user_company);
+        localStorage.setItem('user_companyname', response.data.user_companyname);
         window.location.assign('/HomePage');
       }
     } catch (error) { 
