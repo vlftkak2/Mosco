@@ -76,7 +76,68 @@ const toCustomer = (row) => ({
   address2: row.address2 ?? '',
   useyn: row.useyn ?? 'Y',
   remark: row.remark ?? '',
+  createdat: row.createdat ?? row.created_at ?? '',
+  updatedat: row.updatedat ?? row.updated_at ?? '',
 });
+
+const formatTimestamp = (value) => {
+  if (!value) return null;
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) return null;
+  return {
+    date: `${timestamp.getFullYear()}-${String(timestamp.getMonth() + 1).padStart(2, '0')}-${String(timestamp.getDate()).padStart(2, '0')}`,
+    time: `${String(timestamp.getHours()).padStart(2, '0')}:${String(timestamp.getMinutes()).padStart(2, '0')}`,
+  };
+};
+
+const CUSTOMER_TABLE_COLUMNS = [
+  { key: 'select', label: '', width: 34, min: 34 },
+  { key: 'code', label: '코드', width: 105, min: 70 },
+  { key: 'name', label: '거래처명 (상호)', width: 250, min: 120 },
+  { key: 'ceo', label: '대표자', width: 100, min: 70 },
+  { key: 'businessno', label: '사업자번호', width: 135, min: 90 },
+  { key: 'phone', label: '전화', width: 150, min: 90 },
+  { key: 'fax', label: '팩스', width: 150, min: 90 },
+  { key: 'useyn', label: '사용여부', width: 95, min: 75 },
+  { key: 'createdat', label: '등록일', width: 160, min: 130 },
+  { key: 'updatedat', label: '업데이트일', width: 160, min: 130 },
+];
+
+const measureCustomerColumnWidths = (customers) => {
+  const defaults = CUSTOMER_TABLE_COLUMNS.map(({ width }) => width);
+  const context = document.createElement('canvas').getContext('2d');
+  if (!context) return defaults;
+
+  const maxWidths = [34, 220, 480, 220, 220, 280, 280, 130, 190, 210];
+  const valuesByColumn = [
+    [],
+    customers.map((customer) => customer.customercode),
+    customers.map((customer) => customer.customername),
+    customers.map((customer) => customer.ceoname),
+    customers.map((customer) => customer.businessno),
+    customers.map((customer) => customer.phone),
+    customers.map((customer) => customer.fax),
+    ['사용', '미사용'],
+    customers.map((customer) => {
+      const value = formatTimestamp(customer.createdat);
+      return value ? `${value.date} ${value.time}` : '';
+    }),
+    customers.map((customer) => {
+      const value = formatTimestamp(customer.updatedat);
+      return value ? `${value.date} ${value.time}` : '';
+    }),
+  ];
+
+  return CUSTOMER_TABLE_COLUMNS.map((column, index) => {
+    context.font = '700 13px Inter, Pretendard, "Noto Sans KR", sans-serif';
+    let widest = context.measureText(column.label).width;
+    context.font = '13px Inter, Pretendard, "Noto Sans KR", sans-serif';
+    valuesByColumn[index].forEach((value) => {
+      widest = Math.max(widest, context.measureText(String(value || '')).width);
+    });
+    return Math.min(maxWidths[index], Math.max(column.min, Math.ceil(widest + 22)));
+  });
+};
 
 const errorMessage = (error, fallback) => {
   const detail = error.response?.data?.detail;
@@ -85,18 +146,60 @@ const errorMessage = (error, fallback) => {
 };
 
 const CustomerTable = memo(function CustomerTable({ customers, selectedCode, loading, onSelect }) {
+  const [measuredWidths] = useState(() => measureCustomerColumnWidths(customers));
+  const [manualColumnWidths, setManualColumnWidths] = useState(null);
+  const columnWidths = manualColumnWidths || measuredWidths;
+  const resizeRef = useRef(null);
+
+  useEffect(() => {
+    const handlePointerMove = (event) => {
+      if (!resizeRef.current) return;
+      const { index, startX, startWidth, nextWidth, startWidths } = resizeRef.current;
+      const minWidth = CUSTOMER_TABLE_COLUMNS[index].min;
+      const nextMinWidth = CUSTOMER_TABLE_COLUMNS[index + 1].min;
+      const delta = Math.max(
+        minWidth - startWidth,
+        Math.min(event.clientX - startX, nextWidth - nextMinWidth)
+      );
+      setManualColumnWidths(startWidths.map((width, columnIndex) => {
+        if (columnIndex === index) return startWidth + delta;
+        if (columnIndex === index + 1) return nextWidth - delta;
+        return width;
+      }));
+    };
+    const handlePointerUp = () => { resizeRef.current = null; };
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, []);
+
+  const startResize = (event, index) => {
+    event.preventDefault();
+    event.stopPropagation();
+    resizeRef.current = {
+      index,
+      startX: event.clientX,
+      startWidth: columnWidths[index],
+      nextWidth: columnWidths[index + 1],
+      startWidths: [...columnWidths],
+    };
+  };
+
   return (
-    <Table className={classes.partnerTable} highlightOnHover>
+    <Table className={classes.partnerTable} highlightOnHover style={{ width: '100%' }}>
       <Table.Thead>
         <Table.Tr>
-          <Table.Th w={34}></Table.Th>
-          <Table.Th>코드</Table.Th>
-          <Table.Th>거래처명 (상호)</Table.Th>
-          <Table.Th>대표자</Table.Th>
-          <Table.Th>사업자번호</Table.Th>
-          <Table.Th>전화</Table.Th>
-          <Table.Th>팩스</Table.Th>
-          <Table.Th>사용여부</Table.Th>
+          {CUSTOMER_TABLE_COLUMNS.map((column, index) => (
+            <Table.Th key={column.key} style={{ width: columnWidths[index] }}>
+              {column.label}
+              {index < CUSTOMER_TABLE_COLUMNS.length - 1 && (
+                <span className={classes.columnResizeHandle} onPointerDown={(event) => startResize(event, index)} />
+              )}
+            </Table.Th>
+          ))}
         </Table.Tr>
       </Table.Thead>
       <Table.Tbody>
@@ -106,17 +209,19 @@ const CustomerTable = memo(function CustomerTable({ customers, selectedCode, loa
             className={customer.customercode === selectedCode ? classes.selectedRow : ''}
             onClick={() => onSelect(customer)}
           >
-            <Table.Td><span className={`${classes.radio} ${customer.customercode === selectedCode ? classes.radioSelected : ''}`} /></Table.Td>
-            <Table.Td className={classes.codeCell}>{customer.customercode}</Table.Td>
-            <Table.Td className={classes.partnerNameCell}>{customer.customername}</Table.Td>
-            <Table.Td>{customer.ceoname || '-'}</Table.Td>
-            <Table.Td>{customer.businessno || '-'}</Table.Td>
-            <Table.Td>{customer.phone || '-'}</Table.Td>
-            <Table.Td>{customer.fax || '-'}</Table.Td>
-            <Table.Td><Badge color={customer.useyn === 'Y' ? 'teal' : 'gray'} variant="light">{customer.useyn === 'Y' ? '사용' : '미사용'}</Badge></Table.Td>
+            <Table.Td style={{ width: columnWidths[0] }}><span className={`${classes.radio} ${customer.customercode === selectedCode ? classes.radioSelected : ''}`} /></Table.Td>
+            <Table.Td className={classes.codeCell} style={{ width: columnWidths[1] }}>{customer.customercode}</Table.Td>
+            <Table.Td className={classes.partnerNameCell} style={{ width: columnWidths[2] }}>{customer.customername}</Table.Td>
+            <Table.Td style={{ width: columnWidths[3] }}>{customer.ceoname || '-'}</Table.Td>
+            <Table.Td style={{ width: columnWidths[4] }}>{customer.businessno || '-'}</Table.Td>
+            <Table.Td className={classes.contactCell} style={{ width: columnWidths[5] }}>{customer.phone || '-'}</Table.Td>
+            <Table.Td className={classes.contactCell} style={{ width: columnWidths[6] }}>{customer.fax || '-'}</Table.Td>
+            <Table.Td style={{ width: columnWidths[7] }}><Badge color={customer.useyn === 'Y' ? 'teal' : 'gray'} variant="light">{customer.useyn === 'Y' ? '사용' : '미사용'}</Badge></Table.Td>
+            <Table.Td className={classes.timestampCell} style={{ width: columnWidths[8] }}>{formatTimestamp(customer.createdat) ? `${formatTimestamp(customer.createdat).date} ${formatTimestamp(customer.createdat).time}` : '-'}</Table.Td>
+            <Table.Td className={classes.timestampCell} style={{ width: columnWidths[9] }}>{formatTimestamp(customer.updatedat) ? `${formatTimestamp(customer.updatedat).date} ${formatTimestamp(customer.updatedat).time}` : '-'}</Table.Td>
           </Table.Tr>
         )) : (
-          <Table.Tr><Table.Td colSpan={8} className={classes.emptyState}>{loading ? '불러오는 중...' : '검색 결과가 없습니다.'}</Table.Td></Table.Tr>
+          <Table.Tr><Table.Td colSpan={10} className={classes.emptyState}>{loading ? '불러오는 중...' : '검색 결과가 없습니다.'}</Table.Td></Table.Tr>
         )}
       </Table.Tbody>
     </Table>
@@ -178,7 +283,11 @@ const CustomerListPanel = memo(function CustomerListPanel({
         <input ref={uploadInputRef} type="file" accept=".xlsx,.xls" onChange={onUpload} hidden />
       </Group>
       <Box className={classes.tableWrap}>
-        <CustomerTable customers={customers} selectedCode={selectedCode} loading={loading} onSelect={onSelect} />
+        {loading && customers.length === 0 ? (
+          <div className={classes.emptyState}>불러오는 중...</div>
+        ) : (
+          <CustomerTable customers={customers} selectedCode={selectedCode} loading={loading} onSelect={onSelect} />
+        )}
       </Box>
       <Group className={classes.listFooter} justify="space-between" wrap="wrap">
         <Group gap="xs">
