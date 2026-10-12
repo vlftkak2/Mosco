@@ -2,6 +2,7 @@ import pyodbc
 import psycopg2
 from pydantic import BaseModel
 from config import DB_CONFIG
+from security import ACCESS_TOKEN_MINUTES, create_access_token
 
 
 # PostgreSQL 접속 문자열
@@ -26,12 +27,12 @@ def process_login(item: LoginRequest):
         cursor = conn.cursor()
         
         # 쿼리 실행
-        query = "SELECT CompanyID,companyname, UserName, Email FROM User01t WHERE Email = %s AND Password = %s"
+        query = "SELECT CompanyID,companyname, UserName, Email FROM User01t WHERE Email = %s AND Password = %s AND UseYN = 'Y'"
         cursor.execute(query, (item.email, item.password))
         user = cursor.fetchone()
         
         if user:
-            return {
+            result = {
                 "success": True,
                 "message": "로그인 성공",
                 "user_company": user[0],
@@ -39,6 +40,10 @@ def process_login(item: LoginRequest):
                 "user_name": user[2],
                 "user_email": user[3],
             }
+            result["access_token"] = create_access_token(result)
+            result["token_type"] = "bearer"
+            result["expires_in"] = ACCESS_TOKEN_MINUTES * 60
+            return result
         else:
             return {"success": False, "message": "계정 정보가 일치하지 않습니다."}
             

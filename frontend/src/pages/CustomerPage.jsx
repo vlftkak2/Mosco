@@ -28,6 +28,10 @@ const PAGE_SIZE_OPTIONS = [
   { value: '200', label: '200개씩' },
 ];
 
+const authHeaders = () => ({
+  Authorization: `Bearer ${localStorage.getItem('access_token') || ''}`,
+});
+
 const emptyCustomer = () => ({
   companyid: localStorage.getItem('user_company') || '',
   companyname: localStorage.getItem('user_companyname') || '',
@@ -226,7 +230,7 @@ const CustomerListPanel = memo(function CustomerListPanel({
       <Group className={classes.listToolbar} gap={6} wrap="nowrap">
         <TextInput
           className={classes.searchInput}
-          placeholder="코드 또는 거래처명을 입력해주세요"
+          placeholder="거래처 정보를 입력해주세요"
           value={query}
           onChange={(event) => onQueryChange(event.currentTarget.value)}
           onKeyDown={(event) => event.key === 'Enter' && onSearch()}
@@ -397,13 +401,13 @@ export default function CustomerPage() {
     try {
       const { data } = await axios.get('/api/list', {
         params: {
-          companyid,
           search_keyword: appliedQuery || undefined,
           status: statusFilter === '전체' ? undefined : statusFilter,
           tradetype: tradetypeFilter === '전체' ? undefined : tradetypeFilter,
           page,
           page_size: pageSize,
         },
+        headers: authHeaders(),
       });
       if (data.success === false) throw new Error(data.error || '거래처 목록을 불러오지 못했습니다.');
       const rows = (data.data || []).map(toCustomer);
@@ -422,8 +426,8 @@ export default function CustomerPage() {
   useEffect(() => {
     if (!companyid) return;
     Promise.all([
-      axios.get('/api/banks', { params: { companyid } }),
-      axios.get('/api/managers', { params: { companyid } }),
+      axios.get('/api/banks', { headers: authHeaders() }),
+      axios.get('/api/managers', { headers: authHeaders() }),
     ]).then(([bankResponse, managerResponse]) => {
       setBanks(bankResponse.data.data || []);
       setManagers(managerResponse.data.data || []);
@@ -481,7 +485,7 @@ export default function CustomerPage() {
     }
     setAllocatingCode(true);
     try {
-      const { data } = await axios.get('/api/next-code', { params: { companyid } });
+      const { data } = await axios.get('/api/next-code', { headers: authHeaders() });
       setDraft({ ...emptyCustomer(), customercode: data.customercode });
       setSelectedCode(null);
       setIsNew(true);
@@ -516,7 +520,7 @@ export default function CustomerPage() {
     const payload = { ...draft, customercode: draft.customercode.trim(), customername: draft.customername.trim() };
     setSaving(true);
     try {
-      const { data } = await axios.post(creating ? '/api/create' : '/api/update', payload);
+      const { data } = await axios.post(creating ? '/api/create' : '/api/update', payload, { headers: authHeaders() });
       if (data.success === false) throw new Error(data.message || '저장하지 못했습니다.');
       const savedCustomer = { ...payload, customercode: data.customercode || payload.customercode };
       notifications.show({ title: creating ? '등록 완료' : '수정 완료', message: data.message || '거래처 정보를 저장했습니다.', color: 'teal', position: 'bottom-right' });
@@ -556,11 +560,11 @@ export default function CustomerPage() {
     try {
       const { data } = await axios.get('/api/export', {
         params: {
-          companyid,
           search_keyword: appliedQuery || undefined,
           status: statusFilter === '전체' ? undefined : statusFilter,
           tradetype: tradetypeFilter === '전체' ? undefined : tradetypeFilter,
         },
+        headers: authHeaders(),
       });
       if (data.success === false) throw new Error(data.error || '엑셀 데이터를 불러오지 못했습니다.');
       const headers = ['거래처코드', '거래구분', '거래처명', '대표자명', '사업자번호', '법인번호', '업태', '업종', '담당자', '우편번호', '주소', '상세주소', '전화번호', '팩스', '이메일', '사용여부(Y/N)', '은행코드', '은행명', '계좌번호', '비고'];
@@ -684,7 +688,7 @@ export default function CustomerPage() {
       let generatedCodes = [];
       if (validCustomers.length) {
         setUploadProgress(`${validCustomers.length.toLocaleString()}건 서버 등록 중`);
-        const { data } = await axios.post('/api/bulk-create', { customers: validCustomers });
+        const { data } = await axios.post('/api/bulk-create', { customers: validCustomers }, { headers: authHeaders() });
         if (data.success === false) throw new Error(data.message || '일괄 등록에 실패했습니다.');
         generatedCodes = data.generated_codes || [];
       }
