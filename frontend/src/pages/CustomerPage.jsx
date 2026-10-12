@@ -147,46 +147,7 @@ const errorMessage = (error, fallback) => {
 
 const CustomerTable = memo(function CustomerTable({ customers, selectedCode, loading, onSelect }) {
   const [measuredWidths] = useState(() => measureCustomerColumnWidths(customers));
-  const [manualColumnWidths, setManualColumnWidths] = useState(null);
-  const columnWidths = manualColumnWidths || measuredWidths;
-  const resizeRef = useRef(null);
-
-  useEffect(() => {
-    const handlePointerMove = (event) => {
-      if (!resizeRef.current) return;
-      const { index, startX, startWidth, nextWidth, startWidths } = resizeRef.current;
-      const minWidth = CUSTOMER_TABLE_COLUMNS[index].min;
-      const nextMinWidth = CUSTOMER_TABLE_COLUMNS[index + 1].min;
-      const delta = Math.max(
-        minWidth - startWidth,
-        Math.min(event.clientX - startX, nextWidth - nextMinWidth)
-      );
-      setManualColumnWidths(startWidths.map((width, columnIndex) => {
-        if (columnIndex === index) return startWidth + delta;
-        if (columnIndex === index + 1) return nextWidth - delta;
-        return width;
-      }));
-    };
-    const handlePointerUp = () => { resizeRef.current = null; };
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-  }, []);
-
-  const startResize = (event, index) => {
-    event.preventDefault();
-    event.stopPropagation();
-    resizeRef.current = {
-      index,
-      startX: event.clientX,
-      startWidth: columnWidths[index],
-      nextWidth: columnWidths[index + 1],
-      startWidths: [...columnWidths],
-    };
-  };
+  const columnWidths = measuredWidths;
 
   return (
     <Table className={classes.partnerTable} highlightOnHover style={{ width: '100%' }}>
@@ -195,9 +156,6 @@ const CustomerTable = memo(function CustomerTable({ customers, selectedCode, loa
           {CUSTOMER_TABLE_COLUMNS.map((column, index) => (
             <Table.Th key={column.key} style={{ width: columnWidths[index] }}>
               {column.label}
-              {index < CUSTOMER_TABLE_COLUMNS.length - 1 && (
-                <span className={classes.columnResizeHandle} onPointerDown={(event) => startResize(event, index)} />
-              )}
             </Table.Th>
           ))}
         </Table.Tr>
