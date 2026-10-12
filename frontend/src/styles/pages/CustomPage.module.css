@@ -59,7 +59,7 @@
   padding: 8px 12px;
   border-bottom: 1px solid #e2e8f0;
   background: #f8fafc;
-  font-size: 13px;
+  font-size: 20px;
 }
 
 .listToolbar {
@@ -79,26 +79,40 @@
 }
 
 .partnerTable {
-  min-width: 660px;
-  font-size: 12px;
+  min-width: 940px;
+  font-size: 13px;
 }
 
 .partnerTable thead th {
   position: sticky;
   z-index: 1;
   top: 0;
-  padding: 9px 8px;
+  padding: 10px 9px;
   background: #f1f5f9;
   color: #475569;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   white-space: nowrap;
 }
 
 .partnerTable tbody td {
-  padding: 10px 8px;
+  padding: 10px 9px;
   color: #334155;
   white-space: nowrap;
+}
+
+.partnerTable thead th:nth-child(3),
+.partnerTable tbody td:nth-child(3) {
+  min-width: 240px;
+  max-width: 340px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.partnerTable thead th:last-child,
+.partnerTable tbody td:last-child {
+  min-width: 84px;
+  text-align: center;
 }
 
 .partnerTable tbody tr {
@@ -199,7 +213,7 @@
 .formBody :global(.mantine-InputWrapper-label) {
   margin-bottom: 1px;
   color: #475569;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
 }
 
