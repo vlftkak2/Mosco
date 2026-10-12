@@ -79,8 +79,9 @@
 }
 
 .partnerTable {
-  min-width: 940px;
+  min-width: 0;
   font-size: 13px;
+  table-layout: fixed;
 }
 
 .partnerTable thead th {
@@ -93,26 +94,55 @@
   font-size: 13px;
   font-weight: 700;
   white-space: nowrap;
+  overflow: visible;
 }
 
 .partnerTable tbody td {
   padding: 10px 9px;
   color: #334155;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.partnerTable thead th:nth-child(3),
-.partnerTable tbody td:nth-child(3) {
-  min-width: 240px;
-  max-width: 340px;
-  white-space: normal;
-  overflow-wrap: anywhere;
+.contactCell {
+  white-space: nowrap !important;
 }
 
-.partnerTable thead th:last-child,
-.partnerTable tbody td:last-child {
-  min-width: 84px;
+.timestampCell {
+  color: #475569 !important;
+  font-size: 12px;
+  white-space: nowrap !important;
+}
+
+.partnerTable tbody td:nth-child(8) {
   text-align: center;
+}
+
+.columnResizeHandle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  z-index: 3;
+  width: 9px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.columnResizeHandle::after {
+  position: absolute;
+  top: 20%;
+  right: 3px;
+  width: 2px;
+  height: 60%;
+  border-radius: 2px;
+  background: #cbd5e1;
+  content: '';
+}
+
+.columnResizeHandle:hover::after {
+  background: #d32f2f;
 }
 
 .partnerTable tbody tr {
@@ -148,6 +178,7 @@
 .partnerNameCell {
   color: #0f172a !important;
   font-weight: 700;
+  white-space: nowrap !important;
 }
 
 .emptyState {
