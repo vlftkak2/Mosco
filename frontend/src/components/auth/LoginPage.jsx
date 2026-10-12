@@ -11,7 +11,7 @@ import {
 import { useForm } from '@mantine/form';
 import classes from '../../styles/auth/LoginPage.module.css';
 import axios from 'axios';
-import steel119Logo from '../../../steel119-on-dark.png';
+import steel119Logo from '../../assets/img/steel119-login.png';
 
 function LoginPage() {
   const rememberedEmail = localStorage.getItem('remembered_email') || '';

@@ -39,7 +39,7 @@
   display: grid;
   min-height: 620px;
   flex: 1;
-  grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.9fr);
+  grid-template-columns: minmax(0, 1.5fr) minmax(340px, 0.9fr);
   gap: 16px;
 }
 
@@ -160,20 +160,52 @@
   min-height: 0;
   flex: 1;
   overflow: auto;
-  padding: 14px 16px;
+  padding: 7px 10px;
   background: #fbfcfe;
 }
 
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 8px;
+}
+
+.formWideField {
+  grid-column: 1 / -1;
+}
+
+.selectPointer :global(input) {
+  cursor: pointer;
+}
+
+.addressField {
+  display: flex;
+  gap: 8px;
+}
+
+.addressInput {
+  flex: 1;
+}
+
+.zipcodeInput {
+  flex: 0 0 112px;
+}
+
+.postcodeContainer {
+  width: 100%;
+  height: min(520px, 65vh);
+}
+
 .formBody :global(.mantine-InputWrapper-label) {
-  margin-bottom: 4px;
+  margin-bottom: 1px;
   color: #475569;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 650;
 }
 
 .formBody :global(.mantine-Input-input),
 .formBody :global(.mantine-Textarea-input) {
-  min-height: 38px;
+  min-height: 30px;
   border-color: #cbd5e1;
   background: #fff;
   color: #1e293b;
@@ -197,5 +229,11 @@
 
   .formPanel {
     min-height: 580px;
+  }
+}
+
+@media (max-width: 560px) {
+  .formGrid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

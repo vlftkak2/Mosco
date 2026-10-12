@@ -15,6 +15,22 @@ class CustomerBulkCreateRequest(BaseModel):
     customers: List[customer_module.CustomModifyRequest] = Field(..., min_items=1, max_items=10000)
 
 
+@router.get("/banks")
+def get_customer_banks(companyid: str = Query(..., min_length=1)):
+    result = customer_module.CustomerBanks(companyid)
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result["message"])
+    return result
+
+
+@router.get("/managers")
+def get_customer_managers(companyid: str = Query(..., min_length=1)):
+    result = customer_module.CustomerManagers(companyid)
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result["message"])
+    return result
+
+
 @router.get("/next-code")
 def get_next_customer_code(companyid: str = Query(..., min_length=1)):
     result = customer_module.CustomerNextCode(companyid)
