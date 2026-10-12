@@ -31,7 +31,7 @@ def password_change(item: PasswordRequest):
         conn = psycopg2.connect(conn_str)
         cursor = conn.cursor()
 
-        check_query = "SELECT Password FROM User01t WHERE Email=%s AND Company=%s"
+        check_query = "SELECT Password FROM User01t WHERE Email=%s AND companyid=%s"
         cursor.execute(check_query, (item.email, item.company))
         row = cursor.fetchone()
 
@@ -41,7 +41,7 @@ def password_change(item: PasswordRequest):
             return {"success": False, "message": "기존 비밀번호가 일치하지 않습니다."} 
 
         # Password 업데이트
-        query = "UPDATE USER01T SET Password=%s WHERE Email=%s AND Company=%s"
+        query = "UPDATE USER01T SET Password=%s WHERE Email=%s AND companyid=%s"
         cursor.execute(query, (item.changepassword, item.email, item.company))
         
         conn.commit()

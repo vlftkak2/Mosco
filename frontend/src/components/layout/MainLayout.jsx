@@ -14,7 +14,7 @@ import '@mantine/notifications/styles.css';
 import { Notifications, notifications } from '@mantine/notifications';
 import axios from 'axios'; // axios 추가
 import { IconCheck, IconX } from '@tabler/icons-react'; // 아이콘 추가
-import steel119HomeLogo from '../../../steel119home.png';
+import steel119HomeLogo from '../../assets/img/steel119-home.png';
 
 const mockdata = [
   {
