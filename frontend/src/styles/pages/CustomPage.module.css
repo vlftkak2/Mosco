@@ -119,32 +119,6 @@
   text-align: center;
 }
 
-.columnResizeHandle {
-  position: absolute;
-  top: 0;
-  right: -4px;
-  z-index: 3;
-  width: 9px;
-  height: 100%;
-  cursor: col-resize;
-  touch-action: none;
-}
-
-.columnResizeHandle::after {
-  position: absolute;
-  top: 20%;
-  right: 3px;
-  width: 2px;
-  height: 60%;
-  border-radius: 2px;
-  background: #cbd5e1;
-  content: '';
-}
-
-.columnResizeHandle:hover::after {
-  background: #d32f2f;
-}
-
 .partnerTable tbody tr {
   cursor: pointer;
 }
