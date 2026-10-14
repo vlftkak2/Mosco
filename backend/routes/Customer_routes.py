@@ -66,6 +66,7 @@ def get_customers(
     tradetype: str = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    include_total: bool = Query(True),
 ):
     result = customer_module.CustomerList(
         companyid=companyid,
@@ -74,6 +75,7 @@ def get_customers(
         tradetype=tradetype,
         page=page,
         page_size=page_size,
+        include_total=include_total,
     )
     
     if not result["success"]:
