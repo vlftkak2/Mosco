@@ -5,10 +5,10 @@ import {
   Box,
   Button,
   Group,
-  Modal,
   Pagination,
   Paper,
   Select,
+  Stack,
   Table,
   Text,
   TextInput,
@@ -19,6 +19,7 @@ import { notifications } from '@mantine/notifications';
 import { IconDeviceFloppy, IconDownload, IconPlus, IconSearch, IconUpload, IconX } from '@tabler/icons-react';
 import * as XLSX from 'xlsx';
 import classes from '../styles/pages/CustomPage.module.css';
+import sharedClasses from '../styles/pages/ManagementShared.module.css';
 import dashboardClasses from '../styles/pages/HomePage.module.css';
 
 const PAGE_SIZE_OPTIONS = [
@@ -28,32 +29,17 @@ const PAGE_SIZE_OPTIONS = [
   { value: '200', label: '200개씩' },
 ];
 
-const authHeaders = () => ({
-  Authorization: `Bearer ${localStorage.getItem('access_token') || ''}`,
-});
-
 const emptyCustomer = () => ({
   companyid: localStorage.getItem('user_company') || '',
   companyname: localStorage.getItem('user_companyname') || '',
   customercode: '',
   customername: '',
   businessno: '',
-  corporationno: '',
   ceoname: '',
   tradetype: '매입처',
-  businesstype: '',
-  industry: '',
-  manager: '',
-  zipcode: '',
   phone: '',
-  fax: '',
-  email: '',
-  bankcode: '',
-  bankname: '',
-  accountno: '',
   address: '',
-  address2: '',
-  useyn: 'Y',
+  useryn: '사용중',
   remark: '',
 });
 
@@ -63,85 +49,13 @@ const toCustomer = (row) => ({
   customercode: row.customercode ?? '',
   customername: row.customername ?? '',
   businessno: row.businessno ?? '',
-  corporationno: row.corporationno ?? '',
   ceoname: row.ceoname ?? '',
   tradetype: row.tradetype || '매입처',
-  businesstype: row.businesstype ?? '',
-  industry: row.industry ?? '',
-  manager: row.manager ?? '',
-  zipcode: row.zipcode ?? '',
   phone: row.phone ?? '',
-  fax: row.fax ?? '',
-  email: row.email ?? '',
-  bankcode: row.bankcode ?? '',
-  bankname: row.bankname ?? '',
-  accountno: row.accountno ?? '',
   address: row.address ?? '',
-  address2: row.address2 ?? '',
-  useyn: row.useyn ?? 'Y',
+  useryn: row.useryn ?? row.useyn ?? '사용중',
   remark: row.remark ?? '',
-  createdat: row.createdat ?? row.created_at ?? '',
-  updatedat: row.updatedat ?? row.updated_at ?? '',
 });
-
-const formatTimestamp = (value) => {
-  if (!value) return null;
-  const timestamp = new Date(value);
-  if (Number.isNaN(timestamp.getTime())) return null;
-  return {
-    date: `${timestamp.getFullYear()}-${String(timestamp.getMonth() + 1).padStart(2, '0')}-${String(timestamp.getDate()).padStart(2, '0')}`,
-    time: `${String(timestamp.getHours()).padStart(2, '0')}:${String(timestamp.getMinutes()).padStart(2, '0')}`,
-  };
-};
-
-const CUSTOMER_TABLE_COLUMNS = [
-  { key: 'select', label: '', width: 34, min: 34 },
-  { key: 'code', label: '코드', width: 105, min: 70 },
-  { key: 'name', label: '거래처명 (상호)', width: 250, min: 120 },
-  { key: 'ceo', label: '대표자', width: 100, min: 70 },
-  { key: 'businessno', label: '사업자번호', width: 135, min: 90 },
-  { key: 'phone', label: '전화', width: 150, min: 90 },
-  { key: 'fax', label: '팩스', width: 150, min: 90 },
-  { key: 'useyn', label: '사용여부', width: 95, min: 75 },
-  { key: 'createdat', label: '등록일', width: 160, min: 130 },
-  { key: 'updatedat', label: '업데이트일', width: 160, min: 130 },
-];
-
-const measureCustomerColumnWidths = (customers) => {
-  const defaults = CUSTOMER_TABLE_COLUMNS.map(({ width }) => width);
-  const context = document.createElement('canvas').getContext('2d');
-  if (!context) return defaults;
-
-  const maxWidths = [34, 220, 480, 220, 220, 280, 280, 130, 190, 210];
-  const valuesByColumn = [
-    [],
-    customers.map((customer) => customer.customercode),
-    customers.map((customer) => customer.customername),
-    customers.map((customer) => customer.ceoname),
-    customers.map((customer) => customer.businessno),
-    customers.map((customer) => customer.phone),
-    customers.map((customer) => customer.fax),
-    ['사용', '미사용'],
-    customers.map((customer) => {
-      const value = formatTimestamp(customer.createdat);
-      return value ? `${value.date} ${value.time}` : '';
-    }),
-    customers.map((customer) => {
-      const value = formatTimestamp(customer.updatedat);
-      return value ? `${value.date} ${value.time}` : '';
-    }),
-  ];
-
-  return CUSTOMER_TABLE_COLUMNS.map((column, index) => {
-    context.font = '700 13px Inter, Pretendard, "Noto Sans KR", sans-serif';
-    let widest = context.measureText(column.label).width;
-    context.font = '13px Inter, Pretendard, "Noto Sans KR", sans-serif';
-    valuesByColumn[index].forEach((value) => {
-      widest = Math.max(widest, context.measureText(String(value || '')).width);
-    });
-    return Math.min(maxWidths[index], Math.max(column.min, Math.ceil(widest + 22)));
-  });
-};
 
 const errorMessage = (error, fallback) => {
   const detail = error.response?.data?.detail;
@@ -150,18 +64,16 @@ const errorMessage = (error, fallback) => {
 };
 
 const CustomerTable = memo(function CustomerTable({ customers, selectedCode, loading, onSelect }) {
-  const [measuredWidths] = useState(() => measureCustomerColumnWidths(customers));
-  const columnWidths = measuredWidths;
-
   return (
-    <Table className={classes.partnerTable} highlightOnHover style={{ width: '100%' }}>
+    <Table className={`${sharedClasses.table} ${classes.partnerTable}`} highlightOnHover>
       <Table.Thead>
         <Table.Tr>
-          {CUSTOMER_TABLE_COLUMNS.map((column, index) => (
-            <Table.Th key={column.key} style={{ width: columnWidths[index] }}>
-              {column.label}
-            </Table.Th>
-          ))}
+          <Table.Th w={34}></Table.Th>
+          <Table.Th>코드</Table.Th>
+          <Table.Th>거래처명 (상호)</Table.Th>
+          <Table.Th>사업자번호</Table.Th>
+          <Table.Th>대표자</Table.Th>
+          <Table.Th>상태</Table.Th>
         </Table.Tr>
       </Table.Thead>
       <Table.Tbody>
@@ -171,19 +83,15 @@ const CustomerTable = memo(function CustomerTable({ customers, selectedCode, loa
             className={customer.customercode === selectedCode ? classes.selectedRow : ''}
             onClick={() => onSelect(customer)}
           >
-            <Table.Td style={{ width: columnWidths[0] }}><span className={`${classes.radio} ${customer.customercode === selectedCode ? classes.radioSelected : ''}`} /></Table.Td>
-            <Table.Td className={classes.codeCell} style={{ width: columnWidths[1] }}>{customer.customercode}</Table.Td>
-            <Table.Td className={classes.partnerNameCell} style={{ width: columnWidths[2] }}>{customer.customername}</Table.Td>
-            <Table.Td style={{ width: columnWidths[3] }}>{customer.ceoname || '-'}</Table.Td>
-            <Table.Td style={{ width: columnWidths[4] }}>{customer.businessno || '-'}</Table.Td>
-            <Table.Td className={classes.contactCell} style={{ width: columnWidths[5] }}>{customer.phone || '-'}</Table.Td>
-            <Table.Td className={classes.contactCell} style={{ width: columnWidths[6] }}>{customer.fax || '-'}</Table.Td>
-            <Table.Td style={{ width: columnWidths[7] }}><Badge color={customer.useyn === 'Y' ? 'teal' : 'gray'} variant="light">{customer.useyn === 'Y' ? '사용' : '미사용'}</Badge></Table.Td>
-            <Table.Td className={classes.timestampCell} style={{ width: columnWidths[8] }}>{formatTimestamp(customer.createdat) ? `${formatTimestamp(customer.createdat).date} ${formatTimestamp(customer.createdat).time}` : '-'}</Table.Td>
-            <Table.Td className={classes.timestampCell} style={{ width: columnWidths[9] }}>{formatTimestamp(customer.updatedat) ? `${formatTimestamp(customer.updatedat).date} ${formatTimestamp(customer.updatedat).time}` : '-'}</Table.Td>
+            <Table.Td><span className={`${classes.radio} ${customer.customercode === selectedCode ? classes.radioSelected : ''}`} /></Table.Td>
+            <Table.Td className={classes.codeCell}>{customer.customercode}</Table.Td>
+            <Table.Td className={classes.partnerNameCell}>{customer.customername}</Table.Td>
+            <Table.Td>{customer.businessno || '-'}</Table.Td>
+            <Table.Td>{customer.ceoname || '-'}</Table.Td>
+            <Table.Td><Badge color={customer.useryn === '사용중' ? 'teal' : 'gray'} variant="light">{customer.useryn}</Badge></Table.Td>
           </Table.Tr>
         )) : (
-          <Table.Tr><Table.Td colSpan={10} className={classes.emptyState}>{loading ? '불러오는 중...' : '검색 결과가 없습니다.'}</Table.Td></Table.Tr>
+          <Table.Tr><Table.Td colSpan={6} className={classes.emptyState}>{loading ? '불러오는 중...' : '검색 결과가 없습니다.'}</Table.Td></Table.Tr>
         )}
       </Table.Tbody>
     </Table>
@@ -217,20 +125,20 @@ const CustomerListPanel = memo(function CustomerListPanel({
   selectedCode,
 }) {
   return (
-    <Paper className={classes.listPanel} withBorder>
-      <Group className={classes.panelHeader} justify="space-between" wrap="wrap">
+    <Paper className={`${sharedClasses.panel} ${classes.listPanel}`} withBorder>
+      <Group className={`${sharedClasses.panelHeader} ${classes.panelHeader}`} justify="space-between" wrap="wrap">
         <Group gap="xs"><Text fw={700}>거래처 등록 목록</Text><Badge color="red" variant="light">{total}건</Badge></Group>
         <Group gap={6} wrap="wrap" align="flex-end">
-          <Select label="사용 여부" aria-label="사용 여부 필터" value={statusFilter} onChange={onStatusChange} data={[{ value: '전체', label: '전체' }, { value: 'Y', label: '사용' }, { value: 'N', label: '미사용' }]} w={116} size="xs" />
-          <Select label="거래 구분" aria-label="거래구분 필터" value={tradetypeFilter} onChange={onTradetypeChange} data={['전체', '매입처', '매출처', '매입매출처', '가공처']} w={132} size="xs" />
+          <Select label="사용 여부" aria-label="사용 여부 필터" value={statusFilter} onChange={onStatusChange} data={['전체', '사용중', '사용중지']} w={116} size="xs" />
+          <Select label="거래 구분" aria-label="거래구분 필터" value={tradetypeFilter} onChange={onTradetypeChange} data={['전체', '매입처', '매출처', '매입매출처']} w={132} size="xs" />
           <Button variant="default" size="xs" leftSection={<IconDownload size={14} />} onClick={onDownloadTemplate}>샘플양식</Button>
           <Button variant="light" size="xs" leftSection={<IconDownload size={14} />} onClick={onExport} loading={exportLoading}>엑셀 다운로드</Button>
         </Group>
       </Group>
-      <Group className={classes.listToolbar} gap={6} wrap="nowrap">
+      <Group className={sharedClasses.toolbar} gap={6} wrap="nowrap">
         <TextInput
           className={classes.searchInput}
-          placeholder="거래처 정보를 입력해주세요"
+          placeholder="코드 또는 거래처명을 입력해주세요"
           value={query}
           onChange={(event) => onQueryChange(event.currentTarget.value)}
           onKeyDown={(event) => event.key === 'Enter' && onSearch()}
@@ -244,14 +152,10 @@ const CustomerListPanel = memo(function CustomerListPanel({
         </Button>
         <input ref={uploadInputRef} type="file" accept=".xlsx,.xls" onChange={onUpload} hidden />
       </Group>
-      <Box className={classes.tableWrap}>
-        {loading && customers.length === 0 ? (
-          <div className={classes.emptyState}>불러오는 중...</div>
-        ) : (
-          <CustomerTable customers={customers} selectedCode={selectedCode} loading={loading} onSelect={onSelect} />
-        )}
+      <Box className={sharedClasses.tableWrap}>
+        <CustomerTable customers={customers} selectedCode={selectedCode} loading={loading} onSelect={onSelect} />
       </Box>
-      <Group className={classes.listFooter} justify="space-between" wrap="wrap">
+      <Group className={`${sharedClasses.footer} ${classes.listFooter}`} justify="space-between" wrap="wrap">
         <Group gap="xs">
           <Text size="xs" c="dimmed">총 {total}개 항목</Text>
           <Select aria-label="페이지당 표시 수" value={String(pageSize)} onChange={onPageSizeChange} data={PAGE_SIZE_OPTIONS} w={100} size="xs" />
@@ -262,109 +166,30 @@ const CustomerListPanel = memo(function CustomerListPanel({
   );
 });
 
-const CustomerFormPanel = memo(function CustomerFormPanel({ draft, isNew, saving, banks, managers, onChange, onBankChange, onReset, onSave }) {
-  const [addressOpen, setAddressOpen] = useState(false);
-  const [postcodeReady, setPostcodeReady] = useState(Boolean(window.kakao?.Postcode));
-  const [postcodeError, setPostcodeError] = useState(false);
-  const postcodeContainerRef = useRef(null);
-
-  useEffect(() => {
-    if (window.kakao?.Postcode) {
-      const readyTimer = window.setTimeout(() => setPostcodeReady(true), 0);
-      return () => window.clearTimeout(readyTimer);
-    }
-    const existingScript = document.querySelector('script[data-kakao-postcode]');
-    const script = existingScript || document.createElement('script');
-    const handleLoad = () => {
-      if (window.kakao?.Postcode || window.daum?.Postcode) setPostcodeReady(true);
-      else setPostcodeError(true);
-    };
-    const handleError = () => setPostcodeError(true);
-    script.addEventListener('load', handleLoad);
-    script.addEventListener('error', handleError);
-    if (!existingScript) {
-      script.src = 'https://t1.kakaocdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
-      script.async = true;
-      script.dataset.kakaoPostcode = 'true';
-      document.body.appendChild(script);
-    }
-    return () => {
-      script.removeEventListener('load', handleLoad);
-      script.removeEventListener('error', handleError);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!addressOpen || !postcodeReady) return;
-    // Mantine mounts modal contents through a portal/transition; wait for its
-    // container to be attached and sized before asking Kakao to embed the iframe.
-    const mountTimer = window.setTimeout(() => {
-      const container = postcodeContainerRef.current;
-      const Postcode = window.kakao?.Postcode || window.daum?.Postcode;
-      if (!container || !Postcode) {
-        setPostcodeError(true);
-        return;
-      }
-      container.replaceChildren();
-      new Postcode({
-        oncomplete: (data) => {
-          onChange('zipcode', data.zonecode || '');
-          onChange('address', data.address || data.roadAddress || data.jibunAddress || '');
-          setAddressOpen(false);
-        },
-        width: '100%',
-        height: '100%',
-      }).embed(container);
-    }, 100);
-    return () => window.clearTimeout(mountTimer);
-  }, [addressOpen, postcodeReady, onChange]);
-
+const CustomerFormPanel = memo(function CustomerFormPanel({ draft, isNew, saving, onChange, onReset, onSave }) {
   return (
-    <Paper className={classes.formPanel} withBorder>
-      <Group className={classes.panelHeader} justify="space-between">
+    <Paper className={`${sharedClasses.panel} ${classes.formPanel}`} withBorder>
+      <Group className={`${sharedClasses.panelHeader} ${classes.panelHeader}`} justify="space-between">
         <Group gap="xs"><span className={classes.statusDot} /><Text fw={700}>상세 정보 입력 및 수정</Text></Group>
         <Badge color={isNew ? 'teal' : 'blue'} variant="light">{isNew ? '신규 등록' : '조회 모드'}</Badge>
       </Group>
       <Box className={classes.formBody}>
-        <div className={classes.formGrid}>
+        <Stack gap="sm">
           <TextInput label="거래처 코드" value={draft.customercode} onChange={(event) => onChange('customercode', event.currentTarget.value)} disabled={!isNew} />
-          <Select label="거래구분" value={draft.tradetype} onChange={(value) => onChange('tradetype', value || '')} data={['매입처', '매출처', '매입매출처', '가공처']} />
-          
           <TextInput label="거래처명 (상호)" value={draft.customername} onChange={(event) => onChange('customername', event.currentTarget.value)} required />
-          <TextInput label="대표자" value={draft.ceoname} onChange={(event) => onChange('ceoname', event.currentTarget.value)} />
-
-          <TextInput label="사업자번호" placeholder="000-00-00000" value={draft.businessno} onChange={(event) => onChange('businessno', event.currentTarget.value)} />
-          <TextInput label="법인번호" placeholder="000000-0000000" value={draft.corporationno} onChange={(event) => onChange('corporationno', event.currentTarget.value)} />
-        
-          <TextInput label="업태" value={draft.businesstype} onChange={(event) => onChange('businesstype', event.currentTarget.value)} />
-          <TextInput label="업종" value={draft.industry} onChange={(event) => onChange('industry', event.currentTarget.value)} />
-        
-          <Select className={classes.selectPointer} label="담당자" value={draft.manager || null} onChange={(value) => onChange('manager', value || '')} data={managers} searchable clearable nothingFoundMessage="담당자 데이터가 없습니다" />
-          <Group className={`${classes.formWideField} ${classes.addressField}`} align="flex-end" wrap="nowrap">
-            <TextInput className={classes.zipcodeInput} label="우편번호" value={draft.zipcode} readOnly />
-            <TextInput className={classes.addressInput} label="주소" value={draft.address} onChange={(event) => onChange('address', event.currentTarget.value)} />
-            <Button variant="light" onClick={() => setAddressOpen(true)}>주소 찾기</Button>
-          </Group>
-          <TextInput className={classes.formWideField} label="상세주소" value={draft.address2} onChange={(event) => onChange('address2', event.currentTarget.value)} />
-
-          <TextInput label="전화번호" value={draft.phone} onChange={(event) => onChange('phone', event.currentTarget.value)} />
-          <TextInput label="팩스" value={draft.fax} onChange={(event) => onChange('fax', event.currentTarget.value)} />
-
-          <TextInput label="이메일" value={draft.email} onChange={(event) => onChange('email', event.currentTarget.value)} />
-          <Select label="사용 여부" value={draft.useyn} onChange={(value) => onChange('useyn', value || 'Y')} data={[{ value: 'Y', label: '사용' }, { value: 'N', label: '미사용' }]} />
-
-          <Select className={classes.selectPointer} label="은행" value={draft.bankcode || null} onChange={onBankChange} data={banks.map((bank) => ({ value: bank.bankcode, label: bank.bankname }))} searchable clearable nothingFoundMessage="등록된 은행이 없습니다" />
-          <TextInput label="계좌번호" value={draft.accountno} onChange={(event) => onChange('accountno', event.currentTarget.value)} />
-          <Textarea className={classes.formWideField} label="비고 사항" value={draft.remark} onChange={(event) => onChange('remark', event.currentTarget.value)} minRows={2} autosize maxRows={4} />
-        </div>
+          <TextInput label="사업자등록번호" value={draft.businessno} onChange={(event) => onChange('businessno', event.currentTarget.value)} />
+          <TextInput label="대표자 성명" value={draft.ceoname} onChange={(event) => onChange('ceoname', event.currentTarget.value)} />
+          <Select label="거래구분" value={draft.tradetype} onChange={(value) => onChange('tradetype', value || '')} data={['매입처', '매출처', '매입매출처']} />
+          <TextInput label="대표 연락처" value={draft.phone} onChange={(event) => onChange('phone', event.currentTarget.value)} />
+          <TextInput label="사업장 주소" value={draft.address} onChange={(event) => onChange('address', event.currentTarget.value)} />
+          <Select label="사용 여부" value={draft.useryn} onChange={(value) => onChange('useryn', value || '')} data={['사용중', '사용중지']} />
+          <Textarea label="비고 사항" value={draft.remark} onChange={(event) => onChange('remark', event.currentTarget.value)} minRows={2} autosize maxRows={4} />
+        </Stack>
       </Box>
-      <Group className={classes.formFooter} justify="flex-end">
+      <Group className={`${sharedClasses.footer} ${classes.formFooter}`} justify="flex-end">
         <Button variant="default" onClick={onReset}>초기화</Button>
         <Button color="red" onClick={onSave} loading={saving} leftSection={<IconDeviceFloppy size={15} />}>저장 및 적용</Button>
       </Group>
-      <Modal opened={addressOpen} onClose={() => setAddressOpen(false)} title="주소 찾기" centered size="lg">
-        {postcodeError ? <Text size="sm" c="red">주소 검색을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</Text> : postcodeReady ? <div ref={postcodeContainerRef} className={classes.postcodeContainer} /> : <Text size="sm" c="dimmed">주소 검색을 불러오는 중...</Text>}
-      </Modal>
     </Paper>
   );
 });
@@ -372,10 +197,6 @@ const CustomerFormPanel = memo(function CustomerFormPanel({ draft, isNew, saving
 export default function CustomerPage() {
   const companyid = localStorage.getItem('user_company') || '';
   const companyname = localStorage.getItem('user_companyname') || '';
-  const [banks, setBanks] = useState([]);
-  const [managers, setManagers] = useState([]);
-  const [lookupsLoaded, setLookupsLoaded] = useState(false);
-  const [lookupLoadError, setLookupLoadError] = useState(false);
   const [customers, setCustomers] = useState([]);
   const [selectedCode, setSelectedCode] = useState(null);
   const [draft, setDraft] = useState(emptyCustomer);
@@ -401,13 +222,13 @@ export default function CustomerPage() {
     try {
       const { data } = await axios.get('/api/list', {
         params: {
+          companyid,
           search_keyword: appliedQuery || undefined,
           status: statusFilter === '전체' ? undefined : statusFilter,
           tradetype: tradetypeFilter === '전체' ? undefined : tradetypeFilter,
           page,
           page_size: pageSize,
         },
-        headers: authHeaders(),
       });
       if (data.success === false) throw new Error(data.error || '거래처 목록을 불러오지 못했습니다.');
       const rows = (data.data || []).map(toCustomer);
@@ -422,22 +243,6 @@ export default function CustomerPage() {
   }, [appliedQuery, companyid, page, pageSize, statusFilter, tradetypeFilter]);
 
   useEffect(() => { loadCustomers(); }, [loadCustomers]);
-
-  useEffect(() => {
-    if (!companyid) return;
-    Promise.all([
-      axios.get('/api/banks', { headers: authHeaders() }),
-      axios.get('/api/managers', { headers: authHeaders() }),
-    ]).then(([bankResponse, managerResponse]) => {
-      setBanks(bankResponse.data.data || []);
-      setManagers(managerResponse.data.data || []);
-      setLookupsLoaded(true);
-    }).catch((error) => {
-      setLookupLoadError(true);
-      setLookupsLoaded(true);
-      notifications.show({ title: '목록 조회 실패', message: errorMessage(error, '은행 또는 담당자 목록을 불러오지 못했습니다.'), color: 'red', position: 'bottom-right' });
-    });
-  }, [companyid]);
 
   useEffect(() => {
     if (isNew) return;
@@ -473,11 +278,6 @@ export default function CustomerPage() {
     setDraft((current) => ({ ...current, [field]: value }));
   }, []);
 
-  const updateBank = useCallback((bankcode) => {
-    const bank = banks.find((item) => item.bankcode === bankcode);
-    setDraft((current) => ({ ...current, bankcode: bank?.bankcode || '', bankname: bank?.bankname || '' }));
-  }, [banks]);
-
   const startNewCustomer = useCallback(async () => {
     if (!companyid) {
       notifications.show({ title: '회사 정보 갱신 필요', message: '로그아웃한 뒤 다시 로그인해 주세요.', color: 'orange', position: 'bottom-right' });
@@ -485,7 +285,7 @@ export default function CustomerPage() {
     }
     setAllocatingCode(true);
     try {
-      const { data } = await axios.get('/api/next-code', { headers: authHeaders() });
+      const { data } = await axios.get('/api/next-code', { params: { companyid } });
       setDraft({ ...emptyCustomer(), customercode: data.customercode });
       setSelectedCode(null);
       setIsNew(true);
@@ -520,7 +320,7 @@ export default function CustomerPage() {
     const payload = { ...draft, customercode: draft.customercode.trim(), customername: draft.customername.trim() };
     setSaving(true);
     try {
-      const { data } = await axios.post(creating ? '/api/create' : '/api/update', payload, { headers: authHeaders() });
+      const { data } = await axios.post(creating ? '/api/create' : '/api/update', payload);
       if (data.success === false) throw new Error(data.message || '저장하지 못했습니다.');
       const savedCustomer = { ...payload, customercode: data.customercode || payload.customercode };
       notifications.show({ title: creating ? '등록 완료' : '수정 완료', message: data.message || '거래처 정보를 저장했습니다.', color: 'teal', position: 'bottom-right' });
@@ -546,8 +346,8 @@ export default function CustomerPage() {
   }, [customers, draft.customercode, isNew, selectedCode]);
 
   const downloadTemplate = useCallback(() => {
-    const headers = ['거래처코드(선택/자동채번)', '거래구분', '거래처명', '대표자명', '사업자번호', '법인번호', '업태', '업종', '담당자', '우편번호', '주소', '상세주소', '전화번호', '팩스', '이메일', '사용여부(Y/N)', '은행코드', '은행명', '계좌번호', '비고'];
-    const worksheet = XLSX.utils.aoa_to_sheet([headers, ['', '매입처', '모스코', '김찬수', '', '', '', '', '', '', '', '', '', '', '', 'Y', '', '', '', '']]);
+    const headers = ['거래처코드(선택/자동채번)', '거래처명', '사업자번호', '대표자명', '거래구분', '전화번호', '주소', '사용여부', '비고'];
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ['', '모스코', '', '김찬수', '매입처', '', '', '사용중', '']]);
     worksheet['!cols'] = headers.map(() => ({ wch: 18 }));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '거래처');
@@ -560,25 +360,23 @@ export default function CustomerPage() {
     try {
       const { data } = await axios.get('/api/export', {
         params: {
+          companyid,
           search_keyword: appliedQuery || undefined,
           status: statusFilter === '전체' ? undefined : statusFilter,
           tradetype: tradetypeFilter === '전체' ? undefined : tradetypeFilter,
         },
-        headers: authHeaders(),
       });
       if (data.success === false) throw new Error(data.error || '엑셀 데이터를 불러오지 못했습니다.');
-      const headers = ['거래처코드', '거래구분', '거래처명', '대표자명', '사업자번호', '법인번호', '업태', '업종', '담당자', '우편번호', '주소', '상세주소', '전화번호', '팩스', '이메일', '사용여부(Y/N)', '은행코드', '은행명', '계좌번호', '비고'];
+      const headers = ['거래처코드', '거래처명', '사업자번호', '대표자명', '거래구분', '전화번호', '주소', '사용여부', '비고'];
       const worksheet = XLSX.utils.aoa_to_sheet([
         headers,
         ...(data.data || []).map((customer) => [
-          customer.customercode ?? '', customer.tradetype ?? '', customer.customername ?? '', customer.ceoname ?? '',
-          customer.businessno ?? '', customer.corporationno ?? '', customer.businesstype ?? '', customer.industry ?? '',
-          customer.manager ?? '', customer.zipcode ?? '', customer.address ?? '', customer.address2 ?? '',
-          customer.phone ?? '', customer.fax ?? '', customer.email ?? '', customer.useyn ?? '',
-          customer.bankcode ?? '', customer.bankname ?? '', customer.accountno ?? '', customer.remark ?? '',
+          customer.customercode ?? '', customer.customername ?? '', customer.businessno ?? '',
+          customer.ceoname ?? '', customer.tradetype ?? '', customer.phone ?? '',
+          customer.address ?? '', customer.useryn ?? customer.useyn ?? '', customer.remark ?? '',
         ]),
       ]);
-      worksheet['!cols'] = [24, 16, 26, 16, 18, 18, 18, 18, 16, 14, 36, 36, 18, 18, 26, 16, 16, 20, 24, 30].map((wch) => ({ wch }));
+      worksheet['!cols'] = [18, 26, 18, 16, 16, 18, 36, 12, 30].map((wch) => ({ wch }));
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, '거래처목록');
       const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
@@ -599,10 +397,6 @@ export default function CustomerPage() {
       notifications.show({ title: '회사 정보 갱신 필요', message: '로그아웃한 뒤 다시 로그인해 주세요.', color: 'orange', position: 'bottom-right' });
       return;
     }
-    if (!lookupsLoaded || lookupLoadError) {
-      notifications.show({ title: '목록 확인 필요', message: '담당자와 은행 목록을 불러온 뒤 다시 업로드해 주세요.', color: 'orange', position: 'bottom-right' });
-      return;
-    }
 
     setUploadProgress('엑셀 파일 읽는 중');
     try {
@@ -614,86 +408,42 @@ export default function CustomerPage() {
         customercode: ['customercode', '거래처코드', '거래처 코드', '거래처코드(자동채번)', '거래처코드(선택/자동채번)'],
         customername: ['customername', '거래처명', '거래처명(상호)', '상호명'],
         businessno: ['businessno', '사업자번호', '사업자등록번호'],
-        corporationno: ['corporationno', '법인번호'],
         ceoname: ['ceoname', '대표자명', '대표자', '대표자 성명'],
         tradetype: ['tradetype', '거래구분'],
-        businesstype: ['businesstype', '업태'],
-        industry: ['industry', '업종'],
-        manager: ['manager', '담당자'],
-        zipcode: ['zipcode', '우편번호'],
         phone: ['phone', '전화번호', '대표 연락처', '연락처'],
-        fax: ['fax', '팩스'],
-        email: ['email', '이메일'],
-        bankcode: ['bankcode', 'bank_code', '은행코드', '은행 코드'],
-        bankname: ['bankname', '은행'],
-        accountno: ['accountno', '계좌번호'],
         address: ['address', '주소', '사업장 주소'],
-        address2: ['address2', '상세주소', '상세 주소'],
-        useyn: ['useyn', '사용여부', '사용 여부'],
+        useryn: ['useryn', '사용여부', '사용 여부'],
         remark: ['remark', '비고'],
       };
-      const imported = rows.map((row, rowIndex) => {
-        const normalized = Object.fromEntries(Object.entries(row).map(([key, value]) => [key.trim().toLowerCase().replace(/\s+/g, ''), String(value).trim()]));
+      const imported = rows.map((row) => {
+        const normalized = Object.fromEntries(Object.entries(row).map(([key, value]) => [key.trim().toLowerCase(), String(value).trim()]));
         const customer = emptyCustomer();
         customer.companyid = companyid;
         customer.companyname = companyname;
         Object.entries(aliases).forEach(([field, names]) => {
-          const key = names.find((name) => normalized[name.toLowerCase().replace(/\s+/g, '')] !== undefined);
-          if (key) customer[field] = normalized[key.toLowerCase().replace(/\s+/g, '')];
+          const key = names.find((name) => normalized[name.toLowerCase()] !== undefined);
+          if (key) customer[field] = normalized[key.toLowerCase()];
         });
-        if (customer.useyn === '사용중') customer.useyn = 'Y';
-        if (customer.useyn === '사용중지') customer.useyn = 'N';
-        return { ...customer, _excelRow: rowIndex + 2 };
+        return customer;
       }).filter((customer) => customer.customercode || customer.customername);
 
       if (!imported.length) throw new Error('업로드할 데이터가 없습니다. 샘플 양식의 첫 번째 시트를 확인해 주세요.');
       const failures = [];
       const validCustomers = [];
       imported.forEach((customer, index) => {
-        const rowErrors = [];
-        const rowNumber = customer._excelRow || index + 2;
-        if (!customer.customername) rowErrors.push('거래처명 필수');
-
-        const normalizedManager = customer.manager.trim().toLocaleLowerCase();
-        if (normalizedManager) {
-          const manager = managers.find((item) => item.trim().toLocaleLowerCase() === normalizedManager);
-          if (!manager) rowErrors.push(`담당자 '${customer.manager}'가 DB에 없습니다`);
-          else customer.manager = manager;
-        }
-
-        const code = customer.bankcode.trim();
-        const name = customer.bankname.trim();
-        const normalize = (value) => value.trim().toLocaleLowerCase();
-        const bankByCode = code && banks.find((bank) => bank.bankcode.trim() === code);
-        const bankByName = name && banks.find((bank) => normalize(bank.bankname) === normalize(name));
-        if (code && !bankByCode) rowErrors.push(`은행코드 '${code}'가 DB에 없습니다`);
-        if (name && !bankByName) rowErrors.push(`은행 '${name}'이 DB에 없습니다`);
-        if (bankByCode && bankByName && bankByCode.bankcode !== bankByName.bankcode) {
-          rowErrors.push(`은행코드 '${code}'와 은행명 '${name}'이 서로 다릅니다`);
-        }
-        const matchedBank = bankByCode || bankByName;
-        if (matchedBank) {
-          customer.bankcode = matchedBank.bankcode;
-          customer.bankname = matchedBank.bankname;
-        }
-        if (customer.accountno.trim() && !matchedBank) rowErrors.push('계좌번호가 있으면 등록된 은행을 선택해야 합니다');
-
-        if (rowErrors.length) failures.push(`${rowNumber}행: ${rowErrors.join(', ')}`);
-        else {
-          const { _excelRow, ...payload } = customer;
-          validCustomers.push(payload);
-        }
+        if (!customer.customername) failures.push(`${index + 2}행: 거래처명 필수`);
+        else validCustomers.push(customer);
       });
 
       let generatedCodes = [];
       if (validCustomers.length) {
         setUploadProgress(`${validCustomers.length.toLocaleString()}건 서버 등록 중`);
-        const { data } = await axios.post('/api/bulk-create', { customers: validCustomers }, { headers: authHeaders() });
+        const { data } = await axios.post('/api/bulk-create', { customers: validCustomers });
         if (data.success === false) throw new Error(data.message || '일괄 등록에 실패했습니다.');
         generatedCodes = data.generated_codes || [];
       }
       notifications.show({
-        title: validCustomers.length === 0 && failures.length ? '일괄 등록 중단' : failures.length ? '일괄 등록 완료 (일부 제외)' : '일괄 등록 완료',
+        title: failures.length ? '일괄 등록 완료 (일부 제외)' : '일괄 등록 완료',
         message: `${validCustomers.length}건 등록${generatedCodes.length ? ` (자동채번 ${generatedCodes.length}건: ${generatedCodes.slice(0, 3).join(', ')}${generatedCodes.length > 3 ? ' 외' : ''})` : ''}${failures.length ? `, ${failures.length}건 제외: ${failures.slice(0, 3).join(' / ')}` : ''}`,
         color: failures.length ? 'orange' : 'teal',
         position: 'bottom-right',
@@ -705,10 +455,10 @@ export default function CustomerPage() {
     } finally {
       setUploadProgress('');
     }
-  }, [banks, companyid, companyname, lookupLoadError, lookupsLoaded, managers, refreshAfterWrite]);
+  }, [companyid, companyname, refreshAfterWrite]);
 
   return (
-    <Box className={classes.page}>
+    <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
       <Paper className={dashboardClasses.dashboardHeader}>
         <Box className={dashboardClasses.headerCopy}>
           <Text className={classes.breadcrumb}>시스템 관리 <span>›</span> 거래처 등록</Text>
@@ -752,10 +502,7 @@ export default function CustomerPage() {
           draft={draft}
           isNew={isNew}
           saving={saving || allocatingCode}
-          banks={banks}
-          managers={managers}
           onChange={updateDraft}
-          onBankChange={updateBank}
           onReset={resetDraft}
           onSave={saveCustomer}
         />

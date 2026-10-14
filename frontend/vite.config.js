@@ -25,11 +25,11 @@ export default defineConfig({
     host: '0.0.0.0', // 타 PC에서 접근 가능하도록 허용
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:80', // FastAPI backend
+        target: 'http://127.0.0.1:8000', // FastAPI backend (backend/main.py)
         changeOrigin: true,
       },
       '/passwordapi': {
-        target: 'http://127.0.0.1:80',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },
