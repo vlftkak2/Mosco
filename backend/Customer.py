@@ -212,6 +212,7 @@ def CustomerList(
     tradetype: str = "전체",
     page: int = 1,
     page_size: int = 50,
+    include_total: bool = True,
 ):
     conn = None
     try:
@@ -235,8 +236,10 @@ def CustomerList(
             params.append(tradetype)
 
         where_sql = " AND ".join(conditions)
-        cursor.execute(f"SELECT COUNT(*) FROM customer01t WHERE {where_sql}", tuple(params))
-        total = cursor.fetchone()[0]
+        total = None
+        if include_total:
+            cursor.execute(f"SELECT COUNT(*) FROM customer01t WHERE {where_sql}", tuple(params))
+            total = cursor.fetchone()[0]
 
         cursor.execute(
             f"""
@@ -253,6 +256,11 @@ def CustomerList(
 
         columns = [column[0] for column in cursor.description]
         result = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+        # The UI already has the total when paging; only count an empty, stale page to recover.
+        if total is None and not result and page > 1:
+            cursor.execute(f"SELECT COUNT(*) FROM customer01t WHERE {where_sql}", tuple(params))
+            total = cursor.fetchone()[0]
 
         return {"success": True, "data": result, "total": total, "page": page, "page_size": page_size}
 

@@ -18,8 +18,8 @@ import {
 import { notifications } from '@mantine/notifications';
 import { IconDeviceFloppy, IconDownload, IconPlus, IconSearch, IconUpload, IconX } from '@tabler/icons-react';
 import * as XLSX from 'xlsx';
-import classes from '../styles/pages/CustomPage.module.css';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
+import classes from '../styles/pages/CustomerPage.module.css';
 import dashboardClasses from '../styles/pages/HomePage.module.css';
 
 const PAGE_SIZE_OPTIONS = [
@@ -28,6 +28,13 @@ const PAGE_SIZE_OPTIONS = [
   { value: '100', label: '100개씩' },
   { value: '200', label: '200개씩' },
 ];
+
+const CUSTOMER_PAGE_CACHE_TTL_MS = 20_000;
+const CUSTOMER_PAGE_CACHE_LIMIT = 24;
+
+const makeCustomerPageCacheKey = ({ companyid, search, status, tradetype, pageSize, page }) => (
+  JSON.stringify([companyid, search, status, tradetype, pageSize, page])
+);
 
 const emptyCustomer = () => ({
   companyid: localStorage.getItem('user_company') || '',
@@ -84,10 +91,12 @@ const CustomerTable = memo(function CustomerTable({ customers, selectedCode, loa
             onClick={() => onSelect(customer)}
           >
             <Table.Td><span className={`${classes.radio} ${customer.customercode === selectedCode ? classes.radioSelected : ''}`} /></Table.Td>
-            <Table.Td className={classes.codeCell}>{customer.customercode}</Table.Td>
-            <Table.Td className={classes.partnerNameCell}>{customer.customername}</Table.Td>
-            <Table.Td>{customer.businessno || '-'}</Table.Td>
-            <Table.Td>{customer.ceoname || '-'}</Table.Td>
+            <Table.Td className={classes.codeCell} title={customer.customercode}>{customer.customercode}</Table.Td>
+            <Table.Td className={classes.partnerNameCell} title={customer.customername}>
+              <span className={classes.partnerNameText}>{customer.customername}</span>
+            </Table.Td>
+            <Table.Td title={customer.businessno || '-'}>{customer.businessno || '-'}</Table.Td>
+            <Table.Td title={customer.ceoname || '-'}>{customer.ceoname || '-'}</Table.Td>
             <Table.Td><Badge color={customer.useryn === '사용중' ? 'teal' : 'gray'} variant="light">{customer.useryn}</Badge></Table.Td>
           </Table.Tr>
         )) : (
@@ -125,7 +134,7 @@ const CustomerListPanel = memo(function CustomerListPanel({
   selectedCode,
 }) {
   return (
-    <Paper className={`${sharedClasses.panel} ${classes.listPanel}`} withBorder>
+    <Paper className={classes.customerListPanel} withBorder>
       <Group className={`${sharedClasses.panelHeader} ${classes.panelHeader}`} justify="space-between" wrap="wrap">
         <Group gap="xs"><Text fw={700}>거래처 등록 목록</Text><Badge color="red" variant="light">{total}건</Badge></Group>
         <Group gap={6} wrap="wrap" align="flex-end">
@@ -152,15 +161,15 @@ const CustomerListPanel = memo(function CustomerListPanel({
         </Button>
         <input ref={uploadInputRef} type="file" accept=".xlsx,.xls" onChange={onUpload} hidden />
       </Group>
-      <Box className={sharedClasses.tableWrap}>
+      <Box className={classes.customerTableWrap}>
         <CustomerTable customers={customers} selectedCode={selectedCode} loading={loading} onSelect={onSelect} />
       </Box>
-      <Group className={`${sharedClasses.footer} ${classes.listFooter}`} justify="space-between" wrap="wrap">
+      <Group className={`${sharedClasses.footer} ${classes.customerListFooter}`} justify="space-between" wrap="wrap">
         <Group gap="xs">
           <Text size="xs" c="dimmed">총 {total}개 항목</Text>
           <Select aria-label="페이지당 표시 수" value={String(pageSize)} onChange={onPageSizeChange} data={PAGE_SIZE_OPTIONS} w={100} size="xs" />
         </Group>
-        <Pagination total={pageCount} value={page} onChange={onPageChange} size="sm" disabled={loading} />
+        <Pagination total={pageCount} value={page} onChange={onPageChange} size="sm" />
       </Group>
     </Paper>
   );
@@ -214,33 +223,115 @@ export default function CustomerPage() {
   const [uploadProgress, setUploadProgress] = useState('');
   const [exportLoading, setExportLoading] = useState(false);
   const uploadInputRef = useRef(null);
+  const customerPageCacheRef = useRef(new Map());
+  const customerPageRequestsRef = useRef(new Map());
+  const customerCacheEpochRef = useRef(0);
+  const latestListRequestRef = useRef(0);
+  const currentTotalRef = useRef(0);
+  const currentTotalFilterKeyRef = useRef(null);
+  const forceTotalNextRef = useRef(false);
   const pageCount = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [pageSize, total]);
 
-  const loadCustomers = useCallback(async () => {
-    if (!companyid) return;
-    setListLoading(true);
-    try {
-      const { data } = await axios.get('/api/list', {
-        params: {
-          companyid,
-          search_keyword: appliedQuery || undefined,
-          status: statusFilter === '전체' ? undefined : statusFilter,
-          tradetype: tradetypeFilter === '전체' ? undefined : tradetypeFilter,
-          page,
-          page_size: pageSize,
-        },
-      });
+  const requestCustomerPage = useCallback((requestedPage, knownTotal, includeTotal = requestedPage === 1) => {
+    const cacheKey = makeCustomerPageCacheKey({
+      companyid,
+      search: appliedQuery,
+      status: statusFilter,
+      tradetype: tradetypeFilter,
+      pageSize,
+      page: requestedPage,
+    });
+    const cached = customerPageCacheRef.current.get(cacheKey);
+    if (cached && Date.now() - cached.cachedAt < CUSTOMER_PAGE_CACHE_TTL_MS) {
+      customerPageCacheRef.current.delete(cacheKey);
+      const refreshedCache = {
+        ...cached,
+        total: cached.totalKnown ? cached.total : (knownTotal ?? cached.total),
+      };
+      customerPageCacheRef.current.set(cacheKey, refreshedCache);
+      if (!includeTotal || cached.totalKnown) return Promise.resolve(refreshedCache);
+    }
+    if (cached) customerPageCacheRef.current.delete(cacheKey);
+
+    const existingRequest = customerPageRequestsRef.current.get(cacheKey);
+    if (existingRequest) return existingRequest;
+
+    const requestEpoch = customerCacheEpochRef.current;
+    const request = axios.get('/api/list', {
+      params: {
+        companyid,
+        search_keyword: appliedQuery || undefined,
+        status: statusFilter === '전체' ? undefined : statusFilter,
+        tradetype: tradetypeFilter === '전체' ? undefined : tradetypeFilter,
+        page: requestedPage,
+        page_size: pageSize,
+        include_total: includeTotal,
+      },
+    }).then(({ data }) => {
       if (data.success === false) throw new Error(data.error || '거래처 목록을 불러오지 못했습니다.');
-      const rows = (data.data || []).map(toCustomer);
-      setCustomers(rows);
-      setTotal(data.total ?? rows.length);
-      setSelectedCode((current) => current || rows[0]?.customercode || null);
+      const result = {
+        rows: (data.data || []).map(toCustomer),
+        total: data.total ?? knownTotal ?? (data.data || []).length,
+        totalKnown: data.total !== undefined && data.total !== null,
+        cachedAt: Date.now(),
+      };
+      if (requestEpoch === customerCacheEpochRef.current) {
+        customerPageCacheRef.current.set(cacheKey, result);
+        if (customerPageCacheRef.current.size > CUSTOMER_PAGE_CACHE_LIMIT) {
+          const oldestKey = customerPageCacheRef.current.keys().next().value;
+          customerPageCacheRef.current.delete(oldestKey);
+        }
+      }
+      return result;
+    }).finally(() => {
+      if (customerPageRequestsRef.current.get(cacheKey) === request) {
+        customerPageRequestsRef.current.delete(cacheKey);
+      }
+    });
+
+    customerPageRequestsRef.current.set(cacheKey, request);
+    return request;
+  }, [appliedQuery, companyid, pageSize, statusFilter, tradetypeFilter]);
+
+  const loadCustomers = useCallback(async (forceTotal = false) => {
+    if (!companyid) return;
+    const requestId = ++latestListRequestRef.current;
+    const totalFilterKey = JSON.stringify([companyid, appliedQuery, statusFilter, tradetypeFilter]);
+    const hasKnownTotal = currentTotalFilterKeyRef.current === totalFilterKey;
+    const includeTotal = forceTotal || forceTotalNextRef.current || !hasKnownTotal;
+    forceTotalNextRef.current = false;
+    const knownTotal = hasKnownTotal ? currentTotalRef.current : null;
+    const cacheKey = makeCustomerPageCacheKey({
+      companyid,
+      search: appliedQuery,
+      status: statusFilter,
+      tradetype: tradetypeFilter,
+      pageSize,
+      page,
+    });
+    const cached = customerPageCacheRef.current.get(cacheKey);
+    setListLoading(!cached || Date.now() - cached.cachedAt >= CUSTOMER_PAGE_CACHE_TTL_MS);
+    try {
+      const result = await requestCustomerPage(page, knownTotal, includeTotal);
+      if (requestId !== latestListRequestRef.current) return;
+      if (result.total !== null && result.total !== undefined) {
+        currentTotalRef.current = result.total;
+        currentTotalFilterKeyRef.current = totalFilterKey;
+      }
+      setCustomers(result.rows);
+      setTotal(result.total);
+      setSelectedCode((current) => current || result.rows[0]?.customercode || null);
+      if (page < Math.ceil(result.total / pageSize)) {
+        // Keep the next page warm so sequential paging avoids waiting on another round trip.
+        requestCustomerPage(page + 1, result.total, false).catch(() => {});
+      }
     } catch (error) {
+      if (requestId !== latestListRequestRef.current) return;
       notifications.show({ title: '목록 조회 실패', message: errorMessage(error, '서버 연결을 확인해 주세요.'), color: 'red', position: 'bottom-right' });
     } finally {
-      setListLoading(false);
+      if (requestId === latestListRequestRef.current) setListLoading(false);
     }
-  }, [appliedQuery, companyid, page, pageSize, statusFilter, tradetypeFilter]);
+  }, [appliedQuery, companyid, page, pageSize, requestCustomerPage, statusFilter, tradetypeFilter]);
 
   useEffect(() => { loadCustomers(); }, [loadCustomers]);
 
@@ -297,14 +388,18 @@ export default function CustomerPage() {
   }, [companyid]);
 
   const refreshAfterWrite = useCallback(async (resetFilters = false) => {
-    if (!resetFilters) return loadCustomers();
+    customerCacheEpochRef.current += 1;
+    customerPageCacheRef.current.clear();
+    customerPageRequestsRef.current.clear();
+    if (!resetFilters) return loadCustomers(true);
+    forceTotalNextRef.current = true;
     const alreadyAtDefault = page === 1 && !appliedQuery && statusFilter === '전체' && tradetypeFilter === '전체';
     setPage(1);
     setAppliedQuery('');
     setQuery('');
     setStatusFilter('전체');
     setTradetypeFilter('전체');
-    if (alreadyAtDefault) await loadCustomers();
+    if (alreadyAtDefault) await loadCustomers(true);
   }, [appliedQuery, loadCustomers, page, statusFilter, tradetypeFilter]);
 
   const saveCustomer = useCallback(async () => {
@@ -327,7 +422,9 @@ export default function CustomerPage() {
       setIsNew(false);
       setSelectedCode(savedCustomer.customercode);
       setDraft(savedCustomer);
-      await refreshAfterWrite(creating);
+      // The write has committed. Refresh the table in the background so the save button
+      // does not stay busy while the list count and current page are fetched again.
+      void refreshAfterWrite(creating);
     } catch (error) {
       notifications.show({ title: creating ? '등록 실패' : '변경 실패', message: errorMessage(error, '거래처 저장에 실패했습니다.'), color: 'red', icon: <IconX size={18} />, position: 'bottom-right' });
     } finally {

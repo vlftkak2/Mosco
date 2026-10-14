@@ -5,10 +5,52 @@
 
 .workspace {
   display: grid;
-  min-height: 620px;
-  flex: 1;
+  height: max(420px, calc(100vh - 200px));
+  min-height: 420px;
+  flex: 0 0 auto;
   grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.9fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 16px;
+}
+
+.customerListPanel {
+  display: grid;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border-color: #dbe2eb;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.customerTableWrap {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-color: #aeb9c8 #edf0f4;
+  scrollbar-width: thin;
+}
+
+.customerTableWrap::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.customerTableWrap::-webkit-scrollbar-track {
+  border-radius: 8px;
+  background: #edf0f4;
+}
+
+.customerTableWrap::-webkit-scrollbar-thumb {
+  border: 2px solid #edf0f4;
+  border-radius: 8px;
+  background: #aeb9c8;
+}
+
+.customerTableWrap::-webkit-scrollbar-thumb:hover {
+  background: #8795a8;
 }
 
 .panelHeader {
@@ -21,17 +63,24 @@
 }
 
 .partnerTable {
-  min-width: 660px;
-  font-size: 12px;
+  width: max-content;
+  min-width: 100%;
+  font-size: 13px;
+  table-layout: auto;
 }
 
 .partnerTable thead th {
+  position: sticky;
+  z-index: 2;
+  top: 0;
   padding: 9px 8px;
-  font-size: 11px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .partnerTable tbody td {
   padding: 10px 8px;
+  white-space: nowrap;
 }
 
 .partnerTable tbody tr {
@@ -60,8 +109,10 @@
 }
 
 .codeCell {
-  color: #64748b !important;
+  color: #334155 !important;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .partnerNameCell {
@@ -69,8 +120,15 @@
   font-weight: 700;
 }
 
-.listFooter {
-  margin-top: auto;
+.partnerNameText {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.customerListFooter {
+  min-width: 0;
 }
 
 .emptyState {
@@ -116,10 +174,14 @@
 
 @media (max-width: 980px) {
   .workspace {
+    height: auto;
+    min-height: 0;
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
   }
 
-  .listPanel {
+  .customerListPanel {
+    height: max(360px, min(560px, calc(100vh - 200px)));
     min-height: 360px;
   }
 
@@ -127,3 +189,4 @@
     min-height: 580px;
   }
 }
+
