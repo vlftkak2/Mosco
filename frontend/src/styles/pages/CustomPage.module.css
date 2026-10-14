@@ -1,70 +1,18 @@
 .page {
-  position: relative;
-  isolation: isolate;
-  display: flex;
-  min-height: calc(100vh - 72px);
-  flex-direction: column;
+  flex: 1;
   gap: 16px;
-  margin: -20px;
-  padding: 28px clamp(20px, 2.2vw, 34px) 36px;
-  background: #f1f3f5;
-  color: #182b49;
-  font-family: Inter, Pretendard, "Noto Sans KR", sans-serif;
-}
-
-.page::before {
-  position: absolute;
-  z-index: -1;
-  top: -20px;
-  right: -24px;
-  left: -24px;
-  height: 184px;
-  background: linear-gradient(135deg, #ee7373 0%, #ec0a0a 100%);
-  content: '';
-}
-
-.breadcrumb {
-  margin-bottom: 4px;
-  color: #718096;
-  font-size: 12px;
-  font-weight: 550;
-}
-
-.breadcrumb span {
-  margin: 0 5px;
-  color: #94a3b8;
 }
 
 .workspace {
   display: grid;
   min-height: 620px;
   flex: 1;
-  grid-template-columns: minmax(0, 1.5fr) minmax(340px, 0.9fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.9fr);
   gap: 16px;
 }
 
-.listPanel,
-.formPanel {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  overflow: hidden;
-  border-color: #dbe2eb;
-  border-radius: 9px;
-  background: #fff;
-}
-
 .panelHeader {
-  min-height: 42px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
-  font-size: 20px;
-}
-
-.listToolbar {
-  padding: 9px 10px;
-  border-bottom: 1px solid #e2e8f0;
+  font-size: 13px;
 }
 
 .searchInput {
@@ -72,51 +20,18 @@
   flex: 1;
 }
 
-.tableWrap {
-  min-height: 0;
-  flex: 1;
-  overflow: auto;
-}
-
 .partnerTable {
-  min-width: 0;
-  font-size: 13px;
-  table-layout: fixed;
+  min-width: 660px;
+  font-size: 12px;
 }
 
 .partnerTable thead th {
-  position: sticky;
-  z-index: 1;
-  top: 0;
-  padding: 10px 9px;
-  background: #f1f5f9;
-  color: #475569;
-  font-size: 13px;
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: visible;
+  padding: 9px 8px;
+  font-size: 11px;
 }
 
 .partnerTable tbody td {
-  padding: 10px 9px;
-  color: #334155;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.contactCell {
-  white-space: nowrap !important;
-}
-
-.timestampCell {
-  color: #475569 !important;
-  font-size: 12px;
-  white-space: nowrap !important;
-}
-
-.partnerTable tbody td:nth-child(8) {
-  text-align: center;
+  padding: 10px 8px;
 }
 
 .partnerTable tbody tr {
@@ -152,20 +67,16 @@
 .partnerNameCell {
   color: #0f172a !important;
   font-weight: 700;
-  white-space: nowrap !important;
+}
+
+.listFooter {
+  margin-top: auto;
 }
 
 .emptyState {
   height: 160px;
   color: #94a3b8 !important;
   text-align: center;
-}
-
-.listFooter {
-  min-height: 38px;
-  padding: 7px 12px;
-  border-top: 1px solid #e2e8f0;
-  background: #fbfcfe;
 }
 
 .statusDot {
@@ -179,44 +90,12 @@
   min-height: 0;
   flex: 1;
   overflow: auto;
-  padding: 7px 10px;
+  padding: 14px 16px;
   background: #fbfcfe;
 }
 
-.formGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px 8px;
-}
-
-.formWideField {
-  grid-column: 1 / -1;
-}
-
-.selectPointer :global(input) {
-  cursor: pointer;
-}
-
-.addressField {
-  display: flex;
-  gap: 8px;
-}
-
-.addressInput {
-  flex: 1;
-}
-
-.zipcodeInput {
-  flex: 0 0 112px;
-}
-
-.postcodeContainer {
-  width: 100%;
-  height: min(520px, 65vh);
-}
-
 .formBody :global(.mantine-InputWrapper-label) {
-  margin-bottom: 1px;
+  margin-bottom: 4px;
   color: #475569;
   font-size: 12px;
   font-weight: 650;
@@ -224,7 +103,7 @@
 
 .formBody :global(.mantine-Input-input),
 .formBody :global(.mantine-Textarea-input) {
-  min-height: 30px;
+  min-height: 38px;
   border-color: #cbd5e1;
   background: #fff;
   color: #1e293b;
@@ -233,8 +112,6 @@
 
 .formFooter {
   padding: 10px 12px;
-  border-top: 1px solid #e2e8f0;
-  background: #fff;
 }
 
 @media (max-width: 980px) {
@@ -248,11 +125,5 @@
 
   .formPanel {
     min-height: 580px;
-  }
-}
-
-@media (max-width: 560px) {
-  .formGrid {
-    grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -12,6 +12,7 @@ import UserAuthPage from "./pages/UserAuthPage"
 import DepartmentPage from "./pages/DepartmentPage";
 import DepartmentAuthPage from "./pages/DepartmentAuthPage";
 import CustomerPage from "./pages/CustomerPage";
+import CodeMasterPage from "./pages/CodeMasterPage";
 
 
 // Mantine 기본 스타일 
@@ -40,6 +41,7 @@ function App() {
           <Route path="/UserAuthPage" element={<UserAuthPage />} />
           <Route path="/CustomerPage" element={<CustomerPage />} />
           <Route path="/CustomPage" element={<CustomerPage />} />
+          <Route path="/CodeMasterPage" element={<CodeMasterPage />} />
 
           </Route>
         </Routes>

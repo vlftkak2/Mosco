@@ -84,14 +84,9 @@ const mockdata = [
       },
       {
         label: '일반코드',
-        links: [
-          { label: '강종구분', MenuID: 'M1' },
-          { label: '공정구분', MenuID: 'M2' },
-          { label: '기타비용', MenuID: 'M3' },
-          { label: '창고', MenuID: 'M4' },
-          { label: '표면', MenuID: 'M5' },
-          { label: '착지', MenuID: 'M6' },
-        ],
+        link: '/CodeMasterPage',
+        icon: '',
+        MenuID: 'M1',
       },
     ],
   },

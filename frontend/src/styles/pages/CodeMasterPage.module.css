@@ -1,0 +1,157 @@
+.page {
+  flex: 1;
+  gap: 16px;
+}
+
+.workspace {
+  display: grid;
+  min-height: 740px;
+  flex: 1;
+  grid-template-columns: minmax(245px, 285px) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 18px;
+}
+
+.groupPanel,
+.codePanel {
+  height: clamp(740px, calc(100vh - 210px), 860px);
+  min-height: 740px;
+  max-height: none;
+  box-shadow: 0 4px 16px #26364e09;
+}
+
+.groupHeader {
+  min-height: 76px;
+  padding: 16px 18px;
+  background: #fff;
+}
+
+.groupHeader :global(.mantine-Text-root:first-child) {
+  color: #23344d;
+  font-size: 16px;
+  letter-spacing: -0.015em;
+}
+
+.groupHeader :global(.mantine-Text-root:last-child) {
+  color: #77859a;
+  font-size: 13px;
+}
+
+.groupHeader :global(.mantine-Badge-root) {
+  min-width: 30px;
+  height: 26px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.groupSearch { padding: 12px 16px; }
+.groupSearch :global(.mantine-Input-input) { min-height: 40px; font-size: 14px; }
+
+.groupList {
+  height: min(500px, max(360px, calc(100vh - 455px)));
+  min-height: 0;
+  flex: 0 1 auto;
+  padding: 4px 10px 10px;
+}
+
+.groupList :global([data-orientation='vertical']) { border-radius: 999px; background: #edf0f4; }
+.groupList :global([data-orientation='vertical'] > div) { border-radius: 999px; background: #aeb9c8; }
+.groupList :global([data-orientation='vertical'] > div:hover) { background: #8795a8; }
+
+.groupItem {
+  display: flex;
+  width: 100%;
+  min-height: 76px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: #53647c;
+  cursor: pointer;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.groupItem:hover { transform: translateX(1px); background: #f6f8fb; }
+.groupItemActive { border-color: #f1d0d1; background: #fff5f5; color: #bd292e; }
+.groupItemActive:hover { background: #fff1f1; }
+.groupItem > svg { flex: 0 0 auto; color: #9aa7b8; }
+.groupItemActive > svg { color: #c9373d; }
+.groupItemCopy { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.groupName { overflow: hidden; color: #283952; font-size: 15px; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
+.groupItemActive .groupName { color: #b92d33; }
+.groupMeta { color: #77859a; font-size: 12px; }
+.loadingState { display: grid; min-height: 220px; place-items: center; }
+.noGroups { padding: 28px 10px; color: #7d899a; font-size: 14px; text-align: center; }
+.groupFooter { min-height: 58px; margin-top: auto; padding: 0 18px; }
+.groupFooter :global(.mantine-Text-root) { font-size: 13px; }
+
+.codeHeader {
+  min-height: 90px;
+  padding: 17px 20px;
+  background: #fff;
+}
+
+.codeTitle { color: #1e304a; font-size: 20px; font-weight: 750; letter-spacing: -0.025em; }
+.codeHeader :global(.mantine-Badge-root) { min-height: 24px; padding-inline: 10px; font-size: 12px; font-weight: 700; }
+.codeHeader :global(.mantine-Text-root:last-child) { color: #78869a; font-size: 13px; }
+.codeHeader :global(.mantine-Button-root) { min-height: 38px; font-size: 13px; font-weight: 650; }
+.toolbar { min-height: 64px; padding: 11px 16px; background: #fbfcfe; }
+.codeSearch { width: min(360px, 100%); }
+.codeSearch :global(.mantine-Input-input) { min-height: 40px; font-size: 14px; }
+.toolbar :global(.mantine-Text-root) { font-size: 13px; }
+.toolbar :global(.mantine-Button-root) { min-height: 34px; font-size: 13px; }
+
+.tableWrap { height: min(560px, max(360px, calc(100vh - 420px))); min-height: 360px; flex: 0 1 auto; }
+.tableWrap :global([data-orientation='vertical']) { border-radius: 999px; background: #edf0f4; }
+.tableWrap :global([data-orientation='vertical'] > div) { border-radius: 999px; background: #aeb9c8; }
+.tableWrap :global([data-orientation='vertical'] > div:hover) { background: #8795a8; }
+.codeTable { min-width: 760px; font-size: 14px; }
+.codeTable thead th { padding: 14px 11px; background: #f5f7fa; color: #536278; font-size: 13px; font-weight: 700; }
+.codeTable tbody td { padding: 10px 9px; border-bottom-color: #e9edf3; }
+.checkCol { width: 46px; text-align: center !important; }
+.checkCol input { width: 16px; height: 16px; accent-color: #c9373d; vertical-align: middle; cursor: pointer; }
+.numberCol { width: 62px; text-align: center !important; }
+.codeCol { width: 170px; }
+.orderCol { width: 126px; }
+.statusCol { width: 124px; text-align: center !important; }
+.actionCol { width: 76px; text-align: center !important; }
+.rowNumber { color: #7a8799 !important; font-size: 13px; text-align: center; }
+.codeTable :global(.mantine-Input-input) { min-height: 38px; border-color: #dce3ec; border-radius: 7px; background: #fff; color: #293a52; font-size: 14px; }
+.codeTable :global(.mantine-Input-input:focus) { border-color: #c94b50; box-shadow: 0 0 0 3px #c94b5017; }
+.newRow td { background: #fffbf4; }
+.statusSelect { width: 96px; margin: 0 auto; }
+.statusSelect :global(.mantine-Select-input) { min-height: 36px; border-color: #dce3ec; border-radius: 7px; background: #fff; color: #334155; font-size: 13px; }
+.statusSelect :global(.mantine-Select-input:focus) { border-color: #c94b50; }
+.emptyState { height: 210px; color: #7c899b !important; font-size: 14px; text-align: center; }
+.tableFooter { min-height: 58px; margin-top: auto; padding: 9px 16px; }
+.tableFooter :global(.mantine-Text-root) { color: #718096; font-size: 13px; }
+
+@media (max-width: 900px) {
+  .workspace { grid-template-columns: minmax(220px, 250px) minmax(0, 1fr); gap: 12px; }
+  .codeTable { min-width: 720px; }
+}
+
+@media (max-width: 760px) {
+  .page.page { margin: -12px; padding: 18px 12px 24px; }
+  .page::before { right: -12px; left: -12px; height: 190px; }
+  .workspace { grid-template-columns: minmax(0, 1fr); }
+  .groupPanel { height: 440px; min-height: 0; max-height: 440px; }
+  .groupList { height: 270px; min-height: 0; flex: 0 0 auto; }
+  .groupItem { min-height: 68px; }
+  .codePanel { height: auto; min-height: 560px; max-height: none; }
+  .tableWrap { height: 340px; min-height: 340px; flex: 0 0 340px; }
+}
+
+@media (max-width: 520px) {
+  .workspace { gap: 12px; }
+  .codeHeader { align-items: stretch; padding: 15px; }
+  .codeHeader > :global(.mantine-Group-root:last-child) { width: 100%; justify-content: flex-end; }
+  .toolbar { align-items: stretch; padding: 11px 12px; }
+  .codeSearch { width: 100%; }
+  .toolbar > :global(.mantine-Group-root:last-child) { justify-content: space-between; }
+  .tableFooter { align-items: flex-start; }
+}
