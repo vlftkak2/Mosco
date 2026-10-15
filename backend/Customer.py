@@ -31,13 +31,35 @@ class CustomModifyRequest(BaseModel):
     companyname: str
     customercode: str
     customername: str
-    businessno : str
-    ceoname:str
-    tradetype:str
-    phone:str
-    address:str
-    useryn:str
-    remark:str
+    businessno: str = ""
+    corporationno: str = ""
+    ceoname: str = ""
+    tradetype: str = ""
+    businesstype: str = ""
+    industry: str = ""
+    manager: str = ""
+    zipcode: str = ""
+    address: str = ""
+    phone: str = ""
+    fax: str = ""
+    email: str = ""
+    bankcode: str = ""
+    accountno: str = ""
+    useryn: str = "Y"
+    remark: str = ""
+
+
+def _db_useyn(value: str) -> str:
+    return "N" if (value or "").strip().upper() in {"N", "미사용", "사용중지"} else "Y"
+
+
+def _filter_useyn(value: str) -> str:
+    normalized = (value or "").strip()
+    if normalized in {"사용중", "Y"}:
+        return "Y"
+    if normalized in {"사용중지", "미사용", "N"}:
+        return "N"
+    return normalized
 
 
 def _next_customer_code(cursor, companyid: str) -> str:
@@ -71,6 +93,126 @@ def CustomerNextCode(companyid: str):
             conn.close()
 
 
+def BankList(companyid: str):
+    conn = None
+    try:
+        conn = psycopg2.connect(conn_str)
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT bankcode, bankname
+                FROM Bank01t
+                WHERE companyid = %s AND useyn IN ('Y', '사용중')
+                ORDER BY bankname, bankcode
+                """,
+                (companyid,),
+            )
+            return {"success": True, "data": [
+                {"bankcode": row[0], "bankname": row[1]} for row in cursor.fetchall()
+            ]}
+    except Exception as error:
+        return {"success": False, "error": str(error)}
+    finally:
+        if conn:
+            conn.close()
+
+
+def CustomerManagerList(companyid: str):
+    """Return active employee names available as customer managers."""
+    conn = None
+    try:
+        conn = psycopg2.connect(conn_str)
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT DISTINCT username
+                FROM user01t
+                WHERE companyid = %s
+                  AND useyn = 'Y'
+                  AND NULLIF(BTRIM(username), '') IS NOT NULL
+                ORDER BY username
+                """,
+                (companyid,),
+            )
+            return {"success": True, "data": [row[0] for row in cursor.fetchall()]}
+    except Exception as error:
+        return {"success": False, "error": str(error)}
+    finally:
+        if conn:
+            conn.close()
+
+
+def _validate_customer_references(cursor, item: CustomModifyRequest):
+    item.manager = (item.manager or "").strip()
+    item.bankcode = (item.bankcode or "").strip()
+
+    if item.manager:
+        cursor.execute(
+            """
+            SELECT 1 FROM user01t
+            WHERE companyid = %s AND username = %s AND useyn = 'Y'
+            LIMIT 1
+            """,
+            (item.companyid, item.manager),
+        )
+        if not cursor.fetchone():
+            return {"success": False, "message": f"Manager '{item.manager}' is not an active user for this company."}
+
+    if item.bankcode:
+        cursor.execute(
+            """
+            SELECT 1 FROM Bank01t
+            WHERE companyid = %s AND bankcode = %s AND useyn IN ('Y', '사용중')
+            LIMIT 1
+            """,
+            (item.companyid, item.bankcode),
+        )
+        if not cursor.fetchone():
+            return {"success": False, "message": f"Bank code '{item.bankcode}' is not active for this company."}
+
+    return {"success": True}
+
+
+def _validate_customer_batch_references(cursor, items: List[CustomModifyRequest], companyid: str):
+    manager_values = set()
+    bank_values = set()
+    for item in items:
+        item.manager = (item.manager or "").strip()
+        item.bankcode = (item.bankcode or "").strip()
+        if item.manager:
+            manager_values.add(item.manager)
+        if item.bankcode:
+            bank_values.add(item.bankcode)
+
+    if manager_values:
+        cursor.execute(
+            """
+            SELECT DISTINCT username FROM user01t
+            WHERE companyid = %s AND useyn = 'Y' AND username = ANY(%s)
+            """,
+            (companyid, list(manager_values)),
+        )
+        missing_managers = manager_values - {row[0] for row in cursor.fetchall()}
+        if missing_managers:
+            names = ", ".join(sorted(missing_managers)[:10])
+            return {"success": False, "message": f"기본정보관리-담당자를 입력해주세요"}
+
+    if bank_values:
+        cursor.execute(
+            """
+            SELECT DISTINCT bankcode FROM Bank01t
+            WHERE companyid = %s AND useyn IN ('Y', '사용중') AND bankcode = ANY(%s)
+            """,
+            (companyid, list(bank_values)),
+        )
+        missing_banks = bank_values - {row[0] for row in cursor.fetchall()}
+        if missing_banks:
+            codes = ", ".join(sorted(missing_banks)[:10])
+            return {"success": False, "message": f"기본정보관리-은행코드를 입력해주세요"}
+
+    return {"success": True}
+
+
 # 거래처 등록
 def CustomerCreate(item: CustomModifyRequest):
 
@@ -79,6 +221,9 @@ def CustomerCreate(item: CustomModifyRequest):
         # DB 연결
         conn = psycopg2.connect(conn_str)
         cursor = conn.cursor()
+        reference_check = _validate_customer_references(cursor, item)
+        if not reference_check["success"]:
+            return reference_check
         customercode = (item.customercode or "").strip()
         if customercode:
             cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (item.companyid,))
@@ -92,8 +237,19 @@ def CustomerCreate(item: CustomModifyRequest):
             customercode = _next_customer_code(cursor, item.companyid)
 
         # 사용자정보 등록
-        query = "INSERT INTO customer01t(companyid, companyname, customercode, customername, businessno, ceoname,tradetype,phone,address,useyn,remark) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-        cursor.execute(query, (item.companyid, item.companyname, customercode, item.customername, item.businessno, item.ceoname, item.tradetype, item.phone, item.address, item.useryn, item.remark))
+        query = """
+            INSERT INTO customer01t (
+                companyid, companyname, customercode, customername, businessno,
+                corporationno, ceoname, tradetype, businesstype, industry, manager,
+                zipcode, address, phone, fax, email, bankcode, accountno, useyn, remark
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        cursor.execute(query, (
+            item.companyid, item.companyname, customercode, item.customername,
+            item.businessno, item.corporationno, item.ceoname, item.tradetype,
+            item.businesstype, item.industry, item.manager, item.zipcode, item.address, item.phone,
+            item.fax, item.email, item.bankcode or None, item.accountno, _db_useyn(item.useryn), item.remark,
+        ))
 
         conn.commit()
         
@@ -124,6 +280,10 @@ def CustomerBulkCreate(items: List[CustomModifyRequest]):
                 return {"success": False, "message": "업로드 데이터의 회사 정보가 일치하지 않습니다. 다시 로그인한 뒤 업로드해 주세요."}
 
             companyid = next(iter(company_ids))
+            reference_check = _validate_customer_batch_references(cursor, items, companyid)
+            if not reference_check["success"]:
+                return reference_check
+
             next_number = int(_next_customer_code(cursor, companyid).split("-")[1])
             requested_codes = [(item.customercode or "").strip() for item in items]
             explicit_codes = [code for code in requested_codes if code]
@@ -159,13 +319,15 @@ def CustomerBulkCreate(items: List[CustomModifyRequest]):
             query = """
                 INSERT INTO customer01t
                     (companyid, companyname, customercode, customername, businessno,
-                     ceoname, tradetype, phone, address, useyn, remark)
+                     corporationno, ceoname, tradetype, businesstype, industry, manager,
+                     zipcode, address, phone, fax, email, bankcode, accountno, useyn, remark)
                 VALUES %s
             """
             values = [
                 (item.companyid, item.companyname, assigned_code, item.customername,
-                 item.businessno, item.ceoname, item.tradetype, item.phone, item.address,
-                 item.useryn, item.remark)
+                 item.businessno, item.corporationno, item.ceoname, item.tradetype,
+                 item.businesstype, item.industry, item.manager, item.zipcode, item.address, item.phone,
+                 item.fax, item.email, item.bankcode or None, item.accountno, _db_useyn(item.useryn), item.remark)
                 for item, assigned_code in zip(items, assigned_codes)
             ]
             execute_values(cursor, query, values, page_size=1000)
@@ -187,10 +349,25 @@ def CustomerModify(item: CustomModifyRequest):
         # DB 연결
         conn = psycopg2.connect(conn_str)
         cursor = conn.cursor()
+        reference_check = _validate_customer_references(cursor, item)
+        if not reference_check["success"]:
+            return reference_check
 
         # 거래처정보 업데이트
-        query = "UPDATE customer01t SET customername=%s, businessno=%s, ceoname=%s, tradetype=%s, phone=%s, address=%s, useyn=%s, remark=%s, updatedat=NOW() WHERE companyid=%s and customercode=%s"
-        cursor.execute(query, (item.customername, item.businessno, item.ceoname, item.tradetype, item.phone, item.address, item.useryn, item.remark, item.companyid, item.customercode))
+        query = """
+            UPDATE customer01t
+            SET customername=%s, businessno=%s, corporationno=%s, ceoname=%s,
+                tradetype=%s, businesstype=%s, industry=%s, manager=%s,
+                zipcode=%s, address=%s, phone=%s, fax=%s, email=%s, bankcode=%s, accountno=%s,
+                useyn=%s, remark=%s, updatedat=NOW()
+            WHERE companyid=%s AND customercode=%s
+        """
+        cursor.execute(query, (
+            item.customername, item.businessno, item.corporationno, item.ceoname,
+            item.tradetype, item.businesstype, item.industry, item.manager,
+            item.zipcode, item.address, item.phone, item.fax, item.email, item.bankcode or None, item.accountno,
+            _db_useyn(item.useryn), item.remark, item.companyid, item.customercode,
+        ))
              
         conn.commit()
         
@@ -229,7 +406,7 @@ def CustomerList(
 
         if status and status != "전체":
             conditions.append("useyn = %s")
-            params.append(status)
+            params.append(_filter_useyn(status))
 
         if tradetype and tradetype != "전체":
             conditions.append("tradetype = %s")
@@ -284,7 +461,7 @@ def CustomerExport(companyid: str, search_keyword: str = None, status: str = "�
             params.extend([f"%{search_keyword}%", f"%{search_keyword}%"])
         if status and status != "전체":
             conditions.append("useyn = %s")
-            params.append(status)
+            params.append(_filter_useyn(status))
         if tradetype and tradetype != "전체":
             conditions.append("tradetype = %s")
             params.append(tradetype)

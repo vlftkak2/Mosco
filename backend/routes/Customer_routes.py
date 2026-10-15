@@ -1,12 +1,12 @@
-from fastapi import FastAPI,APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from config import ALLOWED_ORIGINS
 from pydantic import BaseModel, Field
 from typing import List
 
 # 모듈 임포트 (이름 충돌을 피하기 위해 as 사용)
-import login as auth_module
 import Customer as customer_module
+import security as security_module
 
 router = APIRouter(prefix="/api", tags=["customer"])
 
@@ -16,17 +16,38 @@ class CustomerBulkCreateRequest(BaseModel):
 
 
 @router.get("/next-code")
-def get_next_customer_code(companyid: str = Query(..., min_length=1)):
-    result = customer_module.CustomerNextCode(companyid)
+def get_next_customer_code(user: dict = Depends(security_module.get_current_user)):
+    result = customer_module.CustomerNextCode(user["companyid"])
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result["message"])
+    return result
+
+
+@router.get("/banks")
+def get_banks(user: dict = Depends(security_module.get_current_user)):
+    result = customer_module.BankList(user["companyid"])
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+
+@router.get("/managers")
+def get_customer_managers(user: dict = Depends(security_module.get_current_user)):
+    result = customer_module.CustomerManagerList(user["companyid"])
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result["error"])
     return result
 
 
 # 고객 생성 API
 # customer_module 안에 있는 CustomModifyRequest 클래스를 데이터 규격으로 사용합니다.
 @router.post("/create")
-def create_customer(data: customer_module.CustomModifyRequest):
+def create_customer(
+    data: customer_module.CustomModifyRequest,
+    user: dict = Depends(security_module.get_current_user),
+):
+    data.companyid = user["companyid"]
+    data.companyname = user.get("companyname") or user["companyid"]
     result = customer_module.CustomerCreate(data)
     
     # 실패했을 경우 401 에러
@@ -37,7 +58,14 @@ def create_customer(data: customer_module.CustomModifyRequest):
 
 
 @router.post("/bulk-create")
-def bulk_create_customers(data: CustomerBulkCreateRequest):
+def bulk_create_customers(
+    data: CustomerBulkCreateRequest,
+    user: dict = Depends(security_module.get_current_user),
+):
+    companyname = user.get("companyname") or user["companyid"]
+    for customer in data.customers:
+        customer.companyid = user["companyid"]
+        customer.companyname = companyname
     result = customer_module.CustomerBulkCreate(data.customers)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
@@ -47,7 +75,11 @@ def bulk_create_customers(data: CustomerBulkCreateRequest):
 # 고객 수정 API
 # customer_module 안에 있는 CustomModifyRequest 클래스를 데이터 규격으로 사용합니다.
 @router.post("/update")
-def update_customer(data: customer_module.CustomModifyRequest):
+def update_customer(
+    data: customer_module.CustomModifyRequest,
+    user: dict = Depends(security_module.get_current_user),
+):
+    data.companyid = user["companyid"]
     result = customer_module.CustomerModify(data)
     
     # 실패했을 경우 401 에러
@@ -60,7 +92,7 @@ def update_customer(data: customer_module.CustomModifyRequest):
 # customer_module 안에 있는 CustomerList 함수를 사용합니다.
 @router.get("/list")
 def get_customers(
-    companyid: str = Query(..., min_length=1),
+    user: dict = Depends(security_module.get_current_user),
     search_keyword: str = Query(None, max_length=200),
     status: str = Query(None),
     tradetype: str = Query(None),
@@ -69,7 +101,7 @@ def get_customers(
     include_total: bool = Query(True),
 ):
     result = customer_module.CustomerList(
-        companyid=companyid,
+        companyid=user["companyid"],
         search_keyword=search_keyword,
         status=status,
         tradetype=tradetype,
@@ -86,13 +118,13 @@ def get_customers(
 
 @router.get("/export")
 def export_customers(
-    companyid: str = Query(..., min_length=1),
+    user: dict = Depends(security_module.get_current_user),
     search_keyword: str = Query(None, max_length=200),
     status: str = Query(None),
     tradetype: str = Query(None),
 ):
     result = customer_module.CustomerExport(
-        companyid=companyid,
+        companyid=user["companyid"],
         search_keyword=search_keyword,
         status=status,
         tradetype=tradetype,

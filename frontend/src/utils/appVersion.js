@@ -8,6 +8,7 @@ async function checkAppVersion() {
     });
 
     if (!response.ok) return;
+    if (!response.headers.get('content-type')?.includes('application/json')) return;
 
     const data = await response.json();
     const serverVersion = data?.version;
