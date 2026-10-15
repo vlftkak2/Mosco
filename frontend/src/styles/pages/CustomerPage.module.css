@@ -5,20 +5,21 @@
 
 .workspace {
   display: grid;
-  height: max(420px, calc(100vh - 200px));
+  height: max(420px, calc(100vh - 300px));
   min-height: 420px;
   flex: 0 0 auto;
   grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.9fr);
   grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
   gap: 16px;
 }
 
 .customerListPanel {
-  display: grid;
+  display: flex !important;
   min-width: 0;
   height: 100%;
   min-height: 0;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  flex-direction: column;
   overflow: hidden;
   border-color: #dbe2eb;
   border-radius: 9px;
@@ -28,33 +29,23 @@
 .customerTableWrap {
   min-width: 0;
   min-height: 0;
-  overflow: auto;
-  scrollbar-color: #aeb9c8 #edf0f4;
-  scrollbar-width: thin;
+  height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
-.customerTableWrap::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-.customerTableWrap::-webkit-scrollbar-track {
-  border-radius: 8px;
-  background: #edf0f4;
-}
-
-.customerTableWrap::-webkit-scrollbar-thumb {
-  border: 2px solid #edf0f4;
-  border-radius: 8px;
-  background: #aeb9c8;
-}
-
-.customerTableWrap::-webkit-scrollbar-thumb:hover {
-  background: #8795a8;
+.formPanel {
+  display: flex !important;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .panelHeader {
-  font-size: 13px;
+  min-height: 48px;
+  font-size: 15px;
 }
 
 .searchInput {
@@ -62,11 +53,27 @@
   flex: 1;
 }
 
-.partnerTable {
-  width: max-content;
-  min-width: 100%;
+.customerListPanel :global(.mantine-InputWrapper-label) {
+  margin-bottom: 4px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.customerListPanel :global(.mantine-Input-input) {
   font-size: 13px;
-  table-layout: auto;
+}
+
+.customerListPanel > :global(.mantine-Group-root):nth-child(2) {
+  min-height: 54px;
+  padding: 8px 10px;
+}
+
+.partnerTable {
+  width: max-content !important;
+  min-width: 100% !important;
+  font-size: 13px;
+  table-layout: auto !important;
 }
 
 .partnerTable thead th {
@@ -80,6 +87,8 @@
 
 .partnerTable tbody td {
   padding: 10px 8px;
+  overflow: visible !important;
+  text-overflow: clip !important;
   white-space: nowrap;
 }
 
@@ -122,8 +131,6 @@
 
 .partnerNameText {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -146,10 +153,38 @@
 
 .formBody {
   min-height: 0;
-  flex: 1;
-  overflow: auto;
+  flex: 1 1 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 14px 16px;
   background: #fbfcfe;
+}
+
+.customerFormGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-content: start;
+  gap: 12px;
+}
+
+.addressField {
+  min-width: 0;
+}
+
+.dropdownSelect :global(.mantine-Select-input),
+.dropdownSelect :global(.mantine-Select-rightSection),
+.dropdownSelect :global(.mantine-Input-section) {
+  cursor: pointer;
+}
+
+.addressField > :global(.mantine-TextInput-root) {
+  min-width: 0;
+  flex: 1;
+}
+
+.fullRow {
+  grid-column: 1 / -1;
 }
 
 .formBody :global(.mantine-InputWrapper-label) {
@@ -178,15 +213,23 @@
     min-height: 0;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto;
+    align-items: start;
   }
 
-  .customerListPanel {
-    height: max(360px, min(560px, calc(100vh - 200px)));
-    min-height: 360px;
-  }
-
+  .customerListPanel,
   .formPanel {
-    min-height: 580px;
+    height: max(480px, min(700px, calc(100vh - 200px)));
+    min-height: 480px;
+  }
+}
+
+@media (max-width: 480px) {
+  .customerFormGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fullRow {
+    grid-column: auto;
   }
 }
 

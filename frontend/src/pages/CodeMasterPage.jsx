@@ -49,13 +49,13 @@ const errorMessage = (error) => {
 
 // 서버와 같은 고정 그룹 목록입니다. DB에 항목이 없어도 그룹은 화면에 표시합니다.
 const FIXED_GROUPS = [
-  { groupcode: 'MATERIAL', name: '강종' },
-  { groupcode: 'PROCESS', name: '공정' },
-  { groupcode: 'OTHER_COST', name: '기타비용' },
-  { groupcode: 'WAREHOUSE', name: '창고' },
-  { groupcode: 'SURFACE', name: '표면' },
-  { groupcode: 'DELIVERY', name: '착지' },
-  { groupcode: 'TRADE_TYPE', name: '거래구분' },
+  { groupcode: 'MATERIAL', name: '강종구분', properties: ['대표강종', '비중', '구분', '용도'] },
+  { groupcode: 'PROCESS', name: '공정구분', properties: ['수량자동계산', 'Slitting', '포밍가공', '제품구분'] },
+  { groupcode: 'OTHER_COST', name: '기타비용코드', properties: ['속성1', '속성2', '속성3', '속성4'] },
+  { groupcode: 'WAREHOUSE', name: '창고', properties: ['속성1', '속성2', '속성3', '속성4'] },
+  { groupcode: 'SURFACE', name: '표면', properties: ['속성1', '속성2', '속성3', '속성4'] },
+  { groupcode: 'DELIVERY', name: '착지코드', properties: ['주소1', '주소2', '전화', '인수자'] },
+  { groupcode: 'TRADE_TYPE', name: '거래구분', properties: ['속성1', '속성2', '속성3', '속성4'] },
 ];
 
 // 최초 렌더와 조회 응답 정규화에 사용할 빈 그룹 상태를 생성합니다.
@@ -63,6 +63,7 @@ const emptyGroups = () => FIXED_GROUPS.map(({ groupcode, name }) => ({
   id: groupcode,
   groupcode,
   name,
+  propertyLabels: FIXED_GROUPS.find((group) => group.groupcode === groupcode)?.properties || [],
   description: `${name} 회사 공통 코드`,
   rows: [],
 }));
@@ -82,14 +83,19 @@ const PAGE_SIZE_OPTIONS = [
   { value: '200', label: '200개씩' },
 ];
 
+const propertyValue = (row, index) => row[`property${index + 1}`] ?? row.properties?.[index] ?? '';
+
 // 현재 페이지에서 보이는 행만 렌더링하고, 일반 코드 수정 시에는 변경된 행만 다시 렌더링합니다.
-const CodeMasterTableRow = memo(function CodeMasterTableRow({ row, index, selected, disabled, saving, onToggleSelection, onUpdateRow, onDelete }) {
+const CodeMasterTableRow = memo(function CodeMasterTableRow({ row, index, codeLabel, nameLabel, propertyLabels, selected, disabled, saving, onToggleSelection, onUpdateRow, onDelete }) {
   return (
     <Table.Tr className={row.isNew ? classes.newRow : ''}>
       <Table.Td className={classes.checkCol}><input aria-label={`${row.name || '새 코드'} 선택`} type="checkbox" checked={selected} onChange={() => onToggleSelection(row.id)} /></Table.Td>
       <Table.Td className={classes.rowNumber}>{index + 1}</Table.Td>
-      <Table.Td><TextInput aria-label="코드" value={row.code} disabled={!row.isNew || disabled} onChange={(event) => onUpdateRow(row.id, 'code', event.currentTarget.value)} placeholder="코드" size="sm" /></Table.Td>
-      <Table.Td><TextInput aria-label="코드명" value={row.name} disabled={disabled} onChange={(event) => onUpdateRow(row.id, 'name', event.currentTarget.value)} placeholder="코드명 입력" size="sm" /></Table.Td>
+      <Table.Td><TextInput aria-label={codeLabel} value={row.code} disabled={!row.isNew || disabled} onChange={(event) => onUpdateRow(row.id, 'code', event.currentTarget.value)} placeholder={codeLabel} size="sm" /></Table.Td>
+      <Table.Td><TextInput aria-label={nameLabel} value={row.name} disabled={disabled} onChange={(event) => onUpdateRow(row.id, 'name', event.currentTarget.value)} placeholder={`${nameLabel} 입력`} size="sm" /></Table.Td>
+      {propertyLabels.map((label, propertyIndex) => (
+        <Table.Td key={label}><TextInput aria-label={label} value={propertyValue(row, propertyIndex)} disabled={disabled} onChange={(event) => onUpdateRow(row.id, `property${propertyIndex + 1}`, event.currentTarget.value)} placeholder={label} size="sm" /></Table.Td>
+      ))}
       <Table.Td><TextInput aria-label="정렬 순서" type="number" min={0} value={String(row.order)} disabled={disabled} onChange={(event) => onUpdateRow(row.id, 'order', Number(event.currentTarget.value))} size="sm" /></Table.Td>
       <Table.Td>
         <Select
@@ -124,6 +130,7 @@ export default function CodeMasterPage() {
   const [exportLoading, setExportLoading] = useState(false);
   const [deleteRequest, setDeleteRequest] = useState(null);
   const uploadInputRef = useRef(null);
+  const selectedGroup = groups.find((group) => group.groupcode === selectedId) || null;
 
   // 서버에서 그룹 전체를 다시 받아 로컬 편집 상태를 동기화합니다.
   // 저장/삭제 후 호출될 때는 작업한 그룹을 계속 선택하도록 코드값을 받습니다.
@@ -132,12 +139,13 @@ export default function CodeMasterPage() {
     try {
       const { data } = await axios.get('/api/code-master/groups', { headers: authHeaders() });
       const responseGroups = new Map((data.groups || []).map((group) => [group.groupcode, group]));
-      const loadedGroups = FIXED_GROUPS.map(({ groupcode, name }) => {
+      const loadedGroups = FIXED_GROUPS.map(({ groupcode, name, properties }) => {
         const group = responseGroups.get(groupcode);
         return {
           id: groupcode,
           groupcode,
           name,
+          propertyLabels: group?.property_labels || properties,
           description: group?.description || `${name} 회사 공통 코드`,
           rows: (group?.rows || []).map((row) => ({ ...row, isNew: false, isDirty: false })),
         };
@@ -158,22 +166,26 @@ export default function CodeMasterPage() {
 
   // CustomerPage와 같은 방식으로 업로드용 엑셀 템플릿을 내려받습니다.
   const downloadTemplate = useCallback(() => {
-    const headers = ['그룹코드', '코드명', '정렬순서', '사용여부(Y/N)', '설명'];
+    const group = selectedGroup || FIXED_GROUPS.find(({ groupcode }) => groupcode === selectedId);
+    if (!group) return;
+    const codeLabel = group.groupcode === 'DELIVERY' ? '착지코드' : '코드';
+    const nameLabel = group.groupcode === 'DELIVERY' ? '착지명' : '코드명';
+    const headers = ['그룹코드', codeLabel, nameLabel, ...(group.propertyLabels || group.properties), '정렬순서', '사용여부', '비고'];
     const worksheet = XLSX.utils.aoa_to_sheet([
       headers,
-      ['강종', '001', 1, 'Y', '설명을 입력 해주세요'],
+      [group.groupcode, '', '', '', '', '', '', 0, '사용중', ''],
     ]);
-    worksheet['!cols'] = [48, 28, 14, 18, 36].map((wch) => ({ wch }));
+    worksheet['!cols'] = headers.map(() => ({ wch: 20 }));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '공통코드');
     XLSX.writeFile(workbook, '공통코드_일괄등록_샘플.xlsx');
-  }, []);
+  }, [selectedGroup, selectedId]);
 
   // 현재 조회된 전체 고정 그룹을 CustomerPage처럼 XLSX 워크북으로 내보냅니다.
   const exportCodes = useCallback(() => {
     setExportLoading(true);
     try {
-      const headers = ['그룹코드', '그룹명', '코드', '코드명', '정렬순서', '사용여부(Y/N)', '설명'];
+      const headers = ['그룹코드', '그룹명', '코드', '코드명', '속성1', '속성2', '속성3', '속성4', '정렬순서', '사용여부', '비고'];
       const worksheet = XLSX.utils.aoa_to_sheet([
         headers,
         ...groups.flatMap((group) => group.rows.map((row) => [
@@ -181,12 +193,13 @@ export default function CodeMasterPage() {
           group.name,
           row.code ?? '',
           row.name ?? '',
+          ...[0, 1, 2, 3].map((index) => propertyValue(row, index)),
           Number(row.order) || 0,
-          row.use ? 'Y' : 'N',
+          row.use ? '사용중' : '미사용',
           row.description ?? '',
         ])),
       ]);
-      worksheet['!cols'] = [20, 18, 18, 28, 14, 18, 36].map((wch) => ({ wch }));
+      worksheet['!cols'] = headers.map(() => ({ wch: 20 }));
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, '공통코드목록');
       const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
@@ -223,13 +236,24 @@ export default function CodeMasterPage() {
       const normalizeKey = (value) => String(value).trim().toLowerCase().replace(/\s+/g, '');
       const aliases = {
         groupcode: ['groupcode', '그룹코드', '그룹 코드', '그룹', '그룹명'],
-        code: ['code', '코드', '코드값'],
-        codename: ['codename', '코드명', '코드 이름'],
+        code: ['code', '코드', '코드값', '착지코드'],
+        codename: ['codename', '코드명', '코드 이름', '착지명'],
         sortorder: ['sortorder', '정렬순서', '정렬 순서', '순서'],
         use: ['use', '사용여부', '사용 여부', 'use_yn'],
         description: ['description', '설명', '비고'],
+        property1: ['property1', '속성1'],
+        property2: ['property2', '속성2'],
+        property3: ['property3', '속성3'],
+        property4: ['property4', '속성4'],
       };
-      const groupByName = new Map(FIXED_GROUPS.map((group) => [normalizeKey(group.name), group.groupcode]));
+      const groupByName = new Map(FIXED_GROUPS.flatMap((group) => [
+        [normalizeKey(group.name), group.groupcode],
+        [normalizeKey(group.groupcode), group.groupcode],
+        ...(group.groupcode === 'MATERIAL' ? [[normalizeKey('강종'), group.groupcode]] : []),
+        ...(group.groupcode === 'PROCESS' ? [[normalizeKey('공정'), group.groupcode]] : []),
+        ...(group.groupcode === 'OTHER_COST' ? [[normalizeKey('기타비용'), group.groupcode]] : []),
+        ...(group.groupcode === 'DELIVERY' ? [[normalizeKey('착지'), group.groupcode]] : []),
+      ]));
       const normalizedRows = rows.map((row, index) => {
         const cells = Object.fromEntries(Object.entries(row).map(([key, value]) => [normalizeKey(key), String(value).trim()]));
         const valueFor = (field) => {
@@ -240,6 +264,7 @@ export default function CodeMasterPage() {
         const groupcode = FIXED_GROUPS.find((group) => normalizeKey(group.groupcode) === normalizeKey(groupValue))?.groupcode
           || groupByName.get(normalizeKey(groupValue))
           || '';
+        const group = FIXED_GROUPS.find((item) => item.groupcode === groupcode);
         const useValue = valueFor('use').toUpperCase();
         const sortText = valueFor('sortorder');
         const sortorder = sortText === '' ? 0 : Number(sortText);
@@ -248,8 +273,12 @@ export default function CodeMasterPage() {
           groupcode,
           code: valueFor('code'),
           codename: valueFor('codename'),
+          property1: cells[normalizeKey('property1')] ?? cells[normalizeKey(group?.properties?.[0] || '')] ?? '',
+          property2: cells[normalizeKey('property2')] ?? cells[normalizeKey(group?.properties?.[1] || '')] ?? '',
+          property3: cells[normalizeKey('property3')] ?? cells[normalizeKey(group?.properties?.[2] || '')] ?? '',
+          property4: cells[normalizeKey('property4')] ?? cells[normalizeKey(group?.properties?.[3] || '')] ?? '',
           sortorder,
-          use: useValue === '' || useValue === 'Y' || useValue === '사용' || useValue === '사용함',
+          use: useValue === '' || useValue === 'Y' || useValue === '사용' || useValue === '사용함' || useValue === '사용중',
           useValue,
           description: valueFor('description'),
         };
@@ -265,7 +294,7 @@ export default function CodeMasterPage() {
         if (!row.groupcode) rowErrors.push('그룹코드 확인 필요');
         if (!row.codename) rowErrors.push('코드명 필수');
         if (!Number.isInteger(row.sortorder) || row.sortorder < 0 || row.sortorder > 2_147_483_647) rowErrors.push('정렬순서는 0 이상의 정수여야 함');
-        if (row.useValue && !['Y', 'N', '사용', '미사용', '사용함', '사용안함'].includes(row.useValue)) rowErrors.push('사용여부는 Y 또는 N이어야 함');
+        if (row.useValue && !['Y', 'N', '사용', '미사용', '사용함', '사용안함', '사용중'].includes(row.useValue)) rowErrors.push('사용여부는 Y/N, 사용중/미사용으로 입력해 주세요');
         const key = row.code ? `${row.groupcode}:${row.code}` : '';
         if (key && seen.has(key)) rowErrors.push('엑셀 파일 안에 코드 중복');
         if (row.groupcode && row.code && groups.find((group) => group.groupcode === row.groupcode)?.rows.some((item) => item.code === row.code)) {
@@ -311,8 +340,8 @@ export default function CodeMasterPage() {
           setUploadProgress(`${inserted.toLocaleString()}건 서버 등록 중`);
           try {
             await axios.put(`/api/code-master/groups/${encodeURIComponent(groupcode)}`, {
-              items: chunk.map(({ code, codename, sortorder, use, description }) => ({
-                code, codename, sortorder, use, description, is_new: true,
+              items: chunk.map(({ code, codename, property1, property2, property3, property4, sortorder, use, description }) => ({
+                code, codename, property1, property2, property3, property4, sortorder, use, description, is_new: true,
               })),
             }, { headers: authHeaders() });
             inserted += chunk.length;
@@ -345,7 +374,6 @@ export default function CodeMasterPage() {
   }, [loadGroups]);
 
   // 그룹/코드 검색은 표시용 목록만 필터링하며 원본 groups 데이터는 유지합니다.
-  const selectedGroup = groups.find((group) => group.groupcode === selectedId) || null;
   const visibleGroups = useMemo(
     () => groups.filter((group) => group.name.toLowerCase().includes(groupQuery.trim().toLowerCase())),
     [groups, groupQuery],
@@ -375,7 +403,7 @@ export default function CodeMasterPage() {
     const nextOrder = Math.max(0, ...selectedGroup.rows.map((row) => Number(row.order) || 0)) + 1;
     const id = `new-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setGroups((current) => current.map((group) => group.groupcode === selectedId
-      ? { ...group, rows: [...group.rows, { id, code: nextCode(group.rows), name: '', order: nextOrder, use: true, description: '', isNew: true }] }
+      ? { ...group, rows: [...group.rows, { id, code: nextCode(group.rows), name: '', properties: ['', '', '', ''], order: nextOrder, use: true, description: '', isNew: true }] }
       : group));
     setSelectedRows([]);
     setCodeQuery('');
@@ -437,6 +465,10 @@ export default function CodeMasterPage() {
         items: selectedGroup.rows.map((row) => ({
           code: row.code.trim(),
           codename: row.name.trim(),
+          property1: propertyValue(row, 0),
+          property2: propertyValue(row, 1),
+          property3: propertyValue(row, 2),
+          property4: propertyValue(row, 3),
           sortorder: Number(row.order) || 0,
           use: Boolean(row.use),
           description: row.description || '',
@@ -564,8 +596,9 @@ export default function CodeMasterPage() {
                 <Table.Tr>
                   <Table.Th className={classes.checkCol}><input aria-label="현재 페이지 전체 선택" type="checkbox" checked={pageRows.length > 0 && pageRows.every((row) => selectedRowIds.has(row.id))} onChange={(event) => toggleCurrentPageSelection(event.currentTarget.checked)} /></Table.Th>
                   <Table.Th className={classes.numberCol}>No.</Table.Th>
-                  <Table.Th className={classes.codeCol}>코드</Table.Th>
-                  <Table.Th>코드명</Table.Th>
+                  <Table.Th className={classes.codeCol}>{selectedGroup?.groupcode === 'DELIVERY' ? '착지코드' : '코드'}</Table.Th>
+                  <Table.Th>{selectedGroup?.groupcode === 'DELIVERY' ? '착지명' : '코드명'}</Table.Th>
+                  {(selectedGroup?.propertyLabels || []).map((label) => <Table.Th key={label}>{label}</Table.Th>)}
                   <Table.Th className={classes.orderCol}>정렬 순서</Table.Th>
                   <Table.Th className={classes.statusCol}>사용 여부</Table.Th>
                   <Table.Th className={classes.actionCol}>관리</Table.Th>
@@ -577,6 +610,9 @@ export default function CodeMasterPage() {
                     key={row.id}
                     row={row}
                     index={offset + index}
+                    codeLabel={selectedGroup?.groupcode === 'DELIVERY' ? '착지코드' : '코드'}
+                    nameLabel={selectedGroup?.groupcode === 'DELIVERY' ? '착지명' : '코드명'}
+                    propertyLabels={selectedGroup?.propertyLabels || []}
                     selected={selectedRowIds.has(row.id)}
                     disabled={Boolean(uploadProgress)}
                     saving={saving}
@@ -585,7 +621,7 @@ export default function CodeMasterPage() {
                     onDelete={requestDeleteRow}
                   />
                 )) : (
-                  <Table.Tr><Table.Td colSpan={7} className={classes.emptyState}>표시할 코드가 없습니다.</Table.Td></Table.Tr>
+                  <Table.Tr><Table.Td colSpan={11} className={classes.emptyState}>표시할 코드가 없습니다.</Table.Td></Table.Tr>
                 )}
               </Table.Tbody>
             </Table>

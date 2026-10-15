@@ -1,4 +1,4 @@
--- Matches the tenant-scoped CodeMaster01t table used by the API.
+-- CodeMaster01t schema used by backend/CodeMaster.py.
 -- PostgreSQL folds this unquoted identifier to codemaster01t.
 CREATE TABLE IF NOT EXISTS CodeMaster01t (
     companyid   VARCHAR(50) NOT NULL,
@@ -7,13 +7,17 @@ CREATE TABLE IF NOT EXISTS CodeMaster01t (
     groupname   VARCHAR(100) NOT NULL,
     code        VARCHAR(50) NOT NULL,
     codename    VARCHAR(150) NOT NULL,
+    property1   VARCHAR(100),
+    property2   VARCHAR(100),
+    property3   VARCHAR(100),
+    property4   VARCHAR(100),
     sortorder   INTEGER NOT NULL DEFAULT 0,
-    use_yn      CHAR(1) NOT NULL DEFAULT 'Y',
+    useyn       VARCHAR(50) NOT NULL DEFAULT '사용중',
     description VARCHAR(500),
-    createdat   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updatedat   TIMESTAMP,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (companyid, groupcode, code),
-    CONSTRAINT ck_codemaster01t_use_yn CHECK (use_yn IN ('Y', 'N'))
+    CONSTRAINT ck_codemaster01t_useyn CHECK (useyn IN ('사용중', '미사용'))
 );
 
 CREATE INDEX IF NOT EXISTS ix_codemaster01t_group_order

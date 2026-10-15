@@ -15,12 +15,16 @@ class CodeItemInput(BaseModel):
     """저장 요청에 포함되는 코드 한 건의 입력 형식과 필드 제약입니다."""
     code: str = Field(min_length=1, max_length=50)
     codename: str = Field(min_length=1, max_length=150)
+    property1: str = Field(default="", max_length=100)
+    property2: str = Field(default="", max_length=100)
+    property3: str = Field(default="", max_length=100)
+    property4: str = Field(default="", max_length=100)
     sortorder: int = Field(default=0, ge=0, le=2_147_483_647)
     use: bool = True
     description: str = Field(default="", max_length=500)
     is_new: bool = False
 
-    @field_validator("code", "codename", "description")
+    @field_validator("code", "codename", "property1", "property2", "property3", "property4", "description")
     @classmethod
     def strip_text(cls, value: str) -> str:
         """문자열 앞뒤 공백을 제거해 공백 차이로 값이 달라지는 것을 막습니다."""
