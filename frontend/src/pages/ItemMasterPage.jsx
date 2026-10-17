@@ -20,7 +20,8 @@ import {
 import { notifications } from '@mantine/notifications';
 import { IconDeviceFloppy, IconDownload, IconPlus, IconSearch, IconTrash, IconUpload } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
+import { applyExcelHeaderStyle } from '../utils/excelHeaderStyle';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
 import classes from '../styles/pages/ItemMaster.module.css';
 import codeClasses from '../styles/pages/CodeMasterPage.module.css';
@@ -91,7 +92,7 @@ const normalizeImportedRow = (raw) => {
   return item;
 };
 
-const ItemCells = memo(function ItemCells({ item, index, selected, disabled, onSelect, onChange, onPaste, registerCodeInput, onDelete }) {
+const ItemCells = memo(function ItemCells({ item, index, selected, disabled, onSelect, onChange, onPaste, registerCodeInput, registerCellInput, onFocusCell, onCellKeyDown, onDelete }) {
   const handlePaste = (field) => (event) => {
     const text = event.clipboardData.getData('text/plain');
     if (!text.includes('\t') && !text.includes('\n')) return;
@@ -107,19 +108,26 @@ const ItemCells = memo(function ItemCells({ item, index, selected, disabled, onS
       {FIELDS.map(({ key, label }) => (
         <Table.Td key={key}>
           {key === 'use_yn' ? (
-            <select className={codeClasses.cellSelect} aria-label={label} value={item.use_yn || 'Y'} disabled={disabled} onPaste={handlePaste(key)} onChange={(event) => onChange(item.id, key, event.currentTarget.value)}>
+            <select ref={(element) => registerCellInput(item.id, key, element)} className={codeClasses.cellSelect} aria-label={label} data-row-id={item.id} data-field={key} value={item.use_yn || 'Y'} disabled={disabled} onFocus={() => onFocusCell(item.id, key)} onKeyDown={onCellKeyDown} onPaste={handlePaste(key)} onChange={(event) => onChange(item.id, key, event.currentTarget.value)}>
               <option value="Y">사용중</option>
               <option value="N">사용중지</option>
             </select>
           ) : (
             <input
-              ref={key === 'itemcode' ? (element) => registerCodeInput(item.id, element) : undefined}
+              ref={(element) => {
+                if (key === 'itemcode') registerCodeInput(item.id, element);
+                registerCellInput(item.id, key, element);
+              }}
               className={codeClasses.cellInput}
               aria-label={label}
+              data-row-id={item.id}
+              data-field={key}
               value={item[key] ?? ''}
               placeholder={item.is_new && (key === 'itemcode' || key === 'itemname') ? label : ''}
               readOnly={key === 'itemcode' && !item.is_new}
               disabled={disabled}
+              onFocus={() => onFocusCell(item.id, key)}
+              onKeyDown={onCellKeyDown}
               onPaste={handlePaste(key)}
               onChange={(event) => onChange(item.id, key, event.currentTarget.value)}
             />
@@ -163,6 +171,9 @@ export default function ItemMaster() {
   const uploadRef = useRef(null);
   const virtuosoRef = useRef(null);
   const codeInputsRef = useRef(new Map());
+  const cellInputsRef = useRef(new Map());
+  const activeCellRef = useRef(null);
+  const pendingCellFocusRef = useRef(null);
   const pendingFocusIdRef = useRef('');
   const selectionAnchorRef = useRef('');
   const hasPendingChanges = rows.some((row) => row.is_new || row.is_dirty);
@@ -240,6 +251,68 @@ export default function ItemMaster() {
       codeInputsRef.current.delete(id);
     }
   }, []);
+
+  const registerCellInput = useCallback((id, field, element) => {
+    const key = `${id}:${field}`;
+    if (element) {
+      cellInputsRef.current.set(key, element);
+      if (pendingCellFocusRef.current === key) {
+        element.focus();
+        pendingCellFocusRef.current = null;
+      }
+    } else cellInputsRef.current.delete(key);
+  }, []);
+
+  const setActiveCell = useCallback((id, field) => {
+    activeCellRef.current = { id, field };
+  }, []);
+
+  const focusGridCell = useCallback((rowId, field) => {
+    const key = `${rowId}:${field}`;
+    const input = cellInputsRef.current.get(key);
+    if (input) { input.focus(); return; }
+    const rowIndex = filteredRows.findIndex((row) => row.id === rowId);
+    if (rowIndex < 0) return;
+    pendingCellFocusRef.current = key;
+    virtuosoRef.current?.scrollToIndex({ index: rowIndex, align: 'center', behavior: 'auto' });
+  }, [filteredRows]);
+
+  const moveGridCell = useCallback((rowId, field, rowDelta, columnDelta) => {
+    const rowIndex = filteredRows.findIndex((row) => row.id === rowId);
+    if (rowIndex < 0) return false;
+    let columnIndex = EDITABLE_FIELDS.indexOf(field);
+    if (columnIndex < 0) return false;
+    let nextRow = rowIndex + rowDelta;
+    let nextColumn = columnIndex + columnDelta;
+    if (nextColumn < 0) { nextRow -= 1; nextColumn = EDITABLE_FIELDS.length - 1; }
+    if (nextColumn >= EDITABLE_FIELDS.length) { nextRow += 1; nextColumn = 0; }
+    if (nextRow < 0 || nextRow >= filteredRows.length) return false;
+    focusGridCell(filteredRows[nextRow].id, EDITABLE_FIELDS[nextColumn]);
+    return true;
+  }, [filteredRows, focusGridCell]);
+
+  const handleTableKeyDown = useCallback((event) => {
+    const target = event.target instanceof HTMLElement && event.target.dataset.field ? event.target : null;
+    if (!target) return;
+    if (target.tagName === 'SELECT' && event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    const field = target.dataset.field;
+    const rowId = target.dataset.rowId;
+    let rowDelta = 0;
+    let columnDelta = 0;
+    if (event.key === 'Enter') rowDelta = event.shiftKey ? -1 : 1;
+    else if (event.key === 'Tab') columnDelta = event.shiftKey ? -1 : 1;
+    else if (event.key === 'ArrowDown') rowDelta = 1;
+    else if (event.key === 'ArrowUp') rowDelta = -1;
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      const hasSelection = 'selectionStart' in target && target.selectionStart !== target.selectionEnd;
+      const atBoundary = !('selectionStart' in target) || target.readOnly || hasSelection
+        ? !hasSelection
+        : event.key === 'ArrowLeft' ? target.selectionStart === 0 : target.selectionEnd === target.value.length;
+      if (!atBoundary) return;
+      columnDelta = event.key === 'ArrowLeft' ? -1 : 1;
+    } else return;
+    if (moveGridCell(rowId, field, rowDelta, columnDelta)) event.preventDefault();
+  }, [moveGridCell]);
 
   const requireNoPendingChanges = useCallback(() => {
     if (!hasPendingChanges) return true;
@@ -404,6 +477,7 @@ export default function ItemMaster() {
     const headers = FIELDS.map(({ label }) => label);
     const exampleRow = FIELDS.map(({ key }) => key === 'use_yn' ? 'Y' : '');
     const sheet = XLSX.utils.aoa_to_sheet([headers, exampleRow]);
+    applyExcelHeaderStyle(sheet, headers.length);
     sheet['!cols'] = FIELDS.map(({ width }) => ({ wch: Math.max(12, Math.round(width / 8)) }));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, sheet, '품목등록');
@@ -418,6 +492,7 @@ export default function ItemMaster() {
         return item[key] ?? '';
       }));
       const sheet = XLSX.utils.aoa_to_sheet([FIELDS.map(({ label }) => label), ...values]);
+      applyExcelHeaderStyle(sheet, FIELDS.length);
       sheet['!cols'] = FIELDS.map(({ width }) => ({ wch: Math.max(12, Math.round(width / 8)) }));
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, sheet, '품목목록');
@@ -501,9 +576,12 @@ export default function ItemMaster() {
       onChange={changeCell}
       onPaste={pasteRange}
       registerCodeInput={registerCodeInput}
+      registerCellInput={registerCellInput}
+      onFocusCell={setActiveCell}
+      onCellKeyDown={handleTableKeyDown}
       onDelete={requestDeleteOne}
     />
-  ), [selectedSet, saving, uploading, toggleSelection, changeCell, pasteRange, registerCodeInput, requestDeleteOne]);
+  ), [selectedSet, saving, uploading, toggleSelection, changeCell, pasteRange, registerCodeInput, registerCellInput, setActiveCell, handleTableKeyDown, requestDeleteOne]);
   const headerColumns = [
     { key: 'select', width: 46, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="현재 목록 전체 선택" checked={filteredRows.length > 0 && filteredRows.every((row) => selectedSet.has(row.id))} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
     { key: 'number', width: 62, minWidth: 48, className: codeClasses.numberCol, label: 'No.' },

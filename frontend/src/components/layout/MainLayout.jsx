@@ -3,7 +3,7 @@ import { AppShell, Burger, Group, Text, Box, ScrollArea, Avatar, Button, Divider
 import { useDisclosure } from '@mantine/hooks';
 import { LinksGroup } from './MainLayoutLink';
 import classes from '../../styles/layout/MainLayout.module.css';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate,useLocation } from 'react-router-dom';
 import { 
   IconLogout,
@@ -24,25 +24,7 @@ const mockdata = [
     initiallyOpened: false,
     MenuID:null,
   },
-  {
-    label: '매입 관리',
-    icon: <IconPackage size={17} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '매입등록', link: '/InventoryMonitorPage', icon: '', MenuID:'M-9' },
-      { label: '매입현황', link: '/InventoryMonitorPage', icon: '', MenuID:'M-10' },
-    ],
-  },  
-  {
-    label: '매출 관리',
-    icon: <IconPackage size={17} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '매출등록', link: '/OMSSAPVerifPage', icon: '', MenuID:'M-11' },
-      { label: '매출현황', link: '/WMSOMSVerifPage', icon: '', MenuID:'M-12' },
-      { label: '매출이익률', link: '/WMSOMSVerifPage', icon: '', MenuID:'M-13' },
-    ],
-  },  
+
 
   {
     label: '재고 관리',
@@ -60,16 +42,33 @@ const mockdata = [
     initiallyOpened: false,
     links: [
       { label: '거래처등록', link: '/CustomerPage', icon: '', MenuID:'M-11' },
-      { label: '거래처원장', link: '/WMSOMSVerifPage', icon: '', MenuID:'M-12' },
     ],
   },   
   {
-    label: '자금 관리',
+    label: '입고 관리',
     icon: <IconPackage size={17} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      { label: '수금/지급', link: '/UserPage', icon: '✔️', MenuID:'M-14' },
-      { label: '계산서등록', link: '/DepartmentPage', icon: '✔️', MenuID:'M-16' },
+      { label: '입고등록', link: '/InboundRegisterPage', icon: '✔️', MenuID:'M-14' },
+      { label: '입고현황', link: '/InboundSearchPage', icon: '✔️', MenuID:'M-16' },
+    ],
+  },
+  {
+    label: '출고 관리',
+    icon: <IconPackage size={17} stroke={1.8} />,
+    initiallyOpened: false,
+    links: [
+      { label: '출고등록', link: '/OutboundRegisterPage', icon: '', MenuID: 'M-22' },
+      { label: '출고현황', link: '/OutboundSearchPage', icon: '', MenuID: 'M-23' },
+    ],
+  },
+
+  {
+    label: '\uAE30\uCD08\uC7AC\uACE0 \uAD00\uB9AC',
+    icon: <IconPackage size={17} stroke={1.8} />,
+    initiallyOpened: false,
+    links: [
+      { label: '\uAE30\uCD08\uC7AC\uACE0 \uB4F1\uB85D', link: '/StockStandPage', icon: '', MenuID: 'M-24' },
     ],
   },
 
@@ -260,9 +259,9 @@ const handlePasswordChange = async (e) => {
   }
 
 
-const links = useMemo(()=>{
-  return mockdata.map((item) => <LinksGroup {...item} key={item.label} />);
-}, []);
+const links = mockdata.map((item) => (
+  <LinksGroup {...item} pathname={pathname} key={item.label} />
+));
 
 //   /* 잠시 주석처리 */
 // const links = useMemo(() => {

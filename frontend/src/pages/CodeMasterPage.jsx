@@ -29,7 +29,8 @@ import {
   IconTrash,
   IconUpload,
 } from '@tabler/icons-react';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
+import { applyExcelHeaderStyle } from '../utils/excelHeaderStyle';
 import { TableVirtuoso } from 'react-virtuoso';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
 import classes from '../styles/pages/CodeMasterPage.module.css';
@@ -80,7 +81,7 @@ const groupPropertyIndex = (group) => Number(group?.propertyIndex || group?.prop
 const PASTE_FIELDS = ['code', 'name', 'property', 'order', 'use', 'description'];
 
 // 화면에 보이는 행만 렌더링하고, 일반 코드 수정 시에는 변경된 행만 다시 렌더링합니다.
-const CodeMasterTableCells = memo(function CodeMasterTableCells({ row, index, codeLabel, nameLabel, propertyLabel, selected, disabled, saving, onToggleSelection, onUpdateRow, onPasteRange, onRegisterCodeInput, onDelete }) {
+const CodeMasterTableCells = memo(function CodeMasterTableCells({ row, index, codeLabel, nameLabel, propertyLabel, selected, disabled, saving, onToggleSelection, onUpdateRow, onPasteRange, onRegisterCodeInput, onRegisterCellInput, onFocusCell, onDelete }) {
   const paste = (field) => (event) => {
     if (!event.clipboardData.getData('text/plain').includes('\t') && !event.clipboardData.getData('text/plain').includes('\n')) return;
     event.preventDefault();
@@ -90,12 +91,12 @@ const CodeMasterTableCells = memo(function CodeMasterTableCells({ row, index, co
     <>
       <Table.Td className={classes.checkCol}><input aria-label={`${row.name || '새 코드'} 선택`} type="checkbox" checked={selected} onChange={(event) => onToggleSelection(row.id, event.nativeEvent.shiftKey)} /></Table.Td>
       <Table.Td className={classes.rowNumber}>{index + 1}</Table.Td>
-      <Table.Td><input ref={(element) => onRegisterCodeInput(row.id, element)} className={classes.cellInput} aria-label={codeLabel} value={row.code ?? ''} readOnly={!row.isNew} disabled={disabled} onPaste={paste('code')} onChange={(event) => onUpdateRow(row.id, 'code', event.currentTarget.value)} placeholder={codeLabel} /></Table.Td>
-      <Table.Td><input className={classes.cellInput} aria-label={nameLabel} value={row.name ?? ''} disabled={disabled} onPaste={paste('name')} onChange={(event) => onUpdateRow(row.id, 'name', event.currentTarget.value)} placeholder={`${nameLabel} 입력`} /></Table.Td>
-      {propertyLabel && <Table.Td><input className={classes.cellInput} aria-label={propertyLabel} value={row.property ?? ''} disabled={disabled} onPaste={paste('property')} onChange={(event) => onUpdateRow(row.id, 'property', event.currentTarget.value)} /></Table.Td>}
-      <Table.Td><input className={classes.cellInput} aria-label="정렬 순서" type="number" min={0} value={String(row.order)} disabled={disabled} onPaste={paste('order')} onChange={(event) => onUpdateRow(row.id, 'order', Number(event.currentTarget.value))} /></Table.Td>
-      <Table.Td><select className={classes.cellSelect} aria-label={`${row.code || '코드'} 사용여부`} value={row.use ? 'Y' : 'N'} disabled={disabled} onPaste={paste('use')} onChange={(event) => onUpdateRow(row.id, 'use', event.currentTarget.value === 'Y')}><option value="Y">사용중</option><option value="N">사용중지</option></select></Table.Td>
-      <Table.Td><input className={classes.cellInput} aria-label="비고" value={row.description ?? ''} disabled={disabled} onPaste={paste('description')} onChange={(event) => onUpdateRow(row.id, 'description', event.currentTarget.value)} /></Table.Td>
+      <Table.Td><input ref={(element) => { onRegisterCodeInput(row.id, element); onRegisterCellInput(row.id, 'code', element); }} className={classes.cellInput} aria-label={codeLabel} data-row-id={row.id} data-field="code" value={row.code ?? ''} readOnly={!row.isNew} disabled={disabled} onFocus={() => onFocusCell(row.id, 'code')} onPaste={paste('code')} onChange={(event) => onUpdateRow(row.id, 'code', event.currentTarget.value)} placeholder={codeLabel} /></Table.Td>
+      <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'name', element)} className={classes.cellInput} aria-label={nameLabel} data-row-id={row.id} data-field="name" value={row.name ?? ''} disabled={disabled} onFocus={() => onFocusCell(row.id, 'name')} onPaste={paste('name')} onChange={(event) => onUpdateRow(row.id, 'name', event.currentTarget.value)} placeholder={`${nameLabel} 입력`} /></Table.Td>
+      {propertyLabel && <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'property', element)} className={classes.cellInput} aria-label={propertyLabel} data-row-id={row.id} data-field="property" value={row.property ?? ''} disabled={disabled} onFocus={() => onFocusCell(row.id, 'property')} onPaste={paste('property')} onChange={(event) => onUpdateRow(row.id, 'property', event.currentTarget.value)} /></Table.Td>}
+      <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'order', element)} className={classes.cellInput} aria-label="정렬 순서" data-row-id={row.id} data-field="order" type="number" min={0} value={String(row.order)} disabled={disabled} onFocus={() => onFocusCell(row.id, 'order')} onPaste={paste('order')} onChange={(event) => onUpdateRow(row.id, 'order', Number(event.currentTarget.value))} /></Table.Td>
+      <Table.Td><select ref={(element) => onRegisterCellInput(row.id, 'use', element)} className={classes.cellSelect} aria-label={`${row.code || '코드'} 사용여부`} data-row-id={row.id} data-field="use" value={row.use ? 'Y' : 'N'} disabled={disabled} onFocus={() => onFocusCell(row.id, 'use')} onPaste={paste('use')} onChange={(event) => onUpdateRow(row.id, 'use', event.currentTarget.value === 'Y')}><option value="Y">사용중</option><option value="N">사용중지</option></select></Table.Td>
+      <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'description', element)} className={classes.cellInput} aria-label="비고" data-row-id={row.id} data-field="description" value={row.description ?? ''} disabled={disabled} onFocus={() => onFocusCell(row.id, 'description')} onPaste={paste('description')} onChange={(event) => onUpdateRow(row.id, 'description', event.currentTarget.value)} /></Table.Td>
       <Table.Td><Tooltip label="코드 삭제"><ActionIcon variant="subtle" color="red" aria-label="코드 삭제" disabled={saving || disabled} onClick={() => onDelete(row)}><IconTrash size={16} /></ActionIcon></Tooltip></Table.Td>
     </>
   );
@@ -176,6 +177,9 @@ export default function CodeMasterPage() {
   const uploadInputRef = useRef(null);
   const tableRef = useRef(null);
   const codeInputRefs = useRef(new Map());
+  const cellInputRefs = useRef(new Map());
+  const activeCellRef = useRef(null);
+  const pendingCellFocusRef = useRef(null);
   const pendingCodeFocusRef = useRef('');
   const selectionAnchorRef = useRef('');
   const groupsRef = useRef(groups);
@@ -183,6 +187,9 @@ export default function CodeMasterPage() {
   groupsRef.current = groups;
   selectedIdRef.current = selectedId;
   const selectedGroup = groups.find((group) => group.groupcode === selectedId) || null;
+  const navigationFields = useMemo(() => selectedGroup
+    ? ['code', 'name', ...((selectedGroup.propertyLabels || [])[0] ? ['property'] : []), 'order', 'use', 'description']
+    : [], [selectedGroup]);
   const resizeColumn = useCallback((event, columnKey, defaultWidth, minimumWidth, tableWidth) => {
     event.preventDefault();
     const startX = event.clientX;
@@ -215,6 +222,19 @@ export default function CodeMasterPage() {
       element.focus();
       pendingCodeFocusRef.current = '';
     }
+  }, []);
+  const registerCellInput = useCallback((rowId, field, element) => {
+    const key = `${rowId}:${field}`;
+    if (element) {
+      cellInputRefs.current.set(key, element);
+      if (pendingCellFocusRef.current === key) {
+        element.focus();
+        pendingCellFocusRef.current = null;
+      }
+    } else cellInputRefs.current.delete(key);
+  }, []);
+  const setActiveCell = useCallback((rowId, field) => {
+    activeCellRef.current = { rowId, field };
   }, []);
   const handleSelectGroup = useCallback((groupcode) => {
     setSelectedId(groupcode);
@@ -281,6 +301,7 @@ export default function CodeMasterPage() {
       headers,
       [group.groupcode, '', '', ...(propertyLabel ? [''] : []), 0, 'Y', ''],
     ]);
+    applyExcelHeaderStyle(worksheet, headers.length);
     worksheet['!cols'] = headers.map(() => ({ wch: 20 }));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '공통코드');
@@ -316,6 +337,7 @@ export default function CodeMasterPage() {
           row.description ?? '',
         ]),
       ]);
+      applyExcelHeaderStyle(worksheet, headers.length);
       worksheet['!cols'] = headers.map(() => ({ wch: 20 }));
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, '공통코드목록');
@@ -506,6 +528,52 @@ export default function CodeMasterPage() {
   const totalForView = filteredRows.length;
   const visibleRows = filteredRows;
   const totalCodes = groups.reduce((sum, group) => sum + group.rowCount, 0);
+
+  const focusGridCell = useCallback((rowId, field) => {
+    const key = `${rowId}:${field}`;
+    const input = cellInputRefs.current.get(key);
+    if (input) { input.focus(); return; }
+    const rowIndex = visibleRows.findIndex((row) => row.id === rowId);
+    if (rowIndex < 0) return;
+    pendingCellFocusRef.current = key;
+    tableRef.current?.scrollToIndex({ index: rowIndex, align: 'center', behavior: 'auto' });
+  }, [visibleRows]);
+
+  const moveGridCell = useCallback((rowId, field, rowDelta, columnDelta) => {
+    const rowIndex = visibleRows.findIndex((row) => row.id === rowId);
+    const columnIndex = navigationFields.indexOf(field);
+    if (rowIndex < 0 || columnIndex < 0 || !navigationFields.length) return false;
+    let nextRow = rowIndex + rowDelta;
+    let nextColumn = columnIndex + columnDelta;
+    if (nextColumn < 0) { nextRow -= 1; nextColumn = navigationFields.length - 1; }
+    if (nextColumn >= navigationFields.length) { nextRow += 1; nextColumn = 0; }
+    if (nextRow < 0 || nextRow >= visibleRows.length) return false;
+    focusGridCell(visibleRows[nextRow].id, navigationFields[nextColumn]);
+    return true;
+  }, [visibleRows, navigationFields, focusGridCell]);
+
+  const handleTableKeyDown = useCallback((event) => {
+    const target = event.target instanceof HTMLElement && event.target.dataset.field ? event.target : null;
+    if (!target || target.dataset.field === 'action') return;
+    if (target.tagName === 'SELECT' && event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    const field = target.dataset.field;
+    const rowId = target.dataset.rowId;
+    let rowDelta = 0;
+    let columnDelta = 0;
+    if (event.key === 'Enter') rowDelta = event.shiftKey ? -1 : 1;
+    else if (event.key === 'Tab') columnDelta = event.shiftKey ? -1 : 1;
+    else if (event.key === 'ArrowDown') rowDelta = 1;
+    else if (event.key === 'ArrowUp') rowDelta = -1;
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      const hasSelection = 'selectionStart' in target && target.selectionStart !== target.selectionEnd;
+      const atBoundary = !('selectionStart' in target) || target.readOnly || hasSelection
+        ? !hasSelection
+        : event.key === 'ArrowLeft' ? target.selectionStart === 0 : target.selectionEnd === target.value.length;
+      if (!atBoundary) return;
+      columnDelta = event.key === 'ArrowLeft' ? -1 : 1;
+    } else return;
+    if (moveGridCell(rowId, field, rowDelta, columnDelta)) event.preventDefault();
+  }, [moveGridCell]);
 
   // 선택된 그룹에서 지정 행의 한 필드만 불변 방식으로 갱신합니다.
   const updateRow = useCallback((rowId, key, value) => {
@@ -733,9 +801,11 @@ export default function CodeMasterPage() {
       onUpdateRow={updateRow}
       onPasteRange={pasteRange}
       onRegisterCodeInput={registerCodeInput}
+      onRegisterCellInput={registerCellInput}
+      onFocusCell={setActiveCell}
       onDelete={requestDeleteRow}
     />
-  ), [selectedGroup, selectedRowIds, uploadProgress, saving, toggleRowSelection, updateRow, pasteRange, registerCodeInput, requestDeleteRow]);
+  ), [selectedGroup, selectedRowIds, uploadProgress, saving, toggleRowSelection, updateRow, pasteRange, registerCodeInput, registerCellInput, setActiveCell, requestDeleteRow]);
   const headerColumns = [
     { key: 'select', width: 46, minWidth: 42, className: classes.checkCol, label: <input aria-label="현재 목록 전체 선택" type="checkbox" checked={visibleRows.length > 0 && visibleRows.every((row) => selectedRowIds.has(row.id))} onChange={(event) => toggleCurrentPageSelection(event.currentTarget.checked)} /> },
     { key: 'number', width: 62, minWidth: 48, className: classes.numberCol, label: 'No.' },
@@ -848,7 +918,7 @@ export default function CodeMasterPage() {
             </Group>
           </Group>
 
-          <Box className={`${sharedClasses.tableWrap} ${classes.tableWrap}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }}>
+          <Box className={`${sharedClasses.tableWrap} ${classes.tableWrap}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
             {visibleRows.length ? (
               <TableVirtuoso
                 ref={tableRef}

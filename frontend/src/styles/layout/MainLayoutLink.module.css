@@ -1,11 +1,12 @@
 .control {
   position: relative;
   display: block !important;
+  box-sizing: border-box;
   width: 100% !important;
   min-height: 42px !important;
   margin: 3px 0 !important;
   padding: 9px 12px !important;
-  border: 0 !important;
+  border: 1px solid transparent !important;
   border-radius: 7px !important;
   background: transparent !important;
   color: #d7e0ed !important;
@@ -21,8 +22,7 @@
 
 .controlActive,
 .controlOpen.controlActive {
-  padding-left: 12px !important;
-  border: 1px solid #d92f32 !important;
+  border-color: #d92f32 !important;
   background: #172338 !important;
   color: #fff !important;
 }
@@ -113,6 +113,7 @@
   color: #c5d0df !important;
   cursor: pointer !important;
   font-size: 13px !important;
+  font-weight: 400 !important;
   line-height: 1.35;
   text-decoration: none !important;
   transition: background 140ms ease, color 140ms ease;
@@ -126,7 +127,6 @@
 .subLinkActive {
   background: #d92f32 !important;
   color: #fff !important;
-  font-weight: 650 !important;
 }
 
 .subIcon {

@@ -1,12 +1,16 @@
 import { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { UnstyledButton, Collapse, Group, Box, Text } from '@mantine/core';
 import classes from '../../styles/layout/MainLayoutLink.module.css';
 import { Notifications, notifications } from '@mantine/notifications';
 import axios from 'axios';
 
+function normalizePath(path) {
+  return path === '/' ? path : (path || '').replace(/\/+$/, '');
+}
+
 function itemContainsPath(item, pathname) {
-  if (item.link === pathname) return true;
+  if (normalizePath(item.link) === normalizePath(pathname)) return true;
   return (item.links || []).some((child) => itemContainsPath(child, pathname));
 }
 
@@ -51,7 +55,8 @@ function NestedMenuItem({ item, pathname, navigate, depth = 0 }) {
     <Text
       component="a"
       key={item.label}
-      className={`${classes.subLink} ${item.link === pathname ? classes.subLinkActive : ''}`}
+      className={`${classes.subLink} ${normalizePath(item.link) === normalizePath(pathname) ? classes.subLinkActive : ''}`}
+      aria-current={normalizePath(item.link) === normalizePath(pathname) ? 'page' : undefined}
       onClick={(event) => {
         event.preventDefault();
         if (!item.disabled && item.link) navigate(item.link);
@@ -68,15 +73,11 @@ function NestedMenuItem({ item, pathname, navigate, depth = 0 }) {
 }
 
 // 1. props에 'disabled'를 추가합니다.
-export function LinksGroup({ icon: Icon, label, initiallyOpened, links, link, disabled }) {
-  const [openOverride, setOpenOverride] = useState(null);
+export function LinksGroup({ icon: Icon, label, initiallyOpened, links, link, disabled, pathname }) {
   const hasLinks = Array.isArray(links);
   const navigate = useNavigate();
-  const { pathname } = useLocation();
-  const isActive = link === pathname || (links || []).some((item) => itemContainsPath(item, pathname));
-  const opened = openOverride?.pathname === pathname
-    ? openOverride.value
-    : Boolean(initiallyOpened || isActive);
+  const isActive = normalizePath(link) === normalizePath(pathname) || (links || []).some((item) => itemContainsPath(item, pathname));
+  const [opened, setOpened] = useState(() => Boolean(initiallyOpened || isActive));
 
   
   // 2. 서브 메뉴 아이템들 처리
@@ -92,14 +93,14 @@ export function LinksGroup({ icon: Icon, label, initiallyOpened, links, link, di
           if (disabled) return; 
 
           if (hasLinks) {
-            setOpenOverride({ pathname, value: !opened });
+            setOpened((value) => !value);
           } else if (link) {
             navigate(link);
           }
         }} 
         className={`${classes.control} ${isActive ? classes.controlActive : ''} ${opened ? classes.controlOpen : ''}`}
         aria-expanded={hasLinks ? opened : undefined}
-        aria-current={link === pathname ? 'page' : undefined}
+        aria-current={normalizePath(link) === normalizePath(pathname) ? 'page' : undefined}
         style={{
           // ✅ 대메뉴 비활성 스타일 (필요한 경우)
           opacity: disabled ? 0.5 : 1,

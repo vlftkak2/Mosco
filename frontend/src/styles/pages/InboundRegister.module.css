@@ -1,0 +1,130 @@
+.page {
+  flex: 1;
+  gap: 16px;
+}
+
+.workspace {
+  display: grid;
+  height: max(520px, calc(100vh - 390px));
+  min-height: 520px;
+  flex: 0 0 auto;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 12px;
+}
+
+.editorPanel {
+  display: flex !important;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 4px 16px #26364e09;
+}
+
+.receiptLookupPanel { padding: 13px 16px; box-shadow: 0 3px 12px #26364e08; }
+.receiptLookupIcon { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border: 1px solid #ffd5d6; border-radius: 9px; background: #fff4f4; color: #e34d54; }
+.receiptFinderModalContent { overflow: hidden; border: 1px solid #f0dfe0; border-radius: 13px; box-shadow: 0 18px 55px #5b18251f; }
+.receiptFinderModalHeader { min-height: 62px; padding: 13px 20px; border-bottom: 1px solid #f5d6d8; background: linear-gradient(110deg, #fff0f1 0%, #fffafa 100%); }
+.receiptFinderModalTitle { color: #a72f35; font-size: 16px; }
+.receiptFinderModalClose { color: #a72f35; }
+.receiptFinderModalClose:hover { background: #ffe5e6; color: #8e2228; }
+.receiptFinderTitleIcon { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border: 1px solid #f3c5c8; border-radius: 8px; background: #fff; color: #df444b; }
+.modalHint { padding: 10px 12px; border: 1px solid #f1dcdd; border-radius: 8px; background: #fff8f8; color: #7b5960; font-size: 12px; }
+.receiptFinderFilters { padding: 15px 16px 13px; border: 1px solid #e5e9ef; border-radius: 10px; background: linear-gradient(145deg, #fff 0%, #fafbfc 100%); }
+.receiptFinderFilterGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; }
+.receiptFinderFilters :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #596579; font-size: 11px; font-weight: 700; }
+.receiptFinderFilters :global(.mantine-Input-input) { min-height: 36px; font-size: 12px; }
+.receiptFinderResults { height: 430px; overflow: hidden; border: 1px solid #e1e6ed; border-radius: 8px; }
+.receiptFinderTable { min-width: 720px; }
+.receiptFinderTable thead th { position: sticky; top: 0; z-index: 2; background: #fff3f3; color: #bd343a; font-size: 12px; white-space: nowrap; }
+.receiptFinderTable tbody td { font-size: 12px; }
+.receiptFinderRow { cursor: pointer; }
+.receiptFinderRowActive > td { background: #fff3f3; }
+.receiptFinderAmount { color: #c43d43; font-weight: 700; }
+.receiptLoading { display: grid; min-height: 180px; flex: 1; place-items: center; }
+
+.editorPanel { position: relative; }
+.headerForm {
+  display: grid;
+  grid-template-columns: minmax(135px, 0.9fr) minmax(145px, 1fr) minmax(155px, 1.1fr) minmax(160px, 1.1fr);
+  align-items: end;
+  gap: 10px;
+  padding: 13px 16px 15px;
+  border-bottom: 1px solid #e3e8ef;
+}
+.headerForm :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #475569; font-size: 12px; font-weight: 650; }
+.headerForm :global(.mantine-Input-input) { min-height: 36px; font-size: 13px; }
+.headerDescription { min-width: 120px; }
+.amountInput { padding-right: 9px; background: #f8f9fb; color: #637188; text-align: right; }
+.newRow :global(input):not(.itemCodePickerInput) { background-color: #fff !important; color: #293a52 !important; }
+.autoFilledInput { background: #f1f3f5 !important; color: #8b95a3 !important; cursor: not-allowed; }
+.itemCodePickerInput {
+  padding-right: 27px !important;
+  border-color: #e7b1b3 !important;
+  background-color: #fff9f8 !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23c9373d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-4-4'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 7px center !important;
+  background-size: 14px 14px !important;
+  cursor: zoom-in;
+}
+.itemCodePickerInput:hover { border-color: #d9777b !important; background-color: #fff2f1 !important; }
+.itemCodePickerInput:focus { border-color: #c9373d !important; box-shadow: 0 0 0 2px #c9373d1a; }
+.itemCodePickerInput:disabled {
+  border-color: transparent !important;
+  background-color: #f1f3f5 !important;
+  background-image: none !important;
+  color: #8b95a3 !important;
+  cursor: not-allowed;
+  opacity: 1;
+}
+.itemCodePickerInput:read-only { background: transparent !important; color: #293a52 !important; }
+.savedCell { background: #f1f3f5 !important; color: #8b95a3 !important; }
+.savedCell :global(input),
+.savedCell :global(select) {
+  background-color: #f1f3f5 !important;
+  background-image: none !important;
+  color: #8b95a3 !important;
+  cursor: not-allowed;
+}
+.customerSearchInput { min-width: 0; flex: 1; }
+.customerResults { min-height: 200px; border: 1px solid #dce2ea; border-radius: 6px; overflow: hidden; }
+.pickerResults { position: relative; height: 422px; border: 1px solid #dce2ea; border-radius: 6px; overflow: hidden; }
+.pickerLoader { position: absolute; z-index: 2; top: 9px; right: 10px; pointer-events: none; }
+.pickerTable { width: min(100%, 760px); min-width: 0 !important; table-layout: fixed; }
+.pickerTable thead th { position: sticky !important; top: 0; z-index: 2; }
+.pickerTable :global(th),
+.pickerTable :global(td) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.customerCodeColumn { width: 26%; }
+.customerNameColumn { width: 38%; }
+.customerBusinessColumn { width: 36%; }
+.customerResultRow { cursor: pointer; }
+.customerResultRow:hover > td { background: #fff5f5; }
+.customerEmpty { height: 120px; color: #7d899a !important; text-align: center !important; }
+
+@media (max-width: 1120px) {
+  .headerForm { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
+  .headerDescription { grid-column: span 2; }
+}
+
+@media (max-width: 850px) {
+  .workspace { height: auto; min-height: 0; grid-template-columns: minmax(0, 1fr); }
+  .editorPanel { height: 640px; }
+}
+
+@media (max-width: 700px) {
+  .receiptFinderFilterGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .page.page { margin: -12px; padding: 18px 12px 24px; }
+  .workspace { gap: 12px; }
+  .headerForm { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; gap: 8px; }
+  .headerDescription { grid-column: span 2; }
+  .receiptFinderFilterGrid { grid-template-columns: minmax(0, 1fr); }
+  .editorPanel > :global(.mantine-Group-root:first-child) { align-items: stretch; padding: 13px; }
+  .editorPanel > :global(.mantine-Group-root:first-child) > :global(.mantine-Group-root:last-child) { justify-content: flex-end; }
+  .editorPanel { height: 680px; }
+}
