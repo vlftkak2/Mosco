@@ -993,7 +993,7 @@ export default function CustomerPage() {
       "전화번호",
       "팩스",
       "이메일",
-      "은행코드",
+      "은행명",
       "계좌번호",
       "사용여부",
       "비고",
@@ -1060,7 +1060,13 @@ export default function CustomerPage() {
           customer.phone ?? "",
           customer.fax ?? "",
           customer.email ?? "",
-          banks.find((bank) => bank.bankcode === customer.bankcode)?.bankname ?? customer.bankcode ?? "",
+          customer.bankname ??
+            banks.find(
+              (bank) =>
+                String(bank.bankcode ?? "").trim().toLocaleLowerCase() ===
+                String(customer.bankcode ?? "").trim().toLocaleLowerCase(),
+            )?.bankname ??
+            "",
           customer.accountno ?? "",
           displayUseyn(customer.useryn ?? customer.useyn),
           customer.remark ?? "",
@@ -1138,14 +1144,14 @@ export default function CustomerPage() {
           phone: ["phone", "전화번호", "대표 연락처", "연락처"],
           fax: ["fax", "팩스"],
           email: ["email", "이메일", "메일"],
-          bankcode: ["bankcode", "은행코드", "bank", "은행", "은행명", "bankname"],
+          bankcode: ["bankname", "은행명", "은행", "bankcode", "은행코드", "bank"],
           accountno: ["accountno", "계좌번호", "계좌"],
           address: ["address", "주소", "사업장 주소"],
           useryn: ["useryn", "사용여부", "사용 여부"],
           remark: ["remark", "비고"],
         };
         const imported = rows
-          .map((row) => {
+          .map((row, rowIndex) => {
             const normalized = Object.fromEntries(
               Object.entries(row).map(([key, value]) => [
                 key.trim().toLowerCase(),
@@ -1161,15 +1167,18 @@ export default function CustomerPage() {
               );
               if (key) customer[field] = normalized[key.toLowerCase()];
             });
-            const importedBank = customer.bankcode.toLowerCase();
-            const bankMatch = banks.find((bank) =>
-              bank.bankcode.toLowerCase() === importedBank
-              || bank.bankname.toLowerCase() === importedBank,
-            );
+            const importedBankName = customer.bankcode.trim().toLocaleLowerCase();
+            const bankMatch = importedBankName
+              ? banks.find((bank) => bank.bankname.trim().toLocaleLowerCase() === importedBankName)
+              : null;
             if (bankMatch) customer.bankcode = bankMatch.bankcode;
-            return customer;
+            return {
+              customer,
+              excelRow: rowIndex + 2,
+              bankError: Boolean(importedBankName && !bankMatch),
+            };
           })
-          .filter((customer) => customer.customercode || customer.customername);
+          .filter(({ customer }) => customer.customercode || customer.customername);
 
         if (!imported.length)
           throw new Error(
@@ -1177,9 +1186,11 @@ export default function CustomerPage() {
           );
         const failures = [];
         const validCustomers = [];
-        imported.forEach((customer, index) => {
-          if (!customer.customername)
-            failures.push(`${index + 2}행: 거래처명 필수`);
+        imported.forEach(({ customer, excelRow, bankError }) => {
+          const rowErrors = [];
+          if (!customer.customername) rowErrors.push("거래처명 필수");
+          if (bankError) rowErrors.push("코드마스터에 등록되지 않은 은행명");
+          if (rowErrors.length) failures.push(`${excelRow}행: ${rowErrors.join(", ")}`);
           else validCustomers.push(customer);
         });
 
@@ -1197,9 +1208,9 @@ export default function CustomerPage() {
         }
         notifications.show({
           title: failures.length
-            ? "일괄 등록 완료 (일부 제외)"
+            ? validCustomers.length ? "일괄 등록 완료 (일부 제외)" : "일괄 등록 중단"
             : "일괄 등록 완료",
-          message: `${validCustomers.length}건 등록${generatedCodes.length ? ` (자동채번 ${generatedCodes.length}건: ${generatedCodes.slice(0, 3).join(", ")}${generatedCodes.length > 3 ? " 외" : ""})` : ""}${failures.length ? `, ${failures.length}건 제외: ${failures.slice(0, 3).join(" / ")}` : ""}`,
+          message: `${validCustomers.length}건 등록${generatedCodes.length ? ` (자동채번 ${generatedCodes.length}건: ${generatedCodes.slice(0, 3).join(", ")}${generatedCodes.length > 3 ? " 외" : ""})` : ""}${failures.length ? `, ${failures.length}건 제외: ${failures.slice(0, 5).join(" / ")}` : ""}`,
           color: failures.length ? "orange" : "teal",
           position: "bottom-right",
           autoClose: 7000,

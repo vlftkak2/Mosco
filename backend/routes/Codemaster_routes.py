@@ -1,6 +1,6 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 import CodeMaster as code_master_module
@@ -15,16 +15,13 @@ class CodeItemInput(BaseModel):
     """저장 요청에 포함되는 코드 한 건의 입력 형식과 필드 제약입니다."""
     code: str = Field(min_length=1, max_length=50)
     codename: str = Field(min_length=1, max_length=150)
-    property1: str = Field(default="", max_length=100)
-    property2: str = Field(default="", max_length=100)
-    property3: str = Field(default="", max_length=100)
-    property4: str = Field(default="", max_length=100)
+    property: str = Field(default="", max_length=100)
     sortorder: int = Field(default=0, ge=0, le=2_147_483_647)
     use: bool = True
     description: str = Field(default="", max_length=500)
     is_new: bool = False
 
-    @field_validator("code", "codename", "property1", "property2", "property3", "property4", "description")
+    @field_validator("code", "codename", "property", "description")
     @classmethod
     def strip_text(cls, value: str) -> str:
         """문자열 앞뒤 공백을 제거해 공백 차이로 값이 달라지는 것을 막습니다."""
@@ -50,6 +47,39 @@ class CodeGroupSaveRequest(BaseModel):
             raise ValueError("같은 그룹 안에 중복된 코드가 있습니다.")
         if len({item.code for item in self.items if item.is_new}) != sum(item.is_new for item in self.items):
             raise ValueError("새 코드의 코드값이 중복되었습니다.")
+        return self
+
+
+class CodeBulkItemInput(BaseModel):
+    groupcode: str = Field(min_length=1, max_length=50)
+    code: str = Field(default="", max_length=50)
+    codename: str = Field(min_length=1, max_length=150)
+    property: str = Field(default="", max_length=100)
+    sortorder: int = Field(default=0, ge=0, le=2_147_483_647)
+    use: bool = True
+    description: str = Field(default="", max_length=500)
+
+    @field_validator("groupcode", "code", "codename", "property", "description")
+    @classmethod
+    def strip_bulk_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("codename")
+    @classmethod
+    def require_bulk_name(cls, value: str) -> str:
+        if not value:
+            raise ValueError("코드명은 필수입니다.")
+        return value
+
+
+class CodeBulkSaveRequest(BaseModel):
+    items: List[CodeBulkItemInput] = Field(min_length=1, max_length=10000)
+
+    @model_validator(mode="after")
+    def require_unique_group_codes(self):
+        keys = [(item.groupcode.strip(), item.code) for item in self.items if item.code]
+        if len(keys) != len(set(keys)):
+            raise ValueError("업로드 파일에 그룹 내 중복 코드가 있습니다.")
         return self
 
 
@@ -96,6 +126,35 @@ def get_code_groups(user: dict = Depends(security_module.get_current_user)):
     return {"success": True, "groups": groups}
 
 
+@router.get("/groups/summary")
+def get_code_group_summaries(user: dict = Depends(security_module.get_current_user)):
+    """Return company-scoped group counts without loading their code rows."""
+    try:
+        groups = code_master_module.list_group_summaries(user["companyid"])
+    except code_master_module.CodeMasterDatabaseError as error:
+        raise _database_error(error) from error
+    return {"success": True, "groups": groups}
+
+
+@router.get("/groups/{groupcode}/items")
+def get_code_group_items(
+    groupcode: str = Path(min_length=1, max_length=50),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=15, ge=1, le=200),
+    q: str = Query(default="", max_length=100),
+    include_total: bool = Query(default=True),
+    user: dict = Depends(security_module.get_current_user),
+):
+    """Return one company-scoped page, optionally filtered by code/name."""
+    groupcode = groupcode.strip()
+    _require_fixed_group(groupcode)
+    try:
+        result = code_master_module.list_group_items(user["companyid"], groupcode, page, page_size, q, include_total)
+    except code_master_module.CodeMasterDatabaseError as error:
+        raise _database_error(error) from error
+    return {"success": True, **result}
+
+
 @router.put("/groups/{groupcode}")
 def save_code_group(
     data: CodeGroupSaveRequest,
@@ -114,13 +173,32 @@ def save_code_group(
         )
         if not saved:
             raise HTTPException(status_code=404, detail="공통코드 그룹을 찾을 수 없습니다.")
-        groups = code_master_module.list_groups(user["companyid"])
+        groups = code_master_module.list_group_summaries(user["companyid"])
     except code_master_module.CodeMasterConflictError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     except code_master_module.CodeMasterDatabaseError as error:
         raise _database_error(error) from error
     saved_group = next((group for group in groups if group["groupcode"] == groupcode), None)
     return {"success": True, "group": saved_group, "groupname": groupname}
+
+
+@router.post("/bulk")
+def save_bulk_codes(
+    data: CodeBulkSaveRequest,
+    user: dict = Depends(security_module.get_current_user),
+):
+    """Validate and insert every item in one database transaction."""
+    try:
+        inserted_count = code_master_module.save_bulk_items(
+            companyid=user["companyid"],
+            companyname=user.get("companyname") or user["companyid"],
+            items=[item.model_dump() for item in data.items],
+        )
+    except code_master_module.CodeMasterConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except code_master_module.CodeMasterDatabaseError as error:
+        raise _database_error(error) from error
+    return {"success": True, "inserted_count": inserted_count}
 
 
 @router.delete("/groups/{groupcode}/items/{code}")

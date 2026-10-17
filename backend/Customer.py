@@ -100,10 +100,13 @@ def BankList(companyid: str):
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT bankcode, bankname
-                FROM Bank01t
-                WHERE companyid = %s AND useyn IN ('Y', '사용중')
-                ORDER BY bankname, bankcode
+                SELECT code, code_name
+                FROM CodeMaster01t
+                WHERE companyid = %s
+                  AND groupcode = 'BANK'
+                  AND BTRIM(use_yn) IN ('Y', '사용중')
+                  AND NULLIF(BTRIM(code_name), '') IS NOT NULL
+                ORDER BY code_name, code
                 """,
                 (companyid,),
             )
@@ -161,8 +164,9 @@ def _validate_customer_references(cursor, item: CustomModifyRequest):
     if item.bankcode:
         cursor.execute(
             """
-            SELECT 1 FROM Bank01t
-            WHERE companyid = %s AND bankcode = %s AND useyn IN ('Y', '사용중')
+            SELECT 1 FROM CodeMaster01t
+            WHERE companyid = %s AND groupcode = 'BANK' AND code = %s
+              AND BTRIM(use_yn) IN ('Y', '사용중')
             LIMIT 1
             """,
             (item.companyid, item.bankcode),
@@ -174,34 +178,19 @@ def _validate_customer_references(cursor, item: CustomModifyRequest):
 
 
 def _validate_customer_batch_references(cursor, items: List[CustomModifyRequest], companyid: str):
-    manager_values = set()
     bank_values = set()
     for item in items:
         item.manager = (item.manager or "").strip()
         item.bankcode = (item.bankcode or "").strip()
-        if item.manager:
-            manager_values.add(item.manager)
         if item.bankcode:
             bank_values.add(item.bankcode)
-
-    if manager_values:
-        cursor.execute(
-            """
-            SELECT DISTINCT username FROM user01t
-            WHERE companyid = %s AND useyn = 'Y' AND username = ANY(%s)
-            """,
-            (companyid, list(manager_values)),
-        )
-        missing_managers = manager_values - {row[0] for row in cursor.fetchall()}
-        if missing_managers:
-            names = ", ".join(sorted(missing_managers)[:10])
-            return {"success": False, "message": f"기본정보관리-담당자를 입력해주세요"}
 
     if bank_values:
         cursor.execute(
             """
-            SELECT DISTINCT bankcode FROM Bank01t
-            WHERE companyid = %s AND useyn IN ('Y', '사용중') AND bankcode = ANY(%s)
+            SELECT DISTINCT code FROM CodeMaster01t
+            WHERE companyid = %s AND groupcode = 'BANK'
+              AND BTRIM(use_yn) IN ('Y', '사용중') AND code = ANY(%s)
             """,
             (companyid, list(bank_values)),
         )
@@ -454,23 +443,29 @@ def CustomerExport(companyid: str, search_keyword: str = None, status: str = "�
     try:
         conn = psycopg2.connect(conn_str)
         cursor = conn.cursor()
-        conditions = ["companyid = %s"]
+        conditions = ["c.companyid = %s"]
         params = [companyid]
         if search_keyword:
-            conditions.append("(customername ILIKE %s OR customercode ILIKE %s)")
+            conditions.append("(c.customername ILIKE %s OR c.customercode ILIKE %s)")
             params.extend([f"%{search_keyword}%", f"%{search_keyword}%"])
         if status and status != "전체":
-            conditions.append("useyn = %s")
+            conditions.append("c.useyn = %s")
             params.append(_filter_useyn(status))
         if tradetype and tradetype != "전체":
-            conditions.append("tradetype = %s")
+            conditions.append("c.tradetype = %s")
             params.append(tradetype)
 
         cursor.execute(
-            f"""SELECT * FROM customer01t WHERE {' AND '.join(conditions)}
-                ORDER BY CASE WHEN customercode ~* '^Cust-[0-9]+$'
-                              THEN substring(customercode FROM 6)::bigint END ASC NULLS LAST,
-                         customercode ASC""",
+            f"""SELECT c.*, b.code_name AS bankname
+                FROM customer01t AS c
+                LEFT JOIN CodeMaster01t AS b
+                  ON b.companyid = c.companyid
+                 AND b.groupcode = 'BANK'
+                 AND b.code = c.bankcode
+                WHERE {' AND '.join(conditions)}
+                ORDER BY CASE WHEN c.customercode ~* '^Cust-[0-9]+$'
+                              THEN substring(c.customercode FROM 6)::bigint END ASC NULLS LAST,
+                         c.customercode ASC""",
             tuple(params),
         )
         columns = [column[0] for column in cursor.description]

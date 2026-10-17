@@ -16,13 +16,11 @@ conn_str = (
 
 # 데이터 규격은 main.py에서 검증을 위해 유지하거나 main으로 옮겨도 됩니다.
 class PasswordRequest(BaseModel):
-    company: str
-    email: str
     password: str
-    changepassword : str
+    changepassword: str
 
-def password_change(item: PasswordRequest):
-    if not item.company.strip():
+def password_change(item: PasswordRequest, companyid: str, email: str):
+    if not companyid.strip() or not email.strip():
         return {"success": False, "message": "회사 정보가 필요합니다."}
 
     conn = None
@@ -32,7 +30,7 @@ def password_change(item: PasswordRequest):
         cursor = conn.cursor()
 
         check_query = "SELECT Password FROM User01t WHERE Email=%s AND companyid=%s"
-        cursor.execute(check_query, (item.email, item.company))
+        cursor.execute(check_query, (email, companyid))
         row = cursor.fetchone()
 
         if not row:
@@ -42,7 +40,7 @@ def password_change(item: PasswordRequest):
 
         # Password 업데이트
         query = "UPDATE USER01T SET Password=%s WHERE Email=%s AND companyid=%s"
-        cursor.execute(query, (item.changepassword, item.email, item.company))
+        cursor.execute(query, (item.changepassword, email, companyid))
         
         conn.commit()
         

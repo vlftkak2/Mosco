@@ -22,8 +22,8 @@
 .controlActive,
 .controlOpen.controlActive {
   padding-left: 12px !important;
-  border-left: 0 !important;
-  background: #d92f32 !important;
+  border: 1px solid #d92f32 !important;
+  background: #172338 !important;
   color: #fff !important;
 }
 
@@ -49,7 +49,7 @@
   overflow: hidden;
   margin-left: 10px !important;
   color: inherit;
-  font-size: 15px !important;
+  font-size: 13px !important;
   font-weight: 600 !important;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -82,7 +82,7 @@
   padding: 7px 9px 7px 14px !important;
   border-radius: 5px;
   color: #d7e0ed !important;
-  font-size: 12px !important;
+  font-size: 13px !important;
   font-weight: 400;
   text-align: left;
 }

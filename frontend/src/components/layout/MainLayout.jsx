@@ -78,10 +78,7 @@ const mockdata = [
     icon: <IconPackage size={17} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      {
-        label: '품목코드',
-        links: [{ label: '품목등록', MenuID: 'M7' }],
-      },
+      { label: '품목코드', link: '/ItemMasterPage', icon: '', MenuID: 'M7' },
       {
         label: '일반코드',
         link: '/CodeMasterPage',
@@ -196,10 +193,12 @@ const handlePasswordChange = async (e) => {
 
     try {
       const res = await axios.post('/passwordapi/change-password', {
-        company,
-        email: userInfo.email,
         password: pwdForm.current,    // 사용자가 입력한 현재 비번
         changepassword: pwdForm.next  // 사용자가 입력한 새 비번
+      }, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('access_token') || ''}`,
+        },
       });
 
       if (res.data.success === false) {

@@ -24,7 +24,7 @@ function NestedMenuItem({ item, pathname, navigate, depth = 0 }) {
         >
           <span
             className={classes.subGroupLabel}
-            style={{ fontSize: '9px', fontWeight: 400, lineHeight: 1.2 }}
+            style={{ fontSize: '13px', fontWeight: 400, lineHeight: 1.2 }}
           >
             {item.label}
           </span>

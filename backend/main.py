@@ -33,6 +33,7 @@ from routes import home_dashboard_routes as home_dashboard_routes
 from routes import Customer_routes as customer_routes
 # 고정 공통코드 그룹 API를 앱에 등록합니다.
 from routes import Codemaster_routes as Codemaster_routes
+from routes import ItemMaster_routes as ItemMaster_routes
 
 import uvicorn
 
@@ -93,6 +94,9 @@ app.include_router(customer_routes.router)
 
 # Tenant-scoped common code API
 app.include_router(Codemaster_routes.router)
+
+# Company-scoped item master API
+app.include_router(ItemMaster_routes.router)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
