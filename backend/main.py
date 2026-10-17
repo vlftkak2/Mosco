@@ -34,6 +34,11 @@ from routes import Customer_routes as customer_routes
 # 고정 공통코드 그룹 API를 앱에 등록합니다.
 from routes import Codemaster_routes as Codemaster_routes
 from routes import ItemMaster_routes as ItemMaster_routes
+from routes import InboundRegister_routes as InboundRegister_routes
+from routes import InboundSearch_routes as InboundSearch_routes
+from routes import OutboundRegister_routes as OutboundRegister_routes
+from routes import OutboundSearch_routes as OutboundSearch_routes
+from routes import StockStand_routes as StockStand_routes
 
 import uvicorn
 
@@ -97,6 +102,21 @@ app.include_router(Codemaster_routes.router)
 
 # Company-scoped item master API
 app.include_router(ItemMaster_routes.router)
+
+# Company-scoped inbound receipt API
+app.include_router(InboundRegister_routes.router)
+
+# Company-scoped inbound status/search API
+app.include_router(InboundSearch_routes.router)
+
+# Company-scoped outbound receipt API
+app.include_router(OutboundRegister_routes.router)
+
+# Company-scoped outbound status/search API
+app.include_router(OutboundSearch_routes.router)
+
+# Company-scoped opening stock API
+app.include_router(StockStand_routes.router)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

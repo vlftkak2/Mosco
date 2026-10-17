@@ -25,7 +25,8 @@ import {
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
+import { applyExcelHeaderStyle } from '../utils/excelHeaderStyle';
 import sharedClasses from "../styles/pages/ManagementShared.module.css";
 import classes from "../styles/pages/CustomerPage.module.css";
 import dashboardClasses from "../styles/pages/HomePage.module.css";
@@ -1002,6 +1003,7 @@ export default function CustomerPage() {
       headers,
       ["", "모스코", "", "", "김찬수", "매입처", "", "", "", "", "", "", "", "", "", "", "Y", ""],
     ]);
+    applyExcelHeaderStyle(worksheet, headers.length);
     worksheet["!cols"] = headers.map(() => ({ wch: 18 }));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "거래처");
@@ -1072,6 +1074,7 @@ export default function CustomerPage() {
           customer.remark ?? "",
         ]),
       ]);
+      applyExcelHeaderStyle(worksheet, headers.length);
       worksheet["!cols"] = headers.map((_, index) => ({
         wch: index === 1 ? 26 : index === 10 ? 36 : 18,
       }));

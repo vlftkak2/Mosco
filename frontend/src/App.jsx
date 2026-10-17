@@ -14,6 +14,11 @@ import DepartmentAuthPage from "./pages/DepartmentAuthPage";
 import CustomerPage from "./pages/CustomerPage";
 import CodeMasterPage from "./pages/CodeMasterPage";
 import ItemMaster from "./pages/ItemMasterPage";
+import InboundRegisterPage from "./pages/InboundRegisterPage";
+import InboundSearchPage from "./pages/InboundSearchPage";
+import OutboundRegisterPage from "./pages/OutboundRegisterPage";
+import OutboundSearchPage from "./pages/OutboundSearchPage";
+import StockStandPage from "./pages/StockStandPage";
 
 
 // Mantine 기본 스타일 
@@ -44,6 +49,11 @@ function App() {
           <Route path="/CustomPage" element={<CustomerPage />} />
           <Route path="/CodeMasterPage" element={<CodeMasterPage />} />
           <Route path="/ItemMasterPage" element={<ItemMaster />} />
+          <Route path="/InboundRegisterPage" element={<InboundRegisterPage />} />
+          <Route path="/InboundSearchPage" element={<InboundSearchPage />} />
+          <Route path="/OutboundRegisterPage" element={<OutboundRegisterPage />} />
+          <Route path="/OutboundSearchPage" element={<OutboundSearchPage />} />
+          <Route path="/StockStandPage" element={<StockStandPage />} />
 
           </Route>
         </Routes>

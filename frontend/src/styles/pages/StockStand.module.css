@@ -1,0 +1,45 @@
+.page { min-width: 0; max-width: 100%; box-sizing: border-box; gap: 14px; }
+.panel { display: flex; min-width: 0; height: max(520px, calc(100vh - 285px)); min-height: 520px; flex-direction: column; overflow: hidden; container-type: inline-size; }
+.codeHeader { min-width: 0; align-items: center; }
+.headerActions { min-width: 0; justify-content: flex-end; }
+.headerActions :global(.mantine-Button-root) { white-space: nowrap; }
+.filterToolbar { min-width: 0; flex: 0 0 auto; }
+.searchGroup { min-width: 0; flex: 1 1 480px; }
+.dateFilter { flex: 0 0 165px; }
+.stockSearch { min-width: 180px; width: min(340px, 100%); flex: 1 1 220px; }
+.stockSearch :global(.mantine-Input-input), .dateFilter :global(.mantine-Input-input) { min-height: 40px; font-size: 14px; }
+.dateFilter :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #475569; font-size: 12px; font-weight: 650; }
+.listActions { min-width: 0; flex: 0 1 auto; align-self: flex-end; }
+.detailToolbar { flex: 0 0 auto; }
+.table { table-layout: fixed; }
+.newRow > td { background: #fffbf4 !important; }
+.newRowNumber { background: #fffbf4 !important; }
+.table td input, .table td select { width: 100%; min-width: 0; }
+.savedEditableCell { background: #fff !important; }
+.savedEditableCell :global(input) { background: #fff !important; color: #23344d !important; cursor: text; }
+.savedEditableCell:focus-within { background: #fffaf0 !important; }
+.savedEditableCell:focus-within :global(input) { background: #fffaf0 !important; }
+.footer { flex: 0 0 auto; padding: 9px 14px; border-top: 1px solid #e5e9ef; }
+.stockFooter { position: static; z-index: auto; width: 100%; min-width: 0; flex: 0 0 auto; align-self: stretch; gap: 8px 16px; margin-top: auto; background: #fff; }
+.footerNotice { flex: 1 1 520px; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
+.loading { display: grid; height: 100%; min-height: 300px; place-items: center; }
+
+@container (max-width: 700px) {
+  .codeHeader { align-items: stretch; }
+  .headerActions { width: 100%; justify-content: flex-end; }
+  .filterToolbar { align-items: stretch; }
+  .searchGroup, .listActions { width: 100%; }
+  .listActions { justify-content: flex-end; }
+  .footerNotice { flex-basis: 100%; }
+  .stockFooter { align-items: flex-start; }
+}
+
+@media (max-width: 760px) {
+  .panel { height: auto; min-height: 560px; }
+  .headerActions { width: 100%; justify-content: flex-start; }
+  .searchGroup { align-items: flex-end; }
+  .dateFilter { flex-basis: 150px; }
+  .stockSearch { flex-basis: 190px; }
+  .listActions { justify-content: flex-start; }
+  .footerNotice { flex: 1 1 100%; width: 100%; }
+}

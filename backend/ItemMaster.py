@@ -89,6 +89,20 @@ class ItemDeleteRequest(BaseModel):
         return normalized
 
 
+class ItemLookupRequest(BaseModel):
+    itemcodes: list[str] = Field(min_length=1, max_length=10000)
+
+    @field_validator("itemcodes")
+    @classmethod
+    def normalize_itemcodes(cls, values: list[str]) -> list[str]:
+        normalized = list(dict.fromkeys(value.strip() for value in values if value.strip()))
+        if not normalized:
+            raise ValueError("조회할 품목코드가 없습니다.")
+        if any(len(value) > 100 for value in normalized):
+            raise ValueError("품목코드는 100자 이내로 입력해 주세요.")
+        return normalized
+
+
 _SELECT_COLUMNS = """
     itemcode, itemname, itemtypecode, use_yn, description
 """
@@ -145,6 +159,39 @@ def export_items(companyid: str, query: str = ""):
             params,
         )
         return [_row_to_item(row) for row in cursor.fetchall()]
+
+
+def lookup_items(companyid: str, itemcodes: list[str]):
+    if not itemcodes:
+        return []
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT itemcode, itemname FROM ItemCode01t WHERE companyid = %s AND UPPER(BTRIM(use_yn)) = 'Y' AND itemcode = ANY(%s)",
+            (companyid, itemcodes),
+        )
+        return [{"itemcode": code, "itemname": name} for code, name in cursor.fetchall()]
+
+
+def search_active_items(companyid: str, query: str, page: int, page_size: int):
+    search = query.strip()
+    where = "companyid = %s AND UPPER(BTRIM(use_yn)) = 'Y'"
+    params: list = [companyid]
+    if search:
+        where += " AND (itemcode ILIKE %s OR itemname ILIKE %s OR COALESCE(itemtypecode, '') ILIKE %s)"
+        pattern = f"%{search}%"
+        params.extend((pattern, pattern, pattern))
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(f"SELECT COUNT(*) FROM ItemCode01t WHERE {where}", params)
+        total = cursor.fetchone()[0]
+        cursor.execute(
+            f"SELECT itemcode, itemname, COALESCE(itemtypecode, '') FROM ItemCode01t WHERE {where} ORDER BY itemcode LIMIT %s OFFSET %s",
+            (*params, page_size, (page - 1) * page_size),
+        )
+        items = [
+            {"itemcode": row[0], "itemname": row[1], "itemtypecode": row[2]}
+            for row in cursor.fetchall()
+        ]
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 def save_items(companyid: str, companyname: str, items: list[dict]) -> int:
