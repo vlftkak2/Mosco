@@ -87,3 +87,34 @@ async def analyze_order_document(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="분석 요청을 처리하지 못했습니다. 서버 설정과 로그를 확인해주세요.") from exc
     finally:
         await file.close()
+
+
+@router.post("/cached-result")
+async def get_cached_order_result(
+    file: UploadFile = File(...),
+    user: dict = Depends(security_module.get_current_user),
+):
+    companyid = str(user.get("companyid") or "").strip()
+    email = str(user.get("email") or "").strip()
+    if not companyid or not email:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="회사 및 사용자 인증 정보가 필요합니다.")
+    try:
+        has_access = await asyncio.to_thread(ai_order_module.check_user_access, companyid, email)
+        if not has_access:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="AI 주문서 인식 메뉴 권한이 없습니다.")
+        _, data, _ = await ai_order_module.read_limited_upload(file)
+        result = await ai_order_module.find_cached_order_analysis(
+            companyid=companyid,
+            user_email=email,
+            data=data,
+        )
+        return {"success": True, **result}
+    except ai_order_module.AIOrderError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=ai_order_module.safe_error_detail(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("AI order cached result endpoint failed company=%s error_type=%s", companyid, type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="저장된 분석 결과를 조회하지 못했습니다.") from exc
+    finally:
+        await file.close()
