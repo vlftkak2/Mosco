@@ -41,6 +41,7 @@ from routes import OutboundSearch_routes as OutboundSearch_routes
 from routes import StockStand_routes as StockStand_routes
 from routes import CurrentStock_routes as CurrentStock_routes
 from routes import IniopStock_routes as IniopStock_routes
+from routes import AIOrder_routes as AIOrder_routes
 
 import uvicorn
 
@@ -125,6 +126,9 @@ app.include_router(CurrentStock_routes.router)
 
 # Company-scoped inventory ledger API
 app.include_router(IniopStock_routes.router)
+
+# Isolated AI order recognition test API (does not touch ERP transaction tables).
+app.include_router(AIOrder_routes.router)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

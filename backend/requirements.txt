@@ -107,3 +107,6 @@ watchdog==6.0.0
 watchfiles==1.1.1
 websockets==15.0.1
 xlsxwriter==3.2.9
+openai>=1.100.0
+openpyxl>=3.1.5
+python-multipart>=0.0.20

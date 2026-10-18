@@ -53,6 +53,19 @@ const mockdata = [
       { label: '출고현황', link: '/OutboundSearchPage', icon: '', MenuID: 'M-23' },
     ],
   },
+  {
+    label: '가공관리',
+    icon: <IconPackage size={17} stroke={1.8} />,
+    initiallyOpened: false,
+    links: [
+      {
+        label: 'AI 가공솔루션',
+        links: [
+          { label: '주문서 인식', link: '/AIOrderPage', icon: '', MenuID: 'AI-ORDER-TEST' },
+        ],
+      },
+    ],
+  },
 
   
   {
