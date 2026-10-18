@@ -1080,7 +1080,7 @@ def _verify_source_locations(extracted: AIOrderExtraction, extension: str, data:
         if "needs_review" in owner and owner["source_locations"]:
             owner["needs_review"] = True
             owner["review_reasons"] = list(dict.fromkeys([
-                *owner.get("review_reasons", []), "이미지 OCR 위치를 검증할 수 없어 원문과 대조해주세요.",
+                *owner.get("review_reasons", []), "이미지 위치를 검증할 수 없어 원문과 대조해주세요.",
             ]))
     return payload
 

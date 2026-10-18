@@ -14,10 +14,17 @@ logger = logging.getLogger(__name__)
 def get_stand_items(
     standdate: date = Query(...),
     q: str = Query(default="", max_length=150),
+    cursor: int = Query(default=0, ge=0),
+    limit: int = Query(default=500, ge=1, le=1000),
+    offset: int | None = Query(default=None, ge=0),
+    include_metadata: bool = Query(default=True),
     user: dict = Depends(security_module.get_current_user),
 ):
     try:
-        return {"success": True, **stock_stand_module.list_stand_items(user["companyid"], standdate, q)}
+        return {
+            "success": True,
+            **stock_stand_module.list_stand_items(user["companyid"], standdate, q, cursor, limit, include_metadata, offset),
+        }
     except Exception as error:
         logger.exception(
             "Failed to query opening stock items (companyid=%s, standdate=%s)",

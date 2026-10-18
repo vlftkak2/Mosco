@@ -3,7 +3,7 @@ import axios from 'axios';
 import { TableVirtuoso } from 'react-virtuoso';
 import {
   Badge, Box, Button, Group, Loader, Progress,
-  Modal, Paper, ScrollArea, SimpleGrid, Table, Text, TextInput, Textarea, ThemeIcon, Title,
+  Modal, Paper, ScrollArea, SimpleGrid, Stack, Table, Text, TextInput, Textarea, ThemeIcon, Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconBraces, IconFileTypePdf, IconPhoto, IconFileUpload, IconPlus, IconPlayerPlay, IconTrash, IconZoomIn, IconZoomOut } from '@tabler/icons-react';
@@ -464,6 +464,7 @@ function OrderDocumentWorkspace({ doc, updateDocument }) {
   const previewFile = doc.previewFile || doc.file;
   const previewUrl = useMemo(() => previewFile ? URL.createObjectURL(previewFile) : '', [previewFile]);
   const [selectedRows, setSelectedRows] = useState([]);
+  const [deleteRowsRequest, setDeleteRowsRequest] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(0);
   const [columnWidthOverrides, setColumnWidthOverrides] = useState({});
@@ -616,11 +617,18 @@ function OrderDocumentWorkspace({ doc, updateDocument }) {
       return { ...current, items };
     });
   }, [updateExtraction]);
-  const deleteSelectedRows = () => {
-    const selected = new Set(selectedRows);
+  const requestDeleteSelectedRows = () => {
+    if (selectedRows.length) setDeleteRowsRequest([...selectedRows]);
+  };
+  const confirmDeleteSelectedRows = () => {
+    const requestedRows = deleteRowsRequest || [];
+    if (!requestedRows.length) return;
+    const selected = new Set(requestedRows);
     updateExtraction((current) => ({ ...current, items: current.items.filter((_, index) => !selected.has(index)) }));
     setSelectedRows([]);
     rowSelectionAnchor.current = null;
+    setDeleteRowsRequest(null);
+    notifications.show({ title: '삭제 완료', message: `상세 품목 ${requestedRows.length}개를 삭제했습니다.`, color: 'teal' });
   };
   return <>
     {doc.error && <Text className={classes.documentError} size="sm" c="red">{doc.error}</Text>}
@@ -645,7 +653,7 @@ function OrderDocumentWorkspace({ doc, updateDocument }) {
             </SimpleGrid>
             </Box><Paper className={classes.detailSection} withBorder>
             <Group className={`${sharedClasses.toolbar} ${outboundTableClasses.toolbar} ${classes.detailToolbar}`} justify="space-between" align="center" wrap="wrap"><Group gap={8}><Text size="sm" fw={700}>상세 품목</Text>{extraction.items.some((item) => !item.__manual && LINE_COLUMNS.some(([key]) => aiSourceFor(item, key))) && <Badge className={classes.sectionAiBadge} size="sm" variant="light" color="gray">AI 추출</Badge>}</Group><Group gap={7} wrap="nowrap">
-              {selectedRows.length > 0 && <Text size="xs" c="dimmed">{selectedRows.length}개 선택</Text>}<Button size="xs" variant="subtle" color="red" leftSection={<IconTrash size={14} />} disabled={!selectedRows.length} onClick={deleteSelectedRows}>선택 삭제</Button><Button size="xs" color="red" leftSection={<IconPlus size={14} />} onClick={addLine}>행 추가</Button>
+              {selectedRows.length > 0 && <Text size="xs" c="dimmed">{selectedRows.length}개 선택</Text>}<Button size="xs" variant="subtle" color="red" leftSection={<IconTrash size={14} />} disabled={!selectedRows.length} onClick={requestDeleteSelectedRows}>선택 삭제</Button><Button size="xs" color="red" leftSection={<IconPlus size={14} />} onClick={addLine}>행 추가</Button>
             </Group></Group>
             {!extraction.items.length ? <Box className={classes.resultEmpty}>인식된 품목 행이 없습니다.</Box> : <Box ref={tableWrapRef} className={`${outboundTableClasses.tableWrap} ${classes.gridScroll}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }} onKeyDown={handleGridKeyDown}>
               <TableVirtuoso
@@ -668,6 +676,15 @@ function OrderDocumentWorkspace({ doc, updateDocument }) {
       </Box>}
       </Paper>
     </SimpleGrid>
+    <Modal opened={Boolean(deleteRowsRequest)} onClose={() => setDeleteRowsRequest(null)} title="상세 품목 삭제" centered size="sm">
+      <Stack gap="md">
+        <Text size="sm" c="dimmed">선택한 {deleteRowsRequest?.length || 0}개 품목 행을 삭제합니다. 삭제한 행은 복구할 수 없습니다.</Text>
+        <Group justify="flex-end">
+          <Button variant="default" onClick={() => setDeleteRowsRequest(null)}>취소</Button>
+          <Button color="red" leftSection={<IconTrash size={15} />} onClick={confirmDeleteSelectedRows}>삭제</Button>
+        </Group>
+      </Stack>
+    </Modal>
   </>;
 }
 

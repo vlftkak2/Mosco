@@ -4,7 +4,7 @@ import { TableVirtuoso } from 'react-virtuoso';
 import classes from '../../styles/pages/InboundSearch.module.css';
 
 const HorizontalScroller = forwardRef(function HorizontalScroller({ style, ...props }, ref) {
-  return <div {...props} ref={ref} className={classes.virtuosoScroller} style={{ ...style, overflowX: 'auto' }} />;
+  return <div {...props} ref={ref} className={classes.resizableVirtualScroller} style={{ ...style, overflowX: 'auto' }} />;
 });
 
 export default function ResizableVirtualTable({ data, columns, computeItemKey, rowOffset = 0, minTableWidth }) {
@@ -13,7 +13,7 @@ export default function ResizableVirtualTable({ data, columns, computeItemKey, r
   const tableWidth = Math.max(columns.reduce((total, column) => total + (widths[column.key] || column.width), 0), minTableWidth || 0);
   const components = useMemo(() => ({
     Scroller: HorizontalScroller,
-    Table: ({ style, ...props }) => <Table {...props} className={classes.statusTable} withTableBorder withColumnBorders highlightOnHover style={{ ...style, width: 'var(--resizable-table-width)', minWidth: 'var(--resizable-table-width)', tableLayout: 'fixed' }} />,
+    Table: ({ style, ...props }) => <Table {...props} className={classes.statusTable} withTableBorder withColumnBorders highlightOnHover style={{ ...style, width: '100%', minWidth: 'var(--resizable-table-width)', tableLayout: 'fixed' }} />,
     TableHead: Table.Thead,
     TableBody: Table.Tbody,
     TableRow: Table.Tr,

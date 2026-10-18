@@ -32,7 +32,7 @@ const makeDefaultFilters = () => {
 
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const HorizontalScroller = forwardRef(function HorizontalScroller({ style, ...props }, ref) {
-  return <div {...props} ref={ref} className={classes.virtuosoScroller} style={{ ...style, overflowX: 'auto' }} />;
+  return <div {...props} ref={ref} className={classes.outboundSearchScroller} style={{ ...style, overflowX: 'auto' }} />;
 });
 const virtuosoComponents = {
   Scroller: HorizontalScroller,

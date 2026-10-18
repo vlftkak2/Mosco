@@ -103,7 +103,15 @@ def _dict_row(cursor, row):
     return dict(zip((column[0] for column in cursor.description), row))
 
 
-def list_stand_items(companyid: str, standdate: date, query: str = ""):
+def list_stand_items(
+    companyid: str,
+    standdate: date,
+    query: str = "",
+    after_lineno: int = 0,
+    page_size: int = 500,
+    include_metadata: bool = True,
+    page_offset: int | None = None,
+):
     where = ["s.companyid = %s", "s.standdate = %s"]
     params: list = [companyid, standdate]
     normalized_query = query.strip()
@@ -112,7 +120,16 @@ def list_stand_items(companyid: str, standdate: date, query: str = ""):
         params.extend((f"%{normalized_query}%", f"%{normalized_query}%"))
     where_sql = " AND ".join(where)
 
+    page_where_sql = f"{where_sql} AND s.lineno > %s" if page_offset is None else where_sql
+    page_params = [*params, after_lineno] if page_offset is None else params
     sql = f"""
+        WITH page_keys AS (
+            SELECT s.companyid, s.standdate, s.lineno
+            FROM StandStock01t s
+            WHERE {page_where_sql}
+            ORDER BY s.lineno
+            LIMIT %s OFFSET %s
+        )
         SELECT s.companyid, s.companyname, s.standdate, s.lineno, s.itemcode, s.itemname,
                s.size, s.qty, s.qtyunit, s.weight, s.warehousecode, s.warehousecodename,
                s.unit, s.unitprice, s.unitamt, s.description, s.created_at, s.updated_at,
@@ -130,47 +147,59 @@ def list_stand_items(companyid: str, standdate: date, query: str = ""):
                    )
                ) AS has_movements
         FROM StandStock01t s
-        WHERE {where_sql}
+        JOIN page_keys p
+          ON p.companyid = s.companyid AND p.standdate = s.standdate AND p.lineno = s.lineno
         ORDER BY s.lineno
     """
     with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute(sql, params)
-        items = [_dict_row(cursor, row) for row in cursor.fetchall()]
-        cursor.execute(
-            """SELECT
-                   EXISTS (SELECT 1 FROM StandStock01t WHERE companyid = %s),
-                   EXISTS (
-                       SELECT 1 FROM Inbound01t h
-                       JOIN Inbound02t d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
-                       WHERE h.companyid = %s
-                   ) OR EXISTS (
-                       SELECT 1 FROM Outbound01t h
-                       JOIN Outbound02t d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
-                       WHERE h.companyid = %s
-                   ),
-                   EXISTS (
-                       SELECT 1 FROM StandStock01t s
-                       WHERE s.companyid = %s AND (
-                           EXISTS (
-                               SELECT 1 FROM Inbound01t h
-                               JOIN Inbound02t d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
-                               WHERE h.companyid = s.companyid AND h.receptdate >= s.standdate
-                                 AND d.itemcode = s.itemcode AND COALESCE(d.warehousecode, '') = s.warehousecode
-                           ) OR EXISTS (
-                               SELECT 1 FROM Outbound01t h
-                               JOIN Outbound02t d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
-                               WHERE h.companyid = s.companyid AND h.receptdate >= s.standdate
-                                 AND d.itemcode = s.itemcode AND COALESCE(d.warehousecode, '') = s.warehousecode
+        cursor.execute(sql, [*page_params, page_size + 1, max(0, page_offset or 0)])
+        fetched_items = [_dict_row(cursor, row) for row in cursor.fetchall()]
+        has_more = len(fetched_items) > page_size
+        items = fetched_items[:page_size]
+        next_cursor = items[-1]["lineno"] if items else after_lineno
+        if include_metadata:
+            cursor.execute(f"SELECT COUNT(*) FROM StandStock01t s WHERE {where_sql}", params)
+            total = cursor.fetchone()[0]
+            cursor.execute(
+                """SELECT
+                       EXISTS (SELECT 1 FROM StandStock01t WHERE companyid = %s),
+                       EXISTS (
+                           SELECT 1 FROM Inbound01t h
+                           JOIN Inbound02t d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
+                           WHERE h.companyid = %s
+                       ) OR EXISTS (
+                           SELECT 1 FROM Outbound01t h
+                           JOIN Outbound02t d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
+                           WHERE h.companyid = %s
+                       ),
+                       EXISTS (
+                           SELECT 1 FROM StandStock01t s
+                           WHERE s.companyid = %s AND (
+                               EXISTS (
+                                   SELECT 1 FROM Inbound01t h
+                                   JOIN Inbound02t d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
+                                   WHERE h.companyid = s.companyid AND h.receptdate >= s.standdate
+                                     AND d.itemcode = s.itemcode AND COALESCE(d.warehousecode, '') = s.warehousecode
+                               ) OR EXISTS (
+                                   SELECT 1 FROM Outbound01t h
+                                   JOIN Outbound02t d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
+                                   WHERE h.companyid = s.companyid AND h.receptdate >= s.standdate
+                                     AND d.itemcode = s.itemcode AND COALESCE(d.warehousecode, '') = s.warehousecode
+                               )
                            )
-                       )
-                    ),
-                    (SELECT MIN(standdate) FROM StandStock01t WHERE companyid = %s)""",
-            (companyid, companyid, companyid, companyid, companyid),
-        )
-        has_stock_rows, has_transactions, has_stock_movements, registered_standdate = cursor.fetchone()
+                        ),
+                        (SELECT MIN(standdate) FROM StandStock01t WHERE companyid = %s)""",
+                (companyid, companyid, companyid, companyid, companyid),
+            )
+            has_stock_rows, has_transactions, has_stock_movements, registered_standdate = cursor.fetchone()
+        else:
+            total = None
+            has_stock_rows = has_transactions = has_stock_movements = registered_standdate = None
     return {
         "items": items,
-        "total": len(items),
+        "total": total,
+        "has_more": has_more,
+        "next_cursor": next_cursor if has_more else None,
         "has_stock_rows": has_stock_rows,
         "has_transactions": has_transactions,
         "has_stock_movements": has_stock_movements,
