@@ -29,6 +29,12 @@ MAX_OUTPUT_TOKENS = max(512, int(os.getenv("AI_ORDER_MAX_OUTPUT_TOKENS", "6000")
 MAX_PDF_PAGES = max(1, int(os.getenv("AI_ORDER_MAX_PDF_PAGES", "10")))
 MAX_IMAGE_PAGES = max(1, int(os.getenv("AI_ORDER_MAX_IMAGE_PAGES", "10")))
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini").strip() or "gpt-5.4-mini"
+_SUPPORTED_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
+_configured_reasoning_effort = os.getenv("AI_ORDER_REASONING_EFFORT", "low").split("#", 1)[0].strip().lower()
+if _configured_reasoning_effort not in _SUPPORTED_REASONING_EFFORTS:
+    logger.warning("Unsupported AI_ORDER_REASONING_EFFORT; using low")
+    _configured_reasoning_effort = "low"
+REASONING_EFFORT = _configured_reasoning_effort
 EXTRACTION_SCHEMA_VERSION = 3
 DAILY_LIMIT = max(1, int(os.getenv("AI_ORDER_DAILY_LIMIT", "100")))
 COMPANY_DAILY_LIMIT = max(1, int(os.getenv("AI_ORDER_COMPANY_DAILY_LIMIT", "100")))
@@ -927,24 +933,49 @@ async def _analyze_order_document(
             input=[{"role": "user", "content": content}],
             text={"format": {"type": "json_schema", "name": "steel_order_extraction", "strict": True, "schema": STEEL_ORDER_SCHEMA}},
             max_output_tokens=MAX_OUTPUT_TOKENS,
-            reasoning={"effort": os.getenv("AI_ORDER_REASONING_EFFORT", "low")},
+            reasoning={"effort": REASONING_EFFORT},
             store=False,
         )
     except Exception as exc:
         await asyncio.to_thread(_record_usage, request_hash, None, False)
+        response_body = getattr(exc, "body", None)
+        provider_error = response_body.get("error", response_body) if isinstance(response_body, dict) else {}
+        provider_error = provider_error if isinstance(provider_error, dict) else {}
+
+        def safe_error_value(value: Any) -> str:
+            if value is None:
+                return "-"
+            return re.sub(r"[^A-Za-z0-9_.:-]", "_", str(value))[:80] or "-"
+
+        error_code = safe_error_value(getattr(exc, "code", None) or provider_error.get("code"))
+        error_param = safe_error_value(getattr(exc, "param", None) or provider_error.get("param"))
+        provider_type = safe_error_value(provider_error.get("type"))
+        provider_response = getattr(exc, "response", None)
+        provider_request_id = getattr(exc, "request_id", None)
+        if not provider_request_id and provider_response is not None:
+            provider_request_id = provider_response.headers.get("x-request-id")
+        provider_request_id = safe_error_value(provider_request_id)
+        error_type = type(exc).__name__
+        audit_error = f"{error_type}:code={error_code}:param={error_param}"[:100]
         try:
-            await asyncio.to_thread(_update_analysis_audit, request_id, "failed_unknown", error_type=type(exc).__name__)
+            await asyncio.to_thread(_update_analysis_audit, request_id, "failed_unknown", error_type=audit_error)
         except Exception as audit_exc:
             logger.error("AI order audit update failed company=%s request_id=%s error_type=%s", companyid, request_id, type(audit_exc).__name__)
-        # Exception text may include request details; log only a safe type and opaque ID.
-        logger.warning("AI order analysis failed company=%s request_id=%s request=%s error_type=%s", companyid, request_id, request_hash[:12], type(exc).__name__)
-        name = type(exc).__name__
+        # Do not log the provider's message or submitted document; only log safe error metadata.
+        logger.warning(
+            "AI order analysis failed company=%s request_id=%s request=%s error_type=%s status=%s code=%s param=%s api_type=%s provider_request_id=%s",
+            companyid, request_id, request_hash[:12], error_type,
+            getattr(exc, "status_code", "-"), error_code, error_param, provider_type, provider_request_id,
+        )
+        name = error_type
         if name in {"APITimeoutError", "TimeoutError"}:
             raise AIOrderError(status.HTTP_504_GATEWAY_TIMEOUT, "OpenAI 분석 응답 시간이 초과되었습니다. 잠시 후 다시 실행해주세요.") from exc
         if name == "RateLimitError":
             raise AIOrderError(status.HTTP_429_TOO_MANY_REQUESTS, "OpenAI 요청 한도에 도달했습니다. 잠시 후 다시 실행해주세요.") from exc
         if name == "AuthenticationError":
             raise AIOrderError(status.HTTP_503_SERVICE_UNAVAILABLE, "OpenAI API 인증 설정을 확인해주세요.") from exc
+        if name == "BadRequestError":
+            raise AIOrderError(status.HTTP_502_BAD_GATEWAY, "OpenAI가 분석 요청 형식을 거부했습니다. 백엔드 로그의 code와 param을 확인해주세요.") from exc
         raise AIOrderError(status.HTTP_502_BAD_GATEWAY, "OpenAI 분석 요청에 실패했습니다. 파일을 확인한 뒤 다시 실행해주세요.") from exc
     finally:
         await client.close()
