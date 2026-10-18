@@ -1,6 +1,5 @@
 from __future__ import annotations
 import asyncio
-from decimal import Decimal, InvalidOperation
 import hashlib
 import hmac
 import json
@@ -8,7 +7,6 @@ import logging
 import os
 import re
 import sqlite3
-import zipfile
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
@@ -17,25 +15,20 @@ from typing import Any
 
 from fastapi import HTTPException, UploadFile, status
 from openai import AsyncOpenAI
-from openpyxl import load_workbook
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 import psycopg2
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from config import DB_CONFIG, JWT_SECRET_KEY  # Loads backend/.env before the AI settings are read.
 
 logger = logging.getLogger(__name__)
 SEOUL = timezone(timedelta(hours=9), name="KST")
-ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".xlsx"}
+ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".heic", ".heif", ".tif", ".tiff"}
 PDF_MIME = "application/pdf"
-IMAGE_MIMES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}
-MAX_FILE_BYTES = max(1, int(os.getenv("AI_ORDER_MAX_FILE_SIZE_MB", "10"))) * 1024 * 1024
+MAX_FILE_BYTES = max(1, int(os.getenv("AI_ORDER_MAX_FILE_SIZE_MB", "30"))) * 1024 * 1024
 MAX_OUTPUT_TOKENS = max(512, int(os.getenv("AI_ORDER_MAX_OUTPUT_TOKENS", "6000")))
 MAX_PDF_PAGES = max(1, int(os.getenv("AI_ORDER_MAX_PDF_PAGES", "10")))
-MAX_EXCEL_CELLS = max(100, int(os.getenv("AI_ORDER_MAX_EXCEL_CELLS", "20000")))
-MAX_EXCEL_CHARACTERS = max(1000, int(os.getenv("AI_ORDER_MAX_EXCEL_CHARACTERS", "150000")))
-MAX_EXCEL_SHEETS = max(1, int(os.getenv("AI_ORDER_MAX_EXCEL_SHEETS", "30")))
+MAX_IMAGE_PAGES = max(1, int(os.getenv("AI_ORDER_MAX_IMAGE_PAGES", "10")))
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini").strip() or "gpt-5.4-mini"
-MOCK_MODE = os.getenv("AI_ORDER_MOCK_MODE", "false").strip().lower() in {"1", "true", "yes"}
 DAILY_LIMIT = max(1, int(os.getenv("AI_ORDER_DAILY_LIMIT", "10")))
 COMPANY_DAILY_LIMIT = max(1, int(os.getenv("AI_ORDER_COMPANY_DAILY_LIMIT", "100")))
 MONTHLY_BUDGET_USD = max(0.01, float(os.getenv("AI_ORDER_MONTHLY_BUDGET_USD", "20")))
@@ -58,11 +51,10 @@ MAX_CONCURRENT_PER_USER = max(1, int(os.getenv("AI_ORDER_MAX_CONCURRENT_PER_USER
 MAX_CONCURRENT_PER_COMPANY = max(MAX_CONCURRENT_PER_USER, int(os.getenv("AI_ORDER_MAX_CONCURRENT_PER_COMPANY", "8")))
 MAX_CONCURRENT_GLOBAL = max(MAX_CONCURRENT_PER_COMPANY, int(os.getenv("AI_ORDER_MAX_CONCURRENT_GLOBAL", "20")))
 MAX_QUEUE_WAIT_SECONDS = max(30, int(os.getenv("AI_ORDER_MAX_QUEUE_WAIT_SECONDS", "900")))
-AI_ORDER_MENU_ID = os.getenv("AI_ORDER_MENU_ID", "AI-ORDER-TEST").strip()
 
 
 def check_user_access(companyid: str, email: str) -> bool:
-    """Fail-closed read-only check: active company membership + team/user menu grants."""
+    """Require an active user record belonging to the authenticated company."""
     conn_str = (
         f"host={DB_CONFIG['host']} port={DB_CONFIG['port']} dbname={DB_CONFIG['database']} "
         f"user={DB_CONFIG['user']} password={DB_CONFIG['password']}"
@@ -72,49 +64,10 @@ def check_user_access(companyid: str, email: str) -> bool:
         cursor = conn.cursor()
         cursor.execute("SET LOCAL statement_timeout = '5s'")
         cursor.execute(
-            "SELECT Team FROM User01t WHERE Email = %s AND CompanyID = %s AND UseYN = 'Y' LIMIT 1",
+            "SELECT 1 FROM User01t WHERE Email = %s AND CompanyID = %s AND UseYN = 'Y' LIMIT 1",
             (email, companyid),
         )
-        membership = cursor.fetchone()
-        if membership is None:
-            return False
-        company_team = str(membership[0] or "")
-        email_column = chr(0xC774) + chr(0xBA54) + chr(0xC77C)
-        team_column = chr(0xBD80) + chr(0xC11C)
-        cursor.execute(f'SELECT * FROM Fu_UserMenuAuth(%s) WHERE "{email_column}" = %s', ("", email))
-        rows = cursor.fetchall()
-        columns = [column[0] for column in cursor.description or []]
-        matching_row = next((row for row in rows
-                             if email_column in columns
-                             and str(row[columns.index(email_column)]).casefold() == email.casefold()
-                             and team_column in columns
-                             and str(row[columns.index(team_column)] or "") == company_team), None)
-        if matching_row is None:
-            return False
-        row_data = dict(zip(columns, matching_row))
-
-        def parse_list(value):
-            if isinstance(value, list):
-                return value
-            if not value:
-                return []
-            try:
-                parsed = json.loads(value) if isinstance(value, str) else value
-                return parsed if isinstance(parsed, list) else []
-            except (TypeError, ValueError):
-                return []
-
-        team_auths = parse_list(row_data.get("TeamAuths"))
-        user_exceptions = parse_list(row_data.get("UserExceptions"))
-        grants = {str(entry.get("MenuID")) for entry in team_auths if isinstance(entry, dict)}
-        for entry in user_exceptions:
-            if not isinstance(entry, dict) or str(entry.get("MenuID")) != AI_ORDER_MENU_ID:
-                continue
-            if str(entry.get("AuthType", "")).upper() == "DENY":
-                return False
-            if str(entry.get("AuthType", "")).upper() == "GRANT":
-                return True
-        return AI_ORDER_MENU_ID in grants
+        return cursor.fetchone() is not None
     finally:
         conn.close()
 
@@ -171,8 +124,6 @@ class SourceLocation(BaseModel):
     field_name: str = Field(description="source_product_name, spec_raw, quantity_raw, weight_raw 등 원본 필드명")
     raw_text: str | None = Field(description="문서에서 해당 값 주변에 실제로 표시된 원문")
     page_number: int | None = Field(description="PDF/이미지의 1부터 시작하는 페이지 번호")
-    sheet_name: str | None = Field(description="Excel 시트명")
-    cell_address: str | None = Field(description="Excel 셀 주소, 예: B12")
 
 
 class AIOrderExtraction(BaseModel):
@@ -202,8 +153,6 @@ def _strict_schema() -> dict[str, Any]:
         "field_name": {"type": "string"},
         "raw_text": nullable_string,
         "page_number": {"type": ["integer", "null"]},
-        "sheet_name": nullable_string,
-        "cell_address": nullable_string,
     })
 
     header = object_schema({
@@ -253,7 +202,7 @@ SYSTEM_PROMPT = """당신은 철강 주문서 데이터 추출기입니다. 입�
 단위 KG, TON, EA, SHEET 등을 서로 구별하세요. 중량이 TON으로 명시되면 weight_kg로 변환할 수 있지만 weight_raw에 원문을 보존하세요.
 날짜는 모호하지 않을 때만 YYYY-MM-DD로 표준화하세요. 단가/금액은 문서에 명확히 있을 때만 숫자로 반환하세요.
 공통 비고와 품목 행 비고를 분리하세요. 강종/두께/폭/길이가 명확하지 않으면 null과 확인 사유를 반환하세요.
-헤더의 주문번호·일자·발주처·수주처·납기일 및 각 상세 항목에 source_locations를 제공하되 실제 확인한 원문과 페이지 번호 또는 Excel 시트/셀 주소만 적으세요. 좌표 상자나 셀 위치를 추측하지 마세요. 병합 셀은 기준 셀 주소를 적으세요. uncertain이면 needs_review=true와 구체적인 review_reasons를 작성하세요."""
+헤더의 주문번호·일자·발주처·수주처·납기일 및 각 상세 항목에 source_locations를 제공하되 실제 확인한 원문과 페이지 번호만 적으세요. 좌표 상자나 셀 위치를 추측하지 마세요. uncertain이면 needs_review=true와 구체적인 review_reasons를 작성하세요."""
 
 
 class AIOrderError(Exception):
@@ -485,7 +434,7 @@ async def read_limited_upload(upload: UploadFile) -> tuple[str, bytes, str]:
     filename = Path(upload.filename or "").name
     extension = Path(filename).suffix.lower()
     if extension not in ALLOWED_EXTENSIONS:
-        raise AIOrderError(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "PDF, JPG, JPEG, PNG, XLSX 파일만 업로드할 수 있습니다.")
+        raise AIOrderError(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "PDF, JPG, PNG, HEIC, TIFF 파일만 업로드할 수 있습니다.")
     contents = bytearray()
     while True:
         chunk = await upload.read(min(1024 * 1024, MAX_FILE_BYTES + 1 - len(contents)))
@@ -497,9 +446,15 @@ async def read_limited_upload(upload: UploadFile) -> tuple[str, bytes, str]:
     data = bytes(contents)
     if not data:
         raise AIOrderError(status.HTTP_400_BAD_REQUEST, "빈 파일은 분석할 수 없습니다.")
-    await asyncio.to_thread(_validate_file, extension, data)
-    mime = PDF_MIME if extension == ".pdf" else IMAGE_MIMES.get(extension, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    return extension, data, mime
+    if extension == ".pdf":
+        await asyncio.to_thread(_validate_file, extension, data)
+        return extension, data, PDF_MIME
+    actual_format, _ = await asyncio.to_thread(_inspect_image, data)
+    actual_extension = {"JPEG": ".jpg", "PNG": ".png", "TIFF": ".tiff", "HEIF": ".heic"}.get(actual_format)
+    if not actual_extension:
+        raise AIOrderError(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "JPG, PNG, HEIC, TIFF 또는 PDF 파일만 업로드할 수 있습니다.")
+    mime = {"JPEG": "image/jpeg", "PNG": "image/png", "TIFF": "image/png", "HEIF": "image/png"}[actual_format]
+    return actual_extension, data, mime
 
 
 def _validate_file(extension: str, data: bytes) -> None:
@@ -517,114 +472,197 @@ def _validate_file(extension: str, data: bytes) -> None:
             raise
         except Exception as exc:
             raise AIOrderError(status.HTTP_422_UNPROCESSABLE_ENTITY, "PDF 문서를 읽을 수 없습니다.") from exc
-    elif extension in IMAGE_MIMES:
-        try:
-            with Image.open(BytesIO(data)) as image:
-                expected = "JPEG" if extension in {".jpg", ".jpeg"} else "PNG"
-                if image.format != expected:
-                    raise AIOrderError(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "확장자와 이미지 파일 형식이 일치하지 않습니다.")
-                width, height = image.size
-                if width * height > 40_000_000:
-                    raise AIOrderError(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "이미지 해상도가 너무 큽니다. 4천만 픽셀 이하 파일을 사용해주세요.")
-                image.verify()
-        except AIOrderError:
-            raise
-        except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
-            raise AIOrderError(status.HTTP_422_UNPROCESSABLE_ENTITY, "이미지 파일을 읽을 수 없습니다.") from exc
     else:
-        if not data.startswith(b"PK") or not zipfile.is_zipfile(BytesIO(data)):
-            raise AIOrderError(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "XLSX 파일 형식이 올바르지 않습니다.")
-        try:
-            with zipfile.ZipFile(BytesIO(data)) as archive:
-                entries = archive.infolist()
-                if sum(entry.file_size for entry in entries) > 50 * 1024 * 1024:
-                    raise AIOrderError(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Excel ?? ?? ??? ?? ??? ?????.")
-                if any(
-                    entry.file_size > 1024 * 1024
-                    and entry.file_size / max(entry.compress_size, 1) > 100
-                    for entry in entries
-                ):
-                    raise AIOrderError(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "?????? ??? Excel ??? ??? ? ????.")
-            workbook = load_workbook(BytesIO(data), read_only=False, data_only=False, keep_links=False)
-            workbook.close()
-        except AIOrderError:
-            raise
-        except Exception as exc:
-            raise AIOrderError(status.HTTP_422_UNPROCESSABLE_ENTITY, "Excel ?? ??? ?? ? ????.") from exc
+        _inspect_image(data)
 
 
-def _cell_text(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, (datetime, date)):
-        return value.isoformat()
-    if isinstance(value, (str, int, float, bool)):
-        return str(value)
-    return str(value)
+def _register_heif_support() -> None:
+    from pillow_heif import register_heif_opener
+    register_heif_opener(thumbnails=False)
 
 
-def _excel_as_structured_text(data: bytes) -> str:
+def _inspect_image(data: bytes) -> tuple[str, int]:
+    """Read actual image type and enforce page/pixel limits independently of filename."""
     try:
-        workbook = load_workbook(BytesIO(data), read_only=False, data_only=False, keep_links=False)
-        cached_workbook = load_workbook(BytesIO(data), read_only=False, data_only=True, keep_links=False)
-        if len(workbook.worksheets) > MAX_EXCEL_SHEETS:
-            raise AIOrderError(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"Excel은 {MAX_EXCEL_SHEETS}개 이하 시트만 분석할 수 있습니다.")
-        sheets = []
-        total_cells = 0
-        total_characters = 0
-        for worksheet in workbook.worksheets:
-            cells = []
-            nonempty = sorted(
-                (cell for cell in worksheet._cells.values() if cell.value is not None),
-                key=lambda cell: (cell.row, cell.column),
-            )
-            total_cells += len(nonempty)
-            if total_cells > MAX_EXCEL_CELLS:
-                raise AIOrderError(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"Excel은 값이 있는 셀 {MAX_EXCEL_CELLS:,}개 이하만 분석할 수 있습니다.")
-            for cell in nonempty:
-                value = _cell_text(cell.value)
-                total_characters += len(value or "")
-                if total_characters > MAX_EXCEL_CHARACTERS:
-                    raise AIOrderError(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"Excel 셀 텍스트는 {MAX_EXCEL_CHARACTERS:,}자 이하만 분석할 수 있습니다.")
-                cached_value = _cell_text(cached_workbook[worksheet.title][cell.coordinate].value)
-                cell_data = {
-                    "cell": cell.coordinate,
-                    "value": cached_value if cached_value is not None else value,
-                    "number_format": cell.number_format,
-                }
-                if isinstance(cell.value, str) and cell.value.startswith("="):
-                    cell_data["formula"] = cell.value
-                cells.append(cell_data)
-            sheets.append({
-                "sheet": worksheet.title,
-                "merged_ranges": [str(rng) for rng in worksheet.merged_cells.ranges],
-                "cells": cells,
-            })
-        workbook.close()
-        cached_workbook.close()
-        return json.dumps({"sheets": sheets}, ensure_ascii=False, separators=(",", ":"))
+        if len(data) >= 12 and data[4:8] == b"ftyp":
+            _register_heif_support()
+        with Image.open(BytesIO(data)) as image:
+            image_format = (image.format or "").upper()
+            if image_format in {"HEIC", "HEIF"}:
+                image_format = "HEIF"
+            if image_format not in {"JPEG", "PNG", "TIFF", "HEIF"}:
+                raise AIOrderError(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "JPG, PNG, HEIC, TIFF 또는 PDF 파일만 업로드할 수 있습니다.")
+            frame_count = int(getattr(image, "n_frames", 1) or 1)
+            if frame_count > MAX_IMAGE_PAGES:
+                raise AIOrderError(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"이미지 문서는 {MAX_IMAGE_PAGES}페이지 이하만 처리할 수 있습니다.")
+            total_pixels = 0
+            for frame_index in range(frame_count):
+                image.seek(frame_index)
+                width, height = image.size
+                pixels = width * height
+                total_pixels += pixels
+                if pixels > 40_000_000 or total_pixels > 80_000_000:
+                    raise AIOrderError(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "이미지 해상도가 너무 큽니다. 페이지당 4천만, 전체 8천만 픽셀 이하 파일을 사용해주세요.")
+            image.seek(0)
+            image.load()
+            return image_format, frame_count
+    except AIOrderError:
+        raise
+    except ModuleNotFoundError as exc:
+        if exc.name == "pillow_heif":
+            raise AIOrderError(status.HTTP_503_SERVICE_UNAVAILABLE, "HEIC 변환 패키지가 설치되지 않았습니다. backend requirements.txt를 설치해주세요.") from exc
+        raise
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError, EOFError) as exc:
+        raise AIOrderError(status.HTTP_422_UNPROCESSABLE_ENTITY, "이미지 파일을 읽을 수 없거나 손상되었습니다.") from exc
+
+
+def _convert_to_png_pages(data: bytes) -> tuple[str, list[bytes]]:
+    image_format, frame_count = _inspect_image(data)
+    try:
+        if image_format == "HEIF":
+            _register_heif_support()
+        pages: list[bytes] = []
+        with Image.open(BytesIO(data)) as image:
+            for frame_index in range(frame_count):
+                image.seek(frame_index)
+                # TIFFs may be palette, bilevel, CMYK, or carry orientation tags.
+                # Materialize each frame before leaving the source image context,
+                # apply orientation, then normalize to a format OpenAI/browser supports.
+                source_frame = image.copy()
+                source_frame.load()
+                oriented_frame = ImageOps.exif_transpose(source_frame)
+                frame = oriented_frame.convert("RGB")
+                output = BytesIO()
+                frame.save(output, format="PNG", optimize=True)
+                pages.append(output.getvalue())
+                if frame is not oriented_frame:
+                    oriented_frame.close()
+                source_frame.close()
+                frame.close()
+        if sum(map(len, pages)) > 120 * 1024 * 1024:
+            raise AIOrderError(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "변환된 이미지 묶음이 너무 큽니다. 해상도나 페이지 수를 줄여주세요.")
+        return image_format, pages
     except AIOrderError:
         raise
     except Exception as exc:
-        raise AIOrderError(status.HTTP_422_UNPROCESSABLE_ENTITY, "Excel 데이터를 구조화하지 못했습니다.") from exc
+        logger.warning("AI order image conversion failed error_type=%s", type(exc).__name__)
+        raise AIOrderError(status.HTTP_422_UNPROCESSABLE_ENTITY, "이미지를 PNG로 변환하지 못했습니다.") from exc
 
 
-def _mock_extraction() -> AIOrderExtraction:
-    return AIOrderExtraction.model_validate({
-        "header": {
-            "order_number": "MOCK-20261018-001", "order_date": "2026-10-18",
-            "buyer": "테스트 발주처", "seller": "테스트 수주처", "due_date": "2026-10-25",
-            "title": "철강 주문서 Mock", "common_notes": "UI 확인용 샘플입니다.", "source_locations": [],
-        },
-        "items": [{
-            "source_product_name": "냉연강판", "steel_grade": "SPCC", "spec_raw": "0.6 × 191",
-            "thickness": 0.6, "width": 191, "length": None, "quantity": 100,
-            "quantity_unit": "EA", "weight_kg": 1250, "unit_price": None, "amount": None,
-            "notes": None, "quantity_raw": "100", "weight_raw": "1,250 KG",
-            "source_reference": "Mock 예시", "source_locations": [], "needs_review": True,
-            "review_reasons": ["Mock 데이터입니다. 실제 문서와 대조해주세요."],
-        }],
-    })
+def convert_image_preview(data: bytes) -> tuple[bytes, str, str]:
+    """Return PNG for one page or a multipage PDF for preview in the existing viewer."""
+    _, pages = _convert_to_png_pages(data)
+    if len(pages) == 1:
+        return pages[0], "image/png", "converted-preview.png"
+
+    images: list[Image.Image] = []
+    try:
+        for page in pages:
+            with Image.open(BytesIO(page)) as image:
+                images.append(image.convert("RGB"))
+        output = BytesIO()
+        images[0].save(output, format="PDF", save_all=True, append_images=images[1:], resolution=150)
+        return output.getvalue(), PDF_MIME, "converted-preview.pdf"
+    finally:
+        for image in images:
+            image.close()
+
+def _prepare_scanned_pdf_for_ai(data: bytes) -> tuple[bytes, list[dict[str, Any]]]:
+    """Rotate image-only PDF pages upright and deskew them for the model.
+
+    The uploaded source is never modified. Pages with a text layer are left alone;
+    without OCR or text, coordinates remain unverified against the original.
+    """
+    import pymupdf
+    import numpy as np
+
+    try:
+        with pymupdf.open(stream=data, filetype="pdf") as source:
+            # Avoid rasterizing mixed or digitally authored documents.
+            if any(page.get_text("text").strip() for page in source):
+                return data, []
+
+            prepared_pages: list[tuple[Image.Image, int]] = []
+            changes: list[dict[str, Any]] = []
+            total_pixels = 0
+            dpi = 180
+            for page_index, page in enumerate(source):
+                pixmap = page.get_pixmap(dpi=dpi, colorspace=pymupdf.csRGB, alpha=False)
+                total_pixels += pixmap.width * pixmap.height
+                if pixmap.width * pixmap.height > 40_000_000 or total_pixels > 100_000_000:
+                    raise AIOrderError(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "PDF 스캔 해상도가 너무 높아 방향 보정을 할 수 없습니다.")
+                image = Image.open(BytesIO(pixmap.tobytes("png"))).convert("RGB")
+                analysis = image.convert("L")
+                analysis.thumbnail((1400, 1400), Image.Resampling.LANCZOS)
+                gray = np.asarray(analysis)
+
+                # Compare page orientations using horizontal ink-line concentration.
+                candidates: list[tuple[float, float, int, Image.Image]] = []
+                for cardinal in (0, 90, 180, 270):
+                    turned = Image.fromarray(gray).rotate(cardinal, expand=True, fillcolor=255)
+                    ink = np.asarray(turned) < 190
+                    row_ink = ink.sum(axis=1).astype(float)
+                    score = float(np.var(row_ink) / (ink.sum() + 1))
+                    height = len(row_ink)
+                    weighted_top = float(sum(value * (0.5 - row / max(height - 1, 1)) for row, value in enumerate(row_ink)))
+                    candidates.append((score, weighted_top, cardinal, turned))
+
+                best_score = max(candidate[0] for candidate in candidates)
+                # Resolve 0-vs-180 and 90-vs-270 ties by putting the denser
+                # heading/content region toward the top of the page.
+                plausible = [candidate for candidate in candidates if candidate[0] >= best_score * 0.97]
+                _, _, cardinal, oriented_small = max(plausible, key=lambda candidate: candidate[1])
+                original_score = next(candidate[0] for candidate in candidates if candidate[2] == 0)
+                if cardinal != 0 and best_score < original_score * 1.2:
+                    cardinal = 0
+                    oriented_small = next(candidate[3] for candidate in candidates if candidate[2] == 0)
+
+                # Search a small residual skew angle after cardinal orientation.
+                fine_angle = 0.0
+                fine_score = -1.0
+                for tenths in range(-12, 13, 2):
+                    angle = tenths / 10
+                    rotated = oriented_small.rotate(angle, expand=True, fillcolor=255)
+                    ink = np.asarray(rotated) < 190
+                    row_ink = ink.sum(axis=1).astype(float)
+                    score = float(np.var(row_ink) / (ink.sum() + 1))
+                    if score > fine_score:
+                        fine_score, fine_angle = score, angle
+                if fine_score < best_score * 1.015:
+                    fine_angle = 0.0
+
+                if cardinal != 0 or abs(fine_angle) >= 0.3:
+                    image = image.rotate(cardinal + fine_angle, expand=True, fillcolor="white", resample=Image.Resampling.BICUBIC)
+                    changes.append({
+                        "page_number": page_index + 1,
+                        "rotation_degrees": cardinal,
+                        "deskew_degrees": round(fine_angle, 1),
+                    })
+                prepared_pages.append((image, dpi))
+
+            if not changes:
+                return data, []
+
+            output = pymupdf.open()
+            try:
+                for image, page_dpi in prepared_pages:
+                    page_width = image.width * 72 / page_dpi
+                    page_height = image.height * 72 / page_dpi
+                    target_page = output.new_page(width=page_width, height=page_height)
+                    image_bytes = BytesIO()
+                    image.save(image_bytes, format="JPEG", quality=94, optimize=True)
+                    target_page.insert_image(target_page.rect, stream=image_bytes.getvalue())
+                corrected = output.tobytes(garbage=4, deflate=True)
+            finally:
+                output.close()
+            if len(corrected) > MAX_FILE_BYTES * 2:
+                raise AIOrderError(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "방향 보정 후 PDF가 너무 커졌습니다. 해상도가 낮은 파일로 다시 시도해주세요.")
+            return corrected, changes
+    except AIOrderError:
+        raise
+    except Exception as exc:
+        logger.warning("AI order PDF preprocessing failed error_type=%s", type(exc).__name__)
+        raise AIOrderError(status.HTTP_422_UNPROCESSABLE_ENTITY, "스캔 PDF 방향을 보정하지 못했습니다. PDF를 다시 저장한 뒤 시도해주세요.") from exc
 
 
 def _usage_dict(usage: Any | None) -> dict[str, int]:
@@ -657,19 +695,14 @@ async def _analyze_order_document(
     extension: str, data: bytes, mime_type: str,
 ) -> dict[str, Any]:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not MOCK_MODE and not api_key:
-        raise AIOrderError(status.HTTP_503_SERVICE_UNAVAILABLE, "OPENAI_API_KEY가 설정되지 않았습니다. 개발 화면은 VITE_AI_ORDER_MOCK_MODE=true로 사용할 수 있습니다.")
-    excel_text = await asyncio.to_thread(_excel_as_structured_text, data) if extension == ".xlsx" else None
+    if not api_key:
+        raise AIOrderError(status.HTTP_503_SERVICE_UNAVAILABLE, "backend/.env의 OPENAI_API_KEY가 비어 있습니다. API 키를 설정한 뒤 백엔드를 재시작해주세요.")
+    source_data = data
+    ai_data = data
+    preprocessing: list[dict[str, Any]] = []
     request_id = str(uuid.uuid4())
     request = await asyncio.to_thread(_reserve_request, companyid, user_email, idempotency_key, request_id)
     request_hash = request["request_hash"]
-
-    if MOCK_MODE:
-        usage = _record_usage(request_hash, None, success=True)
-        usage["daily_used"] = request["daily_used"]
-        extracted = _mock_extraction()
-        usage["company_daily_used"] = request["company_daily_used"]
-        return _response_payload(extracted, usage, mode="mock", request_id=request_id)
 
     try:
         await _wait_for_analysis_slot(request_hash)
@@ -677,16 +710,31 @@ async def _analyze_order_document(
         await asyncio.to_thread(_record_usage, request_hash, None, False)
         raise
 
+    if extension == ".pdf":
+        try:
+            ai_data, preprocessing = await asyncio.to_thread(_prepare_scanned_pdf_for_ai, data)
+        except AIOrderError:
+            await asyncio.to_thread(_record_usage, request_hash, None, False)
+            raise
+
     content: list[dict[str, Any]] = [{"type": "input_text", "text": "첨부한 주문 문서에서 헤더와 모든 주문 품목을 추출하세요. 응답은 지정된 JSON Schema에 맞추고, 근거 위치는 원문에서 확인한 것만 적으세요."}]
-    if extension == ".xlsx":
-        content.append({"type": "input_text", "text": "다음은 Excel 셀 데이터입니다. 각 시트와 셀 좌표 및 병합 범위를 참고하세요.\n" + (excel_text or "")})
+    if extension in {".tif", ".tiff", ".heic", ".heif"}:
+        try:
+            _, png_pages = await asyncio.to_thread(_convert_to_png_pages, data)
+        except AIOrderError:
+            await asyncio.to_thread(_record_usage, request_hash, None, False)
+            raise
+        if len(png_pages) > 1:
+            content.append({"type": "input_text", "text": f"다음 이미지들은 업로드된 다중 페이지 이미지의 1~{len(png_pages)}페이지 순서입니다. 페이지 번호를 유지하며 전 페이지를 확인하세요."})
+        for page in png_pages:
+            encoded = __import__("base64").b64encode(page).decode("ascii")
+            content.append({"type": "input_image", "image_url": f"data:image/png;base64,{encoded}", "detail": "high"})
+    elif extension == ".pdf":
+        encoded = __import__("base64").b64encode(ai_data).decode("ascii")
+        content.append({"type": "input_file", "filename": "steel-order.pdf", "file_data": f"data:{PDF_MIME};base64,{encoded}", "detail": "high"})
     else:
-        encoded = __import__("base64").b64encode(data).decode("ascii")
-        data_url = f"data:{mime_type};base64,{encoded}"
-        if extension == ".pdf":
-            content.append({"type": "input_file", "filename": "steel-order.pdf", "file_data": data_url, "detail": "high"})
-        else:
-            content.append({"type": "input_image", "image_url": data_url, "detail": "high"})
+        encoded = __import__("base64").b64encode(ai_data).decode("ascii")
+        content.append({"type": "input_image", "image_url": f"data:{mime_type};base64,{encoded}", "detail": "high"})
 
     # One reservation corresponds to one provider request; automatic retries could
     # spend twice while returning usage for only the final attempt.
@@ -735,78 +783,17 @@ async def _analyze_order_document(
     except (ValidationError, ValueError) as exc:
         logger.warning("AI order output validation failed company=%s request_id=%s request=%s", companyid, request_id, request_hash[:12])
         raise AIOrderError(status.HTTP_502_BAD_GATEWAY, "AI 결과가 주문서 데이터 형식 검증을 통과하지 못했습니다. 다시 분석해주세요.") from exc
-    extracted = await asyncio.to_thread(_verify_source_locations, extracted, extension, data)
+    extracted = await asyncio.to_thread(_verify_source_locations, extracted, extension, source_data)
     usage["daily_used"] = request["daily_used"]
     usage["company_daily_used"] = request["company_daily_used"]
-    return _response_payload(extracted, usage, mode="openai", request_id=request_id)
-
-
-def _normalize_source_value(value: Any) -> str:
-    text = str(value or "").strip().casefold()
-    compact = re.sub(r"\s+", "", text)
-    numeric = compact.replace(",", "")
-    if re.fullmatch(r"[+-]?(?:\d+\.?\d*|\.\d+)", numeric):
-        try:
-            return format(Decimal(numeric).normalize(), "f")
-        except InvalidOperation:
-            pass
-    return compact
+    result = _response_payload(extracted, usage, mode="openai", request_id=request_id)
+    result["preprocessing"] = {"corrected_pages": preprocessing}
+    return result
 
 
 def _verify_source_locations(extracted: AIOrderExtraction, extension: str, data: bytes) -> dict[str, Any]:
     """Resolve proposed citations against source content; model-provided boxes are never trusted."""
     payload = extracted.model_dump(mode="python")
-    if extension == ".xlsx":
-        workbook = load_workbook(BytesIO(data), read_only=False, data_only=True, keep_links=False)
-        try:
-            sheets = {sheet.title: sheet for sheet in workbook.worksheets}
-            for owner in [payload["header"], *payload["items"]]:
-                verified = []
-                for source in owner.get("source_locations", []):
-                    sheet = sheets.get(source.get("sheet_name") or "")
-                    address = source.get("cell_address") or ""
-                    state = "unverified"
-                    resolved_address = None
-                    if sheet and re.fullmatch(r"\$?[A-Za-z]{1,3}\$?\d{1,7}", address):
-                        address = address.replace("$", "").upper()
-                        for merged_range in sheet.merged_cells.ranges:
-                            if address in merged_range:
-                                address = sheet.cell(merged_range.min_row, merged_range.min_col).coordinate
-                                break
-                        value = sheet[address].value
-                        resolved_address = address
-                        if value is not None and source.get("raw_text") is not None:
-                            normalized = _normalize_source_value(source["raw_text"])
-                            matches = []
-                            for candidate_sheet in workbook.worksheets:
-                                for candidate in candidate_sheet._cells.values():
-                                    if candidate.value is None or _normalize_source_value(candidate.value) != normalized:
-                                        continue
-                                    candidate_address = candidate.coordinate
-                                    for merged_range in candidate_sheet.merged_cells.ranges:
-                                        if candidate_address in merged_range:
-                                            candidate_address = candidate_sheet.cell(merged_range.min_row, merged_range.min_col).coordinate
-                                            break
-                                    matches.append((candidate_sheet.title, candidate_address))
-                            if matches == [(sheet.title, address)]:
-                                state = "verified"
-                    verified.append({
-                        **source,
-                        "cell_address": resolved_address or source.get("cell_address"),
-                        "verification_status": state,
-                        "coordinate_system": "excel_cell",
-                        "bounding_box": None,
-                    })
-                owner["source_locations"] = verified
-                if "needs_review" in owner and any(source["verification_status"] != "verified" for source in verified):
-                    owner["needs_review"] = True
-                    owner["review_reasons"] = list(dict.fromkeys([
-                        *owner.get("review_reasons", []), "원본 위치를 독립적으로 검증하지 못했습니다. 원문과 대조해주세요.",
-                    ]))
-        finally:
-            workbook.close()
-        return payload
-
     if extension == ".pdf":
         import pymupdf
         with pymupdf.open(stream=data, filetype="pdf") as document:
