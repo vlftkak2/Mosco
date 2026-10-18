@@ -68,8 +68,10 @@ async def analyze_order_document(
         extension, data, mime_type = await ai_order_module.read_limited_upload(file)
         result = await ai_order_module.analyze_order_document(
             companyid=companyid,
+            companyname=str(user.get("companyname") or "").strip(),
             user_email=email,
             idempotency_key=idempotency_key,
+            filename=str(file.filename or "order-document").replace("\\", "/").split("/")[-1],
             extension=extension,
             data=data,
             mime_type=mime_type,
@@ -81,6 +83,7 @@ async def analyze_order_document(
         raise
     except Exception as exc:
         # Never return a database exception or connection string to the client.
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="권한을 확인할 수 없습니다. 잠시 후 다시 시도해주세요.") from exc
+        logger.error("AI order analyze endpoint failed company=%s error_type=%s", companyid, type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="분석 요청을 처리하지 못했습니다. 서버 설정과 로그를 확인해주세요.") from exc
     finally:
         await file.close()
