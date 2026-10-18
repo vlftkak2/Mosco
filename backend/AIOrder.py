@@ -35,7 +35,7 @@ if _configured_reasoning_effort not in _SUPPORTED_REASONING_EFFORTS:
     logger.warning("Unsupported AI_ORDER_REASONING_EFFORT; using low")
     _configured_reasoning_effort = "low"
 REASONING_EFFORT = _configured_reasoning_effort
-EXTRACTION_SCHEMA_VERSION = 3
+EXTRACTION_SCHEMA_VERSION = 6
 DAILY_LIMIT = max(1, int(os.getenv("AI_ORDER_DAILY_LIMIT", "100")))
 COMPANY_DAILY_LIMIT = max(1, int(os.getenv("AI_ORDER_COMPANY_DAILY_LIMIT", "100")))
 MONTHLY_BUDGET_USD = max(0.01, float(os.getenv("AI_ORDER_MONTHLY_BUDGET_USD", "20")))
@@ -86,7 +86,7 @@ class OrderHeader(BaseModel):
     recipient: str | None = Field(description="발주서를 받는 수신처 또는 공급처 회사명. 발주처와 구분해서 원문에 있는 값만 추출")
     order_date: str | None = Field(description="발주일자, 확실할 때 YYYY-MM-DD")
     due_date: str | None = Field(description="납기일 또는 입고일, 확실할 때 YYYY-MM-DD")
-    delivery_location: str | None = Field(description="납품 장소, 도착지, 납품처 주소로 명시된 값. 우편번호가 해당 납품 주소에 표시되어 있으면 함께 포함하고, 발주처 회사 주소와 구분")
+    delivery_location: str | None = Field(description="납품 장소 주소. 도착지가 당사·자사·본사 등 상대 표현이면 발주처/주문 발행 회사를 문서에서 식별하고, 해당 회사의 것으로 확인되는 주소를 우편번호와 함께 '(우편번호) 주소' 형식으로 표기. 회사나 주소 연결이 불명확하면 주소를 추측하지 말고 확인 가능한 원문 표현만 사용")
     source_locations: list["SourceLocation"] = Field(description="주요 헤더 값의 원본 근거 위치. 모르면 빈 배열")
 
     @field_validator("order_date", "due_date")
@@ -216,7 +216,7 @@ SYSTEM_PROMPT = """당신은 철강 주문서 데이터 추출기입니다. 입�
 품명/규격 숫자·소수점·기호·자릿수를 그대로 보존하세요. 0.6 × 191과 0.6 × 190을 혼동하지 말고, 다른 값으로 보정·반올림·추정하지 마세요.
 숫자 쉼표는 제거해 수량·중량 숫자를 반환하고, 수량 원문과 중량 원문도 보존하세요. 수량이 나머지, 전량, -, 기타 문자이면 quantity는 null, quantity_raw는 원문입니다.
 단위 KG, TON, EA, SHEET 등을 구별하세요. 수량 칸에 수량(KG)처럼 단위가 붙으면 quantity_unit을 KG로 쓰고, 별도 중량이 표시되지 않는 한 weight_kg를 중복해서 채우지 마세요. 중량이 별도 칸에 TON으로 명시되면 weight_kg로 환산할 수 있지만 weight_raw에 원문을 보존하세요.
-날짜는 발주일자와 납기일/입고일을 구별하고, 모호하지 않을 때만 YYYY-MM-DD로 표준화하세요. 납품 장소는 도착지·납품 장소·납품처로 명시된 값만 추출하고 발주처 주소를 대신 넣지 마세요. 우편번호가 납품 주소와 함께 기재되어 있으면 delivery_location 문자열에 우편번호도 포함하세요. 문서 상단의 발주처 회사 주소에 붙은 우편번호는 납품 주소임이 확인되지 않는 한 포함하지 마세요.
+날짜는 발주일자와 납기일/입고일을 구별하고, 모호하지 않을 때만 YYYY-MM-DD로 표준화하세요. 납품 장소는 도착지·납품 장소·납품처 문구와 문서의 주소 정보를 함께 살펴 추출하세요. 도착지가 '당사', '자사', '본사'처럼 상대적인 표현이면 그 표현을 그대로 납품 장소로 출력하지 마세요. 먼저 발주처/주문 발행 회사를 식별하고, 문서 상단의 상호·로고·주소가 그 회사의 정보와 일치하는지 확인하세요. 동일 회사의 주소가 하나만 명확히 확인되고 도착지 표현과 모순되지 않으면 해당 주소를 delivery_location에 선택하세요. 예: '도착지: 당사'이고 발주처가 (주)금영피앤티이며 문서 상단에 그 회사의 주소 '39418 경북 구미시 옥계2공단로5길 28'이 확인되면 delivery_location은 '(39418) 경북 구미시 옥계2공단로5길 28'입니다. 우편번호가 문서에 있으면 주소 앞에 '(우편번호) 주소' 형식으로 작성하고, 없으면 주소만 작성하세요. 발주처와 수신처 중 어느 회사의 주소인지 불명확하거나 주소가 여러 개라 연결할 수 없으면 주소를 임의로 고르지 말고 문서에 명시된 장소 표현만 사용하세요. 주소를 외부 지식으로 보완하지 마세요. source_locations에는 장소를 가리키는 원문과 연결에 사용한 주소 원문을 모두 기록하세요.
 품목은 품명, 강종, 규격 원문, 두께, 폭, 길이, 수량, 단위, 중량, 품목별 비고를 추출하세요. 규격 원문은 기호와 숫자를 그대로 보존하세요. 두께·폭·길이는 규격에 각 치수가 명확하게 구분될 때만 채우고, 강종이 명시되지 않으면 품명에서 추측하지 마세요.
 헤더는 발주처, 수신처, 발주일자, 납기일(입고일), 납품 장소만 추출하세요. 발주번호와 헤더 공통 비고는 추출하지 마세요. 헤더의 각 값과 상세 항목에는 source_locations를 제공하되 실제 확인한 원문과 페이지 번호만 적으세요. 좌표 상자를 추측하지 마세요. 불명확하면 null로 두고 needs_review=true와 구체적인 review_reasons를 작성하세요."""
 
