@@ -116,7 +116,15 @@
 .toolbar :global(.mantine-Button-root) { min-height: 34px; font-size: 13px; }
 
 .tableWrap { height: 0; min-height: 0; flex: 1 1 auto; overflow: hidden; }
-.tableWrap :global([data-virtuoso-scroller]) { overflow-x: auto !important; }
+.tableWrap :global([data-virtuoso-scroller]) {
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+  scrollbar-color: #aab6c4 #f1f4f7;
+}
+.tableWrap :global([data-virtuoso-scroller])::-webkit-scrollbar { width: 12px; height: 12px; }
+.tableWrap :global([data-virtuoso-scroller])::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
+.tableWrap :global([data-virtuoso-scroller])::-webkit-scrollbar-track { background: #f1f4f7; }
 .tableWrap :global([data-orientation='vertical']) { border-radius: 999px; background: #edf0f4; }
 .tableWrap :global([data-orientation='vertical'] > div) { border-radius: 999px; background: #aeb9c8; }
 .tableWrap :global([data-orientation='vertical'] > div:hover) { background: #8795a8; }

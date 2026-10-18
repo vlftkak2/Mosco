@@ -36,6 +36,16 @@
 }
 .resultsToolbar { min-height: 54px; padding: 9px 14px; border-bottom: 1px solid #e5e9ef; }
 .tableWrap { position: relative; min-height: 0; flex: 1 1 auto; }
+.outboundSearchScroller {
+  max-width: 100%;
+  overflow-x: auto !important;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #aab6c4 #f1f4f7;
+}
+.outboundSearchScroller::-webkit-scrollbar { width: 12px; height: 12px; }
+.outboundSearchScroller::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
+.outboundSearchScroller::-webkit-scrollbar-track { background: #f1f4f7; }
 .statusTable { min-width: 1900px; table-layout: fixed; }
 .statusTable thead th {
   position: sticky;

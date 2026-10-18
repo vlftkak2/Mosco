@@ -170,7 +170,7 @@ const CustomerPickerModal = memo(function CustomerPickerModal({ opened, onClose,
       </Group>
       <Box className={classes.pickerResults}>
         {loading && <Loader className={classes.pickerLoader} size="xs" color="red" aria-label="조회 중" />}
-        <ScrollArea h={420} type="auto">
+        <ScrollArea h={420} type="auto" scrollbarSize={6}>
           <Table className={`${codeClasses.codeTable} ${classes.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
             <Table.Thead><Table.Tr><Table.Th className={classes.customerCodeColumn}>거래처코드</Table.Th><Table.Th className={classes.customerNameColumn}>거래처명</Table.Th><Table.Th className={classes.customerBusinessColumn}>사업자번호</Table.Th></Table.Tr></Table.Thead>
             <Table.Tbody>
@@ -240,7 +240,7 @@ const ItemPickerModal = memo(function ItemPickerModal({ opened, onClose, onSelec
       </Group>
       <Box className={classes.pickerResults}>
         {loading && <Loader className={classes.pickerLoader} size="xs" color="red" aria-label="조회 중" />}
-        <ScrollArea h={420} type="auto">
+        <ScrollArea h={420} type="auto" scrollbarSize={6}>
           <Table className={`${codeClasses.codeTable} ${classes.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
             <Table.Thead><Table.Tr><Table.Th className={classes.customerCodeColumn}>품목코드</Table.Th><Table.Th className={classes.customerNameColumn}>품목명</Table.Th><Table.Th className={classes.customerBusinessColumn}>형태구분</Table.Th></Table.Tr></Table.Thead>
             <Table.Tbody>
@@ -274,7 +274,7 @@ const MasterOptionPickerModal = memo(function MasterOptionPickerModal({ opened, 
   return <Modal opened={opened} onClose={onClose} title={<PickerModalTitle title={title} />} classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader, title: classes.receiptFinderModalTitle, close: classes.receiptFinderModalClose }} centered size="md">
     <Stack gap="sm" pt={10}>
       <TextInput value={search} onChange={(event) => { setSearch(event.currentTarget.value); setPage(1); }} placeholder={'코드 또는 코드명 검색'} leftSection={<IconSearch size={15} />} autoFocus />
-      <ScrollArea h={360} type="auto">
+      <ScrollArea h={360} type="auto" scrollbarSize={6}>
         <Table className={`${codeClasses.codeTable} ${classes.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
           <Table.Thead><Table.Tr><Table.Th>{'코드'}</Table.Th><Table.Th>{'코드명'}</Table.Th></Table.Tr></Table.Thead>
           <Table.Tbody>
@@ -1326,7 +1326,7 @@ export default function InboundRegisterPage() {
           </Group>
           <Box className={classes.receiptFinderResults}>
             {loading ? <Box className={classes.receiptLoading}><Loader size="sm" color="red" /></Box> : receipts.length ? (
-              <ScrollArea h="100%" type="auto">
+              <ScrollArea h="100%" type="auto" scrollbarSize={6}>
                 <Table className={classes.receiptFinderTable} stickyHeader highlightOnHover>
                   <Table.Thead>
                     <Table.Tr>

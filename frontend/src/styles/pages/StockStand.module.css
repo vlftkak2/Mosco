@@ -39,7 +39,12 @@
   overflow-y: auto !important;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #aab6c4 #f1f4f7;
 }
+.tableViewport :global([data-virtuoso-scroller])::-webkit-scrollbar { width: 12px; height: 12px; }
+.tableViewport :global([data-virtuoso-scroller])::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
+.tableViewport :global([data-virtuoso-scroller])::-webkit-scrollbar-track { background: #f1f4f7; }
 .table { table-layout: fixed; }
 .newRow > td { background: #fffbf4 !important; }
 .newRowNumber { background: #fffbf4 !important; }
@@ -50,6 +55,7 @@
 .savedEditableCell:focus-within :global(input) { background: #fffaf0 !important; }
 .footer { flex: 0 0 auto; padding: 9px 14px; border-top: 1px solid #e5e9ef; }
 .stockFooter { position: static; z-index: auto; width: 100%; min-width: 0; flex: 0 0 auto; align-self: stretch; gap: 8px 16px; margin-top: auto; background: #fff; }
+.paginationBar { min-width: 0; margin-left: auto; }
 .footerNotice { flex: 1 1 520px; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
 .loading { display: grid; height: 100%; min-height: 300px; place-items: center; }
 

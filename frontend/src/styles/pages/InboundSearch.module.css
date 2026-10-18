@@ -41,10 +41,26 @@
 }
 .resultsToolbar { min-height: 54px; padding: 9px 14px; border-bottom: 1px solid #e5e9ef; }
 .tableWrap { position: relative; min-width: 0; min-height: 0; flex: 1 1 auto; overflow: hidden; }
-.virtuosoScroller { max-width: 100%; overflow-x: auto !important; scrollbar-gutter: stable; }
-.virtuosoScroller::-webkit-scrollbar { height: 12px; }
-.virtuosoScroller::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
-.virtuosoScroller::-webkit-scrollbar-track { background: #f1f4f7; }
+.inboundSearchScroller {
+  max-width: 100%;
+  overflow-x: auto !important;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #aab6c4 #f1f4f7;
+}
+.inboundSearchScroller::-webkit-scrollbar { width: 12px; height: 12px; }
+.inboundSearchScroller::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
+.inboundSearchScroller::-webkit-scrollbar-track { background: #f1f4f7; }
+.resizableVirtualScroller {
+  max-width: 100%;
+  overflow-x: auto !important;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #aab6c4 #f1f4f7;
+}
+.resizableVirtualScroller::-webkit-scrollbar { width: 12px; height: 12px; }
+.resizableVirtualScroller::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
+.resizableVirtualScroller::-webkit-scrollbar-track { background: #f1f4f7; }
 .statusTable { width: max-content; min-width: 2500px; table-layout: fixed; }
 .statusTable thead th {
   position: sticky;

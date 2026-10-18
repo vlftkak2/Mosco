@@ -3,7 +3,7 @@ import axios from 'axios';
 import * as XLSX from 'xlsx-js-style';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper,
-  ScrollArea, Stack, Table, Text, TextInput, Title, Tooltip,
+  ScrollArea, Select, Stack, Table, Text, TextInput, Title, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconDeviceFloppy, IconDownload, IconPlus, IconSearch, IconTrash, IconUpload } from '@tabler/icons-react';
@@ -24,6 +24,12 @@ const STOCK_EXCEL_COLUMNS = [
 const STOCK_EXPORT_COLUMNS = [
   ...STOCK_EXCEL_COLUMNS,
   ['created_at', '등록일자'], ['updated_at', '수정일자'],
+];
+const STOCK_PAGE_OPTIONS = [
+  { value: '15', label: '15개씩' },
+  { value: '50', label: '50개씩' },
+  { value: '100', label: '100개씩' },
+  { value: '200', label: '200개씩' },
 ];
 const GRID_FIELDS = ['itemcode', 'itemname', 'size', 'qty', 'qtyunit', 'warehousecode', 'weight', 'unit', 'unitprice', 'unitamt', 'description'];
 const GRID_COLUMN_WIDTHS = { select: 44, number: 58, itemcode: 150, itemname: 180, size: 125, qty: 115, qtyunit: 110, warehousecode: 120, weight: 135, unit: 115, unitprice: 125, unitamt: 125, description: 180, action: 58 };
@@ -164,7 +170,7 @@ function ItemPicker({ opened, onClose, onSelect }) {
       </Group>
       <Box className={outboundClasses.pickerResults}>
         {loading && <Loader className={outboundClasses.pickerLoader} size="xs" color="red" />}
-        <ScrollArea h={420} type="auto">
+        <ScrollArea h={420} type="auto" scrollbarSize={6}>
           <Table className={`${codeClasses.codeTable} ${outboundClasses.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
             <Table.Thead><Table.Tr><Table.Th className={outboundClasses.customerCodeColumn}>품목코드</Table.Th><Table.Th className={outboundClasses.customerNameColumn}>품목명</Table.Th><Table.Th className={outboundClasses.customerBusinessColumn}>형태구분</Table.Th></Table.Tr></Table.Thead>
             <Table.Tbody>{items.map((item) => <Table.Tr key={item.itemcode} className={outboundClasses.customerResultRow} onClick={() => { onSelect(item); onClose(); }}>
@@ -199,7 +205,7 @@ function StockMasterPicker({ opened, title, options, onClose, onSelect }) {
   >
     <Stack gap="sm" pt={10}>
       <TextInput value={search} onChange={(event) => { setSearch(event.currentTarget.value); setPage(1); }} placeholder="코드 또는 코드명 검색" leftSection={<IconSearch size={15} />} autoFocus />
-      <ScrollArea h={360} type="auto">
+      <ScrollArea h={360} type="auto" scrollbarSize={6}>
           <Table className={`${codeClasses.codeTable} ${outboundClasses.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
             <Table.Thead><Table.Tr><Table.Th>코드</Table.Th><Table.Th>코드명</Table.Th></Table.Tr></Table.Thead>
             <Table.Tbody>
@@ -220,12 +226,16 @@ export default function StockStandPage() {
   const [searchInput, setSearchInput] = useState('');
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState([]);
+  const [totalRows, setTotalRows] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [selectedIds, setSelectedIds] = useState([]);
   const [masters, setMasters] = useState({ quantity: [], warehouse: [], price: [] });
   const [hasSavedStock, setHasSavedStock] = useState(false);
   const [hasTransactions, setHasTransactions] = useState(false);
   const [hasStockMovements, setHasStockMovements] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMoreRows, setLoadingMoreRows] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -242,6 +252,10 @@ export default function StockStandPage() {
   const activeCellRef = useRef(null);
   const selectionAnchorRef = useRef('');
   const movementNoticeShownRef = useRef(false);
+  const listRequestIdRef = useRef(0);
+  const loadingMoreRef = useRef(false);
+  const hasMoreRowsRef = useRef(false);
+  const nextCursorRef = useRef(0);
   const hasNewRows = rows.some((row) => !row.lineno);
   const changedPriceRows = rows.filter((row) => {
     if (!row.lineno) return false;
@@ -249,6 +263,9 @@ export default function StockStandPage() {
     return original && [...EDITABLE_PRICE_FIELDS].some((field) => String(row[field] ?? '') !== String(original[field] ?? ''));
   });
   const hasChanges = hasNewRows || changedPriceRows.length > 0;
+  const displayRowCount = hasSavedStock ? totalRows : rows.length;
+  const visibleRows = hasSavedStock ? rows : rows.slice((page - 1) * pageSize, page * pageSize);
+  const pageCount = Math.max(1, Math.ceil(displayRowCount / pageSize));
   const registrationBlockMessage = hasSavedStock
     ? '이 회사의 기초재고는 이미 등록되어 추가할 수 없습니다.'
     : hasTransactions
@@ -279,21 +296,31 @@ export default function StockStandPage() {
     window.addEventListener('pointercancel', finish);
   }, [columnWidths]);
 
-  const loadRows = useCallback(async (nextDate = standdate, nextQuery = query, confirmDiscard = true, useRegisteredDate = false) => {
+  const loadRows = useCallback(async (nextDate = standdate, nextQuery = query, confirmDiscard = true, useRegisteredDate = false, nextPage = page, nextPageSize = pageSize) => {
     if (confirmDiscard && hasChanges && !window.confirm('저장하지 않은 변경사항이 있습니다. 조회하면 변경 내용이 사라집니다. 계속할까요?')) return;
+    const requestId = ++listRequestIdRef.current;
+    loadingMoreRef.current = false;
+    setLoadingMoreRows(false);
+    hasMoreRowsRef.current = false;
+    nextCursorRef.current = 0;
     setLoading(true);
     try {
-      let response = await axios.get('/api/stock-stand/items', { ...authConfig(), params: { standdate: nextDate, q: nextQuery || undefined } });
+      const offset = (nextPage - 1) * nextPageSize;
+      let response = await axios.get('/api/stock-stand/items', { ...authConfig(), params: { standdate: nextDate, q: nextQuery || undefined, cursor: 0, limit: nextPageSize, offset } });
       let data = response.data;
       const registeredDate = data.registered_standdate ? String(data.registered_standdate).slice(0, 10) : '';
       if (useRegisteredDate && data.has_stock_rows && registeredDate && registeredDate !== nextDate) {
         setStanddate(registeredDate);
-        response = await axios.get('/api/stock-stand/items', { ...authConfig(), params: { standdate: registeredDate, q: nextQuery || undefined } });
+        response = await axios.get('/api/stock-stand/items', { ...authConfig(), params: { standdate: registeredDate, q: nextQuery || undefined, cursor: 0, limit: nextPageSize, offset } });
         data = response.data;
       }
+      if (requestId !== listRequestIdRef.current) return;
       const loadedRows = (data.items || []).map((item) => makeRow(item));
       originalRowsRef.current = new Map(loadedRows.filter((row) => row.lineno).map((row) => [row.id, { ...row }]));
       setRows(loadedRows);
+      setTotalRows(Number(data.total) || 0);
+      hasMoreRowsRef.current = Boolean(data.has_more);
+      nextCursorRef.current = Number(data.next_cursor) || 0;
       setSelectedIds([]);
       setHasSavedStock(Boolean(data.has_stock_rows));
       setHasTransactions(Boolean(data.has_transactions));
@@ -307,10 +334,36 @@ export default function StockStandPage() {
         });
       }
       movementNoticeShownRef.current = Boolean(data.has_transactions);
+      return true;
     } catch (error) {
       notifications.show({ title: '기초재고 조회 실패', message: errorText(error), color: 'red' });
-    } finally { setLoading(false); }
-  }, [standdate, query, hasChanges]);
+      return false;
+    } finally { if (requestId === listRequestIdRef.current) setLoading(false); }
+  }, [standdate, query, hasChanges, page, pageSize]);
+
+  const changePage = async (nextPage) => {
+    if (nextPage < 1 || nextPage > pageCount || nextPage === page) return;
+    if (hasSavedStock && hasChanges && !window.confirm('저장하지 않은 변경사항이 있습니다. 페이지를 이동하면 변경 내용이 사라집니다. 계속할까요?')) return;
+    if (hasSavedStock && !(await loadRows(standdate, query, false, false, nextPage, pageSize))) return;
+    setPage(nextPage);
+  };
+
+  const changePageSize = async (value) => {
+    const nextPageSize = Number(value);
+    if (!nextPageSize || nextPageSize === pageSize) return;
+    if (hasSavedStock && hasChanges && !window.confirm('저장하지 않은 변경사항이 있습니다. 표시 행 수를 바꾸면 변경 내용이 사라집니다. 계속할까요?')) return;
+    if (hasSavedStock && !(await loadRows(standdate, query, false, false, 1, nextPageSize))) return;
+    setPageSize(nextPageSize);
+    setPage(1);
+  };
+
+  const runSearch = async () => {
+    const nextQuery = searchInput.trim();
+    if (hasChanges && !window.confirm('저장하지 않은 변경사항이 있습니다. 조회하면 변경 내용이 사라집니다. 계속할까요?')) return;
+    if (!(await loadRows(standdate, nextQuery, false, false, 1, pageSize))) return;
+    setQuery(nextQuery);
+    setPage(1);
+  };
 
   const loadCodes = useCallback(async (groupcode) => {
     const all = [];
@@ -333,6 +386,10 @@ export default function StockStandPage() {
   // Initial load; date changes are explicitly searched to protect edits.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
   const updateRow = useCallback((id, key, value) => {
     const applyToSelected = MASTER_FIELDS.has(key) && selectedIds.length > 1 && selectedSet.has(id);
@@ -361,11 +418,13 @@ export default function StockStandPage() {
     }
     const row = makeRow({ qtyunit: resolveMasterCode('qtyunit', 'EA', masters) || 'EA' });
     setRows((current) => [...current, row]);
+    const nextPage = Math.ceil((rows.length + 1) / pageSize);
+    setPage(nextPage);
     setSelectedIds([]);
     selectionAnchorRef.current = '';
     pendingCellFocusRef.current = { key: `${row.id}:itemcode` };
     requestAnimationFrame(() => {
-      virtuosoRef.current?.scrollToIndex({ index: rows.length, align: 'end', behavior: 'auto' });
+      virtuosoRef.current?.scrollToIndex({ index: Math.max(0, rows.length - (nextPage - 1) * pageSize), align: 'end', behavior: 'auto' });
     });
   };
   const selectItem = (id, item) => setRows((current) => current.map((row) => row.id === id ? { ...row, itemcode: item.itemcode, itemname: item.itemname } : row));
@@ -384,14 +443,14 @@ export default function StockStandPage() {
   const focusGridCell = useCallback((id, field) => {
     const input = cellInputRefs.current.get(`${id}:${field}`);
     if (input && !input.disabled) { input.focus(); return; }
-    const rowIndex = rows.findIndex((row) => row.id === id);
+    const rowIndex = visibleRows.findIndex((row) => row.id === id);
     if (rowIndex < 0) return;
     pendingCellFocusRef.current = { key: `${id}:${field}` };
     virtuosoRef.current?.scrollToIndex({ index: rowIndex, align: 'center', behavior: 'auto' });
-  }, [rows]);
+  }, [visibleRows]);
 
   const moveGridCell = useCallback((id, field, rowDelta, columnDelta) => {
-    const rowIndex = rows.findIndex((row) => row.id === id);
+    const rowIndex = visibleRows.findIndex((row) => row.id === id);
     if (rowIndex < 0) return false;
     let nextRow = rowIndex;
     let nextColumn = GRID_FIELDS.indexOf(field);
@@ -400,10 +459,10 @@ export default function StockStandPage() {
     nextColumn += columnDelta;
     if (nextColumn < 0) { nextRow -= 1; nextColumn = GRID_FIELDS.length - 1; }
     if (nextColumn >= GRID_FIELDS.length) { nextRow += 1; nextColumn = 0; }
-    if (nextRow < 0 || nextRow >= rows.length) return false;
-    focusGridCell(rows[nextRow].id, GRID_FIELDS[nextColumn]);
+    if (nextRow < 0 || nextRow >= visibleRows.length) return false;
+    focusGridCell(visibleRows[nextRow].id, GRID_FIELDS[nextColumn]);
     return true;
-  }, [rows, focusGridCell]);
+  }, [visibleRows, focusGridCell]);
 
   const fillDown = useCallback(() => {
     const active = activeCellRef.current;
@@ -453,12 +512,13 @@ export default function StockStandPage() {
     if (moveGridCell(active.id, active.field, rowDelta, columnDelta)) event.preventDefault();
   }, [fillDown, moveGridCell]);
 
-  const pasteRange = useCallback((startId, startField, pastedText) => {
+  const pasteRange = useCallback(async (startId, startField, pastedText) => {
     const matrix = pastedText.replace(/\r/g, '').split('\n').filter((line, index, all) => line || index < all.length - 1).map((line) => line.split('\t'));
     const startIndex = rows.findIndex((row) => row.id === startId);
     const startColumn = GRID_FIELDS.indexOf(startField);
     if (startIndex < 0 || startColumn < 0) return;
-    if (registrationBlockMessage && startIndex + matrix.length > rows.length) {
+    const targetRowCount = startIndex + matrix.length;
+    if (registrationBlockMessage && !hasSavedStock && targetRowCount > rows.length) {
       notifications.show({
         title: '기초재고를 추가할 수 없습니다',
         message: registrationBlockMessage,
@@ -470,7 +530,40 @@ export default function StockStandPage() {
       notifications.show({ title: '붙여넣기 제한', message: '한 번에 최대 10,000행까지 입력할 수 있습니다.', color: 'orange' });
       return;
     }
-    const nextRows = [...rows];
+    let workingRows = rows;
+    if (hasSavedStock && targetRowCount > workingRows.length) {
+      const requestId = listRequestIdRef.current;
+      let cursor = nextCursorRef.current;
+      let hasMore = hasMoreRowsRef.current;
+      loadingMoreRef.current = true;
+      setLoadingMoreRows(true);
+      try {
+        while (workingRows.length < targetRowCount && hasMore) {
+          const { data } = await axios.get('/api/stock-stand/items', {
+            ...authConfig(),
+            params: { standdate, q: query || undefined, cursor, limit: 500, include_metadata: false },
+          });
+          if (requestId !== listRequestIdRef.current) return;
+          const pageRows = (data.items || []).map((item) => makeRow(item));
+          if (!pageRows.length) break;
+          for (const row of pageRows) originalRowsRef.current.set(row.id, { ...row });
+          workingRows = [...workingRows, ...pageRows];
+          cursor = Number(data.next_cursor) || cursor;
+          hasMore = Boolean(data.has_more);
+        }
+        nextCursorRef.current = cursor;
+        hasMoreRowsRef.current = hasMore;
+        setRows(workingRows);
+      } catch (error) {
+        notifications.show({ title: '기초재고 추가 조회 실패', message: errorText(error), color: 'red' });
+        return;
+      } finally {
+        loadingMoreRef.current = false;
+        setLoadingMoreRows(false);
+      }
+      if (workingRows.length < targetRowCount) return;
+    }
+    const nextRows = [...workingRows];
     const additions = [];
     matrix.forEach((line, rowOffset) => {
       const target = nextRows[startIndex + rowOffset] ? { ...nextRows[startIndex + rowOffset] } : makeRow({ qtyunit: resolveMasterCode('qtyunit', 'EA', masters) || 'EA' });
@@ -491,7 +584,7 @@ export default function StockStandPage() {
       else additions.push(target);
     });
     setRows([...nextRows, ...additions]);
-  }, [rows, masters, registrationBlockMessage]);
+  }, [rows, masters, registrationBlockMessage, hasSavedStock, standdate, query]);
 
   const toggleRowSelection = useCallback((id, shiftKey = false) => {
     setSelectedIds((current) => {
@@ -522,13 +615,32 @@ export default function StockStandPage() {
     XLSX.writeFile(workbook, `기초재고_일괄등록_샘플.xlsx`);
   }, []);
 
-  const exportRows = useCallback(() => {
+  const exportRows = useCallback(async () => {
     setExporting(true);
     try {
+      let rowsForExport = rows;
+      if (hasSavedStock && rows.length < totalRows) {
+        rowsForExport = [];
+        let cursor = 0;
+        let hasMore = true;
+        while (hasMore) {
+          const { data } = await axios.get('/api/stock-stand/items', {
+            ...authConfig(),
+            params: { standdate, q: query || undefined, cursor, limit: 1000, include_metadata: false },
+          });
+          const pageRows = (data.items || []).map((item) => makeRow(item));
+          rowsForExport.push(...pageRows);
+          cursor = Number(data.next_cursor) || cursor;
+          hasMore = Boolean(data.has_more);
+          if (!pageRows.length) break;
+        }
+        const currentRowsById = new Map(rows.map((row) => [row.id, row]));
+        rowsForExport = rowsForExport.map((row) => currentRowsById.get(row.id) || row);
+      }
       const headers = STOCK_EXPORT_COLUMNS.map(([, label]) => label);
       const worksheet = XLSX.utils.aoa_to_sheet([
         headers,
-        ...rows.map((row) => STOCK_EXPORT_COLUMNS.map(([key]) => {
+        ...rowsForExport.map((row) => STOCK_EXPORT_COLUMNS.map(([key]) => {
           const value = row[key];
           if (key === 'created_at' || key === 'updated_at') return formatTimestamp(value);
           return ['qty', 'weight', 'unitprice', 'unitamt'].includes(key) && value !== '' && value != null
@@ -540,11 +652,11 @@ export default function StockStandPage() {
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, '기초재고');
       XLSX.writeFile(workbook, `기초재고_${standdate.replaceAll('-', '')}.xlsx`);
-      notifications.show({ title: '엑셀 다운로드 완료', message: `${rows.length.toLocaleString()}건을 저장했습니다.`, color: 'teal' });
+      notifications.show({ title: '엑셀 다운로드 완료', message: `${rowsForExport.length.toLocaleString()}건을 저장했습니다.`, color: 'teal' });
     } catch (error) {
       notifications.show({ title: '엑셀 다운로드 실패', message: errorText(error), color: 'red' });
     } finally { setExporting(false); }
-  }, [rows, standdate]);
+  }, [rows, standdate, query, hasSavedStock, totalRows]);
 
   const uploadExcel = useCallback(async (event) => {
     const file = event.currentTarget.files?.[0];
@@ -725,11 +837,18 @@ export default function StockStandPage() {
 
   const deleteAll = async () => {
     if (!hasSavedStock || saving || hasTransactions || hasStockMovements) return;
+    listRequestIdRef.current += 1;
+    loadingMoreRef.current = false;
+    setLoadingMoreRows(false);
     setSaving(true);
     try {
       const { data } = await axios.delete('/api/stock-stand/items', { ...authConfig(), data: { delete_all: true } });
       setDeleteAllOpen(false);
       setRows([]);
+      setTotalRows(0);
+      setPage(1);
+      hasMoreRowsRef.current = false;
+      nextCursorRef.current = 0;
       setSelectedIds([]);
       setHasSavedStock(false);
       setHasTransactions(false);
@@ -862,7 +981,7 @@ export default function StockStandPage() {
 
     return <>
       <Table.Td className={codeClasses.checkCol}><input type="checkbox" checked={isSelected} disabled={saving || saved || hasSavedStock} onChange={(event) => toggleRowSelection(row.id, event.nativeEvent.shiftKey)} /></Table.Td>
-      <Table.Td className={`${codeClasses.rowNumber} ${!saved ? classes.newRowNumber : ''}`}>{index + 1}</Table.Td>
+      <Table.Td className={`${codeClasses.rowNumber} ${!saved ? classes.newRowNumber : ''}`}>{(page - 1) * pageSize + index + 1}</Table.Td>
       {GRID_FIELDS.map(renderField)}
       <Table.Td className={codeClasses.actionCol}>
         <Tooltip label={saved ? '저장된 행은 행별 삭제할 수 없습니다. 전체 삭제를 이용해 주세요.' : '행 삭제'}>
@@ -886,7 +1005,7 @@ export default function StockStandPage() {
     <Paper className={`${sharedClasses.panel} ${codeClasses.codePanel} ${classes.editorPanel}`} withBorder>
       <Group className={`${sharedClasses.panelHeader} ${codeClasses.codeHeader} ${classes.codeHeader}`} justify="space-between" align="flex-start" wrap="wrap" gap="sm">
         <Box>
-          <Group gap={9} align="center"><Text className={codeClasses.codeTitle} fw={800}>기초재고 등록</Text><Badge color="red" variant="light">{rows.length}행</Badge></Group>
+          <Group gap={9} align="center"><Text className={codeClasses.codeTitle} fw={800}>기초재고 등록</Text><Badge color="red" variant="light">{displayRowCount.toLocaleString()}행</Badge></Group>
 
         </Box>
         <Group className={classes.headerActions} gap={7} align="center" wrap="wrap">
@@ -899,8 +1018,8 @@ export default function StockStandPage() {
       <Group className={`${sharedClasses.toolbar} ${codeClasses.toolbar} ${classes.filterToolbar}`} justify="space-between" wrap="wrap" gap={8}>
         <Group className={classes.searchGroup} gap={6} wrap="wrap" align="end">
           <TextInput className={classes.dateFilter} type="date" label="기준일자" value={standdate} onChange={(event) => setStanddate(event.currentTarget.value)} size="sm" />
-          <TextInput className={classes.stockSearch} placeholder="품목코드 또는 품목명 검색" aria-label="품목 검색" leftSection={<IconSearch size={15} />} value={searchInput} onChange={(event) => setSearchInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') { setQuery(searchInput.trim()); loadRows(standdate, searchInput.trim()); } }} size="sm" />
-          <Button size="sm" leftSection={<IconSearch size={15} />} onClick={() => { setQuery(searchInput.trim()); loadRows(standdate, searchInput.trim()); }} loading={loading}>조회</Button>
+          <TextInput className={classes.stockSearch} placeholder="품목코드 또는 품목명 검색" aria-label="품목 검색" leftSection={<IconSearch size={15} />} value={searchInput} onChange={(event) => setSearchInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} size="sm" />
+          <Button size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
         </Group>
         <Group className={classes.listActions} gap={7} wrap="wrap" justify="flex-end" align="flex-end">
           {selectedIds.length > 0 && <Text size="xs" c="dimmed">{selectedIds.length}개 선택</Text>}
@@ -911,14 +1030,14 @@ export default function StockStandPage() {
         </Group>
       </Group>
       <Group className={`${sharedClasses.toolbar} ${codeClasses.toolbar} ${classes.detailToolbar}`} justify="space-between" wrap="wrap" gap={6}>
-        <Group gap={8}><Text fw={700} c="dark">기초재고 상세</Text><Badge color="gray" variant="light">{rows.length}행</Badge></Group>
+        <Group gap={8}><Text fw={700} c="dark">기초재고 상세</Text><Badge color="gray" variant="light">{displayRowCount.toLocaleString()}행</Badge></Group>
         {selectedIds.length > 1 && <Text size="xs" c="red" fw={600}>마스터 값 변경 시 {selectedIds.length}개 행에 일괄 적용됩니다.</Text>}
       </Group>
       <Box className={`${codeClasses.tableWrap} ${classes.tableViewport}`} style={{ '--code-table-min-width': `${Math.max(1730, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
-        {loading ? <Box className={classes.loading}><Loader color="red" /></Box> : rows.length ? (
+        {loading ? <Box className={classes.loading}><Loader color="red" /></Box> : visibleRows.length ? (
           <TableVirtuoso
             ref={virtuosoRef}
-            data={rows}
+            data={visibleRows}
             style={{ height: '100%' }}
             components={stockVirtuosoComponents}
             computeItemKey={(_index, row) => row.id}
@@ -931,7 +1050,13 @@ export default function StockStandPage() {
       </Box>
       <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter} ${classes.stockFooter}`} justify="space-between" wrap="wrap">
         <Text className={classes.footerNotice} size="xs" c="dimmed">기초금액 자동 계산: KG = 중량 × 단가, TON = (중량 ÷ 1,000) × 단가. 저장된 행은 단가기준·기초단가만 수정할 수 있습니다.</Text>
-        <Text size="xs" fw={700}>선택 {selectedIds.length.toLocaleString()}건</Text>
+        <Group className={classes.paginationBar} gap="md" justify="flex-end" wrap="wrap">
+          <Text size="xs" c="dimmed">총 {displayRowCount.toLocaleString()}건</Text>
+          {loadingMoreRows && <Text size="xs" c="dimmed">추가 행 확인 중</Text>}
+          <Select aria-label="페이지당 표시 행 수" size="xs" w={105} data={STOCK_PAGE_OPTIONS} value={String(pageSize)} onChange={changePageSize} disabled={loading || saving} />
+          <Pagination size="sm" color="red" value={page} onChange={changePage} total={pageCount} withEdges disabled={loading || saving || pageCount <= 1} />
+          <Text size="xs" fw={700}>선택 {selectedIds.length.toLocaleString()}건</Text>
+        </Group>
       </Group>
     </Paper>
     </Box>
