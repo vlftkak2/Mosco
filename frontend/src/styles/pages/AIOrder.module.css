@@ -76,7 +76,7 @@
   font-size: 14px;
   text-align: center;
 }
-.selectOrderPrompt { display: grid; min-height: 480px; flex: 1 1 auto; place-items: center; padding: 28px; color: #7d8fa8; font-size: 18px; font-weight: 600; line-height: 1.65; text-align: center; }
+.selectOrderPrompt { display: grid; min-height: 480px; flex: 1 1 auto; place-items: center; padding: 28px; color: #7d8fa8; font-size: 15px; font-weight: 500; line-height: 1.65; text-align: center; }
 .analysisLoading { display: flex; min-height: 300px; flex: 1 1 auto; flex-direction: column; justify-content: center; padding: 28px clamp(18px, 5vw, 52px); background: radial-gradient(ellipse at 100% 0%, #fff6f6 0%, #fff 52%); }
 .analysisLoadingCopy { min-width: 0; }
 .analysisLoadingTrack { position: relative; height: 5px; overflow: hidden; margin: 22px 0 0 54px; border-radius: 999px; background: #eef0f3; }
@@ -132,7 +132,7 @@
   .uploadDropzone { min-width: 100%; flex-basis: 100%; flex-wrap: wrap; }
   .uploadCopy { flex-basis: calc(100% - 60px); }
   .workPanel { min-height: 460px; }
-  .selectOrderPrompt { min-height: 360px; padding: 20px; font-size: 17px; }
+  .selectOrderPrompt { min-height: 360px; padding: 20px; font-size: 15px; }
   .pdfViewer { min-height: 440px; }
   .imageViewer { height: 520px; }
   .resultContent { height: auto; min-height: 780px; flex-basis: auto; }

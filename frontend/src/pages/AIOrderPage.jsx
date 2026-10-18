@@ -35,6 +35,25 @@ function orderLineDisplayValue(item, key) {
   return item[key];
 }
 
+function measureOrderColumnWidths(items) {
+  if (!items?.length || typeof document === 'undefined') return {};
+  const context = document.createElement('canvas').getContext('2d');
+  if (!context) return {};
+  context.font = '13px Arial, sans-serif';
+  const maximumWidths = {
+    source_product_name: 320, steel_grade: 200, spec_raw: 320,
+    thickness: 150, width: 150, length: 150, quantity: 150,
+    quantity_unit: 150, weight_kg: 170, notes: 420,
+  };
+  return Object.fromEntries(LINE_COLUMNS.map(([key, label]) => {
+    const textWidth = Math.max(
+      context.measureText(label).width,
+      ...items.map((item) => context.measureText(numberInputValue(orderLineDisplayValue(item, key))).width),
+    );
+    return [key, Math.max(70, Math.min(maximumWidths[key] || 260, Math.ceil(textWidth + 30)))];
+  }));
+}
+
 function dateInputValue(value) {
   const text = String(value || '').trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
@@ -447,14 +466,16 @@ function OrderDocumentWorkspace({ doc, updateDocument }) {
   const [selectedRows, setSelectedRows] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(0);
-  const [columnWidths, setColumnWidths] = useState({});
-  const autoSizedColumns = useRef(false);
+  const [columnWidthOverrides, setColumnWidthOverrides] = useState({});
   const tableWrapRef = useRef(null);
   const virtuosoRef = useRef(null);
   const scrollToAddedLine = useRef(false);
   const focusAddedRowRef = useRef(null);
   const rowSelectionAnchor = useRef(null);
   const extraction = doc.extraction;
+  const extractedItems = extraction?.items;
+  const autoColumnWidths = useMemo(() => measureOrderColumnWidths(extractedItems), [extractedItems]);
+  const columnWidths = useMemo(() => ({ ...autoColumnWidths, ...columnWidthOverrides }), [autoColumnWidths, columnWidthOverrides]);
   const itemCount = extraction?.items?.length ?? 0;
   const updateExtraction = useCallback((transform) => updateDocument(doc.id, (current) => ({ ...current, extraction: transform(current.extraction), reviewed: false })), [doc.id, updateDocument]);
   const tableColumns = [
@@ -485,31 +506,6 @@ function OrderDocumentWorkspace({ doc, updateDocument }) {
     });
   }, [extraction?.items?.length]);
 
-  useEffect(() => {
-    if (!extraction?.items?.length || autoSizedColumns.current) return;
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    const input = tableWrapRef.current?.querySelector('input[data-field]');
-    context.font = input ? getComputedStyle(input).font : '13px sans-serif';
-    const maximumWidths = {
-      source_product_name: 320, steel_grade: 200, spec_raw: 320,
-      thickness: 150, width: 150, length: 150, quantity: 150,
-      quantity_unit: 150, weight_kg: 170, notes: 420,
-    };
-    const nextWidths = {};
-    LINE_COLUMNS.forEach(([key, label]) => {
-      const textWidth = Math.max(
-        context?.measureText(label).width || 0,
-        ...extraction.items.map((item) => context?.measureText(numberInputValue(orderLineDisplayValue(item, key))).width || 0),
-      );
-      nextWidths[key] = Math.max(70, Math.min(maximumWidths[key] || 260, Math.ceil(textWidth + 30)));
-    });
-    autoSizedColumns.current = true;
-    setColumnWidths((current) => ({ ...nextWidths, ...current }));
-  }, [extraction?.items]);
-
-
-
   const updateHeader = (key, value) => updateExtraction((current) => ({ ...current, header: { ...current.header, [key]: value || null } }));
   const startColumnResize = (event, column) => {
     event.preventDefault();
@@ -527,7 +523,7 @@ function OrderDocumentWorkspace({ doc, updateDocument }) {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', finish);
       window.removeEventListener('pointercancel', finish);
-      setColumnWidths((current) => ({ ...current, [column.key]: nextWidth }));
+      setColumnWidthOverrides((current) => ({ ...current, [column.key]: nextWidth }));
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', finish);
@@ -641,7 +637,7 @@ function OrderDocumentWorkspace({ doc, updateDocument }) {
             : doc.status === 'queued'
               ? <AnalysisLoading queued />
               : doc.status === 'failed'
-                ? <Box className={classes.resultEmpty}>분석에 실패했습니다. 오류 내용을 확인하고 다시 실행해주세요.</Box>
+                ? <Box className={classes.selectOrderPrompt}>분석에 실패했습니다. 오류 내용을 확인하고 다시 실행해주세요.</Box>
                 : <Box className={classes.selectOrderPrompt}>목록에서 발주서를 선택하고 분석을 실행해주세요.</Box> : <Box className={classes.resultContent}>
           <Box className={classes.resultContentInner}><Box className={classes.orderHeaderSection}><Text size="sm" fw={700} mb="xs">주문서 헤더</Text>
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
@@ -806,7 +802,7 @@ export default function AIOrderPage() {
       } else {
         notifications.show({
           title: '저장된 분석 결과가 없습니다',
-          message: <>이 파일을 분석하려면 AI 일괄 분석을 실행해주세요.<br />저장된 결과 확인에는 비용이 발생하지 않습니다.</>,
+          message: <>이 파일을 분석하려면 AI 일괄 분석을 실행해주세요.</>,
           color: 'gray',
         });
       }
@@ -907,7 +903,6 @@ export default function AIOrderPage() {
                 <Box className={classes.fileNameCopy}>
                   <Text size="sm" fw={600} lineClamp={1} title={doc.file.name}>{doc.file.name}</Text>
                   <Text size="xs" c="dimmed">{extension} · {formatBytes(doc.file.size)}</Text>
-                  {doc.error && <Text size="xs" c="red" lineClamp={1} title={doc.error}>{doc.error}</Text>}
                 </Box>
               </Group></Table.Td>
               <Table.Td ta="center"><Text size="sm" lineClamp={1}>{doc.extraction?.header?.buyer || (doc.status === 'analyzing' ? '분석 중' : '미확인')}</Text></Table.Td>
@@ -947,8 +942,8 @@ export default function AIOrderPage() {
           </Box>
         </Group>
         <Box className={classes.analysisCostNotice}>
-          <Text size="sm" fw={600}>저장된 성공 결과가 있으면 재사용합니다.</Text>
-          <Text size="sm" c="dimmed" mt={3}>동일한 회사·사용자·파일·모델의 분석 결과는 API를 다시 호출하지 않습니다. 새 파일만 분석 비용이 발생할 수 있습니다.</Text>
+          <Text size="sm" fw={600}>이전에 분석한 주문서는 자동으로 불러옵니다.</Text>
+          <Text size="sm" c="dimmed" mt={3}>동일한 주문서를 다시 등록하면 기존 분석 결과를 불러와 빠르게 확인할 수 있습니다. 새로운 주문서만 AI 분석을 진행합니다.</Text>
         </Box>
         <Group justify="flex-end" mt="lg">
           <Button variant="default" onClick={() => setAnalysisConfirm(null)}>취소</Button>
