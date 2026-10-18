@@ -9,6 +9,7 @@ from psycopg2.pool import ThreadedConnectionPool
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import DB_CONFIG
+import CurrentStock as current_stock_module
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +43,10 @@ class InboundDetailInput(BaseModel):
     itemcode: str = Field(min_length=1, max_length=100)
     itemname: str = Field(min_length=1, max_length=150)
     size: str = Field(default="", max_length=100)
-    qty: Decimal | None = Field(default=None, gt=0, max_digits=15, decimal_places=3)
+    qty: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
     qtyunit: str = Field(min_length=1, max_length=20)
-    warehousecode: str = Field(default="", max_length=50)
-    warehousecodename: str = Field(default="", max_length=50)
+    warehousecode: str = Field(min_length=1, max_length=50)
+    warehousecodename: str = Field(min_length=1, max_length=50)
     weight: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
     unit: str = Field(min_length=1, max_length=20)
     unitprice: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
@@ -58,8 +59,8 @@ class InboundDetailInput(BaseModel):
 
     @model_validator(mode="after")
     def require_item_fields(self):
-        if not self.itemcode or not self.itemname or not self.unit or not self.qtyunit:
-            raise ValueError("상세의 품목코드, 품목명, 단가기준, 수량단위는 필수입니다.")
+        if not self.itemcode or not self.itemname or not self.unit or not self.qtyunit or not self.warehousecode:
+            raise ValueError("상세의 품목코드, 품목명, 수량, 수량단위, 창고, 단가기준은 필수입니다.")
         return self
 
 
@@ -337,6 +338,17 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 detail_values,
             )
+            stock_lines = [{
+                **item,
+                "lineno": line_no,
+                "itemname": master_items[item["itemcode"].strip()],
+                "size": item.get("size", "").strip(),
+                "warehousecode": item["warehousecode"].strip(),
+                "warehousecodename": warehouse_names[item["warehousecode"].strip()],
+            } for line_no, item in enumerate(items, start=1)]
+            current_stock_module.record_document(
+                cursor, companyid, companyname, payload["receptdate"], "IN", receiptno, stock_lines,
+            )
         return {"receiptno": receiptno, "saved_count": len(items)}
     except ValueError:
         raise
@@ -352,6 +364,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
 
 def delete_receipt(companyid: str, receiptno: str):
     with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"stand-stock:{companyid}",))
         cursor.execute(
             "SELECT COALESCE(subulyn, 'N') FROM Inbound01t WHERE companyid = %s AND receiptno = %s FOR UPDATE",
             (companyid, receiptno),
@@ -361,6 +374,7 @@ def delete_receipt(companyid: str, receiptno: str):
             return 0
         if str(row[0] or "N").strip().upper() in {"Y", "YES", "확정"}:
             raise ValueError("수불 확정된 입고전표는 삭제할 수 없습니다.")
+        current_stock_module.reverse_document(cursor, companyid, "IN", receiptno)
         cursor.execute("DELETE FROM Inbound02t WHERE companyid = %s AND receiptno = %s", (companyid, receiptno))
         cursor.execute("DELETE FROM Inbound01t WHERE companyid = %s AND receiptno = %s", (companyid, receiptno))
         return 1

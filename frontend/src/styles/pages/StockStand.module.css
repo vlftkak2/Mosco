@@ -1,5 +1,27 @@
 .page { min-width: 0; max-width: 100%; box-sizing: border-box; gap: 14px; }
-.panel { display: flex; min-width: 0; height: max(520px, calc(100vh - 285px)); min-height: 520px; flex-direction: column; overflow: hidden; container-type: inline-size; }
+.workspace {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  height: max(540px, calc(100vh - 285px));
+  min-height: 540px;
+  flex: 0 0 auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
+}
+.editorPanel {
+  display: flex !important;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  flex-direction: column;
+  overflow: hidden;
+  container-type: inline-size;
+  box-shadow: 0 4px 16px #26364e09;
+}
 .codeHeader { min-width: 0; align-items: center; }
 .headerActions { min-width: 0; justify-content: flex-end; }
 .headerActions :global(.mantine-Button-root) { white-space: nowrap; }
@@ -11,6 +33,13 @@
 .dateFilter :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #475569; font-size: 12px; font-weight: 650; }
 .listActions { min-width: 0; flex: 0 1 auto; align-self: flex-end; }
 .detailToolbar { flex: 0 0 auto; }
+.tableViewport { height: 0; min-height: 0; flex: 1 1 auto; overflow: hidden; }
+.tableViewport :global([data-virtuoso-scroller]) {
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
 .table { table-layout: fixed; }
 .newRow > td { background: #fffbf4 !important; }
 .newRowNumber { background: #fffbf4 !important; }
@@ -35,7 +64,8 @@
 }
 
 @media (max-width: 760px) {
-  .panel { height: auto; min-height: 560px; }
+  .workspace { height: auto; min-height: 0; }
+  .editorPanel { height: 640px; min-height: 640px; max-height: 640px; }
   .headerActions { width: 100%; justify-content: flex-start; }
   .searchGroup { align-items: flex-end; }
   .dateFilter { flex-basis: 150px; }

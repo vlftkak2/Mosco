@@ -21,6 +21,10 @@ const STOCK_EXCEL_COLUMNS = [
   ['warehousecodename', '창고명'], ['unit', '단가기준'], ['unitprice', '기초단가'],
   ['unitamt', '기초금액'], ['description', '비고'],
 ];
+const STOCK_EXPORT_COLUMNS = [
+  ...STOCK_EXCEL_COLUMNS,
+  ['created_at', '등록일자'], ['updated_at', '수정일자'],
+];
 const GRID_FIELDS = ['itemcode', 'itemname', 'size', 'qty', 'qtyunit', 'warehousecode', 'weight', 'unit', 'unitprice', 'unitamt', 'description'];
 const GRID_COLUMN_WIDTHS = { select: 44, number: 58, itemcode: 150, itemname: 180, size: 125, qty: 115, qtyunit: 110, warehousecode: 120, weight: 135, unit: 115, unitprice: 125, unitamt: 125, description: 180, action: 58 };
 const MASTER_FIELDS = new Set(['qtyunit', 'warehousecode', 'unit']);
@@ -44,6 +48,7 @@ const makeRow = (values = {}) => ({
   warehousecode: values.warehousecode || '', warehousecodename: values.warehousecodename || '',
   unit: values.unit || '', unitprice: values.unitprice == null ? '' : String(values.unitprice),
   unitamt: values.unitamt == null ? '' : String(values.unitamt), description: values.description || '',
+  created_at: values.created_at || '', updated_at: values.updated_at || '',
   has_movements: Boolean(values.has_movements),
 });
 const cleanNumber = (value) => String(value ?? '').replace(/,/g, '').replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
@@ -71,6 +76,16 @@ const formatAmount = (value) => {
     minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
     maximumFractionDigits: 2,
   });
+};
+const formatTimestamp = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
+  return `${parts.year}${parts.month}${parts.day} ${parts.hour}:${parts.minute}`;
 };
 const resolveMasterCode = (field, value, masters) => {
   const text = String(value ?? '').trim().toLocaleLowerCase();
@@ -217,6 +232,7 @@ export default function StockStandPage() {
   const [itemPickerId, setItemPickerId] = useState('');
   const [masterPickerTarget, setMasterPickerTarget] = useState(null);
   const [selectedDeleteOpen, setSelectedDeleteOpen] = useState(false);
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [columnWidths, setColumnWidths] = useState({});
   const uploadInputRef = useRef(null);
   const virtuosoRef = useRef(null);
@@ -225,6 +241,7 @@ export default function StockStandPage() {
   const originalRowsRef = useRef(new Map());
   const activeCellRef = useRef(null);
   const selectionAnchorRef = useRef('');
+  const movementNoticeShownRef = useRef(false);
   const hasNewRows = rows.some((row) => !row.lineno);
   const changedPriceRows = rows.filter((row) => {
     if (!row.lineno) return false;
@@ -262,11 +279,18 @@ export default function StockStandPage() {
     window.addEventListener('pointercancel', finish);
   }, [columnWidths]);
 
-  const loadRows = useCallback(async (nextDate = standdate, nextQuery = query, confirmDiscard = true) => {
+  const loadRows = useCallback(async (nextDate = standdate, nextQuery = query, confirmDiscard = true, useRegisteredDate = false) => {
     if (confirmDiscard && hasChanges && !window.confirm('저장하지 않은 변경사항이 있습니다. 조회하면 변경 내용이 사라집니다. 계속할까요?')) return;
     setLoading(true);
     try {
-      const { data } = await axios.get('/api/stock-stand/items', { ...authConfig(), params: { standdate: nextDate, q: nextQuery || undefined } });
+      let response = await axios.get('/api/stock-stand/items', { ...authConfig(), params: { standdate: nextDate, q: nextQuery || undefined } });
+      let data = response.data;
+      const registeredDate = data.registered_standdate ? String(data.registered_standdate).slice(0, 10) : '';
+      if (useRegisteredDate && data.has_stock_rows && registeredDate && registeredDate !== nextDate) {
+        setStanddate(registeredDate);
+        response = await axios.get('/api/stock-stand/items', { ...authConfig(), params: { standdate: registeredDate, q: nextQuery || undefined } });
+        data = response.data;
+      }
       const loadedRows = (data.items || []).map((item) => makeRow(item));
       originalRowsRef.current = new Map(loadedRows.filter((row) => row.lineno).map((row) => [row.id, { ...row }]));
       setRows(loadedRows);
@@ -274,6 +298,15 @@ export default function StockStandPage() {
       setHasSavedStock(Boolean(data.has_stock_rows));
       setHasTransactions(Boolean(data.has_transactions));
       setHasStockMovements(Boolean(data.has_stock_movements));
+      if (data.has_transactions && !movementNoticeShownRef.current) {
+        notifications.show({
+          title: '입출고 수불 내역이 있습니다',
+          message: '입고 또는 출고 내역이 있는 회사는 기초재고를 신규 등록하거나 전체 삭제할 수 없습니다.',
+          color: 'orange',
+          autoClose: 7000,
+        });
+      }
+      movementNoticeShownRef.current = Boolean(data.has_transactions);
     } catch (error) {
       notifications.show({ title: '기초재고 조회 실패', message: errorText(error), color: 'red' });
     } finally { setLoading(false); }
@@ -293,7 +326,7 @@ export default function StockStandPage() {
   }, []);
 
   useEffect(() => {
-    loadRows(standdate, '', false);
+    loadRows(standdate, '', false, true);
     Promise.all([loadCodes('QTY'), loadCodes('WAREHOUSE'), loadCodes('PRICE_UNIT')])
       .then(([quantity, warehouse, price]) => setMasters({ quantity, warehouse, price }))
       .catch((error) => notifications.show({ title: '기초재고 코드 조회 실패', message: errorText(error), color: 'red' }));
@@ -492,17 +525,18 @@ export default function StockStandPage() {
   const exportRows = useCallback(() => {
     setExporting(true);
     try {
-      const headers = STOCK_EXCEL_COLUMNS.map(([, label]) => label);
+      const headers = STOCK_EXPORT_COLUMNS.map(([, label]) => label);
       const worksheet = XLSX.utils.aoa_to_sheet([
         headers,
-        ...rows.map((row) => STOCK_EXCEL_COLUMNS.map(([key]) => {
+        ...rows.map((row) => STOCK_EXPORT_COLUMNS.map(([key]) => {
           const value = row[key];
+          if (key === 'created_at' || key === 'updated_at') return formatTimestamp(value);
           return ['qty', 'weight', 'unitprice', 'unitamt'].includes(key) && value !== '' && value != null
             ? Number(cleanNumber(value)) : value ?? '';
         })),
       ]);
       applyExcelHeaderStyle(worksheet, headers.length);
-      worksheet['!cols'] = STOCK_EXCEL_COLUMNS.map(([key]) => ({ wch: ['itemname', 'description'].includes(key) ? 24 : 16 }));
+      worksheet['!cols'] = STOCK_EXPORT_COLUMNS.map(([key]) => ({ wch: ['itemname', 'description'].includes(key) ? 24 : ['created_at', 'updated_at'].includes(key) ? 19 : 16 }));
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, '기초재고');
       XLSX.writeFile(workbook, `기초재고_${standdate.replaceAll('-', '')}.xlsx`);
@@ -583,7 +617,7 @@ export default function StockStandPage() {
         if (!row.itemcode) rowErrors.push('품목코드 필수');
         else if (!row.itemname) rowErrors.push('품목코드가 미등록이거나 사용중지 상태입니다');
         if (!row.qtyunit) rowErrors.push('수량단위 확인 필요');
-        if (row.qty !== '' && (!Number.isFinite(row.qty) || row.qty <= 0)) rowErrors.push('기초수량은 양수');
+        if (row.qty === '' || !Number.isFinite(row.qty) || row.qty <= 0) rowErrors.push('기초수량은 양수');
         if (!Number.isFinite(row.weight) || row.weight <= 0) rowErrors.push('기초중량은 양수');
         if (!row.warehousecode) rowErrors.push('창고코드/창고명 확인 필요');
         if (getValue(sourceRows[row.excelRow - 2], 'unit') && !row.unit) rowErrors.push('단가기준 확인 필요');
@@ -627,7 +661,7 @@ export default function StockStandPage() {
       const rowNo = rows.indexOf(row) + 1;
       if (!row.itemcode.trim() || !row.itemname.trim()) invalid.push(`${rowNo}행 품목`);
       if (!row.qtyunit) invalid.push(`${rowNo}행 수량단위`);
-      if (row.qty && (!Number.isFinite(Number(row.qty)) || Number(row.qty) <= 0)) invalid.push(`${rowNo}행 기초수량`);
+      if (!row.qty || !Number.isFinite(Number(row.qty)) || Number(row.qty) <= 0) invalid.push(`${rowNo}행 기초수량`);
       if (!row.weight || !Number.isFinite(Number(row.weight)) || Number(row.weight) <= 0) invalid.push(`${rowNo}행 기초중량`);
       if (!row.warehousecode) invalid.push(`${rowNo}행 창고`);
     });
@@ -648,7 +682,7 @@ export default function StockStandPage() {
           standdate,
           items: newRows.map((row) => ({
             itemcode: row.itemcode.trim(), itemname: row.itemname.trim(), size: row.size.trim(),
-            qty: row.qty ? cleanNumber(row.qty) : null, qtyunit: row.qtyunit,
+            qty: cleanNumber(row.qty), qtyunit: row.qtyunit,
             weight: cleanNumber(row.weight), warehousecode: row.warehousecode,
             warehousecodename: row.warehousecodename, unit: row.unit,
             unitprice: row.unitprice === '' ? null : cleanNumber(row.unitprice),
@@ -676,15 +710,29 @@ export default function StockStandPage() {
     } finally { setSaving(false); }
   };
 
+  const requestDeleteAll = () => {
+    if (!hasSavedStock || saving) return;
+    if (hasTransactions || hasStockMovements) {
+      notifications.show({
+        title: '기초재고를 삭제할 수 없습니다',
+        message: '입고 또는 출고 수불 내역이 있어 등록된 기초재고 전체를 삭제할 수 없습니다.',
+        color: 'orange',
+      });
+      return;
+    }
+    setDeleteAllOpen(true);
+  };
+
   const deleteAll = async () => {
-    if (!hasSavedStock || hasStockMovements || saving) return;
-    if (!window.confirm('이 회사에 등록된 기초재고 전체를 삭제할까요? 수불 이력이 없는 경우에만 삭제됩니다.')) return;
+    if (!hasSavedStock || saving || hasTransactions || hasStockMovements) return;
     setSaving(true);
     try {
       const { data } = await axios.delete('/api/stock-stand/items', { ...authConfig(), data: { delete_all: true } });
+      setDeleteAllOpen(false);
       setRows([]);
       setSelectedIds([]);
       setHasSavedStock(false);
+      setHasTransactions(false);
       setHasStockMovements(false);
       notifications.show({ title: '기초재고 전체 삭제 완료', message: `${Number(data.deleted_count || 0).toLocaleString()}건을 삭제했습니다.`, color: 'teal' });
     } catch (error) {
@@ -730,7 +778,7 @@ export default function StockStandPage() {
   };
   const columns = [
     ['select', ''], ['number', 'No.'], ['itemcode', '품목코드 *'], ['itemname', '품목명 *'], ['size', '규격'],
-    ['qty', '기초수량'], ['qtyunit', '수량단위 *'], ['warehousecode', '창고명 *'], ['weight', '기초중량 *'],
+    ['qty', '기초수량 *'], ['qtyunit', '수량단위 *'], ['warehousecode', '창고명 *'], ['weight', '기초중량 *'],
     ['unit', '단가기준'], ['unitprice', '기초단가'], ['unitamt', '기초금액'], ['description', '비고'], ['action', ''],
   ];
 
@@ -834,7 +882,8 @@ export default function StockStandPage() {
       </Box>
     </Paper>
 
-    <Paper className={`${sharedClasses.panel} ${classes.panel}`} withBorder>
+    <Box className={classes.workspace}>
+    <Paper className={`${sharedClasses.panel} ${codeClasses.codePanel} ${classes.editorPanel}`} withBorder>
       <Group className={`${sharedClasses.panelHeader} ${codeClasses.codeHeader} ${classes.codeHeader}`} justify="space-between" align="flex-start" wrap="wrap" gap="sm">
         <Box>
           <Group gap={9} align="center"><Text className={codeClasses.codeTitle} fw={800}>기초재고 등록</Text><Badge color="red" variant="light">{rows.length}행</Badge></Group>
@@ -843,7 +892,7 @@ export default function StockStandPage() {
         <Group className={classes.headerActions} gap={7} align="center" wrap="wrap">
           <Button variant="default" size="sm" leftSection={<IconDownload size={15} />} onClick={downloadTemplate} disabled={loading || uploading}>샘플양식</Button>
           <Button variant="light" size="sm" leftSection={<IconDownload size={15} />} onClick={exportRows} loading={exporting} disabled={loading || uploading}>엑셀 다운로드</Button>
-          <Button variant="light" color="red" size="sm" leftSection={<IconTrash size={15} />} disabled={!hasSavedStock || hasStockMovements || saving || uploading || loading} onClick={deleteAll} title={hasStockMovements ? '입고 또는 출고 수불 이력이 있어 전체 삭제할 수 없습니다.' : '회사 기초재고 전체 삭제'}>전체 삭제</Button>
+          <Button color="red" size="sm" leftSection={<IconTrash size={15} />} disabled={!hasSavedStock || saving || uploading || loading} onClick={requestDeleteAll} title={hasTransactions || hasStockMovements ? '입고 또는 출고 수불 이력이 있어 전체 삭제할 수 없습니다.' : '회사 기초재고 전체 삭제'}>전체 삭제</Button>
           <Button color="red" size="sm" leftSection={<IconDeviceFloppy size={15} />} loading={saving} disabled={loading || uploading || !hasChanges} onClick={save}>저장</Button>
         </Group>
       </Group>
@@ -865,7 +914,7 @@ export default function StockStandPage() {
         <Group gap={8}><Text fw={700} c="dark">기초재고 상세</Text><Badge color="gray" variant="light">{rows.length}행</Badge></Group>
         {selectedIds.length > 1 && <Text size="xs" c="red" fw={600}>마스터 값 변경 시 {selectedIds.length}개 행에 일괄 적용됩니다.</Text>}
       </Group>
-      <Box className={codeClasses.tableWrap} style={{ '--code-table-min-width': `${Math.max(1730, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
+      <Box className={`${codeClasses.tableWrap} ${classes.tableViewport}`} style={{ '--code-table-min-width': `${Math.max(1730, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
         {loading ? <Box className={classes.loading}><Loader color="red" /></Box> : rows.length ? (
           <TableVirtuoso
             ref={virtuosoRef}
@@ -879,11 +928,13 @@ export default function StockStandPage() {
             itemContent={itemContent}
           />
         ) : <Box className={codeClasses.emptyState}>{'\uD45C\uC2DC\uD560 \uAE30\uCD08\uC7AC\uACE0\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.'}</Box>}
-      </Box>      <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter} ${classes.stockFooter}`} justify="space-between" wrap="wrap">
+      </Box>
+      <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter} ${classes.stockFooter}`} justify="space-between" wrap="wrap">
         <Text className={classes.footerNotice} size="xs" c="dimmed">기초금액 자동 계산: KG = 중량 × 단가, TON = (중량 ÷ 1,000) × 단가. 저장된 행은 단가기준·기초단가만 수정할 수 있습니다.</Text>
         <Text size="xs" fw={700}>선택 {selectedIds.length.toLocaleString()}건</Text>
       </Group>
     </Paper>
+    </Box>
     <ItemPicker opened={Boolean(itemPickerId)} onClose={() => setItemPickerId('')} onSelect={(item) => selectItem(itemPickerId, item)} />
     <StockMasterPicker
       opened={Boolean(masterPickerTarget)}
@@ -898,6 +949,15 @@ export default function StockStandPage() {
         <Group justify="flex-end">
           <Button variant="default" onClick={() => setSelectedDeleteOpen(false)} disabled={saving}>취소</Button>
           <Button color="red" leftSection={<IconTrash size={15} />} onClick={deleteSelectedRows} disabled={hasSavedStock || saving}>삭제</Button>
+        </Group>
+      </Stack>
+    </Modal>
+    <Modal opened={deleteAllOpen} onClose={() => !saving && setDeleteAllOpen(false)} title="기초재고 전체 삭제" centered size="sm">
+      <Stack gap="md">
+        <Text size="sm" c="dimmed">이 회사에 등록된 기초재고 전체를 삭제합니다. 삭제한 데이터는 복구할 수 없습니다.</Text>
+        <Group justify="flex-end">
+          <Button variant="default" onClick={() => setDeleteAllOpen(false)} disabled={saving}>취소</Button>
+          <Button color="red" leftSection={<IconTrash size={15} />} onClick={deleteAll} loading={saving}>전체 삭제</Button>
         </Group>
       </Stack>
     </Modal>

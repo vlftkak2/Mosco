@@ -31,8 +31,8 @@ const mockdata = [
     icon: <IconPackage size={17} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      { label: '재고조회', link: '/OMSSAPVerifPage', icon: '', MenuID:'M-11' },
-      { label: '재고가공', link: '/WMSOMSVerifPage', icon: '', MenuID:'M-12' },
+      { label: '현재고', link: '/CurrentStockPage', icon: '', MenuID:'M-11' },
+      { label: '수불장', link: '/IniopStockPage', icon: '', MenuID:'M-12' },
     ],
   },    
 
@@ -64,11 +64,11 @@ const mockdata = [
   },
 
   {
-    label: '\uAE30\uCD08\uC7AC\uACE0 \uAD00\uB9AC',
+    label: '기초재고 관리',
     icon: <IconPackage size={17} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      { label: '\uAE30\uCD08\uC7AC\uACE0 \uB4F1\uB85D', link: '/StockStandPage', icon: '', MenuID: 'M-24' },
+      { label: '기초재고 등록', link: '/StockStandPage', icon: '', MenuID: 'M-24' },
     ],
   },
 

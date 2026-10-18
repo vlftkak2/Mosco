@@ -39,6 +39,8 @@ from routes import InboundSearch_routes as InboundSearch_routes
 from routes import OutboundRegister_routes as OutboundRegister_routes
 from routes import OutboundSearch_routes as OutboundSearch_routes
 from routes import StockStand_routes as StockStand_routes
+from routes import CurrentStock_routes as CurrentStock_routes
+from routes import IniopStock_routes as IniopStock_routes
 
 import uvicorn
 
@@ -117,6 +119,12 @@ app.include_router(OutboundSearch_routes.router)
 
 # Company-scoped opening stock API
 app.include_router(StockStand_routes.router)
+
+# Company-scoped current stock API
+app.include_router(CurrentStock_routes.router)
+
+# Company-scoped inventory ledger API
+app.include_router(IniopStock_routes.router)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
