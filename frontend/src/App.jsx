@@ -21,6 +21,7 @@ import OutboundSearchPage from "./pages/OutboundSearchPage";
 import StockStandPage from "./pages/StockStandPage";
 import CurrentStockPage from "./pages/CurrentStockPage";
 import IniopStockPage from "./pages/IniopStockPage";
+import AIOrderPage from "./pages/AIOrderPage";
 
 
 // Mantine 기본 스타일 
@@ -58,6 +59,7 @@ function App() {
           <Route path="/StockStandPage" element={<StockStandPage />} />
           <Route path="/CurrentStockPage" element={<CurrentStockPage />} />
           <Route path="/IniopStockPage" element={<IniopStockPage />} />
+          <Route path="/AIOrderPage" element={<AIOrderPage />} />
 
           </Route>
         </Routes>

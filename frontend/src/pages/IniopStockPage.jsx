@@ -63,7 +63,7 @@ export default function IniopStockPage() {
           { key: 'created_at', label: '등록일자', width: 215, minWidth: 150, render: (item) => timestampText(item.created_at) },
           { key: 'updated_at', label: '수정일자', width: 215, minWidth: 150, render: (item) => timestampText(item.updated_at) },
         ]} /> : <Box className={classes.emptyState}>조회된 수불 내역이 없습니다.</Box>}</Box>
-      <Group className={classes.paginationBar} justify="space-between"><Text size="xs" c="dimmed">총 {total.toLocaleString()}건</Text><Group><Select size="xs" w={105} data={PAGE_OPTIONS} value={String(pageSize)} onChange={(value) => { setPageSize(Number(value)); setPage(1); }} /><Pagination size="sm" color="red" value={page} onChange={setPage} total={Math.max(1, Math.ceil(total / pageSize))} withEdges /></Group></Group>
+      <Group className={classes.paginationBar} justify="space-between" wrap="wrap"><Group gap="xs"><Text size="xs" c="dimmed">총 {total.toLocaleString()}건</Text><Select size="xs" w={105} data={PAGE_OPTIONS} value={String(pageSize)} onChange={(value) => { setPageSize(Number(value)); setPage(1); }} /></Group><Pagination size="sm" color="red" value={page} onChange={setPage} total={Math.max(1, Math.ceil(total / pageSize))} withEdges /></Group>
     </Paper>
   </Box>;
 }
