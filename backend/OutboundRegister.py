@@ -144,7 +144,7 @@ def list_receipts(
               ON d.companyid = h.companyid AND d.receiptno = h.receiptno
             WHERE {where}
             GROUP BY h.companyid, h.receiptno
-            ORDER BY h.receptdate DESC, h.receiptno DESC
+            ORDER BY h.receptdate ASC, h.receiptno ASC
             LIMIT %s OFFSET %s
             """,
             (*params, page_size, (page - 1) * page_size),
@@ -348,6 +348,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
             } for line_no, item in enumerate(items, start=1)]
             current_stock_module.record_document(
                 cursor, companyid, companyname, payload["receptdate"], "OUT", receiptno, stock_lines,
+                customcode=customcode, customname=customer_name,
             )
         return {"receiptno": receiptno, "saved_count": len(items)}
     except ValueError:

@@ -25,16 +25,7 @@ const mockdata = [
     MenuID:null,
   },
 
-
-  {
-    label: '재고 관리',
-    icon: <IconPackage size={17} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '현재고', link: '/CurrentStockPage', icon: '', MenuID:'M-11' },
-      { label: '수불장', link: '/IniopStockPage', icon: '', MenuID:'M-12' },
-    ],
-  },    
+ 
 
   {
     label: '거래처 관리',
@@ -62,6 +53,17 @@ const mockdata = [
       { label: '출고현황', link: '/OutboundSearchPage', icon: '', MenuID: 'M-23' },
     ],
   },
+
+  
+  {
+    label: '재고 관리',
+    icon: <IconPackage size={17} stroke={1.8} />,
+    initiallyOpened: false,
+    links: [
+      { label: '현재고', link: '/CurrentStockPage', icon: '', MenuID:'M-11' },
+      { label: '재고 수불장', link: '/IniopStockPage', icon: '', MenuID:'M-12' },
+    ],
+  },   
 
   {
     label: '기초재고 관리',

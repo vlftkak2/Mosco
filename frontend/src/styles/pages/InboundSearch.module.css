@@ -18,6 +18,11 @@
 .filterGrid :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #475569; font-size: 12px; font-weight: 700; }
 .filterGrid :global(.mantine-Input-input) { min-height: 36px; font-size: 12px; }
 .filterActions { align-self: end; justify-content: flex-end; }
+@media (min-width: 1051px) {
+  .currentStockWarehouseCodeFilter { grid-column: 1; grid-row: 2; }
+  .currentStockWarehouseNameFilter { grid-column: 2; grid-row: 2; }
+  .currentStockFilterActions { grid-column: 3 / span 2; grid-row: 2; justify-content: flex-start; }
+}
 .dateFilterGroup {
   grid-column: span 2;
   min-width: 0;
@@ -35,8 +40,12 @@
   overflow: hidden;
 }
 .resultsToolbar { min-height: 54px; padding: 9px 14px; border-bottom: 1px solid #e5e9ef; }
-.tableWrap { position: relative; min-height: 0; flex: 1 1 auto; }
-.statusTable { min-width: 1900px; table-layout: fixed; }
+.tableWrap { position: relative; min-width: 0; min-height: 0; flex: 1 1 auto; overflow: hidden; }
+.virtuosoScroller { max-width: 100%; overflow-x: auto !important; scrollbar-gutter: stable; }
+.virtuosoScroller::-webkit-scrollbar { height: 12px; }
+.virtuosoScroller::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
+.virtuosoScroller::-webkit-scrollbar-track { background: #f1f4f7; }
+.statusTable { width: max-content; min-width: 2500px; table-layout: fixed; }
 .statusTable thead th {
   position: sticky;
   top: 0;
@@ -92,6 +101,9 @@
 
 @media (max-width: 1050px) {
   .filterGrid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+  .currentStockWarehouseNameFilter,
+  .currentStockWarehouseCodeFilter,
+  .currentStockFilterActions { grid-column: auto; grid-row: auto; }
 }
 
 @media (max-width: 560px) {
@@ -100,3 +112,6 @@
   .filterActions { justify-content: stretch; }
   .filterActions :global(.mantine-Button-root) { flex: 1; }
 }
+
+.statusTable th:nth-child(18),
+.statusTable th:nth-child(19) { width: 210px; }
