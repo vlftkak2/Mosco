@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Box, Button, Group, Loader, Pagination, Paper, Select, Table, Text, TextInput, Title } from '@mantine/core';
+import { Box, Button, Group, Loader, Pagination, Paper, Select, Text, TextInput, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconDownload, IconRefresh, IconSearch } from '@tabler/icons-react';
-import { TableVirtuoso } from 'react-virtuoso';
+import ResizableVirtualTable from '../components/common/ResizableVirtualTable';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
 import dashboardClasses from '../styles/pages/HomePage.module.css';
 import classes from '../styles/pages/InboundSearch.module.css';
 
 const PAGE_OPTIONS = [{ value: '15', label: '15개씩' }, { value: '50', label: '50개씩' }, { value: '100', label: '100개씩' }, { value: '200', label: '200개씩' }];
-const EMPTY_FILTERS = { itemcode: '', itemname: '', size: '', warehousecode: '', warehousecodename: '', qtyunit: '' };
+const EMPTY_FILTERS = { itemcode: '', itemname: '', size: '', warehousecode: '', warehousecodename: '' };
 const FILTERS = [
   ['itemcode', '품목코드'], ['itemname', '품목명'], ['size', '규격'],
-  ['warehousecode', '창고코드'], ['warehousecodename', '창고명'], ['qtyunit', '수량단위'],
+  ['warehousecode', '창고코드'], ['warehousecodename', '창고명'],
 ];
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
@@ -21,11 +21,6 @@ const timestampText = (value) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
 };
-const components = {
-  Table: ({ style, ...props }) => <Table {...props} className={classes.statusTable} withTableBorder withColumnBorders highlightOnHover style={{ ...style, width: '100%', minWidth: 1320, tableLayout: 'fixed' }} />,
-  TableHead: Table.Thead, TableBody: Table.Tbody, TableRow: Table.Tr,
-};
-
 export default function CurrentStockPage() {
   const [inputs, setInputs] = useState(EMPTY_FILTERS);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -73,19 +68,31 @@ export default function CurrentStockPage() {
       <Text className={sharedClasses.breadcrumb}>재고 관리 <span>›</span> 현재고</Text>
       <Title order={1} className={`${dashboardClasses.pageTitle} ${classes.pageTitle}`}>현재고 <span>조회</span></Title>
       <Text className={dashboardClasses.pageSubtitle}>회사별 품목·규격·창고·수량단위 기준의 현재 재고를 조회합니다.</Text>
-      <Group className={dashboardClasses.sampleNotice} gap={8}><span className={dashboardClasses.statusDot} /><Text size="xs">Company Scoped</Text></Group>
+      <Group className={dashboardClasses.sampleNotice} gap={8}><span className={dashboardClasses.statusDot} /><Text size="xs">System Active</Text></Group>
     </Box></Paper>
     <Paper className={`${sharedClasses.panel} ${classes.filterPanel}`} withBorder>
       <Group className={classes.filterGrid} align="end" gap="sm">
-        {FILTERS.map(([key, label]) => <TextInput key={key} label={label} placeholder={`${label} 검색`} value={inputs[key]} onChange={(event) => setInputs((current) => ({ ...current, [key]: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && search()} />)}
-        <Group className={classes.filterActions} gap={8}><Button variant="default" leftSection={<IconRefresh size={15} />} onClick={reset}>초기화</Button><Button color="red" leftSection={<IconSearch size={15} />} onClick={search} loading={loading}>조회</Button></Group>
+        {FILTERS.map(([key, label]) => <TextInput key={key} className={key === 'warehousecodename' ? classes.currentStockWarehouseNameFilter : key === 'warehousecode' ? classes.currentStockWarehouseCodeFilter : undefined} label={label} placeholder={`${label} 검색`} value={inputs[key]} onChange={(event) => setInputs((current) => ({ ...current, [key]: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && search()} />)}
+        <Group className={`${classes.filterActions} ${classes.currentStockFilterActions}`} gap={8}><Button variant="default" leftSection={<IconRefresh size={15} />} onClick={reset}>초기화</Button><Button color="red" leftSection={<IconSearch size={15} />} onClick={search} loading={loading}>조회</Button></Group>
       </Group>
     </Paper>
     <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder>
       <Group className={classes.resultsToolbar} justify="space-between"><Text fw={700}>현재고 내역</Text><Button size="xs" variant="light" color="red" leftSection={<IconDownload size={14} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>엑셀 다운로드</Button></Group>
       <Box className={classes.tableWrap}>
         {loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}
-        {items.length ? <TableVirtuoso data={items} style={{ height: '100%', width: '100%' }} components={components} computeItemKey={(_index, item) => `${item.itemcode}:${item.size}:${item.warehousecode}:${item.qtyunit}`} fixedHeaderContent={() => <Table.Tr><Table.Th>No.</Table.Th><Table.Th>품목코드</Table.Th><Table.Th>품목명</Table.Th><Table.Th>규격</Table.Th><Table.Th>현재수량</Table.Th><Table.Th>수량단위</Table.Th><Table.Th>현재중량</Table.Th><Table.Th>창고코드</Table.Th><Table.Th>창고명</Table.Th><Table.Th>등록일자</Table.Th><Table.Th>수정일자</Table.Th></Table.Tr>} itemContent={(index, item) => <><Table.Td>{(page - 1) * pageSize + index + 1}</Table.Td><Table.Td>{item.itemcode}</Table.Td><Table.Td>{item.itemname}</Table.Td><Table.Td>{item.size}</Table.Td><Table.Td>{numberText(item.qty)}</Table.Td><Table.Td>{item.qtyunit}</Table.Td><Table.Td>{numberText(item.weight)}</Table.Td><Table.Td>{item.warehousecode}</Table.Td><Table.Td>{item.warehousecodename}</Table.Td><Table.Td>{timestampText(item.created_at)}</Table.Td><Table.Td>{timestampText(item.updated_at)}</Table.Td></>} /> : <Box className={classes.emptyState}>조회된 현재고가 없습니다.</Box>}
+        {items.length ? <ResizableVirtualTable data={items} computeItemKey={(_index, item) => `${item.itemcode}:${item.size}:${item.warehousecode}:${item.qtyunit}`} rowOffset={(page - 1) * pageSize} minTableWidth={1586} columns={[
+          { key: 'no', label: 'No.', width: 56, minWidth: 45, render: (_item, index) => index + 1 },
+          { key: 'itemcode', label: '품목코드', width: 150, minWidth: 100, render: (item) => item.itemcode },
+          { key: 'itemname', label: '품목명', width: 190, minWidth: 110, render: (item) => item.itemname },
+          { key: 'size', label: '규격', width: 140, minWidth: 80, render: (item) => item.size },
+          { key: 'qty', label: '현재수량', width: 130, minWidth: 90, render: (item) => numberText(item.qty) },
+          { key: 'qtyunit', label: '수량단위', width: 110, minWidth: 80, render: (item) => item.qtyunit },
+          { key: 'weight', label: '현재중량', width: 130, minWidth: 90, render: (item) => numberText(item.weight) },
+          { key: 'warehousecode', label: '창고코드', width: 145, minWidth: 95, render: (item) => item.warehousecode },
+          { key: 'warehousecodename', label: '창고명', width: 175, minWidth: 100, render: (item) => item.warehousecodename },
+          { key: 'created_at', label: '등록일자', width: 205, minWidth: 145, render: (item) => timestampText(item.created_at) },
+          { key: 'updated_at', label: '수정일자', width: 205, minWidth: 145, render: (item) => timestampText(item.updated_at) },
+        ]} /> : <Box className={classes.emptyState}>조회된 현재고가 없습니다.</Box>}
       </Box>
       <Group className={classes.paginationBar} justify="space-between"><Text size="xs" c="dimmed">총 {total.toLocaleString()}건</Text><Group><Select size="xs" w={105} data={PAGE_OPTIONS} value={String(pageSize)} onChange={(value) => { setPageSize(Number(value)); setPage(1); }} /><Pagination size="sm" color="red" value={page} onChange={setPage} total={Math.max(1, Math.ceil(total / pageSize))} withEdges /></Group></Group>
     </Paper>

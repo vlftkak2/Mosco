@@ -44,7 +44,7 @@ const DETAIL_FIELDS = [
   { key: 'qty', label: '수량', width: 100, required: true },
   { key: 'qtyunit', label: '수량단위', width: 110, required: true },
   { key: 'warehousecode', label: '창고코드', width: 125, required: true },
-  { key: 'warehousecodename', label: '\uCC3D\uACE0\uBA85', width: 150 },
+  { key: 'warehousecodename', label: '창고명', width: 150 },
   { key: 'weight', label: '입고중량', width: 120, required: true },
   { key: 'unit', label: '단가기준', width: 110, required: true },
   { key: 'unitprice', label: '매입단가', width: 120, required: true },
@@ -76,7 +76,7 @@ const amountOf = (row, priceUnits = []) => {
   if (!Number.isFinite(weight) || !Number.isFinite(price)) return '';
   const unitName = priceUnits.find((option) => option.code === row.unit)?.name || '';
   const unitToken = `${row.unit || ''} ${unitName}`.toLocaleUpperCase();
-  const quantity = /TON|\uD1A4/.test(unitToken) ? weight / 1000 : weight;
+  const quantity = /TON|톤/.test(unitToken) ? weight / 1000 : weight;
   return (quantity * price).toFixed(2);
 };
 const formatAmount = (value) => {
@@ -273,15 +273,15 @@ const MasterOptionPickerModal = memo(function MasterOptionPickerModal({ opened, 
 
   return <Modal opened={opened} onClose={onClose} title={<PickerModalTitle title={title} />} classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader, title: classes.receiptFinderModalTitle, close: classes.receiptFinderModalClose }} centered size="md">
     <Stack gap="sm" pt={10}>
-      <TextInput value={search} onChange={(event) => { setSearch(event.currentTarget.value); setPage(1); }} placeholder={'\uCF54\uB4DC \uB610\uB294 \uCF54\uB4DC\uBA85 \uAC80\uC0C9'} leftSection={<IconSearch size={15} />} autoFocus />
+      <TextInput value={search} onChange={(event) => { setSearch(event.currentTarget.value); setPage(1); }} placeholder={'코드 또는 코드명 검색'} leftSection={<IconSearch size={15} />} autoFocus />
       <ScrollArea h={360} type="auto">
         <Table className={`${codeClasses.codeTable} ${classes.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
-          <Table.Thead><Table.Tr><Table.Th>{'\uCF54\uB4DC'}</Table.Th><Table.Th>{'\uCF54\uB4DC\uBA85'}</Table.Th></Table.Tr></Table.Thead>
+          <Table.Thead><Table.Tr><Table.Th>{'코드'}</Table.Th><Table.Th>{'코드명'}</Table.Th></Table.Tr></Table.Thead>
           <Table.Tbody>
             {visibleOptions.map((option) => <Table.Tr key={option.code} className={classes.customerResultRow} onClick={() => onSelect(option)}>
               <Table.Td>{option.code}</Table.Td><Table.Td>{option.name}</Table.Td>
             </Table.Tr>)}
-            {!visibleOptions.length && <Table.Tr><Table.Td colSpan={2} className={classes.customerEmpty}>{'\uC870\uD68C\uB41C \uC0AC\uC6A9\uC911 \uCF54\uB4DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.'}</Table.Td></Table.Tr>}
+            {!visibleOptions.length && <Table.Tr><Table.Td colSpan={2} className={classes.customerEmpty}>{'조회된 사용중 코드가 없습니다.'}</Table.Td></Table.Tr>}
           </Table.Tbody>
         </Table>
       </ScrollArea>
@@ -325,7 +325,7 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
   };
   return <>
     <Table.Td className={`${codeClasses.checkCol} ${saved ? classes.savedCell : ''}`}>
-      <input type="checkbox" aria-label={`${row.itemcode || '\uC785\uACE0 \uC0C1\uC138'} \uC120\uD0DD`} checked={selected} disabled={disabled} onChange={(event) => onSelect(row.id, event.nativeEvent.shiftKey)} />
+      <input type="checkbox" aria-label={`${row.itemcode || '입고 상세'} 선택`} checked={selected} disabled={disabled} onChange={(event) => onSelect(row.id, event.nativeEvent.shiftKey)} />
     </Table.Td>
     <Table.Td className={`${codeClasses.rowNumber} ${saved ? classes.savedCell : ''}`}>{index + 1}</Table.Td>
     {DETAIL_FIELDS.map(({ key, label }) => (
@@ -357,7 +357,7 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
       </Table.Td>
     ))}
     <Table.Td className={`${codeClasses.actionCol} ${saved ? classes.savedCell : ''}`}>
-      <Tooltip label="\uC0C1\uC138 \uD589 \uC0AD\uC81C"><ActionIcon variant="subtle" color="red" aria-label="\uC0C1\uC138 \uD589 \uC0AD\uC81C" disabled={disabled} onClick={() => onDelete(row.id)}><IconTrash size={16} /></ActionIcon></Tooltip>
+      <Tooltip label="상세 행 삭제"><ActionIcon variant="subtle" color="red" aria-label="상세 행 삭제" disabled={disabled} onClick={() => onDelete(row.id)}><IconTrash size={16} /></ActionIcon></Tooltip>
     </Table.Td>
   </>;
 });
@@ -695,8 +695,8 @@ export default function InboundRegisterPage() {
     }));
     setDocumentDirty(true);
     notifications.show({
-      title: '\uC544\uB798\uB85C \uCC44\uC6B0\uAE30 \uC644\uB8CC',
-      message: `${targetRows.length.toLocaleString()}\uAC1C \uD589\uC5D0 \uD604\uC7AC \uC140\uC758 \uAC12\uC744 \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.`,
+      title: '아래로 채우기 완료',
+      message: `${targetRows.length.toLocaleString()}개 행에 현재 셀의 값을 복사했습니다.`,
       color: 'teal',
     });
   }, [readOnly, saving, selectedIds.length, rows, selectedSet, unitOptions]);
@@ -829,8 +829,8 @@ export default function InboundRegisterPage() {
     setBulkEditOpen(false);
     setBulkValues({ qtyunit: '', warehousecode: '', unit: '' });
     notifications.show({
-      title: '\uC120\uD0DD \uD589 \uC77C\uAD04 \uBCC0\uACBD \uC644\uB8CC',
-      message: `${selectedIds.length.toLocaleString()}\uAC1C \uD589\uC5D0 \uC120\uD0DD\uD55C \uBCC0\uACBD \uAC12\uC744 \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4.`,
+      title: '선택 행 일괄 변경 완료',
+      message: `${selectedIds.length.toLocaleString()}개 행에 선택한 변경 값을 적용했습니다.`,
       color: 'teal',
     });
   }, [bulkValues, selectedIds, selectedSet, unitOptions.warehouse]);
@@ -966,8 +966,8 @@ export default function InboundRegisterPage() {
     const errors = [];
     sourceRows.forEach((row, index) => {
       const checks = [
-        { field: 'unit', label: '\uB2E8\uAC00\uB2E8\uC704', required: true, errorKey: 'unit' },
-        { field: 'qtyunit', label: '\uC218\uB7C9\uB2E8\uC704', required: true, errorKey: 'qtyunit' },
+        { field: 'unit', label: '단가단위', required: true, errorKey: 'unit' },
+        { field: 'qtyunit', label: '수량단위', required: true, errorKey: 'qtyunit' },
         { field: 'warehousecode', label: '창고', required: true, errorKey: 'warehouse' },
       ];
       checks.forEach(({ field, label, required, errorKey }) => {
@@ -975,15 +975,15 @@ export default function InboundRegisterPage() {
         const pastedValue = masterPasteErrorsRef.current.get(masterPasteErrorKey(row.id, errorKey));
         const invalidValue = pastedValue || value;
         const invalid = pastedValue || (required && !value) || (value && !resolveMasterCode(field, value, unitOptions));
-        if (invalid) errors.push(`${index + 1}\uD589 ${label}: ${invalidValue || '\uBBF8\uC785\uB825'}`);
+        if (invalid) errors.push(`${index + 1}행 ${label}: ${invalidValue || '미입력'}`);
       });
     });
     if (errors.length) {
-      const shownErrors = errors.slice(0, 5).join(' \u00B7 ');
+      const shownErrors = errors.slice(0, 5).join(' · ');
       const remainingCount = errors.length - 5;
       notifications.show({
-        title: '\uCF54\uB4DC \uD655\uC778 \uD544\uC694',
-        message: `${shownErrors}${remainingCount > 0 ? ` \uC678 ${remainingCount}\uAC74` : ''}. \uC0AC\uC6A9 \uAC00\uB2A5\uD55C \uCF54\uB4DC\uC778\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.`,
+        title: '코드 확인 필요',
+        message: `${shownErrors}${remainingCount > 0 ? ` 외 ${remainingCount}건` : ''}. 사용 가능한 코드인지 확인해 주세요.`,
         color: 'orange',
         autoClose: 8000,
       });
@@ -1046,25 +1046,25 @@ export default function InboundRegisterPage() {
     try {
       const workbook = XLSX.utils.book_new();
       const exportFields = [
-        ['\uD68C\uC0AC\uCF54\uB4DC', () => receiptMetadata.companyid],
-        ['\uD68C\uC0AC\uBA85', () => receiptMetadata.companyname],
-        ['\uC785\uACE0\uC804\uD45C\uBC88\uD638', () => header.receiptno],
-        ['\uC785\uACE0\uC77C\uC790', () => header.receptdate],
-        ['\uAC70\uB798\uCC98\uCF54\uB4DC', () => header.customcode],
-        ['\uAC70\uB798\uCC98\uBA85', () => header.customname],
-        ['\uC804\uD45C \uBE44\uACE0', () => header.description],
-        ['\uC218\uBD88\uD655\uC815\uC5EC\uBD80', () => subulyn],
-        ['\uC804\uD45C \uB4F1\uB85D\uC77C\uC790', () => receiptMetadata.created_at],
-        ['\uC804\uD45C \uC218\uC815\uC77C\uC790', () => receiptMetadata.updated_at],
-        ['\uC21C\uBC88', (row) => row.lineno],
+        ['회사코드', () => receiptMetadata.companyid],
+        ['회사명', () => receiptMetadata.companyname],
+        ['입고전표번호', () => header.receiptno],
+        ['입고일자', () => header.receptdate],
+        ['거래처코드', () => header.customcode],
+        ['거래처명', () => header.customname],
+        ['전표 비고', () => header.description],
+        ['수불확정여부', () => subulyn],
+        ['전표 등록일자', () => receiptMetadata.created_at],
+        ['전표 수정일자', () => receiptMetadata.updated_at],
+        ['순번', (row) => row.lineno],
         ...DETAIL_FIELDS.map(({ key, label }) => [
-          `\uC0C1\uC138 ${label}`,
+          `상세 ${label}`,
           (row) => key === 'unitamt'
             ? amountOf(row, unitOptions.price)
             : row[key] ?? '',
         ]),
-        ['\uC0C1\uC138 \uB4F1\uB85D\uC77C\uC790', (row) => formatExcelDateTime(row.created_at)],
-        ['\uC0C1\uC138 \uC218\uC815\uC77C\uC790', (row) => formatExcelDateTime(row.updated_at)],
+        ['상세 등록일자', (row) => formatExcelDateTime(row.created_at)],
+        ['상세 수정일자', (row) => formatExcelDateTime(row.updated_at)],
       ];
       const worksheet = XLSX.utils.aoa_to_sheet([
         exportFields.map(([label]) => label),
@@ -1073,23 +1073,23 @@ export default function InboundRegisterPage() {
       applyExcelHeaderStyle(worksheet, exportFields.length);
       worksheet['!cols'] = exportFields.map(([label]) => ({ wch: Math.min(28, Math.max(14, String(label).length + 4)) }));
       worksheet['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: exportFields.length - 1 } }) };
-      XLSX.utils.book_append_sheet(workbook, worksheet, '\uC785\uACE0\uB0B4\uC5ED');
+      XLSX.utils.book_append_sheet(workbook, worksheet, '입고내역');
       const safeFilePart = (value) => {
         const invalidCharacters = '<>:"/\\|?*';
         const safePart = [...String(value || '').trim()]
           .map((character) => character.charCodeAt(0) < 32 || invalidCharacters.includes(character) ? '_' : character)
           .join('')
           .replace(/\s+/g, '_');
-        return safePart || '\uBBF8\uC785\uB825';
+        return safePart || '미입력';
       };
-      XLSX.writeFile(workbook, `\uC785\uACE0\uC804\uD45C_${safeFilePart(header.customname || header.customcode)}_${safeFilePart(header.receptdate)}_${safeFilePart(header.receiptno)}.xlsx`);
+      XLSX.writeFile(workbook, `입고전표_${safeFilePart(header.customname || header.customcode)}_${safeFilePart(header.receptdate)}_${safeFilePart(header.receiptno)}.xlsx`);
     } finally { setExporting(false); }
   }, [header, receiptMetadata, rows, subulyn, unitOptions.price]);
 
   const runSearch = useCallback(() => {
     const nextFilters = Object.fromEntries(Object.entries(filterInputs).map(([key, value]) => [key, String(value || '').trim()]));
     if (nextFilters.date_from && nextFilters.date_to && nextFilters.date_from > nextFilters.date_to) {
-      notifications.show({ title: '\uB0A0\uC9DC \uBC94\uC704 \uD655\uC778', message: '\uC2DC\uC791\uC77C\uC774 \uC885\uB8CC\uC77C\uBCF4\uB2E4 \uB4A4\uC5D0 \uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.', color: 'orange' });
+      notifications.show({ title: '날짜 범위 확인', message: '시작일이 종료일보다 뒤에 올 수 없습니다.', color: 'orange' });
       return;
     }
     setFilters(nextFilters);
@@ -1156,11 +1156,11 @@ export default function InboundRegisterPage() {
           <Group gap="sm" wrap="nowrap">
             <Box className={classes.receiptLookupIcon}><IconSearch size={18} /></Box>
             <Box>
-              <Text fw={700} size="sm">{selectedReceiptno ? '\uC870\uD68C \uC911\uC778 \uC804\uD45C' : '\uC785\uACE0\uC804\uD45C \uC870\uD68C'}</Text>
+              <Text fw={700} size="sm">{selectedReceiptno ? '조회 중인 전표' : '입고전표 조회'}</Text>
               <Text size="xs" c="dimmed" mt={3}>
                 {selectedReceiptno
-                  ? `${header.customname || header.customcode} \u00B7 ${selectedReceiptno}`
-                  : '\uC804\uD45C\uBC88\uD638 \uB610\uB294 \uAC70\uB798\uCC98\uBA85\uC73C\uB85C \uAE30\uC874 \uC804\uD45C\uB97C \uCC3E\uC544\uBCFC \uC218 \uC788\uC2B5\uB2C8\uB2E4.'}
+                  ? `${header.customname || header.customcode} · ${selectedReceiptno}`
+                  : '전표번호 또는 거래처명으로 기존 전표를 찾아볼 수 있습니다.'}
               </Text>
             </Box>
           </Group>
@@ -1174,11 +1174,11 @@ export default function InboundRegisterPage() {
                 loading={exporting}
                 disabled={loading || detailLoading || !rows.length}
               >
-                {'\uC5D1\uC140 \uB2E4\uC6B4\uB85C\uB4DC'}
+                {'엑셀 다운로드'}
               </Button>
             )}
             <Button variant="light" color="red" leftSection={<IconSearch size={15} />} onClick={openReceiptFinder}>
-              {'\uC804\uD45C \uCC3E\uAE30'}
+              {'전표 찾기'}
             </Button>
           </Group>
         </Group>
@@ -1213,7 +1213,7 @@ export default function InboundRegisterPage() {
 
           <Group className={`${sharedClasses.toolbar} ${codeClasses.toolbar}`} justify="space-between" wrap="wrap" gap={6}>
             <Group gap={8}><Text fw={700} c="dark">입고 상세</Text><Badge color="gray" variant="light">{rows.length}행</Badge></Group>
-            {selectedIds.length > 1 && !readOnly && <Text size="xs" c="red" fw={600}>{`\uB4DC\uB86D\uBC15\uC2A4 \uBCC0\uACBD \uC2DC \uC120\uD0DD\uD55C ${selectedIds.length}\uD589\uC5D0 \uC77C\uAD04 \uC801\uC6A9\uB429\uB2C8\uB2E4.`}</Text>}
+            {selectedIds.length > 1 && !readOnly && <Text size="xs" c="red" fw={600}>{`드롭박스 변경 시 선택한 ${selectedIds.length}행에 일괄 적용됩니다.`}</Text>}
             <Group gap={7} wrap="nowrap">
               {selectedIds.length > 0 && <Text size="xs" c="dimmed">{selectedIds.length}개 선택</Text>}
               {selectedIds.length > 1 && !readOnly && (
@@ -1226,7 +1226,7 @@ export default function InboundRegisterPage() {
                     setBulkEditOpen(true);
                   }}
                 >
-                  {'\uC77C\uAD04 \uBCC0\uACBD'}
+                  {'일괄 변경'}
                 </Button>
               )}
 
@@ -1263,40 +1263,40 @@ export default function InboundRegisterPage() {
         <Stack gap="md">
           <Box className={classes.receiptFinderFilters}>
             <Group justify="space-between" align="center" mb="sm" wrap="wrap" gap={4}>
-              <Text fw={700} size="sm">{'\uC870\uD68C \uC870\uAC74'}</Text>
-              <Text size="xs" c="dimmed">{'\uC785\uB825\uD55C \uC870\uAC74\uC740 \uBAA8\uB450 \uC801\uC6A9\uB429\uB2C8\uB2E4.'}</Text>
+              <Text fw={700} size="sm">{'조회 조건'}</Text>
+              <Text size="xs" c="dimmed">{'입력한 조건은 모두 적용됩니다.'}</Text>
             </Group>
             <Box className={classes.receiptFinderFilterGrid}>
               <TextInput
-                label={'\uC785\uACE0\uC804\uD45C\uBC88\uD638'}
-                placeholder={'\uC804\uD45C\uBC88\uD638 \uC785\uB825'}
+                label={'입고전표번호'}
+                placeholder={'전표번호 입력'}
                 value={filterInputs.receiptno}
                 onChange={(event) => setFilterInputs((current) => ({ ...current, receiptno: event.currentTarget.value }))}
                 onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }}
               />
               <TextInput
-                label={'\uAC70\uB798\uCC98\uCF54\uB4DC'}
-                placeholder={'\uAC70\uB798\uCC98\uCF54\uB4DC \uC785\uB825'}
+                label={'거래처코드'}
+                placeholder={'거래처코드 입력'}
                 value={filterInputs.customcode}
                 onChange={(event) => setFilterInputs((current) => ({ ...current, customcode: event.currentTarget.value }))}
                 onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }}
               />
               <TextInput
-                label={'\uAC70\uB798\uCC98\uBA85'}
-                placeholder={'\uAC70\uB798\uCC98\uBA85 \uC785\uB825'}
+                label={'거래처명'}
+                placeholder={'거래처명 입력'}
                 value={filterInputs.customname}
                 onChange={(event) => setFilterInputs((current) => ({ ...current, customname: event.currentTarget.value }))}
                 onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }}
               />
               <TextInput
                 type="date"
-                label={'\uC785\uACE0 \uC2DC\uC791\uC77C'}
+                label={'입고 시작일'}
                 value={filterInputs.date_from}
                 onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))}
               />
               <TextInput
                 type="date"
-                label={'\uC785\uACE0 \uC885\uB8CC\uC77C'}
+                label={'입고 종료일'}
                 value={filterInputs.date_to}
                 onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))}
               />
@@ -1314,10 +1314,10 @@ export default function InboundRegisterPage() {
                 }}
                 disabled={loading}
               >
-                {'\uCD08\uAE30\uD654'}
+                {'초기화'}
               </Button>
               <Button color="red" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>
-                {'\uC870\uD68C'}
+                {'조회'}
               </Button>
             </Group>
           </Box>
@@ -1381,30 +1381,30 @@ export default function InboundRegisterPage() {
           <Box className={classes.modalHint}>비워 둔 항목은 변경하지 않습니다.</Box>
           <Stack gap="sm">
             <Box>
-              <Text size="xs" fw={700} mb={4}>{'\uC218\uB7C9\uB2E8\uC704'}</Text>
+              <Text size="xs" fw={700} mb={4}>{'수량단위'}</Text>
               <select className={codeClasses.cellSelect} value={bulkValues.qtyunit} onChange={(event) => setBulkValues((current) => ({ ...current, qtyunit: event.currentTarget.value }))}>
-                <option value="">{'\uBCC0\uACBD \uC548 \uD568'}</option>
+                <option value="">{'변경 안 함'}</option>
                 {unitOptions.quantity.map((option) => <option key={option.code} value={option.code}>{option.name}</option>)}
               </select>
             </Box>
             <Box>
-              <Text size="xs" fw={700} mb={4}>{'\uCC3D\uACE0\uBA85'}</Text>
+              <Text size="xs" fw={700} mb={4}>{'창고명'}</Text>
               <select className={codeClasses.cellSelect} value={bulkValues.warehousecode} onChange={(event) => setBulkValues((current) => ({ ...current, warehousecode: event.currentTarget.value }))}>
-                <option value="">{'\uBCC0\uACBD \uC548 \uD568'}</option>
+                <option value="">{'변경 안 함'}</option>
                 {unitOptions.warehouse.map((option) => <option key={option.code} value={option.code}>{option.name}</option>)}
               </select>
             </Box>
             <Box>
-              <Text size="xs" fw={700} mb={4}>{'\uB2E8\uAC00\uAE30\uC900'}</Text>
+              <Text size="xs" fw={700} mb={4}>{'단가기준'}</Text>
               <select className={codeClasses.cellSelect} value={bulkValues.unit} onChange={(event) => setBulkValues((current) => ({ ...current, unit: event.currentTarget.value }))}>
-                <option value="">{'\uBCC0\uACBD \uC548 \uD568'}</option>
+                <option value="">{'변경 안 함'}</option>
                 {unitOptions.price.map((option) => <option key={option.code} value={option.code}>{option.name}</option>)}
               </select>
             </Box>
           </Stack>
           <Group justify="flex-end" gap={8}>
-            <Button variant="default" onClick={() => setBulkEditOpen(false)}>{'\uCDE8\uC18C'}</Button>
-            <Button color="red" onClick={applyBulkMasterChanges} disabled={!Object.values(bulkValues).some(Boolean)}>{'\uC120\uD0DD \uD589\uC5D0 \uC801\uC6A9'}</Button>
+            <Button variant="default" onClick={() => setBulkEditOpen(false)}>{'취소'}</Button>
+            <Button color="red" onClick={applyBulkMasterChanges} disabled={!Object.values(bulkValues).some(Boolean)}>{'선택 행에 적용'}</Button>
           </Group>
         </Stack>
       </Modal>
@@ -1432,7 +1432,7 @@ export default function InboundRegisterPage() {
         key={masterPickerTarget ? `${masterPickerTarget.id}:${masterPickerTarget.field}` : 'closed'}
         opened={Boolean(masterPickerTarget)}
         onClose={() => setMasterPickerTarget(null)}
-        title={masterPickerTarget?.field === 'qtyunit' ? '\uC218\uB7C9\uB2E8\uC704 \uC120\uD0DD' : masterPickerTarget?.field === 'unit' ? '\uB2E8\uAC00\uAE30\uC900 \uC120\uD0DD' : '\uCC3D\uACE0 \uC120\uD0DD'}
+        title={masterPickerTarget?.field === 'qtyunit' ? '수량단위 선택' : masterPickerTarget?.field === 'unit' ? '단가기준 선택' : '창고 선택'}
         options={masterPickerTarget?.field === 'qtyunit' ? unitOptions.quantity : masterPickerTarget?.field === 'unit' ? unitOptions.price : unitOptions.warehouse}
         onSelect={selectMasterOption}
       />

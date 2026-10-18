@@ -11,10 +11,10 @@ import security as security_module
 router = APIRouter(prefix="/api/current-stock", tags=["current-stock"])
 
 
-def _filters(itemcode="", itemname="", size="", warehousecode="", warehousecodename="", qtyunit=""):
+def _filters(itemcode="", itemname="", size="", warehousecode="", warehousecodename=""):
     return {
         "itemcode": itemcode, "itemname": itemname, "size": size,
-        "warehousecode": warehousecode, "warehousecodename": warehousecodename, "qtyunit": qtyunit,
+        "warehousecode": warehousecode, "warehousecodename": warehousecodename,
     }
 
 
@@ -23,12 +23,12 @@ def get_current_stock(
     page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=500),
     itemcode: str = Query("", max_length=100), itemname: str = Query("", max_length=150),
     size: str = Query("", max_length=100), warehousecode: str = Query("", max_length=50),
-    warehousecodename: str = Query("", max_length=50), qtyunit: str = Query("", max_length=20),
+    warehousecodename: str = Query("", max_length=50),
     user: dict = Depends(security_module.get_current_user),
 ):
     return {"success": True, **current_stock_module.list_current_stock(
         user["companyid"], page, page_size,
-        **_filters(itemcode, itemname, size, warehousecode, warehousecodename, qtyunit),
+        **_filters(itemcode, itemname, size, warehousecode, warehousecodename),
     )}
 
 
@@ -46,14 +46,14 @@ def lookup_current_stock(
 def export_current_stock(
     itemcode: str = Query("", max_length=100), itemname: str = Query("", max_length=150),
     size: str = Query("", max_length=100), warehousecode: str = Query("", max_length=50),
-    warehousecodename: str = Query("", max_length=50), qtyunit: str = Query("", max_length=20),
+    warehousecodename: str = Query("", max_length=50),
     user: dict = Depends(security_module.get_current_user),
 ):
     handle, path = tempfile.mkstemp(prefix="current_stock_", suffix=".xlsx")
     os.close(handle)
     current_stock_module.write_current_stock_excel(
         user["companyid"], path,
-        **_filters(itemcode, itemname, size, warehousecode, warehousecodename, qtyunit),
+        **_filters(itemcode, itemname, size, warehousecode, warehousecodename),
     )
     return FileResponse(
         path,

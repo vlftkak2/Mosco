@@ -60,6 +60,8 @@
 .amountInput { padding-right: 9px; background: #f8f9fb; color: #637188; text-align: right; }
 .newRow :global(input):not(.itemCodePickerInput) { background-color: #fff !important; color: #293a52 !important; }
 .autoFilledInput { background: #f1f3f5 !important; color: #8b95a3 !important; cursor: not-allowed; }
+.currentStockInput,
+.newRow :global(input).currentStockInput { background: #f1f3f5 !important; color: #8b95a3 !important; cursor: not-allowed; }
 .itemCodePickerInput {
   padding-right: 27px !important;
   border-color: #e7b1b3 !important;

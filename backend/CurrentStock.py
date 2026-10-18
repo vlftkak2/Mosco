@@ -168,6 +168,8 @@ def record_document(
     iniotype: str,
     receiptno: str,
     lines: list[dict],
+    customcode: str = "",
+    customname: str = "",
 ):
     if iniotype not in {"ST", "IN", "OUT"}:
         raise ValueError("지원하지 않는 수불 유형입니다.")
@@ -176,12 +178,12 @@ def record_document(
         source_lineno = int(lines[line_no - 1].get("lineno") or line_no)
         cursor.execute(
             """INSERT INTO Iniop01t
-                   (companyid, companyname, iniodate, iniotype, receiptno, lineno,
+                   (companyid, companyname, iniodate, iniotype, receiptno, lineno, customcode, customname,
                     itemcode, itemname, size, qty, qtyunit, weight,
                     warehousecode, warehousecodename)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
-                companyid, companyname, iniodate, iniotype, receiptno, source_lineno,
+                companyid, companyname, iniodate, iniotype, receiptno, source_lineno, customcode, customname or None,
                 movement["itemcode"], movement["itemname"], movement["size"], movement["qty"],
                 movement["qtyunit"], movement["weight"], movement["warehousecode"],
                 movement["warehousecodename"],
@@ -267,16 +269,16 @@ def lookup_stock(companyid: str, items: list[dict]):
     } for row in rows]
 
 
-def _current_stock_conditions(companyid, itemcode, itemname, size, warehousecode, warehousecodename, qtyunit):
-    where = ["companyid = %s"]
+def _current_stock_conditions(companyid, itemcode, itemname, size, warehousecode, warehousecodename):
+    where = ["stock.companyid = %s"]
     params = [companyid]
     for column, value in (
         ("itemcode", itemcode), ("itemname", itemname), ("size", size),
-        ("warehousecode", warehousecode), ("warehousecodename", warehousecodename), ("qtyunit", qtyunit),
+        ("warehousecode", warehousecode), ("warehousecodename", warehousecodename),
     ):
         normalized = value.strip()
         if normalized:
-            where.append(f"{column} ILIKE %s")
+            where.append(f"stock.{column} ILIKE %s")
             params.append(f"%{normalized}%")
     return " AND ".join(where), params
 
@@ -284,13 +286,20 @@ def _current_stock_conditions(companyid, itemcode, itemname, size, warehousecode
 def list_current_stock(companyid: str, page: int, page_size: int, **filters):
     where, params = _current_stock_conditions(companyid, **filters)
     with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute(f"SELECT COUNT(*) FROM CurrentStock01t WHERE {where}", params)
+        cursor.execute(f"SELECT COUNT(*) FROM CurrentStock01t AS stock WHERE {where}", params)
         total = cursor.fetchone()[0]
         cursor.execute(
-            f"""SELECT itemcode, itemname, size, qty, qtyunit, weight,
-                       warehousecode, warehousecodename, created_at, updated_at
-                FROM CurrentStock01t WHERE {where}
-                ORDER BY itemcode, size, warehousecode, qtyunit
+            f"""SELECT stock.itemcode, stock.itemname, stock.size, stock.qty,
+                       COALESCE(qty_code.code_name, stock.qtyunit) AS qtyunit,
+                       stock.weight, stock.warehousecode, stock.warehousecodename,
+                       stock.created_at, stock.updated_at
+                FROM CurrentStock01t AS stock
+                LEFT JOIN CodeMaster01t AS qty_code
+                  ON qty_code.companyid = stock.companyid
+                 AND qty_code.groupcode = 'QTY'
+                 AND qty_code.code = stock.qtyunit
+                WHERE {where}
+                ORDER BY stock.itemcode, stock.size, stock.warehousecode, stock.qtyunit
                 LIMIT %s OFFSET %s""",
             (*params, page_size, (page - 1) * page_size),
         )
@@ -300,24 +309,32 @@ def list_current_stock(companyid: str, page: int, page_size: int, **filters):
 
 def write_current_stock_excel(companyid: str, output_path: str, **filters):
     where, params = _current_stock_conditions(companyid, **filters)
-    query = f"""SELECT itemcode, itemname, size, qty, qtyunit, weight,
-                       warehousecode, warehousecodename, created_at, updated_at
-                FROM CurrentStock01t WHERE {where}
-                ORDER BY itemcode, size, warehousecode, qtyunit"""
+    query = f"""SELECT stock.itemcode, stock.itemname, stock.size, stock.qty,
+                       COALESCE(qty_code.code_name, stock.qtyunit) AS qtyunit,
+                       stock.weight, stock.warehousecode, stock.warehousecodename,
+                       stock.created_at, stock.updated_at
+                FROM CurrentStock01t AS stock
+                LEFT JOIN CodeMaster01t AS qty_code
+                  ON qty_code.companyid = stock.companyid
+                 AND qty_code.groupcode = 'QTY'
+                 AND qty_code.code = stock.qtyunit
+                WHERE {where}
+                ORDER BY stock.itemcode, stock.size, stock.warehousecode, stock.qtyunit"""
     headers = ["No.", "품목코드", "품목명", "규격", "현재수량", "수량단위", "현재중량", "창고코드", "창고명", "등록일자", "수정일자"]
     workbook = xlsxwriter.Workbook(output_path, {"constant_memory": True})
     worksheet = workbook.add_worksheet("현재고")
     header_format = workbook.add_format({"bold": True, "font_color": "#B4232D", "bg_color": "#FFF3F3", "border": 1, "border_color": "#E5BFC2"})
+    integer_format = workbook.add_format({"num_format": "#,##0;[Red]-#,##0;0"})
     number_format = workbook.add_format({"num_format": "#,##0.###"})
-    datetime_format = workbook.add_format({"num_format": "yyyymmdd hh:mm"})
+    datetime_format = workbook.add_format({"num_format": "yyyy-mm-dd hh:mm"})
     worksheet.write_row(0, 0, headers, header_format)
     worksheet.freeze_panes(1, 0)
     worksheet.set_column("A:A", 8)
     worksheet.set_column("B:C", 20)
     worksheet.set_column("D:D", 16)
-    worksheet.set_column("E:E", 14, number_format)
+    worksheet.set_column("E:E", 14, integer_format)
     worksheet.set_column("F:F", 12)
-    worksheet.set_column("G:G", 14, number_format)
+    worksheet.set_column("G:G", 14, integer_format)
     worksheet.set_column("H:I", 18)
     worksheet.set_column("J:K", 20, datetime_format)
     row_no = 1
@@ -332,7 +349,11 @@ def write_current_stock_excel(companyid: str, output_path: str, **filters):
                         if value is None:
                             continue
                         if index in (4, 6):
-                            worksheet.write_number(row_no, index, float(value), number_format)
+                            numeric_value = float(value)
+                            if numeric_value.is_integer():
+                                worksheet.write_number(row_no, index, int(numeric_value), integer_format)
+                            else:
+                                worksheet.write_number(row_no, index, numeric_value, number_format)
                         elif index in (9, 10):
                             worksheet.write_datetime(row_no, index, value.replace(tzinfo=None), datetime_format)
                         else:

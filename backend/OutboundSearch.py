@@ -80,7 +80,7 @@ def list_outbound_details(
               ON d.companyid = h.companyid
              AND d.receiptno = h.receiptno
             WHERE {where_sql}
-            ORDER BY h.receptdate DESC, h.receiptno DESC, d.lineno
+            ORDER BY h.receptdate ASC, h.receiptno ASC, d.lineno
             LIMIT %s OFFSET %s
             """,
             (*params, page_size, (page - 1) * page_size),
@@ -106,19 +106,19 @@ def write_outbound_details_excel(
     )
     headers = [
         "No.", "출고일자", "출고전표번호", "거래처코드", "거래처명", "품목코드", "품목명", "규격",
-        "수량", "수량단위", "창고코드", "창고명", "출고중량", "단가기준", "판매단가", "금액", "비고",
+        "수량", "수량단위", "창고코드", "창고명", "출고중량", "단가기준", "판매단가", "금액", "비고", "상세 등록일자", "상세 수정일자",
     ]
     query = f"""
         SELECT h.receptdate, h.receiptno, h.customcode, h.customname,
                d.itemcode, d.itemname, d.size, d.qty, d.qtyunit,
                d.warehousecode, d.warehousecodename, d.weight, d.unit,
-               d.unitprice, d.unitamt, d.description
+               d.unitprice, d.unitamt, d.description, d.created_at, d.updated_at
         FROM Outbound01t AS h
         JOIN Outbound02t AS d
           ON d.companyid = h.companyid
          AND d.receiptno = h.receiptno
         WHERE {where_sql}
-        ORDER BY h.receptdate DESC, h.receiptno DESC, d.lineno
+        ORDER BY h.receptdate ASC, h.receiptno ASC, d.lineno
     """
 
     workbook = xlsxwriter.Workbook(output_path, {"constant_memory": True})
@@ -132,6 +132,10 @@ def write_outbound_details_excel(
         "valign": "vcenter",
     })
     date_format = workbook.add_format({"num_format": "yyyy-mm-dd"})
+    datetime_format = workbook.add_format({"num_format": "yyyy-mm-dd hh:mm"})
+    # Give numeric columns an integer default so blank/untouched cells never
+    # inherit an optional-decimal format that can render a dangling decimal mark.
+    integer_format = workbook.add_format({"num_format": "#,##0;[Red]-#,##0;0"})
     number_format = workbook.add_format({"num_format": "#,##0.###"})
     money_format = workbook.add_format({"num_format": "#,##0.##"})
     worksheet.write_row(0, 0, headers, header_format)
@@ -145,14 +149,15 @@ def write_outbound_details_excel(
     worksheet.set_column("F:F", 18)
     worksheet.set_column("G:G", 28)
     worksheet.set_column("H:H", 18)
-    worksheet.set_column("I:I", 13, number_format)
+    worksheet.set_column("I:I", 13, integer_format)
     worksheet.set_column("J:J", 15)
     worksheet.set_column("K:K", 16)
     worksheet.set_column("L:L", 20)
-    worksheet.set_column("M:M", 15, number_format)
+    worksheet.set_column("M:M", 15, integer_format)
     worksheet.set_column("N:N", 15)
-    worksheet.set_column("O:P", 16, money_format)
+    worksheet.set_column("O:P", 16, integer_format)
     worksheet.set_column("Q:Q", 30)
+    worksheet.set_column("R:S", 22, datetime_format)
 
     row_number = 1
     try:
@@ -168,8 +173,15 @@ def write_outbound_details_excel(
                                 continue
                             if column_index == 1 and isinstance(value, date):
                                 worksheet.write_datetime(row_number, column_index, value, date_format)
+                            elif column_index in (17, 18):
+                                worksheet.write_datetime(row_number, column_index, value.replace(tzinfo=None), datetime_format)
                             elif column_index in (8, 12, 14, 15):
-                                worksheet.write_number(row_number, column_index, float(value), number_format if column_index in (8, 12) else money_format)
+                                numeric_value = float(value)
+                                format_for_value = number_format if column_index in (8, 12) else money_format
+                                if numeric_value.is_integer():
+                                    worksheet.write_number(row_number, column_index, int(numeric_value), integer_format)
+                                else:
+                                    worksheet.write_number(row_number, column_index, numeric_value, format_for_value)
                             else:
                                 worksheet.write(row_number, column_index, value)
                         row_number += 1

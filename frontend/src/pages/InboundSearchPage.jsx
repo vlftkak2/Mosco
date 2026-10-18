@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   Box, Button, Group, Loader, Pagination, Paper, Select,
@@ -31,16 +31,28 @@ const makeDefaultFilters = () => {
 };
 
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
+const HorizontalScroller = forwardRef(function HorizontalScroller({ style, ...props }, ref) {
+  return <div {...props} ref={ref} className={classes.virtuosoScroller} style={{ ...style, overflowX: 'auto' }} />;
+});
 const virtuosoComponents = {
+  Scroller: HorizontalScroller,
   Table: ({ style, ...props }) => (
     <Table {...props} className={classes.statusTable} withTableBorder withColumnBorders highlightOnHover
-      style={{ ...style, width: '100%', tableLayout: 'fixed' }} />
+      style={{ ...style, width: 'max(100%, 2500px)', minWidth: 2500, tableLayout: 'fixed' }} />
   ),
   TableHead: Table.Thead,
   TableBody: Table.Tbody,
   TableRow: Table.Tr,
 };
 const displayDate = (value) => value ? String(value).slice(0, 10) : '';
+const displayDateTime = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
+  const get = (type) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
+};
 const displayNumber = (value, maximumFractionDigits = 3) => {
   if (value === null || value === undefined || value === '') return '';
   const number = Number(value);
@@ -258,6 +270,8 @@ export default function InboundSearchPage() {
                   <Table.Th>매입단가</Table.Th>
                   <Table.Th>금액</Table.Th>
                   <Table.Th>비고</Table.Th>
+                  {renderHeader('상세 등록일자', 'created_at', 210, 150)}
+                  {renderHeader('상세 수정일자', 'updated_at', 210, 150)}
                 </Table.Tr>
               )}
               itemContent={(index, item) => (
@@ -271,6 +285,8 @@ export default function InboundSearchPage() {
                   <Table.Td ta="right">{displayNumber(item.weight)}</Table.Td><Table.Td>{item.unit}</Table.Td>
                   <Table.Td ta="right">{displayNumber(item.unitprice, 2)}</Table.Td><Table.Td ta="right">{displayNumber(item.unitamt, 2)}</Table.Td>
                   <Table.Td>{item.description}</Table.Td>
+                  <Table.Td>{displayDateTime(item.created_at)}</Table.Td>
+                  <Table.Td>{displayDateTime(item.updated_at)}</Table.Td>
                 </>
               )}
             />

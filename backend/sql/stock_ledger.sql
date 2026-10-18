@@ -37,6 +37,26 @@ CREATE TABLE IF NOT EXISTS Iniop01t (
 ALTER TABLE Iniop01t
     ADD COLUMN IF NOT EXISTS size VARCHAR(100) NOT NULL DEFAULT '';
 
+ALTER TABLE Iniop01t
+    ADD COLUMN IF NOT EXISTS customcode VARCHAR(50) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS customname VARCHAR(100);
+
+UPDATE Iniop01t AS ledger
+SET customcode = receipt.customcode,
+    customname = receipt.customname
+FROM Inbound01t AS receipt
+WHERE ledger.companyid = receipt.companyid
+  AND ledger.receiptno = receipt.receiptno
+  AND ledger.iniotype = 'IN';
+
+UPDATE Iniop01t AS ledger
+SET customcode = receipt.customcode,
+    customname = receipt.customname
+FROM Outbound01t AS receipt
+WHERE ledger.companyid = receipt.companyid
+  AND ledger.receiptno = receipt.receiptno
+  AND ledger.iniotype = 'OUT';
+
 CREATE INDEX IF NOT EXISTS ix_currentstock01t_company_item
     ON CurrentStock01t (companyid, itemcode, size, warehousecode, qtyunit);
 
@@ -57,11 +77,35 @@ CREATE INDEX IF NOT EXISTS ix_currentstock01t_itemcode_trgm
 CREATE INDEX IF NOT EXISTS ix_currentstock01t_itemname_trgm
     ON CurrentStock01t USING GIN (itemname gin_trgm_ops);
 
+CREATE INDEX IF NOT EXISTS ix_currentstock01t_size_trgm
+    ON CurrentStock01t USING GIN (size gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS ix_currentstock01t_warehousecode_trgm
+    ON CurrentStock01t USING GIN (warehousecode gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS ix_currentstock01t_warehousecodename_trgm
+    ON CurrentStock01t USING GIN (warehousecodename gin_trgm_ops);
+
 CREATE INDEX IF NOT EXISTS ix_iniop01t_receiptno_trgm
     ON Iniop01t USING GIN (receiptno gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS ix_iniop01t_customcode_trgm
+    ON Iniop01t USING GIN (customcode gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS ix_iniop01t_customname_trgm
+    ON Iniop01t USING GIN (customname gin_trgm_ops);
 
 CREATE INDEX IF NOT EXISTS ix_iniop01t_itemcode_trgm
     ON Iniop01t USING GIN (itemcode gin_trgm_ops);
 
 CREATE INDEX IF NOT EXISTS ix_iniop01t_itemname_trgm
     ON Iniop01t USING GIN (itemname gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS ix_iniop01t_size_trgm
+    ON Iniop01t USING GIN (size gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS ix_iniop01t_warehousecode_trgm
+    ON Iniop01t USING GIN (warehousecode gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS ix_iniop01t_warehousecodename_trgm
+    ON Iniop01t USING GIN (warehousecodename gin_trgm_ops);
