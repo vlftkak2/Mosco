@@ -41,19 +41,22 @@ const DETAIL_FIELDS = [
   { key: 'itemcode', label: '품목코드', width: 150, required: true },
   { key: 'itemname', label: '품목명', width: 190, required: true },
   { key: 'size', label: '규격', width: 140 },
-  { key: 'qty', label: '수량', width: 100 },
+  { key: 'qty', label: '수량', width: 100, required: true },
   { key: 'qtyunit', label: '수량단위', width: 110, required: true },
-  { key: 'warehousecode', label: '\uCC3D\uACE0\uCF54\uB4DC', width: 125 },
-  { key: 'warehousecodename', label: '\uCC3D\uACE0\uBA85', width: 150 },
+  { key: 'warehousecode', label: '창고코드', width: 125, required: true },
+  { key: 'warehousecodename', label: '창고명', width: 150 },
+  { key: 'current_qty', label: '현재수량', width: 115 },
+  { key: 'current_weight', label: '현재중량', width: 115 },
   { key: 'weight', label: '출고중량', width: 120, required: true },
   { key: 'unit', label: '단가기준', width: 110, required: true },
-  { key: 'unitprice', label: '\uD310\uB9E4\uB2E8\uAC00', width: 120, required: true },
+  { key: 'unitprice', label: '판매단가', width: 120, required: true },
   { key: 'unitamt', label: '금액', width: 130 },
   { key: 'description', label: '비고', width: 190 },
 ];
-const NAVIGABLE_FIELDS = DETAIL_FIELDS.map(({ key }) => key);
-const EDITABLE_FIELDS = DETAIL_FIELDS.map(({ key }) => key);
-const EMPTY_DETAIL = { itemcode: '', itemname: '', size: '', qty: '', qtyunit: 'EA', warehousecode: '', warehousecodename: '', weight: '', unit: '', unitprice: '', unitamt: '', description: '' };
+const READ_ONLY_DETAIL_FIELDS = new Set(['itemname', 'warehousecodename', 'current_qty', 'current_weight', 'unitamt']);
+const NAVIGABLE_FIELDS = DETAIL_FIELDS.map(({ key }) => key).filter((key) => !READ_ONLY_DETAIL_FIELDS.has(key));
+const EDITABLE_FIELDS = NAVIGABLE_FIELDS;
+const EMPTY_DETAIL = { itemcode: '', itemname: '', size: '', qty: '', qtyunit: 'EA', warehousecode: '', warehousecodename: '', current_qty: '0', current_weight: '0', weight: '', unit: '', unitprice: '', unitamt: '', description: '' };
 const masterPasteErrorKey = (rowId, field) => `${rowId}:${field}`;
 
 const errorMessage = (error) => {
@@ -308,6 +311,7 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
   const displayValue = (key) => {
     if (key === 'qtyunit') return unitOptions.quantity.find((option) => option.code === row.qtyunit)?.name || row.qtyunit || '';
     if (key === 'unit') return unitOptions.price.find((option) => option.code === row.unit)?.name || row.unit || '';
+    if (key === 'current_qty' || key === 'current_weight') return formatNumericInput(row[key] ?? 0);
     if (NUMERIC_FIELDS.has(key)) return formatNumericInput(row[key]);
     return row[key] ?? '';
   };
@@ -338,7 +342,7 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
               if (key === 'itemcode') registerCodeInput(row.id, element);
               registerCellInput(row.id, key, element);
             }}
-            className={`${codeClasses.cellInput} ${key === 'itemname' || key === 'warehousecodename' ? classes.autoFilledInput : ''} ${key === 'itemcode' || key === 'unit' || key === 'qtyunit' || key === 'warehousecode' ? classes.itemCodePickerInput : ''}`}
+            className={`${codeClasses.cellInput} ${READ_ONLY_DETAIL_FIELDS.has(key) ? classes.autoFilledInput : ''} ${key === 'itemcode' || key === 'unit' || key === 'qtyunit' || key === 'warehousecode' ? classes.itemCodePickerInput : ''}`}
             aria-label={label}
             title={['itemcode', 'unit', 'qtyunit', 'warehousecode'].includes(key) ? `${label} - 더블클릭하여 마스터에서 선택` : undefined}
             data-row-id={row.id}
@@ -346,7 +350,7 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
             inputMode={key === 'qty' || key === 'weight' || key === 'unitprice' ? 'decimal' : undefined}
             value={displayValue(key)}
             placeholder={row.is_new && (key === 'itemcode' || key === 'itemname') ? label : ''}
-            readOnly={key === 'itemname' || key === 'warehousecodename'}
+            readOnly={READ_ONLY_DETAIL_FIELDS.has(key)}
             disabled={disabled}
             onFocus={() => onFocusCell(row.id, key)}
             onDoubleClick={key === 'itemcode' ? () => onFindItem(row.id) : ['unit', 'qtyunit', 'warehousecode'].includes(key) ? () => onFindMaster(row.id, key) : undefined}
@@ -487,6 +491,51 @@ export default function OutboundRegisterPage() {
       });
     return () => { cancelled = true; };
   }, [loadUnitOptions]);
+
+  const stockLookupKey = useMemo(() => rows.map((row) => [
+    String(row.itemcode || '').trim(), String(row.size || '').trim(),
+    resolveMasterCode('warehouse', row.warehousecode || row.warehousecodename, unitOptions) || String(row.warehousecode || '').trim(),
+    resolveMasterCode('qtyunit', row.qtyunit, unitOptions) || String(row.qtyunit || '').trim(),
+  ].join('\u001f')).join('\u001e'), [rows, unitOptions]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const candidates = rows.map((row) => ({
+      row,
+      warehousecode: resolveMasterCode('warehouse', row.warehousecode || row.warehousecodename, unitOptions) || String(row.warehousecode || '').trim(),
+      qtyunit: resolveMasterCode('qtyunit', row.qtyunit, unitOptions) || String(row.qtyunit || '').trim(),
+    })).filter(({ row, warehousecode, qtyunit }) => row.itemcode && warehousecode && qtyunit);
+    if (!candidates.length) {
+      setRows((current) => current.map((row) => ({ ...row, current_qty: '0', current_weight: '0' })));
+      return () => { cancelled = true; };
+    }
+    axios.post('/api/current-stock/lookup', {
+      items: candidates.map(({ row, warehousecode, qtyunit }) => ({
+        itemcode: String(row.itemcode).trim(),
+        size: String(row.size || '').trim(),
+        warehousecode,
+        qtyunit,
+      })),
+    }, authConfig()).then(({ data }) => {
+      if (cancelled) return;
+      const values = data.items || [];
+      let lookupIndex = 0;
+      setRows((current) => current.map((row) => {
+        const warehousecode = resolveMasterCode('warehouse', row.warehousecode || row.warehousecodename, unitOptions) || String(row.warehousecode || '').trim();
+        const qtyunit = resolveMasterCode('qtyunit', row.qtyunit, unitOptions) || String(row.qtyunit || '').trim();
+        if (!row.itemcode || !warehousecode || !qtyunit) {
+          return { ...row, current_qty: '0', current_weight: '0' };
+        }
+        const stock = values[lookupIndex++] || {};
+        return { ...row, current_qty: String(stock.current_qty ?? 0), current_weight: String(stock.current_weight ?? 0) };
+      }));
+    }).catch((error) => {
+      if (!cancelled) notifications.show({ title: '현재고 조회 실패', message: errorMessage(error), color: 'red' });
+    });
+    return () => { cancelled = true; };
+  // The key only changes when a stock identity field changes. Stock values themselves do not retrigger this request.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stockLookupKey, unitOptions]);
 
   const openCustomerPicker = useCallback(() => {
     if (!readOnly && !saving) setCustomerPickerOpen(true);
@@ -947,18 +996,35 @@ export default function OutboundRegisterPage() {
       if (!String(row.qtyunit || '').trim()) errors.push('수량단위');
       const qtyText = String(row.qty ?? '').trim();
       const qty = Number(qtyText);
-      if (qtyText && (!Number.isFinite(qty) || qty <= 0)) errors.push('수량(0 초과)');
+      if (!qtyText || !Number.isFinite(qty) || qty <= 0) errors.push('수량(0 초과)');
+      if (!String(row.warehousecode || '').trim()) errors.push('창고코드');
       const weight = Number(row.weight);
       const unitprice = Number(row.unitprice);
       if (!String(row.unitprice || '').trim() || !Number.isFinite(unitprice) || unitprice < 0) errors.push('\uD310\uB9E4\uB2E8\uAC00(0 \uC774\uC0C1)');
       return errors.length ? [`${index + 1}행 ${errors.join(', ')}`] : [];
+    });
+    const requestedByStock = new Map();
+    rows.forEach((row) => {
+      const warehousecode = resolveMasterCode('warehouse', row.warehousecode || row.warehousecodename, unitOptions) || row.warehousecode;
+      const qtyunit = resolveMasterCode('qtyunit', row.qtyunit, unitOptions) || row.qtyunit;
+      const key = [row.itemcode, row.size || '', warehousecode, qtyunit].map((value) => String(value || '').trim()).join('\u001f');
+      if (!row.itemcode || !warehousecode || !qtyunit || !Number.isFinite(Number(row.qty))) return;
+      const entry = requestedByStock.get(key) || { requested: 0, available: Number(row.current_qty || 0), row };
+      entry.requested += Number(row.qty);
+      entry.available = Number(row.current_qty || 0);
+      requestedByStock.set(key, entry);
+    });
+    requestedByStock.forEach(({ requested, available, row }) => {
+      if (requested > available) {
+        failures.push(`${row.itemcode} / ${row.warehousecodename || row.warehousecode}: 현재 ${formatNumericInput(available)}, 출고 ${formatNumericInput(requested)}`);
+      }
     });
     if (failures.length) {
       notifications.show({ title: '상세 입력을 확인해 주세요', message: failures.slice(0, 5).join(' / '), color: 'orange', autoClose: 8000 });
       return false;
     }
     return true;
-  }, [header, rows, selectedReceiptno]);
+  }, [header, rows, selectedReceiptno, unitOptions]);
 
   const validateDetailMasters = useCallback((sourceRows) => {
     const errors = [];
@@ -966,7 +1032,7 @@ export default function OutboundRegisterPage() {
       const checks = [
         { field: 'unit', label: '\uB2E8\uAC00\uB2E8\uC704', required: true, errorKey: 'unit' },
         { field: 'qtyunit', label: '\uC218\uB7C9\uB2E8\uC704', required: true, errorKey: 'qtyunit' },
-        { field: 'warehousecode', label: '\uCC3D\uACE0', required: false, errorKey: 'warehouse' },
+        { field: 'warehousecode', label: '창고', required: true, errorKey: 'warehouse' },
       ];
       checks.forEach(({ field, label, required, errorKey }) => {
         const value = String(row[field] ?? '').trim();
@@ -1007,7 +1073,7 @@ export default function OutboundRegisterPage() {
         items: sourceRows.map((row) => ({
           itemcode: String(row.itemcode || '').trim(), itemname: String(row.itemname || '').trim(),
           size: String(row.size || '').trim(), unit: resolveMasterCode('unit', row.unit, unitOptions) || String(row.unit || '').trim(),
-          qty: String(row.qty ?? '').trim() || null, qtyunit: resolveMasterCode('qtyunit', row.qtyunit, unitOptions) || String(row.qtyunit || '').trim(),
+          qty: String(row.qty ?? '').trim(), qtyunit: resolveMasterCode('qtyunit', row.qtyunit, unitOptions) || String(row.qtyunit || '').trim(),
           warehousecode: resolveMasterCode('warehouse', row.warehousecode || row.warehousecodename, unitOptions) || String(row.warehousecode || '').trim(),
           warehousecodename: String(row.warehousecodename || '').trim(),
           weight: String(row.weight || '').trim(), unitprice: String(row.unitprice || '').trim(),
@@ -1055,7 +1121,7 @@ export default function OutboundRegisterPage() {
         ['\uC804\uD45C \uB4F1\uB85D\uC77C\uC790', () => receiptMetadata.created_at],
         ['\uC804\uD45C \uC218\uC815\uC77C\uC790', () => receiptMetadata.updated_at],
         ['\uC21C\uBC88', (row) => row.lineno],
-        ...DETAIL_FIELDS.map(({ key, label }) => [
+        ...DETAIL_FIELDS.filter(({ key }) => !['current_qty', 'current_weight'].includes(key)).map(({ key, label }) => [
           `\uC0C1\uC138 ${label}`,
           (row) => key === 'unitamt'
             ? amountOf(row, unitOptions.price)

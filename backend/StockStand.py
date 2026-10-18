@@ -8,6 +8,7 @@ from psycopg2.pool import ThreadedConnectionPool
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import DB_CONFIG
+import CurrentStock as current_stock_module
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class StandItemInput(BaseModel):
     itemcode: str = Field(min_length=1, max_length=100)
     itemname: str = Field(min_length=1, max_length=150)
     size: str = Field(default="", max_length=100)
-    qty: Decimal | None = Field(default=None, gt=0, max_digits=15, decimal_places=3)
+    qty: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
     qtyunit: str = Field(min_length=1, max_length=20)
     weight: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
     warehousecode: str = Field(min_length=1, max_length=50)
@@ -162,16 +163,18 @@ def list_stand_items(companyid: str, standdate: date, query: str = ""):
                                  AND d.itemcode = s.itemcode AND COALESCE(d.warehousecode, '') = s.warehousecode
                            )
                        )
-                   )""",
-            (companyid, companyid, companyid, companyid),
+                    ),
+                    (SELECT MIN(standdate) FROM StandStock01t WHERE companyid = %s)""",
+            (companyid, companyid, companyid, companyid, companyid),
         )
-        has_stock_rows, has_transactions, has_stock_movements = cursor.fetchone()
+        has_stock_rows, has_transactions, has_stock_movements, registered_standdate = cursor.fetchone()
     return {
         "items": items,
         "total": len(items),
         "has_stock_rows": has_stock_rows,
         "has_transactions": has_transactions,
         "has_stock_movements": has_stock_movements,
+        "registered_standdate": registered_standdate,
     }
 
 
@@ -285,6 +288,18 @@ def save_stand_items(companyid: str, companyname: str, standdate: date, items: l
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 values,
             )
+            opening_receiptno = current_stock_module.next_opening_receiptno(cursor, companyid)
+            stock_lines = [{
+                **item,
+                "lineno": values[index][3],
+                "itemname": active_items[item["itemcode"].strip()],
+                "size": item.get("size", "").strip(),
+                "warehousecode": item["warehousecode"].strip(),
+                "warehousecodename": codes["WAREHOUSE"][item["warehousecode"].strip()],
+            } for index, item in enumerate(items)]
+            current_stock_module.record_document(
+                cursor, companyid, companyname, standdate, "ST", opening_receiptno, stock_lines,
+            )
         return len(items)
     except ValueError:
         raise
@@ -355,28 +370,22 @@ def delete_stand_items(companyid: str):
         if not selected:
             return 0
 
-        blocked = []
-        for lineno, itemcode, warehousecode in selected:
-            cursor.execute(
-                """SELECT EXISTS (
-                       SELECT 1 FROM Inbound01t h JOIN Inbound02t d
-                         ON d.companyid = h.companyid AND d.receiptno = h.receiptno
-                       JOIN StandStock01t s ON s.companyid = h.companyid AND s.lineno = %s
-                       WHERE h.companyid = %s AND h.receptdate >= s.standdate
-                         AND d.itemcode = %s AND COALESCE(d.warehousecode, '') = %s
-                   ) OR EXISTS (
-                       SELECT 1 FROM Outbound01t h JOIN Outbound02t d
-                         ON d.companyid = h.companyid AND d.receiptno = h.receiptno
-                       JOIN StandStock01t s ON s.companyid = h.companyid AND s.lineno = %s
-                       WHERE h.companyid = %s AND h.receptdate >= s.standdate
-                         AND d.itemcode = %s AND COALESCE(d.warehousecode, '') = %s
-                   )""",
-                (lineno, companyid, itemcode, warehousecode, lineno, companyid, itemcode, warehousecode),
-            )
-            if cursor.fetchone()[0]:
-                blocked.append(f"{itemcode} / {warehousecode}")
-        if blocked:
-            raise ValueError("입고 또는 출고 이력이 있는 기초재고는 삭제할 수 없습니다: " + ", ".join(blocked[:5]))
+        cursor.execute(
+            """SELECT EXISTS (
+                   SELECT 1 FROM Inbound01t h
+                   JOIN Inbound02t d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
+                   WHERE h.companyid = %s
+               ) OR EXISTS (
+                   SELECT 1 FROM Outbound01t h
+                   JOIN Outbound02t d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
+                   WHERE h.companyid = %s
+               )""",
+            (companyid, companyid),
+        )
+        if cursor.fetchone()[0]:
+            raise ValueError("입고 또는 출고 수불 내역이 있어 기초재고 전체를 삭제할 수 없습니다.")
+
+        current_stock_module.reverse_all_opening_stock(cursor, companyid)
 
         cursor.execute(
             "DELETE FROM StandStock01t WHERE companyid = %s",

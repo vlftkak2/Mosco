@@ -41,9 +41,9 @@ const DETAIL_FIELDS = [
   { key: 'itemcode', label: '품목코드', width: 150, required: true },
   { key: 'itemname', label: '품목명', width: 190, required: true },
   { key: 'size', label: '규격', width: 140 },
-  { key: 'qty', label: '수량', width: 100 },
+  { key: 'qty', label: '수량', width: 100, required: true },
   { key: 'qtyunit', label: '수량단위', width: 110, required: true },
-  { key: 'warehousecode', label: '\uCC3D\uACE0\uCF54\uB4DC', width: 125 },
+  { key: 'warehousecode', label: '창고코드', width: 125, required: true },
   { key: 'warehousecodename', label: '\uCC3D\uACE0\uBA85', width: 150 },
   { key: 'weight', label: '입고중량', width: 120, required: true },
   { key: 'unit', label: '단가기준', width: 110, required: true },
@@ -947,7 +947,8 @@ export default function InboundRegisterPage() {
       if (!String(row.qtyunit || '').trim()) errors.push('수량단위');
       const qtyText = String(row.qty ?? '').trim();
       const qty = Number(qtyText);
-      if (qtyText && (!Number.isFinite(qty) || qty <= 0)) errors.push('수량(0 초과)');
+      if (!qtyText || !Number.isFinite(qty) || qty <= 0) errors.push('수량(0 초과)');
+      if (!String(row.warehousecode || '').trim()) errors.push('창고코드');
       const weight = Number(row.weight);
       const unitprice = Number(row.unitprice);
       if (!Number.isFinite(weight) || weight <= 0) errors.push('입고중량(0 초과)');
@@ -967,7 +968,7 @@ export default function InboundRegisterPage() {
       const checks = [
         { field: 'unit', label: '\uB2E8\uAC00\uB2E8\uC704', required: true, errorKey: 'unit' },
         { field: 'qtyunit', label: '\uC218\uB7C9\uB2E8\uC704', required: true, errorKey: 'qtyunit' },
-        { field: 'warehousecode', label: '\uCC3D\uACE0', required: false, errorKey: 'warehouse' },
+        { field: 'warehousecode', label: '창고', required: true, errorKey: 'warehouse' },
       ];
       checks.forEach(({ field, label, required, errorKey }) => {
         const value = String(row[field] ?? '').trim();
@@ -1008,7 +1009,7 @@ export default function InboundRegisterPage() {
         items: sourceRows.map((row) => ({
           itemcode: String(row.itemcode || '').trim(), itemname: String(row.itemname || '').trim(),
           size: String(row.size || '').trim(), unit: resolveMasterCode('unit', row.unit, unitOptions) || String(row.unit || '').trim(),
-          qty: String(row.qty ?? '').trim() || null, qtyunit: resolveMasterCode('qtyunit', row.qtyunit, unitOptions) || String(row.qtyunit || '').trim(),
+          qty: String(row.qty ?? '').trim(), qtyunit: resolveMasterCode('qtyunit', row.qtyunit, unitOptions) || String(row.qtyunit || '').trim(),
           warehousecode: resolveMasterCode('warehouse', row.warehousecode || row.warehousecodename, unitOptions) || String(row.warehousecode || '').trim(),
           warehousecodename: String(row.warehousecodename || '').trim(),
           weight: String(row.weight || '').trim(), unitprice: String(row.unitprice || '').trim(),
