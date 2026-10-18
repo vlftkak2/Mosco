@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { TableVirtuoso } from 'react-virtuoso';
 import {
   Badge, Box, Button, Group, Loader, Progress,
   Modal, Paper, ScrollArea, SimpleGrid, Table, Text, TextInput, Textarea, ThemeIcon, Title,
@@ -8,24 +9,37 @@ import { notifications } from '@mantine/notifications';
 import { IconBraces, IconFileTypePdf, IconPhoto, IconFileUpload, IconPlus, IconPlayerPlay, IconTrash, IconZoomIn, IconZoomOut } from '@tabler/icons-react';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
 import dashboardClasses from '../styles/pages/HomePage.module.css';
+import outboundTableClasses from '../styles/pages/CodeMasterPage.module.css';
 import classes from '../styles/pages/AIOrder.module.css';
 
 const MAX_FILE_BYTES = 30 * 1024 * 1024;
 const MAX_PDF_PAGES = 10;
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const HEADER_FIELDS = [
-  ['buyer', '발주처'], ['title', '제목'], ['order_date', '발주일자'],
-  ['due_date', '납기일'], ['buyer_address', '발주처 주소'],
+  ['buyer', '발주처'], ['recipient', '수신처'], ['order_date', '발주일자'],
+  ['due_date', '납기일자'], ['delivery_location', '납품 장소'],
 ];
 const LINE_COLUMNS = [
-  ['source_product_name', '품명', 180], ['steel_grade', '강종', 100], ['spec_raw', '규격 원본', 190],
+  ['source_product_name', '품명', 180], ['steel_grade', '강종', 100], ['spec_raw', '규격 원문', 190],
   ['thickness', '두께', 90], ['width', '폭', 90], ['length', '길이', 90],
-  ['quantity', '정규화 수량', 110], ['quantity_raw', '수량 원문', 130], ['quantity_unit', '수량단위', 100], ['weight_kg', '중량(KG)', 115], ['weight_raw', '중량 원문', 130],
-  ['unit_price', '단가', 110], ['amount', '금액', 120], ['notes', '비고', 180],
+  ['quantity', '수량', 110], ['quantity_unit', '단위', 90], ['weight_kg', '중량', 115], ['notes', '비고', 180],
 ];
 
 function numberInputValue(value) {
   return value === null || value === undefined ? '' : String(value);
+}
+
+function orderLineDisplayValue(item, key) {
+  if (key === 'quantity') return item.quantity ?? item.quantity_raw;
+  if (key === 'weight_kg') return item.weight_kg ?? item.weight_raw;
+  return item[key];
+}
+
+function dateInputValue(value) {
+  const text = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const match = text.match(/^(\d{4})[./](\d{1,2})[./](\d{1,2})$/);
+  return match ? `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}` : '';
 }
 
 function numericValue(raw) {
@@ -33,6 +47,16 @@ function numericValue(raw) {
   if (!cleaned || !/^-?(?:\d+\.?\d*|\.\d+)$/.test(cleaned)) return null;
   const value = Number(cleaned);
   return Number.isFinite(value) ? value : null;
+}
+
+function createManualOrderLine() {
+  return {
+    source_product_name: null, steel_grade: null, spec_raw: null, thickness: null, width: null, length: null,
+    quantity: null, quantity_raw: null, quantity_unit: null, weight_kg: null, weight_raw: null,
+    notes: null, source_reference: null, source_locations: [],
+    __manual: true,
+    needs_review: true, review_reasons: ['사용자가 추가한 행입니다. 원본과 대조해주세요.'],
+  };
 }
 
 function formatBytes(size) {
@@ -69,10 +93,45 @@ function aiSourceFor(owner, field) {
 function ExtractionFieldLabel({ label, source, showLabel = true }) {
   if (!showLabel && !source) return null;
   return <Box className={`${classes.extractionFieldLabel} ${!showLabel ? classes.sourceOnlyLabel : ''}`}>
-    {showLabel && <Text component="span" size="xs" fw={600}>{label}</Text>}
+    {showLabel && <Text component="span" size="xs" fw={700}>{label}</Text>}
     {source && <span className={classes.aiExtractTag}>AI 추출</span>}
   </Box>;
 }
+
+const OrderLineCells = memo(function OrderLineCells({ item, index, selected, onToggle, onChange, onPaste }) {
+  return <>
+    <Table.Td ta="center" className={outboundTableClasses.checkCol}><input type="checkbox" aria-label={`${index + 1}행 선택`} checked={selected} onChange={(event) => onToggle(index, event.nativeEvent.shiftKey)} /></Table.Td>
+    <Table.Td ta="center" className={outboundTableClasses.numberCol}>{index + 1}</Table.Td>
+    {LINE_COLUMNS.map(([key, label]) => {
+      const source = item.__manual ? null : aiSourceFor(item, key);
+      const hasAiSource = Boolean(source);
+      return <Table.Td key={key} className={hasAiSource ? classes.aiExtractedCell : undefined} title={hasAiSource ? 'AI가 읽어 추출한 값입니다.' : undefined}>
+        <input className={`${outboundTableClasses.cellInput} ${classes.cellInput}`} aria-label={`${index + 1}행 ${label}`} data-row-index={index} data-field={key} value={item.__draft?.[key] ?? numberInputValue(orderLineDisplayValue(item, key))} onChange={(event) => onChange(index, key, event.currentTarget.value)} onPaste={(event) => {
+          const text = event.clipboardData.getData('text/plain');
+          if (text.includes('\t') || text.includes('\n')) {
+            event.preventDefault();
+            onPaste(index, key, text);
+          }
+        }} />
+      </Table.Td>;
+    })}
+  </>;
+});
+
+const AIOrderVirtualRow = ({ item, className, ...props }) => (
+  <Table.Tr
+    {...props}
+    title={item?.needs_review ? (item.review_reasons || []).join(' · ') || '원본과 대조가 필요합니다.' : undefined}
+    className={[className, item?.needs_review && classes.reviewRow, item?.__manual && outboundTableClasses.newRow].filter(Boolean).join(' ')}
+  />
+);
+
+const aiOrderTableComponents = {
+  Table: ({ style, ...props }) => <Table {...props} className={`${sharedClasses.table} ${outboundTableClasses.codeTable} ${classes.resultGrid}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0} style={{ ...style, width: '100%', tableLayout: 'fixed' }} />,
+  TableHead: Table.Thead,
+  TableBody: Table.Tbody,
+  TableRow: AIOrderVirtualRow,
+};
 
 function scorePageRotation(canvas, angle) {
   const radians = angle * Math.PI / 180;
@@ -388,36 +447,184 @@ function OrderDocumentWorkspace({ doc, updateDocument }) {
   const [selectedRows, setSelectedRows] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(0);
+  const [columnWidths, setColumnWidths] = useState({});
+  const autoSizedColumns = useRef(false);
+  const tableWrapRef = useRef(null);
+  const virtuosoRef = useRef(null);
+  const scrollToAddedLine = useRef(false);
+  const focusAddedRowRef = useRef(null);
+  const rowSelectionAnchor = useRef(null);
   const extraction = doc.extraction;
-  const updateExtraction = (transform) => updateDocument(doc.id, (current) => ({ ...current, extraction: transform(current.extraction), reviewed: false }));
+  const itemCount = extraction?.items?.length ?? 0;
+  const updateExtraction = useCallback((transform) => updateDocument(doc.id, (current) => ({ ...current, extraction: transform(current.extraction), reviewed: false })), [doc.id, updateDocument]);
+  const tableColumns = [
+    { key: '__select', label: '', width: 44, minWidth: 42, className: outboundTableClasses.checkCol },
+    { key: '__number', label: 'No.', width: 58, minWidth: 48, className: outboundTableClasses.numberCol },
+    ...LINE_COLUMNS.map(([key, label, width]) => ({ key, label, width, minWidth: 70 })),
+  ];
+  const tableWidth = tableColumns.reduce((total, column) => total + (columnWidths[column.key] ?? column.width), 0);
 
   useEffect(() => {
     return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
   }, [previewUrl]);
 
+  useEffect(() => {
+    if (!scrollToAddedLine.current && focusAddedRowRef.current === null) return;
+    const shouldScroll = scrollToAddedLine.current;
+    const focusRow = focusAddedRowRef.current;
+    scrollToAddedLine.current = false;
+    focusAddedRowRef.current = null;
+    requestAnimationFrame(() => {
+      if (shouldScroll && focusRow !== null) virtuosoRef.current?.scrollToIndex({ index: focusRow, align: 'end', behavior: 'auto' });
+      const focusAddedInput = (attempt = 0) => {
+        const input = tableWrapRef.current?.querySelector(`[data-row-index="${focusRow}"][data-field="source_product_name"]`);
+        if (input) input.focus();
+        else if (attempt < 5) requestAnimationFrame(() => focusAddedInput(attempt + 1));
+      };
+      if (focusRow !== null) requestAnimationFrame(() => focusAddedInput());
+    });
+  }, [extraction?.items?.length]);
+
+  useEffect(() => {
+    if (!extraction?.items?.length || autoSizedColumns.current) return;
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    const input = tableWrapRef.current?.querySelector('input[data-field]');
+    context.font = input ? getComputedStyle(input).font : '13px sans-serif';
+    const maximumWidths = {
+      source_product_name: 320, steel_grade: 200, spec_raw: 320,
+      thickness: 150, width: 150, length: 150, quantity: 150,
+      quantity_unit: 150, weight_kg: 170, notes: 420,
+    };
+    const nextWidths = {};
+    LINE_COLUMNS.forEach(([key, label]) => {
+      const textWidth = Math.max(
+        context?.measureText(label).width || 0,
+        ...extraction.items.map((item) => context?.measureText(numberInputValue(orderLineDisplayValue(item, key))).width || 0),
+      );
+      nextWidths[key] = Math.max(70, Math.min(maximumWidths[key] || 260, Math.ceil(textWidth + 30)));
+    });
+    autoSizedColumns.current = true;
+    setColumnWidths((current) => ({ ...nextWidths, ...current }));
+  }, [extraction?.items]);
+
 
 
   const updateHeader = (key, value) => updateExtraction((current) => ({ ...current, header: { ...current.header, [key]: value || null } }));
-  const updateLine = (index, key, rawValue) => updateExtraction((current) => ({
+  const startColumnResize = (event, column) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = columnWidths[column.key] ?? column.width;
+    const root = event.currentTarget.closest(`.${outboundTableClasses.tableWrap}`);
+    const headerCell = event.currentTarget.parentElement;
+    let nextWidth = startWidth;
+    const move = (pointerEvent) => {
+      nextWidth = Math.max(column.minWidth, Math.min(1600, startWidth + pointerEvent.clientX - startX));
+      if (headerCell) headerCell.style.width = `${nextWidth}px`;
+      root?.style.setProperty('--code-table-min-width', `${Math.max(900, tableWidth + nextWidth - startWidth)}px`);
+    };
+    const finish = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      setColumnWidths((current) => ({ ...current, [column.key]: nextWidth }));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  };
+  const focusGridCell = useCallback((rowIndex, field) => {
+    const cell = tableWrapRef.current?.querySelector(`[data-row-index="${rowIndex}"][data-field="${field}"]`);
+    if (cell) {
+      cell.focus();
+      return;
+    }
+    virtuosoRef.current?.scrollToIndex({ index: rowIndex, align: 'center', behavior: 'auto' });
+    const focusCell = (attempt = 0) => {
+      const nextCell = tableWrapRef.current?.querySelector(`[data-row-index="${rowIndex}"][data-field="${field}"]`);
+      if (nextCell) nextCell.focus();
+      else if (attempt < 5) requestAnimationFrame(() => focusCell(attempt + 1));
+    };
+    requestAnimationFrame(() => focusCell());
+  }, []);
+  const handleGridKeyDown = useCallback((event) => {
+    const target = event.target instanceof HTMLInputElement ? event.target : null;
+    const rowIndex = Number(target?.dataset.rowIndex);
+    const field = target?.dataset.field;
+    if (!target || !Number.isInteger(rowIndex) || !field) return;
+    let rowDelta = 0;
+    let columnDelta = 0;
+    if (event.key === 'Enter') rowDelta = event.shiftKey ? -1 : 1;
+    else if (event.key === 'Tab') columnDelta = event.shiftKey ? -1 : 1;
+    else if (event.key === 'ArrowDown') rowDelta = 1;
+    else if (event.key === 'ArrowUp') rowDelta = -1;
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      const hasSelection = target.selectionStart !== target.selectionEnd;
+      const atBoundary = hasSelection ? false : event.key === 'ArrowLeft' ? target.selectionStart === 0 : target.selectionEnd === target.value.length;
+      if (!atBoundary) return;
+      columnDelta = event.key === 'ArrowLeft' ? -1 : 1;
+    } else return;
+    let nextRow = rowIndex + rowDelta;
+    let nextColumn = LINE_COLUMNS.findIndex(([key]) => key === field) + columnDelta;
+    if (nextColumn < 0) { nextRow -= 1; nextColumn = LINE_COLUMNS.length - 1; }
+    if (nextColumn >= LINE_COLUMNS.length) { nextRow += 1; nextColumn = 0; }
+    if (nextRow < 0 || nextRow >= itemCount) return;
+    event.preventDefault();
+    focusGridCell(nextRow, LINE_COLUMNS[nextColumn][0]);
+  }, [itemCount, focusGridCell]);
+  const updateLine = useCallback((index, key, rawValue) => updateExtraction((current) => ({
     ...current,
     items: current.items.map((item, itemIndex) => itemIndex !== index ? item : {
       ...item,
-      [key]: ['thickness', 'width', 'length', 'quantity', 'weight_kg', 'unit_price', 'amount'].includes(key) ? numericValue(rawValue) : (rawValue || null),
+      [key]: ['thickness', 'width', 'length', 'quantity', 'weight_kg'].includes(key) ? numericValue(rawValue) : (rawValue || null),
+      ...(key === 'quantity' ? { quantity_raw: rawValue || null } : {}),
+      ...(key === 'weight_kg' ? { weight_raw: rawValue || null } : {}),
       __draft: { ...(item.__draft || {}), [key]: rawValue },
     }),
-  }));
-  const addLine = () => updateExtraction((current) => ({ ...current, items: [...current.items, {
-    source_product_name: null, steel_grade: null, spec_raw: null, thickness: null, width: null, length: null,
-    quantity: null, quantity_raw: null, quantity_unit: null, weight_kg: null, weight_raw: null,
-    unit_price: null, amount: null, notes: null, source_reference: null, source_locations: [],
-    __manual: true,
-    needs_review: true, review_reasons: ['사용자가 추가한 행입니다. 원본과 대조해주세요.'],
-  }] }));
-  const toggleRowSelection = (index) => setSelectedRows((current) => current.includes(index) ? current.filter((rowIndex) => rowIndex !== index) : [...current, index]);
+  })), [updateExtraction]);
+  const addLine = () => {
+    scrollToAddedLine.current = true;
+    focusAddedRowRef.current = extraction.items.length;
+    updateExtraction((current) => ({ ...current, items: [...current.items, createManualOrderLine()] }));
+  };
+  const toggleRowSelection = useCallback((index, shiftKey = false) => setSelectedRows((current) => {
+    const anchor = rowSelectionAnchor.current;
+    rowSelectionAnchor.current = index;
+    if (shiftKey && anchor !== null) {
+      const range = Array.from({ length: Math.abs(index - anchor) + 1 }, (_, offset) => Math.min(index, anchor) + offset);
+      return [...new Set([...current, ...range])];
+    }
+    return current.includes(index) ? current.filter((rowIndex) => rowIndex !== index) : [...current, index];
+  }), []);
+  const pasteLineRange = useCallback((startIndex, startField, pastedText) => {
+    const matrix = pastedText.replace(/\r/g, '').split('\n').filter((line, index, all) => line || index < all.length - 1).map((line) => line.split('\t'));
+    const startColumn = LINE_COLUMNS.findIndex(([key]) => key === startField);
+    if (startIndex < 0 || startColumn < 0 || !matrix.length) return;
+    updateExtraction((current) => {
+      const items = [...current.items];
+      matrix.forEach((line, rowOffset) => {
+        const itemIndex = startIndex + rowOffset;
+        const item = { ...(items[itemIndex] || createManualOrderLine()) };
+        line.forEach((rawValue, columnOffset) => {
+          const key = LINE_COLUMNS[startColumn + columnOffset]?.[0];
+          if (!key) return;
+          const value = String(rawValue ?? '');
+          item[key] = ['thickness', 'width', 'length', 'quantity', 'weight_kg'].includes(key) ? numericValue(value) : (value || null);
+          if (key === 'quantity') item.quantity_raw = value || null;
+          if (key === 'weight_kg') item.weight_raw = value || null;
+          item.__draft = { ...(item.__draft || {}), [key]: value };
+        });
+        if (itemIndex >= items.length) items.push(item);
+        else items[itemIndex] = item;
+      });
+      return { ...current, items };
+    });
+  }, [updateExtraction]);
   const deleteSelectedRows = () => {
     const selected = new Set(selectedRows);
     updateExtraction((current) => ({ ...current, items: current.items.filter((_, index) => !selected.has(index)) }));
     setSelectedRows([]);
+    rowSelectionAnchor.current = null;
   };
   return <>
     {doc.error && <Text className={classes.documentError} size="sm" c="red">{doc.error}</Text>}
@@ -428,25 +635,41 @@ function OrderDocumentWorkspace({ doc, updateDocument }) {
       </Paper>
       <Paper className={`${sharedClasses.panel} ${classes.workPanel}`} withBorder>
         <Group className={classes.panelHeader} justify="space-between"><Text fw={700}>AI 추출 결과</Text>{doc.cacheHit && <Badge size="sm" variant="light" color="gray">저장된 분석 결과</Badge>}</Group>
-        {!extraction ? doc.status === 'analyzing' ? <AnalysisLoading /> : doc.status === 'queued' ? <AnalysisLoading queued /> : <Box className={classes.resultEmpty}>{doc.status === 'failed' ? '분석에 실패했습니다. 오류 내용을 확인하고 다시 실행해주세요.' : '목록에서 발주서를 선택하고 분석을 실행해주세요.'}</Box> : <ScrollArea className={classes.resultScroll} type="auto">
-          <Box p="md"><Text size="sm" fw={700} mb="xs">주문서 헤더</Text>
+        {!extraction
+          ? doc.status === 'analyzing'
+            ? <AnalysisLoading />
+            : doc.status === 'queued'
+              ? <AnalysisLoading queued />
+              : doc.status === 'failed'
+                ? <Box className={classes.resultEmpty}>분석에 실패했습니다. 오류 내용을 확인하고 다시 실행해주세요.</Box>
+                : <Box className={classes.selectOrderPrompt}>목록에서 발주서를 선택하고 분석을 실행해주세요.</Box> : <Box className={classes.resultContent}>
+          <Box className={classes.resultContentInner}><Box className={classes.orderHeaderSection}><Text size="sm" fw={700} mb="xs">주문서 헤더</Text>
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
-              {HEADER_FIELDS.map(([key, label]) => <TextInput key={key} style={key === 'buyer_address' ? { gridColumn: '1 / -1' } : undefined} label={<ExtractionFieldLabel label={label} source={aiSourceFor(extraction.header, key)} />} value={extraction.header[key] || ''} onChange={(event) => updateHeader(key, event.currentTarget.value)} />)}
+              {HEADER_FIELDS.map(([key, label]) => <TextInput key={key} type={['order_date', 'due_date'].includes(key) ? 'date' : 'text'} style={key === 'delivery_location' ? { gridColumn: '1 / -1' } : undefined} label={<ExtractionFieldLabel label={label} source={aiSourceFor(extraction.header, key)} />} value={['order_date', 'due_date'].includes(key) ? dateInputValue(extraction.header[key]) : (extraction.header[key] || '')} onChange={(event) => updateHeader(key, event.currentTarget.value)} />)}
             </SimpleGrid>
-            <Group justify="space-between" align="center" mt="lg" mb="xs" wrap="wrap"><Group gap={8}><Text size="sm" fw={700}>상세 품목</Text>{extraction.items.some((item) => !item.__manual && LINE_COLUMNS.some(([key]) => aiSourceFor(item, key))) && <Badge className={classes.sectionAiBadge} size="sm" variant="light" color="gray">AI 추출</Badge>}</Group><Group gap="xs" wrap="wrap">
-              <Text size="xs" c="dimmed">선택 {selectedRows.length}건</Text><Button size="xs" variant="light" color="red" leftSection={<IconTrash size={14} />} disabled={!selectedRows.length} onClick={deleteSelectedRows}>선택 삭제</Button><Button size="xs" color="red" leftSection={<IconPlus size={14} />} onClick={addLine}>행 추가</Button>
+            </Box><Paper className={classes.detailSection} withBorder>
+            <Group className={`${sharedClasses.toolbar} ${outboundTableClasses.toolbar} ${classes.detailToolbar}`} justify="space-between" align="center" wrap="wrap"><Group gap={8}><Text size="sm" fw={700}>상세 품목</Text>{extraction.items.some((item) => !item.__manual && LINE_COLUMNS.some(([key]) => aiSourceFor(item, key))) && <Badge className={classes.sectionAiBadge} size="sm" variant="light" color="gray">AI 추출</Badge>}</Group><Group gap={7} wrap="nowrap">
+              {selectedRows.length > 0 && <Text size="xs" c="dimmed">{selectedRows.length}개 선택</Text>}<Button size="xs" variant="subtle" color="red" leftSection={<IconTrash size={14} />} disabled={!selectedRows.length} onClick={deleteSelectedRows}>선택 삭제</Button><Button size="xs" color="red" leftSection={<IconPlus size={14} />} onClick={addLine}>행 추가</Button>
             </Group></Group>
-            {!extraction.items.length ? <Box className={classes.resultEmpty}>인식된 품목 행이 없습니다.</Box> : <Box className={classes.gridScroll}>
-              <Table withTableBorder withColumnBorders highlightOnHover className={classes.resultGrid}>
-                <Table.Thead><Table.Tr><Table.Th className={classes.selectColumn}><input type="checkbox" aria-label="상세 전체 선택" checked={extraction.items.length > 0 && selectedRows.length === extraction.items.length} onChange={(event) => setSelectedRows(event.currentTarget.checked ? extraction.items.map((_, index) => index) : [])} /></Table.Th><Table.Th className={classes.rowNumber}>No.</Table.Th>{LINE_COLUMNS.map(([key, label, width]) => <Table.Th key={key} style={{ minWidth: width }}>{label}</Table.Th>)}</Table.Tr></Table.Thead>
-                <Table.Tbody>{extraction.items.map((item, index) => <Table.Tr key={`${index}-${item.source_reference || ''}`} title={item.needs_review ? (item.review_reasons || []).join(' · ') || '원본과 대조가 필요합니다.' : undefined} className={item.needs_review ? classes.reviewRow : undefined}>
-                  <Table.Td ta="center" className={classes.selectColumn}><input type="checkbox" aria-label={`${index + 1}행 선택`} checked={selectedRows.includes(index)} onChange={() => toggleRowSelection(index)} /></Table.Td><Table.Td ta="center" className={classes.rowNumber}>{index + 1}</Table.Td>
-                   {LINE_COLUMNS.map(([key, label]) => { const source = item.__manual ? null : aiSourceFor(item, key); const hasAiSource = Boolean(source); return <Table.Td key={key} className={hasAiSource ? classes.aiExtractedCell : undefined} title={hasAiSource ? 'AI가 읽어 추출한 값입니다.' : undefined}><input className={classes.cellInput} aria-label={`${index + 1}행 ${label}`} value={item.__draft?.[key] ?? (['quantity_raw', 'weight_raw'].includes(key) ? (item[key] || '') : numberInputValue(item[key]))} onChange={(event) => updateLine(index, key, event.currentTarget.value)} /></Table.Td>; })}
-                </Table.Tr>)}</Table.Tbody>
-              </Table>
+            {!extraction.items.length ? <Box className={classes.resultEmpty}>인식된 품목 행이 없습니다.</Box> : <Box ref={tableWrapRef} className={`${outboundTableClasses.tableWrap} ${classes.gridScroll}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }} onKeyDown={handleGridKeyDown}>
+              <TableVirtuoso
+                ref={virtuosoRef}
+                data={extraction.items}
+                style={{ height: '100%' }}
+                components={aiOrderTableComponents}
+                computeItemKey={(index, item) => `${index}-${item.source_reference || (item.__manual ? 'manual' : 'ai')}`}
+                defaultItemHeight={40}
+                increaseViewportBy={{ top: 100, bottom: 220 }}
+                fixedHeaderContent={() => <Table.Tr>{tableColumns.map((column) => <Table.Th key={column.key} className={`${outboundTableClasses.resizableHeader} ${column.className || ''}`} style={{ width: columnWidths[column.key] ?? column.width }}>
+                  {column.key === '__select' ? <input type="checkbox" aria-label="상세 전체 선택" checked={extraction.items.length > 0 && selectedRows.length === extraction.items.length} onChange={(event) => { setSelectedRows(event.currentTarget.checked ? extraction.items.map((_, index) => index) : []); rowSelectionAnchor.current = null; }} /> : column.label}
+                  <span className={outboundTableClasses.columnResizeHandle} role="separator" aria-label={`${column.label || '선택'} 열 너비 조절`} onPointerDown={(event) => startColumnResize(event, column)} />
+                </Table.Th>)}</Table.Tr>}
+                itemContent={(index, item) => <OrderLineCells item={item} index={index} selected={selectedRows.includes(index)} onToggle={toggleRowSelection} onChange={updateLine} onPaste={pasteLineRange} />}
+              />
             </Box>}
-          </Box>
-        </ScrollArea>}
+          </Paper>
+        </Box>
+      </Box>}
       </Paper>
     </SimpleGrid>
   </>;
@@ -456,6 +679,7 @@ export default function AIOrderPage() {
   const fileInputRef = useRef(null);
   const activeRequests = useRef(new Set());
   const abortControllers = useRef(new Map());
+  const cacheLookupRequests = useRef(new Set());
   const [documents, setDocuments] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [analysisConfirm, setAnalysisConfirm] = useState(null);
@@ -558,6 +782,46 @@ export default function AIOrderPage() {
     }
   }, [updateDocument]);
 
+  const showDocumentResult = useCallback(async (doc) => {
+    setSelectedId(doc.id);
+    if (doc.extraction || ['analyzing', 'queued'].includes(doc.status) || cacheLookupRequests.current.has(doc.id)) return;
+
+    cacheLookupRequests.current.add(doc.id);
+    updateDocument(doc.id, { cacheChecking: true });
+    try {
+      const form = new FormData();
+      form.append('file', doc.file);
+      const { data } = await axios.post('/api/ai-order/cached-result', form, {
+        ...authConfig(), timeout: 30000,
+      });
+      if (data?.found && data.extraction && Array.isArray(data.extraction.items)) {
+        updateDocument(doc.id, {
+          status: 'completed',
+          extraction: structuredClone(data.extraction),
+          analysisRequestId: data.request_id || null,
+          correctedPages: data.preprocessing?.corrected_pages || [],
+          cacheHit: true,
+          error: '',
+        });
+      } else {
+        notifications.show({
+          title: '저장된 분석 결과가 없습니다',
+          message: <>이 파일을 분석하려면 AI 일괄 분석을 실행해주세요.<br />저장된 결과 확인에는 비용이 발생하지 않습니다.</>,
+          color: 'gray',
+        });
+      }
+    } catch (error) {
+      notifications.show({
+        title: '저장 결과 조회 실패',
+        message: error.response?.data?.detail || '기존 분석 결과를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.',
+        color: 'red',
+      });
+    } finally {
+      cacheLookupRequests.current.delete(doc.id);
+      updateDocument(doc.id, { cacheChecking: false });
+    }
+  }, [updateDocument]);
+
   useEffect(() => {
     const queue = documents.filter((doc) => doc.status === 'queued' && !activeRequests.current.has(doc.id));
     for (const doc of queue) {
@@ -632,12 +896,12 @@ export default function AIOrderPage() {
       </Group>
       {!documents.length ? <Text className={classes.listEmpty} size="sm" c="dimmed">분석할 주문서 파일을 추가해주세요.</Text> : <ScrollArea className={classes.orderListScroll} style={{ height: orderListHeight }} type={documents.length > 5 ? 'auto' : 'never'} scrollbarSize={7}>
         <Table highlightOnHover className={classes.orderListTable}>
-          <Table.Thead><Table.Tr><Table.Th>파일명</Table.Th><Table.Th>인식 거래처</Table.Th><Table.Th ta="right">품목 수</Table.Th><Table.Th>분석 상태</Table.Th><Table.Th ta="right">작업</Table.Th></Table.Tr></Table.Thead>
+          <Table.Thead><Table.Tr><Table.Th>파일명</Table.Th><Table.Th>인식 거래처</Table.Th><Table.Th>품목 수</Table.Th><Table.Th>분석 상태</Table.Th><Table.Th>작업</Table.Th></Table.Tr></Table.Thead>
           <Table.Tbody>{documents.map((doc) => {
             const [label, color] = documentStatus(doc);
             const selected = doc.id === selectedDoc?.id;
             const extension = doc.file.name.split('.').pop()?.toUpperCase() || 'FILE';
-            return <Table.Tr key={doc.id} className={selected ? classes.activeDocumentRow : undefined} aria-selected={selected} onClick={() => setSelectedId(doc.id)}>
+            return <Table.Tr key={doc.id} className={selected ? classes.activeDocumentRow : undefined} aria-selected={selected} onClick={() => void showDocumentResult(doc)}>
               <Table.Td><Group gap="sm" wrap="nowrap" className={classes.fileNameCell}>
                 <ThemeIcon className={classes.fileTypeIcon} size={34} radius="md" variant="light" color="red">{documentFileIcon(doc.file)}</ThemeIcon>
                 <Box className={classes.fileNameCopy}>
@@ -646,10 +910,10 @@ export default function AIOrderPage() {
                   {doc.error && <Text size="xs" c="red" lineClamp={1} title={doc.error}>{doc.error}</Text>}
                 </Box>
               </Group></Table.Td>
-              <Table.Td><Text size="sm" lineClamp={1}>{doc.extraction?.header?.buyer || (doc.status === 'analyzing' ? '분석 중' : '미확인')}</Text></Table.Td>
-              <Table.Td ta="right"><Text size="sm" fw={600}>{doc.extraction ? doc.extraction.items.length.toLocaleString() : '—'}</Text></Table.Td>
-              <Table.Td><Group gap={7} wrap="nowrap">{doc.status === 'analyzing' && <Loader size={13} />}<Badge color={color} variant="light">{label}</Badge></Group></Table.Td>
-              <Table.Td ta="right"><Button size="xs" variant={selected ? 'light' : 'subtle'} color={selected ? 'indigo' : 'gray'} onClick={(event) => { event.stopPropagation(); setSelectedId(doc.id); }}>결과 확인</Button></Table.Td>
+              <Table.Td ta="center"><Text size="sm" lineClamp={1}>{doc.extraction?.header?.buyer || (doc.status === 'analyzing' ? '분석 중' : '미확인')}</Text></Table.Td>
+              <Table.Td ta="center"><Text size="sm" fw={600}>{doc.extraction ? doc.extraction.items.length.toLocaleString() : '—'}</Text></Table.Td>
+              <Table.Td ta="center"><Group gap={7} wrap="nowrap" justify="center">{doc.status === 'analyzing' && <Loader size={13} />}<Badge color={color} variant="light">{label}</Badge></Group></Table.Td>
+              <Table.Td ta="center"><Button size="xs" variant={selected ? 'light' : 'subtle'} color={selected ? 'indigo' : 'gray'} loading={doc.cacheChecking} disabled={['analyzing', 'queued'].includes(doc.status)} onClick={(event) => { event.stopPropagation(); void showDocumentResult(doc); }}>결과 확인</Button></Table.Td>
             </Table.Tr>;
           })}</Table.Tbody>
         </Table>
