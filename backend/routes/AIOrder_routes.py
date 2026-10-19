@@ -69,6 +69,7 @@ async def analyze_order_document(
         result = await ai_order_module.analyze_order_document(
             companyid=companyid,
             companyname=str(user.get("companyname") or "").strip(),
+            username=str(user.get("username") or "").strip(),
             user_email=email,
             idempotency_key=idempotency_key,
             filename=str(file.filename or "order-document").replace("\\", "/").split("/")[-1],

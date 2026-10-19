@@ -498,7 +498,7 @@ def _find_cached_analysis(*, companyid: str, user_email: str, file_sha256: str) 
 
 
 def _create_analysis_audit(
-    *, request_id: str, companyid: str, companyname: str, user_email: str,
+    *, request_id: str, companyid: str, companyname: str, username: str, user_email: str,
     filename: str, file_sha256: str,
 ) -> None:
     connection = _ai_order_audit_connection()
@@ -507,10 +507,10 @@ def _create_analysis_audit(
             with connection.cursor() as cursor:
                 cursor.execute(
                     """INSERT INTO aiorderanalysis01t
-                    (request_id, companyid, companyname, useremail, sourcefilename,
+                    (request_id, companyid, companyname, username, useremail, sourcefilename,
                      file_sha256, model, status, reserved_cost_usd)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, 'processing', %s)""",
-                    (request_id, companyid, companyname[:100], user_email[:255],
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'processing', %s)""",
+                    (request_id, companyid, companyname[:100], username[:100], user_email[:255],
                      filename[:255], file_sha256, MODEL, REQUEST_RESERVE_USD),
                 )
     finally:
@@ -808,13 +808,13 @@ def _usage_dict(usage: Any | None) -> dict[str, int]:
 
 
 async def analyze_order_document(
-    *, companyid: str, companyname: str, user_email: str, idempotency_key: str,
+    *, companyid: str, companyname: str, username: str, user_email: str, idempotency_key: str,
     filename: str, extension: str, data: bytes, mime_type: str,
 ) -> dict[str, Any]:
     # Process-local back pressure; a shared deployment-wide limit needs a shared store.
     async with _ANALYSIS_SEMAPHORE:
         return await _analyze_order_document(
-            companyid=companyid, companyname=companyname, user_email=user_email,
+            companyid=companyid, companyname=companyname, username=username, user_email=user_email,
             idempotency_key=idempotency_key, filename=filename,
             extension=extension, data=data, mime_type=mime_type,
         )
@@ -845,7 +845,7 @@ async def find_cached_order_analysis(*, companyid: str, user_email: str, data: b
 
 
 async def _analyze_order_document(
-    *, companyid: str, companyname: str, user_email: str, idempotency_key: str,
+    *, companyid: str, companyname: str, username: str, user_email: str, idempotency_key: str,
     filename: str, extension: str, data: bytes, mime_type: str,
 ) -> dict[str, Any]:
     file_sha256 = hashlib.sha256(data).hexdigest()
@@ -913,6 +913,7 @@ async def _analyze_order_document(
             request_id=request_id,
             companyid=companyid,
             companyname=companyname,
+            username=username,
             user_email=user_email,
             filename=filename,
             file_sha256=file_sha256,
