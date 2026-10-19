@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS aiorderanalysis01t (
     request_id UUID PRIMARY KEY,
     companyid VARCHAR(50) NOT NULL,
     companyname VARCHAR(100) NOT NULL DEFAULT '',
+    username VARCHAR(100) NOT NULL DEFAULT '',
     useremail VARCHAR(255) NOT NULL,
     sourcefilename VARCHAR(255) NOT NULL,
     file_sha256 CHAR(64) NOT NULL,
@@ -22,6 +23,10 @@ CREATE TABLE IF NOT EXISTS aiorderanalysis01t (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMPTZ
 );
+
+-- Existing installations: add the authenticated user's display name to prior schemas.
+ALTER TABLE aiorderanalysis01t
+    ADD COLUMN IF NOT EXISTS username VARCHAR(100) NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS ix_aiorderanalysis01t_company_created
     ON aiorderanalysis01t (companyid, created_at DESC);
