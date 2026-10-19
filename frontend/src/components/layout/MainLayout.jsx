@@ -62,6 +62,7 @@ const mockdata = [
         label: 'AI 가공솔루션',
         links: [
           { label: '주문서 인식', link: '/AIOrderPage', icon: '', MenuID: 'AI-ORDER-TEST' },
+          { label: '주문서 확정', link: '/AIOrderConfirmPage', icon: '', MenuID: 'AI-ORDER-TEST' },
         ],
       },
     ],

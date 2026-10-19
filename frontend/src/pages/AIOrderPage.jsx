@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { TableVirtuoso } from 'react-virtuoso';
 import {
   Badge, Box, Button, Group, Loader, Progress,
@@ -437,6 +438,10 @@ function documentStatus(doc) {
   return ['분석 전', 'gray'];
 }
 
+function canAnalyzeDocument(doc) {
+  return ['ready', 'failed'].includes(doc.status) && !doc.extraction;
+}
+
 function documentFileIcon(file) {
   const extension = file.name.split('.').pop()?.toLowerCase();
   if (extension === 'pdf') return <IconFileTypePdf size={20} />;
@@ -460,7 +465,7 @@ function AnalysisLoading({ queued = false }) {
   </Box>;
 }
 
-function OrderDocumentWorkspace({ doc, updateDocument }) {
+function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) {
   const previewFile = doc.previewFile || doc.file;
   const previewUrl = useMemo(() => previewFile ? URL.createObjectURL(previewFile) : '', [previewFile]);
   const [selectedRows, setSelectedRows] = useState([]);
@@ -638,7 +643,7 @@ function OrderDocumentWorkspace({ doc, updateDocument }) {
         <Box className={classes.previewArea}><Preview file={previewFile} previewUrl={previewUrl} currentPage={currentPage} setCurrentPage={setCurrentPage} pageCount={pageCount} setPageCount={setPageCount} correctedPages={doc.correctedPages || []} /></Box>
       </Paper>
       <Paper className={`${sharedClasses.panel} ${classes.workPanel}`} withBorder>
-        <Group className={classes.panelHeader} justify="space-between"><Text fw={700}>AI 추출 결과</Text>{doc.cacheHit && <Badge size="sm" variant="light" color="gray">저장된 분석 결과</Badge>}</Group>
+        <Group className={classes.panelHeader} justify="space-between"><Text fw={700}>AI 추출 결과</Text><Group gap="sm">{doc.cacheHit && <Badge size="md" fw={700} variant="light" color="gray">저장된 분석 결과</Badge>}{extraction && <Button size="xs" color="red" loading={confirming} disabled={!doc.analysisRequestId || !extraction.items?.length} onClick={() => onConfirm(doc)}>주문확정</Button>}</Group></Group>
         {!extraction
           ? doc.status === 'analyzing'
             ? <AnalysisLoading />
@@ -689,6 +694,7 @@ function OrderDocumentWorkspace({ doc, updateDocument }) {
 }
 
 export default function AIOrderPage() {
+  const navigate = useNavigate();
   const fileInputRef = useRef(null);
   const activeRequests = useRef(new Set());
   const abortControllers = useRef(new Map());
@@ -698,8 +704,39 @@ export default function AIOrderPage() {
   const [analysisConfirm, setAnalysisConfirm] = useState(null);
   const [validating, setValidating] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
+  const [confirmingId, setConfirmingId] = useState(null);
+  const [orderConfirmTargetId, setOrderConfirmTargetId] = useState(null);
   const updateDocument = useCallback((id, updater) => setDocuments((current) => current.map((doc) => doc.id === id ? (typeof updater === 'function' ? updater(doc) : { ...doc, ...updater }) : doc)), []);
   const selectedDoc = documents.find((doc) => doc.id === selectedId) || documents[0] || null;
+  const orderConfirmTarget = documents.find((doc) => doc.id === orderConfirmTargetId) || null;
+  const requestOrderConfirmation = (doc) => setOrderConfirmTargetId(doc.id);
+  const confirmDocument = async () => {
+    const doc = orderConfirmTarget;
+    if (!doc || !doc.analysisRequestId || !doc.extraction?.items?.length || confirmingId) return;
+    setConfirmingId(doc.id);
+    try {
+      const { data } = await axios.post('/api/ai-order/confirmed', {
+        analysis_request_id: doc.analysisRequestId,
+        sourcefilename: doc.file.name,
+        header: doc.extraction.header,
+        items: doc.extraction.items,
+      }, authConfig());
+      notifications.show({
+        title: data.already_confirmed ? '이미 확정된 주문' : '주문확정 완료',
+        message: data.already_confirmed
+          ? `${data.orderid} 주문을 불러왔습니다.`
+          : `${data.orderid} 주문과 상세 ${doc.extraction.items.length}건을 저장했습니다.`,
+        color: 'teal',
+      });
+      setOrderConfirmTargetId(null);
+      navigate(`/AIOrderConfirmPage?orderid=${encodeURIComponent(data.orderid)}`);
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      notifications.show({ title: '주문확정 실패', message: typeof detail === 'string' ? detail : '입력값과 서버 상태를 확인해주세요.', color: 'red' });
+    } finally {
+      setConfirmingId(null);
+    }
+  };
   const orderListHeight = Math.min(Math.max(documents.length, 1), 5) * 52 + 36;
 
   const validateAndAdd = async (fileList) => {
@@ -847,13 +884,27 @@ export default function AIOrderPage() {
   useEffect(() => () => { abortControllers.current.forEach((controller) => controller.abort()); }, []);
 
   const startBatch = () => {
-    const targets = documents.filter((doc) => ['ready', 'failed'].includes(doc.status));
-    if (!targets.length) return;
+    const targets = documents.filter(canAnalyzeDocument);
+    if (!targets.length) {
+      notifications.show({
+        title: '분석할 파일이 없습니다',
+        message: '분석 완료된 파일은 저장된 결과를 사용하며 AI 분석을 다시 요청하지 않습니다.',
+        color: 'gray',
+      });
+      return;
+    }
     setAnalysisConfirm({ ids: targets.map((doc) => doc.id) });
   };
   const confirmAnalysis = () => {
     if (!analysisConfirm) return;
-    const targetIds = analysisConfirm.ids;
+    const targetIds = analysisConfirm.ids.filter((id) => {
+      const doc = documents.find((item) => item.id === id);
+      return doc && canAnalyzeDocument(doc);
+    });
+    if (!targetIds.length) {
+      setAnalysisConfirm(null);
+      return;
+    }
     const idSet = new Set(targetIds);
     setDocuments((current) => current.map((doc) => idSet.has(doc.id)
       ? { ...doc, status: 'queued', error: '', extraction: null, analysisRequestId: null, correctedPages: [], reviewed: false, cacheHit: false }
@@ -889,7 +940,7 @@ export default function AIOrderPage() {
           </Box><Button variant="default" size="sm" onClick={() => fileInputRef.current?.click()} disabled={validating}>파일 선택</Button>
         </Box>
         <Group gap="xs"><Button variant="default" leftSection={<IconTrash size={15} />} onClick={clearDocuments} disabled={!documents.length || activeRequests.current.size > 0}>목록 비우기</Button>
-          <Button color="red" leftSection={<IconPlayerPlay size={15} />} onClick={startBatch} disabled={validating || !documents.some((doc) => ['ready', 'failed'].includes(doc.status))}>AI 일괄 분석</Button>
+          <Button color="red" leftSection={<IconPlayerPlay size={15} />} onClick={startBatch} disabled={validating || !documents.length}>AI 일괄 분석</Button>
         </Group>
       </Group>
       {validating && uploadProgress && <Box className={classes.uploadProgress} role="status" aria-live="polite">
@@ -932,7 +983,7 @@ export default function AIOrderPage() {
       </ScrollArea>}
     </Paper>
 
-    <Box className={classes.comparisonArea}>{selectedDoc ? <OrderDocumentWorkspace key={selectedDoc.id} doc={selectedDoc} updateDocument={updateDocument} /> : <Paper withBorder className={classes.noSelection}>
+    <Box className={classes.comparisonArea}>{selectedDoc ? <OrderDocumentWorkspace key={selectedDoc.id} doc={selectedDoc} updateDocument={updateDocument} onConfirm={requestOrderConfirmation} confirming={confirmingId === selectedDoc.id} /> : <Paper withBorder className={classes.noSelection}>
       <Box className={classes.emptyState}>
         <ThemeIcon className={classes.emptyStateIcon} size={54} radius="xl" variant="light" color="red"><IconFileUpload size={27} /></ThemeIcon>
         <Badge variant="light" color="red" mt="md">원본 · AI 추출 결과 비교</Badge>
@@ -949,6 +1000,23 @@ export default function AIOrderPage() {
         <Text className={classes.emptyStateFootnote} size="xs" c="dimmed">분석 결과는 확인용이며 ERP 전표와 재고에는 반영되지 않습니다.</Text>
       </Box>
     </Paper>}</Box>
+    <Modal opened={Boolean(orderConfirmTarget)} onClose={() => !confirmingId && setOrderConfirmTargetId(null)} title="주문확정 저장" size="sm" centered radius="md" overlayProps={{ backgroundOpacity: 0.5, blur: 2 }}>
+      <Stack gap="md">
+        <Stack gap={3}>
+          <Text size="sm" c="dimmed">검토한 발주서와 상세 품목을 확정 주문으로 저장합니다.</Text>
+          <Text size="sm" c="dimmed">저장 후 주문서 확정 화면으로 이동합니다.</Text>
+        </Stack>
+        <Paper withBorder p="sm" radius="sm" className={classes.analysisCostNotice}>
+          <Group justify="space-between" gap="md"><Text size="sm" fw={700}>발주처</Text><Text size="sm">{orderConfirmTarget?.extraction?.header?.buyer || '미입력'}</Text></Group>
+          <Group justify="space-between" gap="md" mt={6}><Text size="sm" fw={700}>수신처</Text><Text size="sm">{orderConfirmTarget?.extraction?.header?.recipient || '미입력'}</Text></Group>
+          <Group justify="space-between" gap="md" mt={6}><Text size="sm" fw={700}>상세 품목</Text><Text size="sm">{(orderConfirmTarget?.extraction?.items || []).length.toLocaleString()}행</Text></Group>
+        </Paper>
+        <Group justify="flex-end">
+          <Button variant="default" onClick={() => setOrderConfirmTargetId(null)} disabled={Boolean(confirmingId)}>취소</Button>
+          <Button color="red" leftSection={<IconPlayerPlay size={15} />} onClick={() => void confirmDocument()} loading={confirmingId === orderConfirmTargetId}>저장 후 이동</Button>
+        </Group>
+      </Stack>
+    </Modal>
     <Modal opened={Boolean(analysisConfirm)} onClose={() => setAnalysisConfirm(null)} title="AI 분석 실행 확인" size="md" centered radius="md" overlayProps={{ backgroundOpacity: 0.5, blur: 2 }}>
       <Box className={classes.analysisConfirmBody}>
         <Group align="flex-start" gap="md" wrap="nowrap">
@@ -959,8 +1027,10 @@ export default function AIOrderPage() {
           </Box>
         </Group>
         <Box className={classes.analysisCostNotice}>
-          <Text size="sm" fw={600}>이전에 분석한 주문서는 자동으로 불러옵니다.</Text>
-          <Text size="sm" c="dimmed" mt={3}>동일한 주문서를 다시 등록하면 기존 분석 결과를 불러와 빠르게 확인할 수 있습니다. 새로운 주문서만 AI 분석을 진행합니다.</Text>
+          <>
+            <Text size="sm" fw={600}>이전에 분석한 주문서는 자동으로 불러옵니다.</Text>
+            <Text size="sm" c="dimmed" mt={3}>동일한 주문서를 다시 등록하면 기존 분석 결과를 불러옵니다. 분석에 실패한 파일만 다시 분석할 수 있습니다.</Text>
+          </>
         </Box>
         <Group justify="flex-end" mt="lg">
           <Button variant="default" onClick={() => setAnalysisConfirm(null)}>취소</Button>
