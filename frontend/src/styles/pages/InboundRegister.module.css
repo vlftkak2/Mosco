@@ -1,20 +1,43 @@
 .page {
-  flex: 1;
+  display: flex;
+  height: auto;
+  min-height: calc(100vh - 72px);
+  flex-direction: column;
   gap: 16px;
+  overflow: visible;
 }
 
 .workspace {
-  display: grid;
-  height: max(520px, calc(100vh - 390px));
-  min-height: 520px;
-  flex: 0 0 auto;
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
+  width: 100%;
+  height: 790px;
+  min-height: 790px;
+  flex: 0 0 790px;
   align-items: stretch;
-  gap: 12px;
 }
+
+.topReceiptFilterPanel { padding: 12px 16px; }
+.topReceiptFilters { display: grid; grid-template-columns: repeat(5, minmax(110px, 1fr)) auto; align-items: end; gap: 10px; }
+.topReceiptFilters :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #475569; font-size: 12px; font-weight: 700; }
+.topReceiptFilters :global(.mantine-Input-input) { min-height: 36px; height: 36px; font-size: 12px; }
+.topReceiptActions { align-self: end; padding-bottom: 1px; }
+.topReceiptActions :global(button) { min-width: 96px; min-height: 36px; }
+.topReceiptPanel { display: grid; width: 100%; height: 270px; min-width: 0; min-height: 270px; flex: 0 0 270px; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; padding: 0 14px 6px; }
+.topReceiptToolbar { min-height: 54px; flex: 0 0 auto; padding: 9px 2px; border-bottom: 1px solid #e5e9ef; }
+.topReceiptTable { box-sizing: border-box; width: 100%; min-width: 0; height: 100%; min-height: 0; overflow-x: scroll; overflow-y: scroll; scrollbar-width: thin; scrollbar-color: #aab6c4 #f1f4f7; }
+.topReceiptTable::-webkit-scrollbar { width: 8px; height: 8px; }
+.topReceiptTable::-webkit-scrollbar-thumb { background: #aab6c4; border: 2px solid #f1f4f7; border-radius: 8px; }
+.topReceiptTable::-webkit-scrollbar-track { background: #f1f4f7; }
+.topReceiptTable .receiptFinderTable { width: max-content; min-width: max(100%, 1450px); }
+.topReceiptTable .receiptFinderTable tbody tr { height: 34px; }
+.topReceiptTable .receiptFinderTable tbody td { padding: 5px 8px; }
+.topReceiptPagination { min-height: 38px; flex: 0 0 auto; padding-top: 4px; }
+.topReceiptEmpty { height: 60px; color: #7c899b !important; font-size: 14px !important; text-align: center !important; }
 
 .editorPanel {
   display: flex !important;
+  width: 100%;
+  flex: 1 1 100%;
   min-width: 0;
   height: 100%;
   min-height: 0;
@@ -39,14 +62,9 @@
 .receiptFinderModalClose:hover { background: #ffe5e6; color: #8e2228; }
 .receiptFinderTitleIcon { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border: 1px solid #f3c5c8; border-radius: 8px; background: #fff; color: #df444b; }
 .modalHint { padding: 10px 12px; border: 1px solid #f1dcdd; border-radius: 8px; background: #fff8f8; color: #7b5960; font-size: 12px; }
-.receiptFinderFilters { padding: 15px 16px 13px; border: 1px solid #e5e9ef; border-radius: 10px; background: linear-gradient(145deg, #fff 0%, #fafbfc 100%); }
-.receiptFinderFilterGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; }
-.receiptFinderFilters :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #596579; font-size: 11px; font-weight: 700; }
-.receiptFinderFilters :global(.mantine-Input-input) { min-height: 36px; font-size: 12px; }
-.receiptFinderResults { height: 430px; overflow: hidden; border: 1px solid #e1e6ed; border-radius: 8px; }
-.receiptFinderTable { min-width: 720px; }
-.receiptFinderTable thead th { position: sticky; top: 0; z-index: 2; background: #fff3f3; color: #bd343a; font-size: 12px; white-space: nowrap; }
-.receiptFinderTable tbody td { font-size: 12px; }
+.receiptFinderTable { min-width: 720px; border-collapse: collapse; font-size: 13px; }
+.receiptFinderTable thead th { position: sticky; top: 0; z-index: 2; height: 34px; padding: 5px 8px; border: 1px solid #efd0d2; background: #fff2f2; color: #a83238; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.receiptFinderTable tbody td { height: 34px; padding: 5px 8px; border: 1px solid #c8ced7; color: #293a52; font-size: 13px; white-space: nowrap; }
 .receiptFinderRow { cursor: pointer; }
 .receiptFinderRowActive > td { background: #fff3f3; }
 .receiptFinderAmount { color: #c43d43; font-weight: 700; }
@@ -65,6 +83,15 @@
 .headerForm :global(.mantine-Input-input) { min-height: 36px; font-size: 13px; }
 .headerDescription { min-width: 120px; }
 .amountInput { padding-right: 9px; background: #f8f9fb; color: #637188; text-align: right; }
+.quantityUnitControl { position: relative; width: 100%; height: 33px; }
+.quantityUnitInput { padding-right: 27px !important; }
+.quantityUnitToggle { position: absolute; top: 1px; right: 1px; display: grid; width: 25px; height: 31px; place-items: center; border: 0; border-left: 1px solid #dce2ea; background: #f8fafc; color: #596579; cursor: pointer; }
+.quantityUnitToggle:hover:not(:disabled) { background: #fff1f1; color: #c9373d; }
+.quantityUnitToggle:disabled { background: #f1f3f5; color: #a4aebb; cursor: not-allowed; }
+.quantityUnitDropdown { max-height: 230px; overflow-y: auto; padding: 4px !important; }
+.quantityUnitOption { display: flex; width: 100%; min-height: 32px; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 8px; border: 0; border-radius: 4px; background: transparent; color: #293a52; font-size: 13px; text-align: left; cursor: pointer; }
+.quantityUnitOption:hover, .quantityUnitOptionActive { background: #fff1f1; color: #a83238; }
+.quantityUnitCode { color: #8491a3; font-size: 11px; }
 .newRow :global(input):not(.itemCodePickerInput) { background-color: #fff !important; color: #293a52 !important; }
 .autoFilledInput { background: #f1f3f5 !important; color: #8b95a3 !important; cursor: not-allowed; }
 .itemCodePickerInput {
@@ -117,21 +144,29 @@
 }
 
 @media (max-width: 850px) {
-  .workspace { height: auto; min-height: 0; grid-template-columns: minmax(0, 1fr); }
-  .editorPanel { height: 640px; }
-}
-
-@media (max-width: 700px) {
-  .receiptFinderFilterGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .page { display: flex; height: auto; min-height: calc(100vh - 72px); overflow: visible; flex-direction: column; }
+  .topReceiptFilterPanel { min-height: 72px; }
+  .topReceiptFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .topReceiptActions { grid-column: 1 / -1; justify-content: flex-end; }
+  .topReceiptPanel { height: 270px; min-height: 270px; flex-basis: 270px; }
+  .topReceiptTable { min-height: 0; }
+  .workspace { height: 790px; min-height: 790px; flex-basis: 790px; }
+  .editorPanel { height: 100%; }
 }
 
 @media (max-width: 560px) {
   .page.page { margin: -12px; padding: 18px 12px 24px; }
   .workspace { gap: 12px; }
+  .topReceiptFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .headerForm { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; gap: 8px; }
   .headerDescription { grid-column: span 2; }
-  .receiptFinderFilterGrid { grid-template-columns: minmax(0, 1fr); }
   .editorPanel > :global(.mantine-Group-root:first-child) { align-items: stretch; padding: 13px; }
   .editorPanel > :global(.mantine-Group-root:first-child) > :global(.mantine-Group-root:last-child) { justify-content: flex-end; }
-  .editorPanel { height: 680px; }
+  .editorPanel { height: 790px; }
+}
+
+@media (max-height: 760px) and (min-width: 851px) {
+  .page { height: auto; min-height: calc(100vh - 72px); overflow: visible; }
+  .topReceiptPanel { height: 270px; min-height: 270px; }
+  .workspace { height: 790px; min-height: 790px; }
 }
