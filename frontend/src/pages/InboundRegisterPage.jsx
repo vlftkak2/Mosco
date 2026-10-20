@@ -1238,7 +1238,15 @@ export default function InboundRegisterPage() {
           <Box className={codeClasses.tableWrap} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
             {detailLoading ? <Box className={classes.receiptLoading}><Loader size="sm" color="red" /></Box> : rows.length ? (
               <TableVirtuoso ref={virtuosoRef} data={rows} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} defaultItemHeight={42} increaseViewportBy={{ top: 160, bottom: 320 }} fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>} itemContent={rowContent} />
-            ) : <Box className={codeClasses.emptyState}>{selectedReceiptno ? '입고 상세가 없습니다.' : '신규 전표를 만들거나 왼쪽 목록에서 입고전표를 선택해 주세요.'}</Box>}
+            ) : (
+              <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
+                style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
+                <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
+                <Table.Tbody><Table.Tr><Table.Td colSpan={headerColumns.length} style={{ height: 88, color: '#7c899b', textAlign: 'center' }}>
+                  {selectedReceiptno ? '입고 상세가 없습니다.' : '신규 전표를 만들거나 행 추가를 눌러 품목을 등록하세요.'}
+                </Table.Td></Table.Tr></Table.Tbody>
+              </Table>
+            )}
           </Box>
           <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="space-between" wrap="wrap">
             <Text size="xs" c="dimmed">금액 계산: KG = 중량 × 단가, TON = (중량 ÷ 1,000) × 단가 (중량은 kg 기준). 엑셀 셀 범위를 붙여넣고 저장할 수 있습니다.</Text>

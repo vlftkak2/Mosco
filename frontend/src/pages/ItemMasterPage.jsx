@@ -8,7 +8,9 @@ import {
   Group,
   Loader,
   Modal,
+  Pagination,
   Paper,
+  ScrollArea,
   Select,
   Stack,
   Table,
@@ -24,6 +26,7 @@ import * as XLSX from 'xlsx-js-style';
 import { applyExcelHeaderStyle } from '../utils/excelHeaderStyle';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
 import classes from '../styles/pages/ItemMaster.module.css';
+import outboundClasses from '../styles/pages/OutboundRegister.module.css';
 import codeClasses from '../styles/pages/CodeMasterPage.module.css';
 import dashboardClasses from '../styles/pages/HomePage.module.css';
 
@@ -34,7 +37,7 @@ const authHeaders = () => ({
 const FIELDS = [
   { key: 'itemcode', label: '품목코드', width: 150, required: true },
   { key: 'itemname', label: '품목명', width: 190, required: true },
-  { key: 'itemtypecode', label: '형태구분', width: 130 },
+  { key: 'itemtypecode', label: '형태구분', width: 170, required: true },
   { key: 'use_yn', label: '사용여부', width: 105 },
   { key: 'description', label: '설명', width: 200 },
 ];
@@ -92,9 +95,34 @@ const normalizeImportedRow = (raw) => {
   return item;
 };
 
-const ItemCells = memo(function ItemCells({ item, index, selected, disabled, onSelect, onChange, onPaste, registerCodeInput, registerCellInput, onFocusCell, onCellKeyDown, onDelete }) {
+const normalizeShapeInput = (value) => String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+const resolveShapeCode = (value, options) => {
+  const normalized = normalizeShapeInput(value);
+  if (!normalized) return '';
+  const matchedShape = options.find((option) => [option.code, option.name]
+    .some((candidate) => normalizeShapeInput(candidate) === normalized));
+  return matchedShape?.code || String(value).trim();
+};
+
+const ItemCells = memo(function ItemCells({ item, index, selected, disabled, shapeOptions, onSelect, onChange, onPaste, onFindShape, registerCodeInput, registerCellInput, onFocusCell, onCellKeyDown, onDelete }) {
+  const selectedShape = shapeOptions.find((option) => option.code === item.itemtypecode);
+  const shapeDisplay = item.itemtypecode ? (selectedShape?.name || item.itemtypecodenm || item.itemtypecode) : '';
+  const [shapeCodeDraft, setShapeCodeDraft] = useState(item.itemtypecode || '');
+  const [isEditingShape, setIsEditingShape] = useState(false);
+
   const handlePaste = (field) => (event) => {
     const text = event.clipboardData.getData('text/plain');
+    if (field === 'itemtypecode') {
+      event.preventDefault();
+      if (!/[\t\r\n]/.test(text)) {
+        const enteredValue = text.trim();
+        setShapeCodeDraft(enteredValue);
+        onChange(item.id, field, resolveShapeCode(enteredValue, shapeOptions));
+      } else {
+        onPaste(item.id, field, text);
+      }
+      return;
+    }
     if (!text.includes('\t') && !text.includes('\n')) return;
     event.preventDefault();
     onPaste(item.id, field, text);
@@ -107,7 +135,42 @@ const ItemCells = memo(function ItemCells({ item, index, selected, disabled, onS
       <Table.Td className={codeClasses.rowNumber}>{index + 1}</Table.Td>
       {FIELDS.map(({ key, label }) => (
         <Table.Td key={key}>
-          {key === 'use_yn' ? (
+          {key === 'itemtypecode' ? (
+            <input
+              ref={(element) => registerCellInput(item.id, key, element)}
+              className={`${codeClasses.cellInput} ${outboundClasses.itemCodePickerInput} ${classes.shapePickerInput}`}
+              aria-label={label}
+              data-row-id={item.id}
+              data-field={key}
+              value={isEditingShape ? shapeCodeDraft : shapeDisplay}
+              placeholder=""
+              title="형태구분 코드 직접 입력 또는 더블클릭하여 선택"
+              disabled={disabled}
+              onFocus={(event) => {
+                setShapeCodeDraft(shapeDisplay);
+                setIsEditingShape(true);
+                onFocusCell(item.id, key);
+                event.currentTarget.select();
+              }}
+              onBlur={() => {
+                if (!isEditingShape) return;
+                const code = shapeCodeDraft === shapeDisplay
+                  ? (item.itemtypecode || '')
+                  : resolveShapeCode(shapeCodeDraft, shapeOptions);
+                setIsEditingShape(false);
+                if (code !== (item.itemtypecode || '')) onChange(item.id, key, code);
+              }}
+              onChange={(event) => setShapeCodeDraft(event.currentTarget.value)}
+              onPaste={handlePaste(key)}
+              onKeyDown={(event) => {
+                if (event.key === 'F2' || event.key === ' ') {
+                  event.preventDefault();
+                  if (!disabled) onFindShape(item.id);
+                } else onCellKeyDown(event);
+              }}
+              onDoubleClick={() => { if (!disabled) onFindShape(item.id); }}
+            />
+          ) : key === 'use_yn' ? (
             <select ref={(element) => registerCellInput(item.id, key, element)} className={codeClasses.cellSelect} aria-label={label} data-row-id={item.id} data-field={key} value={item.use_yn || 'Y'} disabled={disabled} onFocus={() => onFocusCell(item.id, key)} onKeyDown={onCellKeyDown} onPaste={handlePaste(key)} onChange={(event) => onChange(item.id, key, event.currentTarget.value)}>
               <option value="Y">사용중</option>
               <option value="N">사용중지</option>
@@ -143,6 +206,57 @@ const ItemCells = memo(function ItemCells({ item, index, selected, disabled, onS
   );
 });
 
+const ShapePickerModal = memo(function ShapePickerModal({ opened, onClose, options, loading, onSelect }) {
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const filteredOptions = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase();
+    if (!normalized) return options;
+    return options.filter((option) => `${option.code} ${option.name}`.toLocaleLowerCase().includes(normalized));
+  }, [options, query]);
+  const pageSize = 20;
+  const pageCount = Math.max(1, Math.ceil(filteredOptions.length / pageSize));
+  const visibleOptions = filteredOptions.slice((page - 1) * pageSize, page * pageSize);
+
+  return (
+    <Modal
+      opened={opened}
+      onClose={onClose}
+      title={<Group gap={9} wrap="nowrap"><Box className={outboundClasses.receiptFinderTitleIcon}><IconSearch size={17} /></Box><Text className={outboundClasses.receiptFinderModalTitle} fw={750}>형태구분 선택</Text></Group>}
+      classNames={{ content: outboundClasses.receiptFinderModalContent, header: outboundClasses.receiptFinderModalHeader, title: outboundClasses.receiptFinderModalTitle, close: outboundClasses.receiptFinderModalClose }}
+      centered
+      size="md"
+    >
+      <Stack gap="sm" pt={10}>
+        <TextInput
+          value={query}
+          onChange={(event) => { setQuery(event.currentTarget.value); setPage(1); }}
+          placeholder="코드 또는 코드명 검색"
+          leftSection={<IconSearch size={15} />}
+          autoFocus
+        />
+        <ScrollArea h={360} type="auto" scrollbarSize={6}>
+          <Table className={`${codeClasses.codeTable} ${outboundClasses.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
+            <Table.Thead><Table.Tr><Table.Th>코드</Table.Th><Table.Th>코드명</Table.Th></Table.Tr></Table.Thead>
+            <Table.Tbody>
+              {visibleOptions.map((option) => (
+                <Table.Tr key={option.code} className={outboundClasses.customerResultRow} onClick={() => onSelect(option)}>
+                  <Table.Td>{option.code}</Table.Td><Table.Td>{option.name}</Table.Td>
+                </Table.Tr>
+              ))}
+              {!visibleOptions.length && <Table.Tr><Table.Td colSpan={2} className={outboundClasses.customerEmpty}>{loading ? '형태구분을 불러오는 중입니다.' : '조회된 사용중 코드가 없습니다.'}</Table.Td></Table.Tr>}
+            </Table.Tbody>
+          </Table>
+        </ScrollArea>
+        <Group justify="space-between" align="center">
+          <Text size="xs" c="dimmed">총 {filteredOptions.length.toLocaleString()}개 코드</Text>
+          <Pagination size="sm" total={pageCount} value={page} onChange={setPage} withEdges color="red" disabled={loading} />
+        </Group>
+      </Stack>
+    </Modal>
+  );
+});
+
 const VirtualRow = ({ item, className, ...props }) => (
   <Table.Tr {...props} className={[className, item?.is_new && codeClasses.newRow].filter(Boolean).join(' ')} />
 );
@@ -154,6 +268,13 @@ const virtuosoComponents = {
   TableHead: Table.Thead,
   TableBody: Table.Tbody,
   TableRow: VirtualRow,
+  EmptyPlaceholder: ({ context }) => (
+    <Table.Tr>
+      <Table.Td colSpan={context.columnCount} className={codeClasses.emptyPlaceholder}>
+        {context.emptyMessage}
+      </Table.Td>
+    </Table.Tr>
+  ),
 };
 
 export default function ItemMaster() {
@@ -168,6 +289,9 @@ export default function ItemMaster() {
   const [exporting, setExporting] = useState(false);
   const [columnWidths, setColumnWidths] = useState({});
   const [deleteRequest, setDeleteRequest] = useState(null);
+  const [shapeOptions, setShapeOptions] = useState([]);
+  const [shapeLoading, setShapeLoading] = useState(false);
+  const [shapePickerTarget, setShapePickerTarget] = useState('');
   const uploadRef = useRef(null);
   const virtuosoRef = useRef(null);
   const codeInputsRef = useRef(new Map());
@@ -214,7 +338,23 @@ export default function ItemMaster() {
     }
   }, []);
 
-  useEffect(() => { loadItems(); }, [loadItems]);
+  const loadShapeOptions = useCallback(async () => {
+    setShapeLoading(true);
+    try {
+      const { data } = await axios.get('/api/code-master/groups', { headers: authHeaders() });
+      const shapeGroup = (data.groups || []).find((group) => group.groupcode === 'SHAPE');
+      setShapeOptions((shapeGroup?.rows || [])
+        .filter((row) => row.use)
+        .map((row) => ({ code: row.code, name: row.name, property: row.properties?.[0] || '' })));
+    } catch (error) {
+      notifications.show({ title: '형태구분 조회 실패', message: errorMessage(error), color: 'red' });
+      setShapeOptions([]);
+    } finally {
+      setShapeLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadItems(); void loadShapeOptions(); }, [loadItems, loadShapeOptions]);
 
   const filteredRows = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -326,6 +466,17 @@ export default function ItemMaster() {
       : row));
   }, []);
 
+  const openShapePicker = useCallback((id) => {
+    setShapePickerTarget(id);
+    void loadShapeOptions();
+  }, [loadShapeOptions]);
+
+  const selectShape = useCallback((option) => {
+    if (!shapePickerTarget) return;
+    changeCell(shapePickerTarget, 'itemtypecode', option.code);
+    setShapePickerTarget('');
+  }, [shapePickerTarget, changeCell]);
+
   const addRow = useCallback(() => {
     const item = newRow();
     pendingFocusIdRef.current = item.id;
@@ -383,7 +534,9 @@ export default function ItemMaster() {
         line.forEach((value, columnOffset) => {
           const key = EDITABLE_FIELDS[fieldIndex + columnOffset];
           if (!key || (key === 'itemcode' && !target.is_new)) return;
-          if (key === 'use_yn') {
+          if (key === 'itemtypecode') {
+            target[key] = resolveShapeCode(value, shapeOptions);
+          } else if (key === 'use_yn') {
             const normalized = value.trim().toUpperCase();
             target[key] = ['N', '사용중지', '미사용'].includes(normalized) ? 'N' : 'Y';
           } else {
@@ -400,7 +553,7 @@ export default function ItemMaster() {
     setQueryInput('');
     setQuery('');
     setStatusFilter('all');
-  }, [filteredRows]);
+  }, [filteredRows, shapeOptions]);
 
   const saveRows = useCallback(async () => {
     const changed = rows.filter((row) => row.is_new || row.is_dirty);
@@ -412,6 +565,7 @@ export default function ItemMaster() {
       const missing = [];
       if (!String(row.itemcode || '').trim()) missing.push('품목코드');
       if (!String(row.itemname || '').trim()) missing.push('품목명');
+      if (row.is_new && !String(row.itemtypecode || '').trim()) missing.push('형태구분');
       if (!missing.length) return [];
       const visibleIndex = filteredRows.findIndex((visibleRow) => visibleRow.id === row.id);
       const rowNumber = (visibleIndex >= 0 ? visibleIndex : rows.findIndex((sourceRow) => sourceRow.id === row.id)) + 1;
@@ -489,6 +643,9 @@ export default function ItemMaster() {
     try {
       const values = filteredRows.map((item) => FIELDS.map(({ key }) => {
         if (key === 'use_yn') return item[key];
+        if (key === 'itemtypecode') {
+          return shapeOptions.find((option) => option.code === item.itemtypecode)?.name || item.itemtypecodenm || item.itemtypecode || '';
+        }
         return item[key] ?? '';
       }));
       const sheet = XLSX.utils.aoa_to_sheet([FIELDS.map(({ label }) => label), ...values]);
@@ -503,7 +660,7 @@ export default function ItemMaster() {
     } finally {
       setExporting(false);
     }
-  }, [filteredRows]);
+  }, [filteredRows, shapeOptions]);
 
   const uploadExcel = useCallback(async (event) => {
     const file = event.currentTarget.files?.[0];
@@ -519,10 +676,27 @@ export default function ItemMaster() {
         .filter((item) => item.itemcode || item.itemname);
       if (!imported.length) throw new Error('등록할 데이터가 없습니다.');
       if (imported.length > 10000) throw new Error('한 번에 최대 10,000행까지 등록할 수 있습니다.');
+
+      const normalizeShapeValue = (value) => String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+      const invalidShapes = [];
+      imported.forEach((item, index) => {
+        const shapeValue = String(item.itemtypecode || '').trim();
+        if (!shapeValue) return;
+        const normalizedShapeValue = normalizeShapeValue(shapeValue);
+        const matchedShape = shapeOptions.find((option) => [option.code, option.name]
+          .some((candidate) => normalizeShapeValue(candidate) === normalizedShapeValue));
+        if (matchedShape) item.itemtypecode = matchedShape.code;
+        else invalidShapes.push(`${index + 2}행 ${shapeValue}`);
+      });
+      if (invalidShapes.length) {
+        throw new Error(`형태구분 코드 또는 코드명을 확인해주세요: ${invalidShapes.slice(0, 5).join(' / ')}`);
+      }
+
       const invalid = imported.flatMap((item, index) => {
         const errors = [];
         if (!item.itemcode) errors.push('품목코드 누락');
         if (!item.itemname) errors.push('품목명 누락');
+        if (!item.itemtypecode) errors.push('형태구분 누락');
         if (!item.use_yn) errors.push('사용여부 누락');
         else if (!['Y', 'N'].includes(item.use_yn)) errors.push('사용여부는 Y/N 입력');
         return errors.length ? [`${index + 2}행 ${errors.join(', ')}`] : [];
@@ -563,7 +737,7 @@ export default function ItemMaster() {
     } finally {
       setUploading(false);
     }
-  }, [requireNoPendingChanges, loadItems, rows]);
+  }, [requireNoPendingChanges, loadItems, rows, shapeOptions]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const rowContent = useCallback((index, item) => (
@@ -572,16 +746,18 @@ export default function ItemMaster() {
       index={index}
       selected={selectedSet.has(item.id)}
       disabled={saving || uploading}
+      shapeOptions={shapeOptions}
       onSelect={toggleSelection}
       onChange={changeCell}
       onPaste={pasteRange}
+      onFindShape={openShapePicker}
       registerCodeInput={registerCodeInput}
       registerCellInput={registerCellInput}
       onFocusCell={setActiveCell}
       onCellKeyDown={handleTableKeyDown}
       onDelete={requestDeleteOne}
     />
-  ), [selectedSet, saving, uploading, toggleSelection, changeCell, pasteRange, registerCodeInput, registerCellInput, setActiveCell, handleTableKeyDown, requestDeleteOne]);
+  ), [selectedSet, saving, uploading, shapeOptions, toggleSelection, changeCell, pasteRange, openShapePicker, registerCodeInput, registerCellInput, setActiveCell, handleTableKeyDown, requestDeleteOne]);
   const headerColumns = [
     { key: 'select', width: 46, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="현재 목록 전체 선택" checked={filteredRows.length > 0 && filteredRows.every((row) => selectedSet.has(row.id))} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
     { key: 'number', width: 62, minWidth: 48, className: codeClasses.numberCol, label: 'No.' },
@@ -664,10 +840,14 @@ export default function ItemMaster() {
         </Group>
 
         <Box className={codeClasses.tableWrap} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }}>
-          {loading ? <Box className={classes.loading}><Loader color="red" size="sm" /></Box> : filteredRows.length ? (
+          {loading ? <Box className={classes.loading}><Loader color="red" size="sm" /></Box> : (
             <TableVirtuoso
               ref={virtuosoRef}
               data={filteredRows}
+              context={{
+                columnCount: headerColumns.length,
+                emptyMessage: query.trim() ? '검색 결과가 없습니다.' : '등록된 품목이 없습니다.',
+              }}
               style={{ height: '100%' }}
               components={virtuosoComponents}
               computeItemKey={(_index, item) => item.id}
@@ -677,8 +857,6 @@ export default function ItemMaster() {
               fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderResizableHeader)}</Table.Tr>}
               itemContent={rowContent}
             />
-          ) : (
-            <Box className={codeClasses.emptyState}>{query.trim() ? '검색 결과가 없습니다.' : '등록된 품목이 없습니다.'}</Box>
           )}
         </Box>
 
@@ -697,6 +875,14 @@ export default function ItemMaster() {
           </Group>
         </Stack>
       </Modal>
+      <ShapePickerModal
+        key={shapePickerTarget || 'closed'}
+        opened={Boolean(shapePickerTarget)}
+        onClose={() => setShapePickerTarget('')}
+        options={shapeOptions}
+        loading={shapeLoading}
+        onSelect={selectShape}
+      />
     </Box>
   );
 }

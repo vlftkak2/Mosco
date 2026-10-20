@@ -36,6 +36,7 @@ from routes import Codemaster_routes as Codemaster_routes
 from routes import ItemMaster_routes as ItemMaster_routes
 from routes import InboundRegister_routes as InboundRegister_routes
 from routes import InboundSearch_routes as InboundSearch_routes
+from routes import Purchase_routes as Purchase_routes
 from routes import OutboundRegister_routes as OutboundRegister_routes
 from routes import OutboundSearch_routes as OutboundSearch_routes
 from routes import StockStand_routes as StockStand_routes
@@ -112,6 +113,7 @@ app.include_router(InboundRegister_routes.router)
 
 # Company-scoped inbound status/search API
 app.include_router(InboundSearch_routes.router)
+app.include_router(Purchase_routes.router)
 
 # Company-scoped outbound receipt API
 app.include_router(OutboundRegister_routes.router)

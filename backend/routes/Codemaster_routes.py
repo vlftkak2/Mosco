@@ -213,6 +213,8 @@ def delete_code(
     _require_fixed_group(groupcode)
     try:
         deleted = code_master_module.delete_code(user["companyid"], groupcode, code)
+    except code_master_module.CodeMasterConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     except code_master_module.CodeMasterDatabaseError as error:
         raise _database_error(error) from error
     if not deleted:
@@ -232,6 +234,8 @@ def delete_selected_codes(
     _require_fixed_group(groupcode)
     try:
         deleted_count = code_master_module.delete_codes(user["companyid"], groupcode, data.codes)
+    except code_master_module.CodeMasterConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     except code_master_module.CodeMasterDatabaseError as error:
         raise _database_error(error) from error
     if deleted_count == 0:

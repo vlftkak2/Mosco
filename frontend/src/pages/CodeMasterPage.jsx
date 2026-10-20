@@ -51,6 +51,7 @@ const errorMessage = (error) => {
 // 서버와 같은 고정 그룹 목록입니다. DB에 항목이 없어도 그룹은 화면에 표시합니다.
 const FIXED_GROUPS = [
   { groupcode: 'MATERIAL', name: '강종구분', codeLabel: '강종코드', nameLabel: '강종코드명', properties: ['비중'] },
+  { groupcode: 'SHAPE', name: '형태구분', codeLabel: '형태구분코드', nameLabel: '형태구분명', properties: ['속성'] },
   { groupcode: 'PROCESS', name: '공정구분', codeLabel: '공정코드', nameLabel: '공정코드명', properties: ['속성'] },
   { groupcode: 'OTHER_COST', name: '기타비용코드', codeLabel: '기타비용코드', nameLabel: '기타비용코드명', properties: ['속성'] },
   { groupcode: 'PRICE_UNIT', name: '단가단위', codeLabel: '단가단위코드', nameLabel: '단가단위명', properties: ['속성'], helpText: '코드명 예: Kg, Ton, 수량, 길이' },
@@ -79,6 +80,7 @@ const emptyGroups = () => FIXED_GROUPS.map(({ groupcode, name, codeLabel, nameLa
 const propertyValue = (row, index) => row[`property${index + 1}`] ?? row.properties?.[index] ?? '';
 const groupPropertyIndex = (group) => Number(group?.propertyIndex || group?.property_index || 1) - 1;
 const PASTE_FIELDS = ['code', 'name', 'property', 'order', 'use', 'description'];
+const READ_ONLY_GROUPS = new Set(['PRICE_UNIT', 'QTY']);
 
 // 화면에 보이는 행만 렌더링하고, 일반 코드 수정 시에는 변경된 행만 다시 렌더링합니다.
 const CodeMasterTableCells = memo(function CodeMasterTableCells({ row, index, codeLabel, nameLabel, propertyLabel, selected, disabled, saving, onToggleSelection, onUpdateRow, onPasteRange, onRegisterCodeInput, onRegisterCellInput, onFocusCell, onDelete }) {
@@ -89,7 +91,7 @@ const CodeMasterTableCells = memo(function CodeMasterTableCells({ row, index, co
   };
   return (
     <>
-      <Table.Td className={classes.checkCol}><input aria-label={`${row.name || '새 코드'} 선택`} type="checkbox" checked={selected} onChange={(event) => onToggleSelection(row.id, event.nativeEvent.shiftKey)} /></Table.Td>
+      <Table.Td className={classes.checkCol}><input aria-label={`${row.name || '새 코드'} 선택`} type="checkbox" checked={selected} disabled={disabled} onChange={(event) => onToggleSelection(row.id, event.nativeEvent.shiftKey)} /></Table.Td>
       <Table.Td className={classes.rowNumber}>{index + 1}</Table.Td>
       <Table.Td><input ref={(element) => { onRegisterCodeInput(row.id, element); onRegisterCellInput(row.id, 'code', element); }} className={classes.cellInput} aria-label={codeLabel} data-row-id={row.id} data-field="code" value={row.code ?? ''} readOnly={!row.isNew} disabled={disabled} onFocus={() => onFocusCell(row.id, 'code')} onPaste={paste('code')} onChange={(event) => onUpdateRow(row.id, 'code', event.currentTarget.value)} placeholder={codeLabel} /></Table.Td>
       <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'name', element)} className={classes.cellInput} aria-label={nameLabel} data-row-id={row.id} data-field="name" value={row.name ?? ''} disabled={disabled} onFocus={() => onFocusCell(row.id, 'name')} onPaste={paste('name')} onChange={(event) => onUpdateRow(row.id, 'name', event.currentTarget.value)} placeholder={`${nameLabel} 입력`} /></Table.Td>
@@ -113,6 +115,13 @@ const codeMasterVirtuosoComponents = {
   TableHead: Table.Thead,
   TableBody: Table.Tbody,
   TableRow: CodeMasterVirtualRow,
+  EmptyPlaceholder: ({ context }) => (
+    <Table.Tr>
+      <Table.Td colSpan={context.columnCount} className={classes.emptyPlaceholder}>
+        {context.emptyMessage}
+      </Table.Td>
+    </Table.Tr>
+  ),
 };
 
 const CodeMasterGroupPanel = memo(function CodeMasterGroupPanel({ groups, visibleGroups, groupQuery, setGroupQuery, totalCodes, loading, uploadProgress, selectedId, onSelectGroup }) {
@@ -187,6 +196,7 @@ export default function CodeMasterPage() {
   groupsRef.current = groups;
   selectedIdRef.current = selectedId;
   const selectedGroup = groups.find((group) => group.groupcode === selectedId) || null;
+  const selectedGroupReadOnly = READ_ONLY_GROUPS.has(selectedGroup?.groupcode);
   const navigationFields = useMemo(() => selectedGroup
     ? ['code', 'name', ...((selectedGroup.propertyLabels || [])[0] ? ['property'] : []), 'order', 'use', 'description']
     : [], [selectedGroup]);
@@ -292,7 +302,7 @@ export default function CodeMasterPage() {
   // CustomerPage와 같은 방식으로 업로드용 엑셀 템플릿을 내려받습니다.
   const downloadTemplate = useCallback(() => {
     const group = selectedGroup || FIXED_GROUPS.find(({ groupcode }) => groupcode === selectedId);
-    if (!group) return;
+    if (!group || READ_ONLY_GROUPS.has(group.groupcode)) return;
     const codeLabel = group.codeLabel || '코드';
     const nameLabel = group.nameLabel || '코드명';
     const propertyLabel = (group.propertyLabels || group.properties || [])[0];
@@ -357,6 +367,10 @@ export default function CodeMasterPage() {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = '';
     if (!file) return;
+    if (READ_ONLY_GROUPS.has(selectedId)) {
+      notifications.show({ title: '조회 전용 코드', message: '단가단위와 수량단위는 현재 조회만 가능합니다.', color: 'gray' });
+      return;
+    }
 
     const hasPendingChanges = Object.values(dirtyRows).some((row) => row.isNew || row.isDirty);
     if (hasPendingChanges) {
@@ -395,6 +409,7 @@ export default function CodeMasterPage() {
         [normalizeKey(group.name), group.groupcode],
         [normalizeKey(group.groupcode), group.groupcode],
         ...(group.groupcode === 'MATERIAL' ? [[normalizeKey('강종'), group.groupcode]] : []),
+        ...(group.groupcode === 'SHAPE' ? [[normalizeKey('형태'), group.groupcode], [normalizeKey('형태구분코드'), group.groupcode]] : []),
         ...(group.groupcode === 'PROCESS' ? [[normalizeKey('공정'), group.groupcode]] : []),
         ...(group.groupcode === 'OTHER_COST' ? [[normalizeKey('기타비용'), group.groupcode]] : []),
         ...(group.groupcode === 'WAREHOUSE' ? [[normalizeKey('창고'), group.groupcode]] : []),
@@ -674,7 +689,7 @@ export default function CodeMasterPage() {
 
   // 정렬 순서는 현재 최댓값 다음으로, 코드는 다음 숫자값으로 새 행을 만듭니다.
   const addRow = () => {
-    if (!selectedGroup) return;
+    if (!selectedGroup || selectedGroupReadOnly) return;
     const targetIndex = (selectedGroup.rows?.length || 0) + newRows.length;
     const nextOrder = Math.max(selectedGroup.maxOrder || 0, ...newRows.map((row) => Number(row.order) || 0)) + 1;
     const id = `new-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -694,7 +709,7 @@ export default function CodeMasterPage() {
   // 확인된 대상 중 저장된 코드는 서버에서, 미저장 행은 화면 상태에서 삭제합니다.
   const confirmDelete = async () => {
     const targets = deleteRequest?.rows || [];
-    if (!targets.length) return;
+    if (!targets.length || READ_ONLY_GROUPS.has(deleteRequest?.groupcode)) return;
     const savedCodes = targets.filter((row) => !row.isNew).map((row) => row.code);
     const newIds = new Set(targets.filter((row) => row.isNew).map((row) => row.id));
     const targetIds = new Set(targets.map((row) => row.id));
@@ -722,8 +737,12 @@ export default function CodeMasterPage() {
   };
 
   // 실제 삭제는 모달에서 사용자가 확인한 뒤 수행되도록 대상만 기록합니다.
-  const requestDeleteRow = useCallback((row) => setDeleteRequest({ groupcode: selectedId, rows: [row] }), [selectedId]);
+  const requestDeleteRow = useCallback((row) => {
+    if (READ_ONLY_GROUPS.has(selectedId)) return;
+    setDeleteRequest({ groupcode: selectedId, rows: [row] });
+  }, [selectedId]);
   const requestDeleteSelected = () => {
+    if (selectedGroupReadOnly) return;
     // 행마다 배열 includes를 반복하지 않고, 선택 id Set으로 한 번에 확인합니다.
     const rows = visibleRows.filter((row) => selectedRowIds.has(row.id));
     if (rows.length) setDeleteRequest({ groupcode: selectedId, rows });
@@ -731,7 +750,7 @@ export default function CodeMasterPage() {
 
   // 현재 그룹에서 변경된 행만 API에 전송합니다.
   const saveRows = async () => {
-    if (!selectedGroup) return;
+    if (!selectedGroup || selectedGroupReadOnly) return;
     const rowsToSave = Object.values(dirtyRows).filter((row) => row.groupcode === selectedGroup.groupcode && (row.isNew || row.isDirty));
     if (!rowsToSave.length) {
       notifications.show({ title: '저장할 내용 없음', message: '변경된 공통코드가 없습니다.', color: 'gray' });
@@ -795,7 +814,7 @@ export default function CodeMasterPage() {
       nameLabel={selectedGroup?.nameLabel || '???'}
       propertyLabel={(selectedGroup?.propertyLabels || [])[0] || ''}
       selected={selectedRowIds.has(row.id)}
-      disabled={Boolean(uploadProgress)}
+      disabled={Boolean(uploadProgress) || selectedGroupReadOnly}
       saving={saving}
       onToggleSelection={toggleRowSelection}
       onUpdateRow={updateRow}
@@ -805,9 +824,9 @@ export default function CodeMasterPage() {
       onFocusCell={setActiveCell}
       onDelete={requestDeleteRow}
     />
-  ), [selectedGroup, selectedRowIds, uploadProgress, saving, toggleRowSelection, updateRow, pasteRange, registerCodeInput, registerCellInput, setActiveCell, requestDeleteRow]);
+  ), [selectedGroup, selectedGroupReadOnly, selectedRowIds, uploadProgress, saving, toggleRowSelection, updateRow, pasteRange, registerCodeInput, registerCellInput, setActiveCell, requestDeleteRow]);
   const headerColumns = [
-    { key: 'select', width: 46, minWidth: 42, className: classes.checkCol, label: <input aria-label="현재 목록 전체 선택" type="checkbox" checked={visibleRows.length > 0 && visibleRows.every((row) => selectedRowIds.has(row.id))} onChange={(event) => toggleCurrentPageSelection(event.currentTarget.checked)} /> },
+    { key: 'select', width: 46, minWidth: 42, className: classes.checkCol, label: <input aria-label="현재 목록 전체 선택" type="checkbox" checked={visibleRows.length > 0 && visibleRows.every((row) => selectedRowIds.has(row.id))} disabled={selectedGroupReadOnly} onChange={(event) => toggleCurrentPageSelection(event.currentTarget.checked)} /> },
     { key: 'number', width: 62, minWidth: 48, className: classes.numberCol, label: 'No.' },
     { key: 'code', width: 170, minWidth: 80, className: classes.codeCol, label: selectedGroup?.codeLabel || '코드' },
     { key: 'name', width: 180, minWidth: 80, label: selectedGroup?.nameLabel || '코드명' },
@@ -857,7 +876,7 @@ export default function CodeMasterPage() {
         <Paper className={`${sharedClasses.panel} ${classes.codePanel}`} withBorder>
           <Group className={`${sharedClasses.panelHeader} ${classes.codeHeader}`} justify="space-between" align="flex-start" wrap="wrap" gap="sm">
             <Box>
-              <Group gap={9} align="center"><Text className={classes.codeTitle} fw={800}>{selectedGroup?.name || '코드 그룹'}</Text><Badge color="red" variant="light">{selectedGroup?.rowCount || 0}개</Badge></Group>
+              <Group gap={9} align="center"><Text className={classes.codeTitle} fw={800}>{selectedGroup?.name || '코드 그룹'}</Text><Badge color="red" variant="light">{selectedGroup?.rowCount || 0}개</Badge>{selectedGroupReadOnly && <Badge color="gray" variant="light">조회 전용</Badge>}</Group>
               <Text size="xs" c="dimmed" mt={5}>{selectedGroup?.helpText || selectedGroup?.description || (selectedGroup ? `${selectedGroup.groupcode} · 회사 공통 코드` : '그룹을 추가하거나 왼쪽에서 선택하세요.')}</Text>
             </Box>
             <Group gap={7} align="flex-end" wrap="wrap">
@@ -878,10 +897,10 @@ export default function CodeMasterPage() {
                 allowDeselect={false}
                 disabled={!selectedGroup || loading}
               />
-              <Button variant="default" size="sm" leftSection={<IconDownload size={15} />} onClick={downloadTemplate}>샘플양식</Button>
+              <Button variant="default" size="sm" leftSection={<IconDownload size={15} />} onClick={downloadTemplate} disabled={!selectedGroup || selectedGroupReadOnly}>샘플양식</Button>
               <Button variant="light" size="sm" leftSection={<IconDownload size={15} />} onClick={exportCodes} loading={exportLoading} disabled={loading}>엑셀 다운로드</Button>
-              <Button color="red" size="sm" leftSection={<IconPlus size={15} />} onClick={addRow} disabled={!selectedGroup || loading || Boolean(uploadProgress)}>행 추가</Button>
-              <Button color="red" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={saveRows} loading={saving} disabled={!selectedGroup || loading || Boolean(uploadProgress)}>저장</Button>
+              <Button color="red" size="sm" leftSection={<IconPlus size={15} />} onClick={addRow} disabled={!selectedGroup || selectedGroupReadOnly || loading || Boolean(uploadProgress)}>행 추가</Button>
+              <Button color="red" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={saveRows} loading={saving} disabled={!selectedGroup || selectedGroupReadOnly || loading || Boolean(uploadProgress)}>저장</Button>
             </Group>
           </Group>
 
@@ -910,8 +929,8 @@ export default function CodeMasterPage() {
             </Group>
             <Group gap={7} wrap="nowrap">
               {selectedRows.length > 0 && <Text size="xs" c="dimmed">{selectedRows.length}개 선택</Text>}
-              <Button variant="subtle" color="red" size="xs" leftSection={<IconTrash size={14} />} disabled={!selectedRows.length || saving || Boolean(uploadProgress)} onClick={requestDeleteSelected}>선택 삭제</Button>
-              <Button size="xs" variant="light" leftSection={<IconUpload size={14} />} onClick={() => uploadInputRef.current?.click()} loading={Boolean(uploadProgress)} disabled={loading || saving}>
+              <Button variant="subtle" color="red" size="xs" leftSection={<IconTrash size={14} />} disabled={selectedGroupReadOnly || !selectedRows.length || saving || Boolean(uploadProgress)} onClick={requestDeleteSelected}>선택 삭제</Button>
+              <Button size="xs" variant="light" leftSection={<IconUpload size={14} />} onClick={() => uploadInputRef.current?.click()} loading={Boolean(uploadProgress)} disabled={selectedGroupReadOnly || loading || saving}>
                 {uploadProgress || '엑셀 일괄등록'}
               </Button>
               <input ref={uploadInputRef} type="file" accept=".xlsx,.xls" onChange={uploadCodes} hidden />
@@ -919,26 +938,26 @@ export default function CodeMasterPage() {
           </Group>
 
           <Box className={`${sharedClasses.tableWrap} ${classes.tableWrap}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
-            {visibleRows.length ? (
-              <TableVirtuoso
-                ref={tableRef}
-                data={visibleRows}
-                style={{ height: '100%' }}
-                components={codeMasterVirtuosoComponents}
-                computeItemKey={(_index, row) => row.id}
-                defaultItemHeight={58}
-                increaseViewportBy={{ top: 160, bottom: 320 }}
-                key={`${selectedId}-${codeQuery}`}
-                fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderResizableHeader)}</Table.Tr>}
-                itemContent={renderCodeCells}
-              />
-            ) : (
-              <Box className={classes.emptyState}>{codeQuery.trim() ? '검색 결과가 없습니다.' : '표시할 코드가 없습니다.'}</Box>
-            )}
+            <TableVirtuoso
+              ref={tableRef}
+              data={visibleRows}
+              context={{
+                columnCount: headerColumns.length,
+                emptyMessage: codeQuery.trim() ? '검색 결과가 없습니다.' : '표시할 코드가 없습니다.',
+              }}
+              style={{ height: '100%' }}
+              components={codeMasterVirtuosoComponents}
+              computeItemKey={(_index, row) => row.id}
+              defaultItemHeight={58}
+              increaseViewportBy={{ top: 160, bottom: 320 }}
+              key={`${selectedId}-${codeQuery}`}
+              fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderResizableHeader)}</Table.Tr>}
+              itemContent={renderCodeCells}
+            />
           </Box>
 
           <Group className={`${sharedClasses.footer} ${classes.tableFooter}`} justify="space-between" wrap="wrap">
-            <Text size="xs" c="dimmed">총 {totalForView}개 · 엑셀 셀 범위를 복사해 표에 붙여넣은 뒤 저장할 수 있습니다.</Text>
+            <Text size="xs" c="dimmed">총 {totalForView}개 · {selectedGroupReadOnly ? '현재는 기존 코드를 조회할 수 있습니다.' : '엑셀 셀 범위를 복사해 표에 붙여넣은 뒤 저장할 수 있습니다.'}</Text>
           </Group>
         </Paper>
       </div>

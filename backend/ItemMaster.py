@@ -61,6 +61,8 @@ class ItemInput(BaseModel):
     def require_code_and_name(self):
         if not self.itemcode or not self.itemname:
             raise ValueError("품목코드와 품목명은 필수입니다.")
+        if self.is_new and not self.itemtypecode:
+            raise ValueError("신규 품목의 형태구분은 필수입니다.")
         return self
 
 
@@ -104,13 +106,13 @@ class ItemLookupRequest(BaseModel):
 
 
 _SELECT_COLUMNS = """
-    itemcode, itemname, itemtypecode, use_yn, description
+    itemcode, itemname, itemtypecode, itemtypecodenm, use_yn, description
 """
 
 
 def _row_to_item(row):
     keys = (
-        "itemcode", "itemname", "itemtypecode", "use_yn", "description",
+        "itemcode", "itemname", "itemtypecode", "itemtypecodenm", "use_yn", "description",
     )
     item = {key: (value or "") for key, value in zip(keys, row)}
     item["use_yn"] = str(item["use_yn"]).strip() or "Y"
@@ -200,33 +202,76 @@ def save_items(companyid: str, companyname: str, items: list[dict]) -> int:
             cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"item:{companyid}",))
             codes = [item["itemcode"] for item in items]
             cursor.execute(
-                "SELECT itemcode FROM ItemCode01t WHERE companyid = %s AND itemcode = ANY(%s) FOR UPDATE",
+                "SELECT itemcode, COALESCE(itemtypecode, ''), COALESCE(itemtypecodenm, '') "
+                "FROM ItemCode01t WHERE companyid = %s AND itemcode = ANY(%s) FOR UPDATE",
                 (companyid, codes),
             )
-            existing_codes = {row[0] for row in cursor.fetchall()}
+            existing_rows = cursor.fetchall()
+            existing_shapes = {row[0]: row[1].strip() for row in existing_rows}
+            existing_shape_names = {row[0]: row[2].strip() for row in existing_rows}
 
             for item in items:
                 code = item["itemcode"]
+                shape_code = str(item.get("itemtypecode") or "").strip()
+                previous_shape = existing_shapes.get(code)
+                if not shape_code and (item.get("is_new") or previous_shape):
+                    raise ValueError(f"품목 {code}의 형태구분은 필수입니다.")
+
+            shape_codes = {
+                str(item.get("itemtypecode") or "").strip()
+                for item in items
+                if str(item.get("itemtypecode") or "").strip()
+            }
+            shape_names = {}
+            active_shape_codes = set()
+            if shape_codes:
+                cursor.execute(
+                    """
+                    SELECT code, code_name, UPPER(TRIM(use_yn)) = 'Y'
+                    FROM CodeMaster01t
+                    WHERE companyid = %s AND groupcode = 'SHAPE' AND code = ANY(%s)
+                    FOR SHARE
+                    """,
+                    (companyid, list(shape_codes)),
+                )
+                for code, code_name, is_active in cursor.fetchall():
+                    shape_names[code] = code_name
+                    if is_active:
+                        active_shape_codes.add(code)
+
+            for item in items:
+                code = item["itemcode"]
+                shape_code = str(item.get("itemtypecode") or "").strip()
+                previous_shape = existing_shapes.get(code)
+                if not shape_code:
+                    if item.get("is_new") or previous_shape:
+                        raise ValueError(f"품목 {code}의 형태구분은 필수입니다.")
+                elif shape_code != previous_shape and shape_code not in active_shape_codes:
+                    raise ValueError(f"품목 {code}의 형태구분이 등록되지 않았거나 사용중지 상태입니다: {shape_code}")
+
                 values = (
-                    item["itemname"], item.get("itemtypecode") or None, item["use_yn"],
+                    item["itemname"], shape_code or None,
+                    shape_names.get(shape_code, existing_shape_names.get(code, "")) or None,
+                    item["use_yn"],
                     item.get("description") or None,
                 )
                 if item.get("is_new"):
-                    if code in existing_codes:
+                    if code in existing_shapes:
                         raise ValueError(f"이미 등록된 품목코드입니다: {code}")
                     cursor.execute(
                         f"INSERT INTO ItemCode01t (companyid, companyname, {_SELECT_COLUMNS}) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                         (companyid, companyname, code, *values),
                     )
-                    existing_codes.add(code)
+                    existing_shapes[code] = shape_code
+                    existing_shape_names[code] = values[2] or ""
                 else:
-                    if code not in existing_codes:
+                    if code not in existing_shapes:
                         raise ValueError(f"품목을 찾을 수 없거나 회사 정보가 변경되었습니다: {code}")
                     cursor.execute(
                         """
                         UPDATE ItemCode01t SET
-                            itemname = %s, itemtypecode = %s,
+                            itemname = %s, itemtypecode = %s, itemtypecodenm = %s,
                             use_yn = %s, description = %s, updated_at = CURRENT_TIMESTAMP
                         WHERE companyid = %s AND itemcode = %s
                         """,
