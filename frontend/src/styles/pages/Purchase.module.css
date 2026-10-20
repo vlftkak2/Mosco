@@ -1,0 +1,29 @@
+.page { gap: 12px; color: #142c49; }
+.panel { min-width: 0; padding: 14px 16px; border-color: #d8e0e9; border-radius: 8px; background: #fff; }
+.panel h5 { color: #183251; font-size: 14px; }
+.filters { display: grid; grid-template-columns: repeat(4, minmax(150px,1fr)) auto; align-items: end; gap: 9px; }
+.filters :global(.mantine-InputWrapper-label), .editor :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #485c76; font-size: 11px; font-weight: 700; }
+.filters :global(.mantine-Input-input), .editor :global(.mantine-Input-input) { min-height: 36px; font-size: 12px; }
+.listGrid, .detailGrid, .pickerGrid { overflow: auto; border: 1px solid #d8e0e9; scrollbar-width: thin; scrollbar-color: #aab6c4 #f1f4f7; }
+.listGrid { height: 550px; }
+.detailGrid { height: 550px; }
+.pickerGrid { max-height: 420px; }
+.listGrid table, .detailGrid table, .pickerGrid table { table-layout: fixed; font-size: 12px; }
+.listGrid th, .detailGrid th, .pickerGrid th { position: sticky; top: 0; z-index: 1; height: 34px; padding: 6px 8px; background: #fff2f2; color: #e9424b; white-space: nowrap; }
+.listGrid td, .detailGrid td, .pickerGrid td { height: 34px; padding: 4px 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.listGrid tbody tr, .pickerGrid tbody tr { cursor: pointer; }
+.selected td { background: #e8f3ff !important; }
+.empty { height: 75px !important; padding: 25px !important; color: #8593a5; text-align: center; }
+.editor { display: grid; grid-template-columns: repeat(4, minmax(160px,1fr)); gap: 10px; margin-bottom: 14px; }
+.detailToolbar { padding: 9px 1px; border-top: 1px solid #e5e9ee; }
+.checkCol { width: 42px; }
+.numberCol { width: 54px; }
+.cellInput { display: block; width: 100%; height: 29px; padding: 0 6px; border: 1px solid transparent; border-radius: 3px; background: transparent; color: #203a5a; font: inherit; font-size: 12px; outline: 0; }
+.cellInput:hover { border-color: #d4dce6; }
+.cellInput:focus { border-color: #e9565b; background: #fff; box-shadow: 0 0 0 2px #e9565b1a; }
+.masterCell { padding-right: 25px; border-color: #edc5c7; background-color: #fff9f8; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23c9373d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 6px center; background-size: 14px; cursor: zoom-in; }
+.readonlyCell { background: #f1f3f5; color: #64748b; }
+.amount { display: block; padding-right: 4px; color: #24538f; text-align: right; font-weight: 700; }
+.totals { min-height: 48px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #e3e9f0; }
+.totals b { margin-left: 4px; color: #e9424b; font-size: 14px; }
+@media (max-width: 1050px) { .filters, .editor { grid-template-columns: repeat(2, minmax(150px,1fr)); } }

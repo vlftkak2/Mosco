@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS ItemCode01t (
     itemcode VARCHAR(100) NOT NULL,
     itemname VARCHAR(150) NOT NULL,
     itemtypecode VARCHAR(100),
+    itemtypecodenm VARCHAR(150),
     use_yn CHAR(10) NOT NULL DEFAULT 'Y',
     description VARCHAR(500),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,

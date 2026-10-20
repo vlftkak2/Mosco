@@ -16,6 +16,7 @@ import CodeMasterPage from "./pages/CodeMasterPage";
 import ItemMaster from "./pages/ItemMasterPage";
 import InboundRegisterPage from "./pages/InboundRegisterPage";
 import InboundSearchPage from "./pages/InboundSearchPage";
+import PurchasePage from "./pages/PurchasePage";
 import OutboundRegisterPage from "./pages/OutboundRegisterPage";
 import OutboundSearchPage from "./pages/OutboundSearchPage";
 import StockStandPage from "./pages/StockStandPage";
@@ -55,6 +56,7 @@ function App() {
           <Route path="/ItemMasterPage" element={<ItemMaster />} />
           <Route path="/InboundRegisterPage" element={<InboundRegisterPage />} />
           <Route path="/InboundSearchPage" element={<InboundSearchPage />} />
+          <Route path="/PurchasePage" element={<PurchasePage />} />
           <Route path="/OutboundRegisterPage" element={<OutboundRegisterPage />} />
           <Route path="/OutboundSearchPage" element={<OutboundSearchPage />} />
           <Route path="/StockStandPage" element={<StockStandPage />} />

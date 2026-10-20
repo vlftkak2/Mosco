@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 # Each group exposes one property while other legacy property columns remain untouched.
 CODE_GROUPS = [
     ("MATERIAL", "강종구분", ("비중",)),
+    ("SHAPE", "형태구분", ("속성",)),
     ("PROCESS", "공정구분", ("속성",)),
     ("OTHER_COST", "기타비용코드", ("속성",)),
     ("PRICE_UNIT", "단가단위", ("속성",)),
@@ -25,6 +26,13 @@ GROUP_PROPERTIES = {code: properties for code, _, properties in CODE_GROUPS}
 GROUP_PROPERTY_COLUMNS = {groupcode: 1 for groupcode, _, _ in CODE_GROUPS}
 ACTIVE_VALUE = "Y"
 INACTIVE_VALUE = "N"
+# 단가와 수량 단위는 화면/API에서 조회 전용으로 유지합니다.
+READ_ONLY_GROUPS = {"PRICE_UNIT", "QTY"}
+
+
+def _ensure_group_writable(groupcode: str) -> None:
+    if groupcode in READ_ONLY_GROUPS:
+        raise CodeMasterConflictError("단가단위와 수량단위 코드는 현재 조회만 가능합니다.")
 
 
 def _group_property_index(groupcode: str) -> int:
@@ -240,6 +248,7 @@ def save_group(companyid: str, companyname: str, groupcode: str, items: list[dic
     groupname = GROUP_NAMES.get(groupcode)
     if groupname is None:
         return False
+    _ensure_group_writable(groupcode)
     try:
         with _connect() as connection, connection.cursor() as cursor:
             cursor.execute(
@@ -308,6 +317,10 @@ def save_bulk_items(companyid: str, companyname: str, items: list[dict]) -> int:
     groupcodes = sorted({item["groupcode"] for item in items})
     if any(groupcode not in GROUP_NAMES for groupcode in groupcodes):
         raise CodeMasterConflictError("정의되지 않은 공통코드 그룹이 포함되어 있습니다.")
+    readonly_groups = sorted(set(groupcodes) & READ_ONLY_GROUPS)
+    if readonly_groups:
+        names = ", ".join(GROUP_NAMES[groupcode] for groupcode in readonly_groups)
+        raise CodeMasterConflictError(f"{names} 코드는 현재 조회만 가능합니다.")
 
     seen: set[tuple[str, str]] = set()
     for item in items:
@@ -409,6 +422,7 @@ def save_bulk_items(companyid: str, companyname: str, items: list[dict]) -> int:
 def delete_codes(companyid: str, groupcode: str, codes: list[str]) -> int:
     if groupcode not in GROUP_NAMES or not codes:
         return 0
+    _ensure_group_writable(groupcode)
     try:
         with _connect() as connection, connection.cursor() as cursor:
             cursor.execute(

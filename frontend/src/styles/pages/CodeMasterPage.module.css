@@ -191,6 +191,7 @@
 .cellSelect { height: 33px; padding-right: 5px; cursor: pointer; }
 .codeTable tbody tr.newRow > td { background: #fffbf4 !important; }
 .emptyState { display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; color: #7c899b !important; font-size: 14px; text-align: center; }
+.emptyPlaceholder { height: 220px !important; padding: 16px !important; color: #7c899b !important; font-size: 14px; text-align: center !important; vertical-align: middle; }
 .tableFooter { min-height: 58px; margin-top: auto; padding: 9px 16px; }
 .tableFooter :global(.mantine-Text-root) { color: #718096; font-size: 13px; }
 

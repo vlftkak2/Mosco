@@ -21,6 +21,17 @@
   place-items: center;
 }
 
+.shapePickerInput.shapePickerInput:read-only {
+  background-color: #fff9f8 !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23c9373d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-4-4'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 7px center !important;
+  background-size: 14px 14px !important;
+  color: #293a52 !important;
+}
+.shapePickerInput.shapePickerInput:read-only:hover { background-color: #fff2f1 !important; }
+.shapePickerInput.shapePickerInput:disabled { background-color: #f1f3f5 !important; background-image: none !important; color: #8b95a3 !important; }
+
 @media (max-width: 760px) {
   .page { margin: -12px; padding: 18px 12px 24px; }
   .workspace { height: auto; min-height: 0; grid-template-columns: minmax(0, 1fr); }
