@@ -144,7 +144,7 @@ def list_receipts(
               ON d.companyid = h.companyid AND d.receiptno = h.receiptno
             WHERE {where}
             GROUP BY h.companyid, h.receiptno
-            ORDER BY h.receptdate ASC, h.receiptno ASC
+            ORDER BY h.receptdate DESC, h.receiptno DESC
             LIMIT %s OFFSET %s
             """,
             (*params, page_size, (page - 1) * page_size),
