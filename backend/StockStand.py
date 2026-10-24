@@ -331,26 +331,6 @@ def save_stand_items(companyid: str, companyname: str, standdate: date, items: l
     try:
         with _connect() as connection, connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"stand-stock:{companyid}",))
-            cursor.execute(
-                """SELECT
-                       EXISTS (SELECT 1 FROM StandStock01t WHERE companyid = %s),
-                       EXISTS (
-                           SELECT 1 FROM Inbound01t h
-                           JOIN Inbound02t d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
-                           WHERE h.companyid = %s
-                       ) OR EXISTS (
-                           SELECT 1 FROM Outbound01t h
-                           JOIN Outbound02t d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
-                           WHERE h.companyid = %s
-                       )""",
-                (companyid, companyid, companyid),
-            )
-            has_stock_rows, has_transactions = cursor.fetchone()
-            if has_stock_rows:
-                raise ValueError("이 회사의 기초재고는 이미 등록되어 있어 추가 등록할 수 없습니다.")
-            if has_transactions:
-                raise ValueError("입고 또는 출고 수불 이력이 있어 기초재고를 등록할 수 없습니다.")
-
             codes = _load_active_codes(cursor, companyid)
             item_codes = list(dict.fromkeys(item["itemcode"].strip() for item in items))
             cursor.execute(

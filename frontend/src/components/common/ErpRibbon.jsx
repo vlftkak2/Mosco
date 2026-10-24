@@ -21,7 +21,7 @@ const RibbonButton = ({ icon: Icon, label, onClick, disabled, loading, className
 
 export default function ErpRibbon({
   onSearch, onAdd, onCopy, onExcel, onSave, onDelete, onPrint, onClose,
-  showPrint = true,
+  showPrint = true, showExcel = false,
   useSaveColor = true,
   disabled = {}, loading = {},
 }) {
@@ -31,7 +31,7 @@ export default function ErpRibbon({
       <span className={classes.ribbonSeparator} />
       <RibbonButton icon={IconPlus} label="추가" onClick={onAdd} disabled={disabled.add} loading={loading.add} />
       <RibbonButton icon={IconCopy} label="복사" onClick={onCopy} disabled={disabled.copy} loading={loading.copy} />
-      {onExcel && <RibbonButton icon={IconFileSpreadsheet} label="엑셀" onClick={onExcel} disabled={disabled.excel} loading={loading.excel} />}
+      {(onExcel || showExcel) && <RibbonButton icon={IconFileSpreadsheet} label="엑셀" onClick={onExcel} disabled={disabled.excel} loading={loading.excel} />}
       <RibbonButton icon={IconDeviceFloppy} label="저장" onClick={onSave} disabled={disabled.save} loading={loading.save} className={useSaveColor ? classes.ribbonSave : undefined} />
       <RibbonButton icon={IconTrash} label="삭제" onClick={onDelete} disabled={disabled.delete} loading={loading.delete} />
       {showPrint && <RibbonButton icon={IconPrinter} label="인쇄" onClick={onPrint} disabled={disabled.print} loading={loading.print} />}

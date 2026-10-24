@@ -66,7 +66,7 @@ const displayNumber = (value, maximumFractionDigits = 3) => {
 };
 
 const FILTERS = [
-  { key: 'customer', label: '거래처', placeholder: '거래처코드 또는 거래처명' },
+  { key: 'customer', label: '매입처', placeholder: '매입처코드 또는 매입처명' },
   { key: 'warehouse', label: '창고', placeholder: '창고코드 또는 창고명' },
   { key: 'receiptno', label: '입고전표번호', placeholder: '전표번호' },
   { key: 'iteminfo', label: '품목정보', placeholder: '품목코드 또는 품목명' },
@@ -240,7 +240,7 @@ export default function InboundSearchPage() {
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>구매관리</Text>
+          <Text component="span" className={classes.breadcrumbParent}>입고관리</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
           <Text component="span" className={classes.breadcrumbCurrent}>입고현황</Text>
         </Group>

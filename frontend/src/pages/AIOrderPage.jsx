@@ -263,10 +263,13 @@ async function detectPdfPageOrientation(page) {
 
 function PdfPreview({ file, currentPage, setCurrentPage, pageCount, setPageCount, correctedPages = [] }) {
   const [pdfDocument, setPdfDocument] = useState(null);
+  const [loadError, setLoadError] = useState('');
+  const [renderError, setRenderError] = useState('');
   const [pageCorrections, setPageCorrections] = useState({});
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [zoom, setZoom] = useState(1);
   const canvasRef = useRef(null);
+  const renderTaskRef = useRef(null);
   const stageRef = useRef(null);
   const pan = usePreviewPan(stageRef);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
@@ -282,6 +285,7 @@ function PdfPreview({ file, currentPage, setCurrentPage, pageCount, setPageCount
     let active = true;
     let loadingTask;
     setPdfDocument(null);
+    setLoadError('');
     setPageCorrections({});
     setPageCount(0);
     file.arrayBuffer().then(async (buffer) => {
@@ -299,7 +303,12 @@ function PdfPreview({ file, currentPage, setCurrentPage, pageCount, setPageCount
       setPdfDocument(document);
       setPageCount(document.numPages);
       setCurrentPage((page) => Math.min(Math.max(1, page), document.numPages));
-    }).catch(() => { if (active) setPdfDocument(null); });
+    }).catch(() => {
+      if (active) {
+        setPdfDocument(null);
+        setLoadError('PDF 미리보기를 불러오지 못했습니다. 파일을 확인해 주세요.');
+      }
+    });
     return () => { active = false; loadingTask?.destroy(); };
   }, [file, setCurrentPage, setPageCount]);
   useEffect(() => {
@@ -323,30 +332,51 @@ function PdfPreview({ file, currentPage, setCurrentPage, pageCount, setPageCount
     return () => observer.disconnect();
   }, [pdfDocument]);
   useEffect(() => {
-    if (!pdfDocument || !canvasRef.current || !orientationChecked) return undefined;
+    if (!pdfDocument || !canvasRef.current) return undefined;
     let active = true;
     let renderTask;
-    pdfDocument.getPage(currentPage).then((page) => {
-      if (!active) return;
-      const baseViewport = page.getViewport({ scale: 1 });
-      const radians = Math.abs(previewRotation) * Math.PI / 180;
-      const displayWidth = baseViewport.width * Math.abs(Math.cos(radians)) + baseViewport.height * Math.abs(Math.sin(radians));
-      const widthScale = stageSize.width ? (stageSize.width - 28) / displayWidth : 1.4;
-      const fitScale = Math.max(0.1, Math.min(1.4, widthScale));
-      const scale = fitScale * zoom;
-      const viewport = page.getViewport({ scale: Number.isFinite(scale) ? scale : 1.4 });
-      const canvas = canvasRef.current;
-      const context = canvas.getContext('2d');
-      canvas.width = Math.ceil(viewport.width);
-      canvas.height = Math.ceil(viewport.height);
-      setCanvasSize((current) => current.width === viewport.width && current.height === viewport.height
-        ? current
-        : { width: viewport.width, height: viewport.height });
-      renderTask = page.render({ canvasContext: context, viewport });
-      return renderTask.promise;
-    }).catch(() => {});
+    setRenderError('');
+    const renderPage = async () => {
+      try {
+        const page = await pdfDocument.getPage(currentPage);
+        if (!active) return;
+        const previousTask = renderTaskRef.current;
+        if (previousTask) {
+          previousTask.cancel();
+          try { await previousTask.promise; } catch { /* cancelled render */ }
+        }
+        if (!active || !canvasRef.current) return;
+        const baseViewport = page.getViewport({ scale: 1 });
+        const radians = Math.abs(previewRotation) * Math.PI / 180;
+        const displayWidth = baseViewport.width * Math.abs(Math.cos(radians)) + baseViewport.height * Math.abs(Math.sin(radians));
+        const displayHeight = baseViewport.height * Math.abs(Math.cos(radians)) + baseViewport.width * Math.abs(Math.sin(radians));
+        const widthScale = stageSize.width ? (stageSize.width - 28) / displayWidth : 1.4;
+        const heightScale = stageSize.height ? (stageSize.height - 28) / displayHeight : 1.4;
+        const fitScale = Math.max(0.1, Math.min(1.4, widthScale, heightScale));
+        const scale = fitScale * zoom;
+        const viewport = page.getViewport({ scale: Number.isFinite(scale) ? scale : 1.4 });
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d');
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        setCanvasSize((current) => current.width === viewport.width && current.height === viewport.height
+          ? current
+          : { width: viewport.width, height: viewport.height });
+        renderTask = page.render({ canvasContext: context, viewport });
+        renderTaskRef.current = renderTask;
+        await renderTask.promise;
+      } catch (error) {
+        if (active && error?.name !== 'RenderingCancelledException') {
+          setRenderError('PDF 페이지를 표시하지 못했습니다. 다른 PDF 파일로 다시 시도해 주세요.');
+        }
+      }
+      finally {
+        if (renderTaskRef.current === renderTask) renderTaskRef.current = null;
+      }
+    };
+    void renderPage();
     return () => { active = false; renderTask?.cancel(); };
-  }, [pdfDocument, currentPage, previewRotation, orientationChecked, stageSize.width, stageSize.height, zoom]);
+  }, [pdfDocument, currentPage, previewRotation, stageSize.width, stageSize.height, zoom]);
   return <Box className={classes.pdfViewer}>
     <Group justify="space-between" gap="xs" className={classes.pdfControls}>
       <Group gap={5} wrap="nowrap">
@@ -361,9 +391,9 @@ function PdfPreview({ file, currentPage, setCurrentPage, pageCount, setPageCount
         <Button size="xs" variant="subtle" onClick={() => { setZoom(1); pan.resetPan(); }}>맞춤</Button>
       </Group>
     </Group>
-    {!pdfDocument ? <Box className={classes.previewEmpty}>PDF를 불러오는 중이거나 미리보기를 표시할 수 없습니다.</Box> : <Box ref={stageRef} className={classes.pdfPageStage}>
-      {!orientationChecked && <Box className={classes.previewEmpty}>페이지 방향을 확인하고 있습니다.</Box>}
-      <Box className={classes.pdfCanvasWrap} style={{ display: orientationChecked ? undefined : 'none', width: rotatedWidth || undefined, height: rotatedHeight || undefined, transform: `translate(${pan.offset.x}px, ${pan.offset.y}px)` }}>
+    {!pdfDocument ? <Box className={classes.previewEmpty}>{loadError || 'PDF를 불러오는 중입니다.'}</Box> : <Box ref={stageRef} className={classes.pdfPageStage}>
+      {renderError && <Box role="alert" className={classes.pdfPreviewError}>{renderError}</Box>}
+      <Box className={classes.pdfCanvasWrap} style={{ width: rotatedWidth || undefined, height: rotatedHeight || undefined, transform: `translate(${pan.offset.x}px, ${pan.offset.y}px)` }}>
         <Box className={classes.pdfCanvasContent} style={{ width: canvasSize.width || undefined, height: canvasSize.height || undefined, transform: `rotate(${previewRotation}deg)` }}>
           <canvas ref={canvasRef} className={classes.pdfCanvas} />
         </Box>
@@ -375,6 +405,7 @@ function PdfPreview({ file, currentPage, setCurrentPage, pageCount, setPageCount
 function ImagePreview({ previewUrl }) {
   const [zoom, setZoom] = useState(1);
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
+  const [imageLoadError, setImageLoadError] = useState(false);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const stageRef = useRef(null);
   const pan = usePreviewPan(stageRef);
@@ -390,8 +421,8 @@ function ImagePreview({ previewUrl }) {
     return () => observer.disconnect();
   }, [previewUrl]);
 
-  const fitScale = imageSize.width && stageSize.width
-    ? Math.min(1, (stageSize.width - 32) / imageSize.width)
+  const fitScale = imageSize.width && imageSize.height && stageSize.width && stageSize.height
+    ? Math.min(1, (stageSize.width - 24) / imageSize.width, (stageSize.height - 24) / imageSize.height)
     : 1;
   const displayWidth = Math.max(1, imageSize.width * fitScale * zoom);
   const displayHeight = Math.max(1, imageSize.height * fitScale * zoom);
@@ -405,8 +436,9 @@ function ImagePreview({ previewUrl }) {
     </Group>
     <Box ref={stageRef} className={classes.imagePageStage}>
       <Box className={classes.imageStage} style={{ width: displayWidth, height: displayHeight, transform: `translate(${pan.offset.x}px, ${pan.offset.y}px)` }}>
-        <img src={previewUrl} alt="주문서 원본" onLoad={(event) => setImageSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })} style={{ width: displayWidth, height: displayHeight }} />
+        {previewUrl && <img src={previewUrl} alt="주문서 원본" onLoad={(event) => { setImageLoadError(false); setImageSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight }); }} onError={() => setImageLoadError(true)} style={{ width: displayWidth, height: displayHeight }} />}
       </Box>
+      {imageLoadError && <Box role="alert" className={classes.pdfPreviewError}>이미지를 불러오지 못했습니다. 파일을 다시 선택해 주세요.</Box>}
     </Box>
   </Box>;
 }
@@ -469,7 +501,8 @@ function AnalysisLoading({ queued = false }) {
 
 function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) {
   const previewFile = doc.previewFile || doc.file;
-  const previewUrl = useMemo(() => previewFile ? URL.createObjectURL(previewFile) : '', [previewFile]);
+  const [previewSource, setPreviewSource] = useState({ file: null, url: '' });
+  const previewUrl = previewSource.file === previewFile ? previewSource.url : '';
   const [selectedRows, setSelectedRows] = useState([]);
   const [deleteRowsRequest, setDeleteRowsRequest] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -494,8 +527,17 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
   const tableWidth = tableColumns.reduce((total, column) => total + (columnWidths[column.key] ?? column.width), 0);
 
   useEffect(() => {
-    return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
-  }, [previewUrl]);
+    if (!previewFile) return undefined;
+    let active = true;
+    const objectUrl = URL.createObjectURL(previewFile);
+    queueMicrotask(() => {
+      if (active) setPreviewSource({ file: previewFile, url: objectUrl });
+    });
+    return () => {
+      active = false;
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [previewFile]);
 
   useEffect(() => {
     if (!scrollToAddedLine.current && focusAddedRowRef.current === null) return;
@@ -927,10 +969,11 @@ export default function AIOrderPage() {
   useErpPageRibbon({
     onAdd: () => fileInputRef.current?.click(),
     onDelete: clearDocuments,
-    onPrint: () => window.print(),
+    showPrint: false,
+    useSaveColor: false,
   });
 
-  return <Box className={`${sharedClasses.pageShell} ${classes.page} ${classes.batchPage}`}>
+  return <Box className={`${sharedClasses.pageShell} ${classes.page} ${classes.batchPage} ${documents.length ? classes.batchPageWithDocuments : ''}`}>
     <ErpBreadcrumb parent="가공관리" current="AI 가공솔루션" />
 
     <Paper className={`${sharedClasses.panel} ${classes.uploadPanel}`} withBorder>

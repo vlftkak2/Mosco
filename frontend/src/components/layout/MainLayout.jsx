@@ -38,12 +38,12 @@ const mockdata = [
   },
 
     {
-    label: '기본정보',
+    label: '기준정보',
     icon: <IconFolder size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      { label: '품목코드', link: '/ItemMasterPage', icon: '', MenuID: 'M7' },
       {label: '일반코드',link: '/CodeMasterPage',icon: '',MenuID: 'M1'},
+      { label: '품목코드', link: '/ItemMasterPage', icon: '', MenuID: 'M7' },
       {label: '사용자관리',link: '/',icon: '',MenuID: 'M1', disabled: true},
       { label: '거래처관리', link: '/CustomerPage', icon: '', MenuID:'M-11' },
 
@@ -73,7 +73,7 @@ const mockdata = [
 
   
   {
-    label: '재고 관리',
+    label: '재고관리',
     icon: <IconPackage size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
@@ -393,7 +393,7 @@ const links = mockdata.map((item) => (
         </Box>
 
         <Box className={classes.headerActions}>
-          {!isDashboard && pageRibbon}
+          {pageRibbon}
         </Box>
 
         <Group className={classes.headerUser} gap={16} wrap="nowrap">

@@ -329,7 +329,7 @@
 }
 
 /* Desktop ERP canvas: the two grids divide the available viewport height. */
-.page {
+.page.page {
   height: 100%;
   min-height: 0;
   flex: 1 1 0;
