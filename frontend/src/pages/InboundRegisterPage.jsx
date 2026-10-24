@@ -221,7 +221,7 @@ const CustomerPickerModal = memo(function CustomerPickerModal({ opened, onClose,
       setPage(nextPage);
       setSearch(nextSearch);
     } catch (error) {
-      if (requestId === requestIdRef.current) notifications.show({ title: '거래처 조회 실패', message: errorMessage(error), color: 'red' });
+      if (requestId === requestIdRef.current) notifications.show({ title: '매입처 조회 실패', message: errorMessage(error), color: 'red' });
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
@@ -239,10 +239,10 @@ const CustomerPickerModal = memo(function CustomerPickerModal({ opened, onClose,
   const changePage = useCallback((nextPage) => { void load(nextPage, search); }, [load, search]);
   const invalidatePending = useCallback(() => { requestIdRef.current += 1; onClose(); }, [onClose]);
 
-  return <Modal opened={opened} onClose={invalidatePending} title={<PickerModalTitle title="거래처 선택" />} classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader, title: classes.receiptFinderModalTitle, close: classes.receiptFinderModalClose }} centered size={900}>
+  return <Modal opened={opened} onClose={invalidatePending} title={<PickerModalTitle title="매입처 선택" />} classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader, title: classes.receiptFinderModalTitle, close: classes.receiptFinderModalClose }} centered size={900}>
     <Stack gap="sm" pt={10}>
       <Group gap={7} wrap="nowrap">
-        <TextInput className={classes.customerSearchInput} placeholder="거래처코드 또는 거래처명 검색" value={searchInput}
+        <TextInput className={classes.customerSearchInput} placeholder="매입처코드 또는 매입처명 검색" value={searchInput}
           onChange={(event) => setSearchInput(event.currentTarget.value)}
           onKeyDown={(event) => { if (event.key === 'Enter') searchCustomers(); }}
           leftSection={<IconSearch size={15} />} size="sm" autoFocus />
@@ -252,19 +252,19 @@ const CustomerPickerModal = memo(function CustomerPickerModal({ opened, onClose,
         {loading && <Loader className={classes.pickerLoader} size="xs" color="gray" aria-label="조회 중" />}
         <ScrollArea h={420} type="auto" scrollbarSize={6}>
           <Table className={`${codeClasses.codeTable} ${classes.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
-            <Table.Thead><Table.Tr><Table.Th className={classes.customerCodeColumn}>거래처코드</Table.Th><Table.Th className={classes.customerNameColumn}>거래처명</Table.Th><Table.Th className={classes.customerBusinessColumn}>사업자번호</Table.Th></Table.Tr></Table.Thead>
+            <Table.Thead><Table.Tr><Table.Th className={classes.customerCodeColumn}>매입처코드</Table.Th><Table.Th className={classes.customerNameColumn}>매입처명</Table.Th><Table.Th className={classes.customerBusinessColumn}>사업자번호</Table.Th></Table.Tr></Table.Thead>
             <Table.Tbody>
               {customers.map((customer) => (
                 <Table.Tr key={customer.customercode} className={classes.customerResultRow} onClick={() => onSelect(customer)}>
                   <Table.Td>{customer.customercode}</Table.Td><Table.Td>{customer.customername}</Table.Td><Table.Td>{customer.businessno || ''}</Table.Td>
                 </Table.Tr>
               ))}
-              {!customers.length && <Table.Tr><Table.Td colSpan={3} className={classes.customerEmpty}>{loading ? '조회 중입니다.' : '조회된 거래처가 없습니다.'}</Table.Td></Table.Tr>}
+              {!customers.length && <Table.Tr><Table.Td colSpan={3} className={classes.customerEmpty}>{loading ? '조회 중입니다.' : '조회된 매입처가 없습니다.'}</Table.Td></Table.Tr>}
             </Table.Tbody>
           </Table>
         </ScrollArea>
       </Box>
-      <Group justify="space-between"><Text size="xs" c="dimmed">총 {total.toLocaleString()}개 거래처</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / 20))} value={page} onChange={changePage} withEdges color="red" disabled={loading} /></Group>
+      <Group justify="space-between"><Text size="xs" c="dimmed">총 {total.toLocaleString()}개 매입처</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / 20))} value={page} onChange={changePage} withEdges color="red" disabled={loading} /></Group>
     </Stack>
   </Modal>;
 });
@@ -593,7 +593,7 @@ const CustomerNameAutocompleteCell = memo(function CustomerNameAutocompleteCell(
         <input
           ref={(element) => registerCellInput(row.id, 'customname', element)}
           className={`${codeClasses.cellInput} ${classes.itemCodePickerInput} ${classes.itemNameSearchInput}`}
-          aria-label="거래처명"
+          aria-label="매입처명"
           aria-haspopup="listbox"
           aria-expanded={isOpen}
           aria-controls={isOpen ? `customer-suggestions-${row.id}` : undefined}
@@ -636,7 +636,7 @@ const CustomerNameAutocompleteCell = memo(function CustomerNameAutocompleteCell(
       </div>
     </Popover.Target>
     <Popover.Dropdown className={itemMasterClasses.shapeSuggestions}>
-      <div id={`customer-suggestions-${row.id}`} role="listbox" aria-label="거래처 검색 결과">
+      <div id={`customer-suggestions-${row.id}`} role="listbox" aria-label="매입처 검색 결과">
         {customers.map((customer, index) => <button key={customer.customercode} type="button" role="option" aria-selected={index === activeIndex}
           className={itemMasterClasses.shapeSuggestion}
           style={index === activeIndex ? { background: '#edf3f8' } : undefined}
@@ -1756,7 +1756,7 @@ export default function InboundRegisterPage() {
     }
     const failures = rows.flatMap((row, index) => {
       const errors = [];
-      if (!String(row.customcode || '').trim() && !String(row.customname || '').trim()) errors.push('거래처');
+      if (!String(row.customcode || '').trim() && !String(row.customname || '').trim()) errors.push('매입처');
       if (!String(row.itemcode || '').trim()) errors.push('품목명 자동완성에서 품목을 선택해 주세요');
       if (!String(row.itemname || '').trim()) errors.push('품목명');
       if (!String(row.qtyunit || '').trim()) errors.push('수량단위');
@@ -1884,7 +1884,7 @@ export default function InboundRegisterPage() {
       masterPasteErrorsRef.current.clear();
       notifications.show({
         title: '입고 저장 완료',
-        message: `${data.saved_count}건을 입고일자·거래처·창고 기준 ${data.group_count || 1}개 전표로 나누어 저장했습니다.`,
+        message: `${data.saved_count}건을 입고일자·매입처·창고 기준 ${data.group_count || 1}개 전표로 나누어 저장했습니다.`,
         color: 'teal',
       });
       const defaultFilters = createDefaultReceiptFilters();
@@ -2080,7 +2080,7 @@ export default function InboundRegisterPage() {
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>구매관리</Text>
+          <Text component="span" className={classes.breadcrumbParent}>입고관리</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
           <Text component="span" className={classes.breadcrumbCurrent}>입고등록</Text>
         </Group>
@@ -2100,7 +2100,7 @@ export default function InboundRegisterPage() {
           <Group gap={8}><Text className={classes.sectionTitle} fw={700}>입고 기본</Text><Badge color="gray" variant="light">{total.toLocaleString()}건</Badge></Group>
         </Group>
         <Box ref={receiptTableRef} className={classes.topReceiptTable}>
-          <Table className={classes.receiptFinderTable} stickyHeader highlightOnHover withTableBorder withColumnBorders style={{ width: `${receiptTableWidth}px`, minWidth: `${receiptTableWidth}px`, tableLayout: 'fixed' }}>
+          <Table className={classes.receiptFinderTable} stickyHeader highlightOnHover withTableBorder withColumnBorders style={{ width: '100%', minWidth: `${receiptTableWidth}px`, tableLayout: 'fixed' }}>
             <colgroup>{RECEIPT_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${receiptColumnWidths[column.key] ?? receiptAutoWidths[column.key] ?? column.width}px` }} />)}</colgroup>
             <Table.Thead><Table.Tr>{RECEIPT_COLUMNS.map(renderReceiptHeader)}</Table.Tr></Table.Thead>
             <Table.Tbody>
@@ -2126,7 +2126,7 @@ export default function InboundRegisterPage() {
         <Box className={classes.topReceiptBottom}>
           {!!receipts.length && <Box ref={receiptSubtotalRef} className={classes.topReceiptSubtotalViewport}>
             <Table className={`${classes.receiptFinderTable} ${classes.receiptSubtotalTable}`} withTableBorder withColumnBorders
-              style={{ width: `${receiptTableWidth}px`, minWidth: `${receiptTableWidth}px`, tableLayout: 'fixed' }}>
+              style={{ width: '100%', minWidth: `${receiptTableWidth}px`, tableLayout: 'fixed' }}>
               <colgroup>{RECEIPT_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${receiptColumnWidths[column.key] ?? receiptAutoWidths[column.key] ?? column.width}px` }} />)}</colgroup>
               <Table.Tbody><Table.Tr>
                 {RECEIPT_COLUMNS.map((column, index) => <Table.Td key={column.key} className={`${classes.topReceiptSubtotalCell} ${column.align === 'right' ? classes.topReceiptSubtotalNumber : ''}`} ta={column.align}>
@@ -2138,7 +2138,7 @@ export default function InboundRegisterPage() {
             </Table>
           </Box>}
           <Box className={classes.topReceiptHorizontalScroll} onScroll={(event) => syncReceiptScroll(event.currentTarget.scrollLeft)} aria-label="입고 기본 가로 스크롤">
-            <Box className={classes.topReceiptHorizontalContent} style={{ width: `${receiptTableWidth}px` }} />
+            <Box className={classes.topReceiptHorizontalContent} style={{ width: `max(100%, ${receiptTableWidth}px)` }} />
           </Box>
         </Box>
         <Group className={classes.topReceiptPagination} justify="space-between">
@@ -2234,7 +2234,7 @@ export default function InboundRegisterPage() {
                   onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
               </Stack>
             </Box>
-            <TextInput label="거래처" placeholder="거래처코드 또는 거래처명" value={filterInputs.customer}
+            <TextInput label="매입처" placeholder="매입처코드 또는 매입처명" value={filterInputs.customer}
               onChange={(event) => setFilterInputs((current) => ({ ...current, customer: event.currentTarget.value }))}
               onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
             <TextInput label="창고" placeholder="창고코드 또는 창고명" value={filterInputs.warehouse}

@@ -888,7 +888,7 @@ export default function CodeMasterPage() {
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-      <ErpBreadcrumb parent="기본정보관리" current="일반코드관리" />
+      <ErpBreadcrumb parent="기준정보" current="일반코드" />
 
       <div className={classes.workspace}>
         <CodeMasterGroupPanel groups={groups} visibleGroups={visibleGroups} groupQuery={groupQuery} setGroupQuery={setGroupQuery} totalCodes={totalCodes} loading={loading} uploadProgress={uploadProgress} selectedId={selectedId} onSelectGroup={handleSelectGroup} />

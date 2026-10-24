@@ -26,6 +26,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import useErpPageRibbon from '../components/common/useErpPageRibbon';
 import classes from '../styles/pages/HomePage.module.css';
 
 const incoming = [
@@ -65,12 +66,23 @@ export default function HomePage() {
   const [to, setTo] = useState('2026-03-31');
   const [period, setPeriod] = useState('month');
   const [search, setSearch] = useState('');
+  const [appliedFilters, setAppliedFilters] = useState({ from: '2026-03-01', to: '2026-03-31', search: '' });
   const [inquirySent, setInquirySent] = useState(false);
   const rows = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase();
-    const filter = (items) => items.filter((row) => !query || Object.values(row).some((value) => String(value).toLocaleLowerCase().includes(query)));
+    const query = appliedFilters.search.trim().toLocaleLowerCase();
+    const sampleYear = (appliedFilters.from || appliedFilters.to || '2026-01-01').slice(0, 4);
+    const filter = (items) => items.filter((row) => {
+      const [month, day] = row.date.split('.');
+      const date = `${sampleYear}-${month}-${day}`;
+      const inRange = (!appliedFilters.from || date >= appliedFilters.from)
+        && (!appliedFilters.to || date <= appliedFilters.to);
+      return inRange && (!query || Object.values(row).some((value) => String(value).toLocaleLowerCase().includes(query)));
+    });
     return [filter(incoming), filter(outgoing)];
-  }, [search]);
+  }, [appliedFilters]);
+
+  const runDashboardQuery = () => setAppliedFilters({ from, to, search });
+  useErpPageRibbon({ onSearch: runDashboardQuery, showExcel: true, showPrint: false, useSaveColor: false, disableClose: true });
 
   const choosePeriod = (value) => {
     const now = new Date();

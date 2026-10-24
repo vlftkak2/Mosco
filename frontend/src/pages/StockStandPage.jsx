@@ -794,7 +794,6 @@ export default function StockStandPage() {
   const originalRowsRef = useRef(new Map());
   const activeCellRef = useRef(null);
   const selectionAnchorRef = useRef('');
-  const movementNoticeShownRef = useRef(false);
   const listRequestIdRef = useRef(0);
   const loadingMoreRef = useRef(false);
   const hasMoreRowsRef = useRef(false);
@@ -811,11 +810,6 @@ export default function StockStandPage() {
   const displayRowCount = hasSavedStock ? totalRows : rows.length;
   const visibleRows = hasSavedStock ? rows : rows.slice((page - 1) * pageSize, page * pageSize);
   const pageCount = Math.max(1, Math.ceil(displayRowCount / pageSize));
-  const registrationBlockMessage = hasSavedStock
-    ? '이 회사의 기초재고는 이미 등록되어 추가할 수 없습니다.'
-    : hasTransactions
-      ? '입고 또는 출고 수불 이력이 있어 기초재고를 등록할 수 없습니다.'
-      : '';
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   const resizeColumn = useCallback((event, key, defaultWidth, minWidth, totalWidth) => {
@@ -872,16 +866,6 @@ export default function StockStandPage() {
       setHasSavedStock(Boolean(data.has_stock_rows));
       setHasTransactions(Boolean(data.has_transactions));
       setHasStockMovements(Boolean(data.has_stock_movements));
-      const shouldShowMovementNotice = Boolean(data.has_transactions && !data.has_stock_rows);
-      if (shouldShowMovementNotice && !movementNoticeShownRef.current) {
-        notifications.show({
-          title: '입출고 수불 내역이 있습니다',
-          message: '입고 또는 출고 내역이 있는 회사는 기초재고를 신규 등록하거나 전체 삭제할 수 없습니다.',
-          color: 'orange',
-          autoClose: 7000,
-        });
-      }
-      movementNoticeShownRef.current = shouldShowMovementNotice;
       return true;
     } catch (error) {
       notifications.show({ title: '기초재고 조회 실패', message: errorText(error), color: 'red' });
@@ -1001,21 +985,13 @@ export default function StockStandPage() {
   }, [masters, selectedIds.length, selectedSet]);
 
   const addRow = () => {
-    if (hasSavedStock || hasTransactions) {
-      notifications.show({
-        title: '기초재고를 등록할 수 없습니다',
-        message: registrationBlockMessage,
-        color: 'orange',
-      });
-      return;
-    }
     const row = makeRow({
       standdate: localDate(),
       qtyunit: resolveMasterCode('qtyunit', 'EA', masters) || 'EA',
       unit: resolveMasterCode('unit', 'KG', masters) || 'KG',
     });
     setRows((current) => [...current, row]);
-    const nextPage = Math.ceil((rows.length + 1) / pageSize);
+    const nextPage = hasSavedStock ? page : Math.ceil((rows.length + 1) / pageSize);
     setPage(nextPage);
     setSelectedIds([]);
     selectionAnchorRef.current = '';
@@ -1025,7 +1001,7 @@ export default function StockStandPage() {
     });
   };
   const copySelectedRow = () => {
-    if (hasSavedStock || hasTransactions || saving || loading || uploading) return;
+    if (saving || loading || uploading) return;
     if (selectedIds.length !== 1) {
       notifications.show({ title: '복사할 행 선택', message: '복사할 기초재고 행을 하나 선택해 주세요.', color: 'orange' });
       return;
@@ -1035,7 +1011,7 @@ export default function StockStandPage() {
     const values = Object.fromEntries(Object.entries(source)
       .filter(([key]) => !['id', 'lineno', 'isNew', 'has_movements', 'created_at', 'updated_at'].includes(key)));
     const copy = makeRow(values);
-    const nextPage = Math.ceil((rows.length + 1) / pageSize);
+    const nextPage = hasSavedStock ? page : Math.ceil((rows.length + 1) / pageSize);
     setRows((current) => [...current, copy]);
     setSelectedIds([copy.id]);
     setPage(nextPage);
@@ -1161,14 +1137,6 @@ export default function StockStandPage() {
     const startColumn = GRID_FIELDS.indexOf(startField);
     if (startIndex < 0 || startColumn < 0) return;
     const targetRowCount = startIndex + matrix.length;
-    if (registrationBlockMessage && !hasSavedStock && targetRowCount > rows.length) {
-      notifications.show({
-        title: '기초재고를 추가할 수 없습니다',
-        message: registrationBlockMessage,
-        color: 'orange',
-      });
-      return;
-    }
     if (startIndex + matrix.length > 10000) {
       notifications.show({ title: '붙여넣기 제한', message: '한 번에 최대 10,000행까지 입력할 수 있습니다.', color: 'orange' });
       return;
@@ -1240,7 +1208,7 @@ export default function StockStandPage() {
       else additions.push(target);
     });
     setRows([...nextRows, ...additions]);
-  }, [rows, masters, registrationBlockMessage, hasSavedStock, standdate, query]);
+  }, [rows, masters, hasSavedStock, standdate, query]);
 
   const toggleRowSelection = useCallback((id, shiftKey = false) => {
     setSelectedIds((current) => {
@@ -1319,14 +1287,6 @@ export default function StockStandPage() {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = '';
     if (!file) return;
-    if (hasSavedStock || hasTransactions) {
-      notifications.show({
-        title: '기초재고를 등록할 수 없습니다',
-        message: registrationBlockMessage,
-        color: 'orange',
-      });
-      return;
-    }
     if (hasChanges) {
       notifications.show({ title: '저장되지 않은 변경 사항', message: '현재 입력한 내용을 먼저 저장한 뒤 엑셀을 등록해 주세요.', color: 'orange' });
       return;
@@ -1490,18 +1450,10 @@ export default function StockStandPage() {
     } catch (error) {
       notifications.show({ title: '엑셀 업로드 실패', message: errorText(error), color: 'red' });
     } finally { setUploading(false); }
-  }, [hasChanges, masters, hasSavedStock, hasTransactions, registrationBlockMessage, standdate]);
+  }, [hasChanges, masters, hasSavedStock, standdate]);
 
   const save = async () => {
     let newRows = rows.filter((row) => !row.lineno && hasRowInput(row));
-    if (newRows.length && (hasSavedStock || hasTransactions)) {
-      notifications.show({
-        title: '기초재고를 등록할 수 없습니다',
-        message: registrationBlockMessage,
-        color: 'orange',
-      });
-      return;
-    }
     if (!newRows.length && !changedPriceRows.length) {
       notifications.show({ title: '저장할 변경사항 없음', message: '새 기초재고를 입력하거나 단가 정보를 변경해 주세요.', color: 'blue' });
       return;
@@ -1677,7 +1629,7 @@ export default function StockStandPage() {
   };
 
   const deleteSelectedRows = () => {
-    if (!selectedIds.length || hasSavedStock || saving) return;
+    if (!selectedIds.length || saving) return;
     const ids = new Set(selectedIds);
     const deletedCount = rows.filter((row) => ids.has(row.id) && !row.lineno).length;
     setRows((current) => current.filter((row) => !ids.has(row.id) || row.lineno));
@@ -1702,7 +1654,7 @@ export default function StockStandPage() {
     return {
       key,
       label: key === 'select'
-        ? <input type="checkbox" aria-label="전체 선택" disabled={hasSavedStock || !rows.some((row) => !row.lineno)} checked={rows.some((row) => !row.lineno) && rows.filter((row) => !row.lineno).every((row) => selectedSet.has(row.id))} onChange={(event) => toggleAll(event.currentTarget.checked)} />
+        ? <input type="checkbox" aria-label="전체 선택" disabled={!rows.some((row) => !row.lineno)} checked={rows.some((row) => !row.lineno) && rows.filter((row) => !row.lineno).every((row) => selectedSet.has(row.id))} onChange={(event) => toggleAll(event.currentTarget.checked)} />
         : label,
       width,
       minWidth,
@@ -1880,7 +1832,7 @@ export default function StockStandPage() {
     const amounts = calculateAmounts(row, masters.price);
 
     return <>
-      <Table.Td className={codeClasses.checkCol}><input type="checkbox" checked={isSelected} disabled={saving || saved || hasSavedStock} onChange={(event) => toggleRowSelection(row.id, event.nativeEvent.shiftKey)} /></Table.Td>
+      <Table.Td className={codeClasses.checkCol}><input type="checkbox" checked={isSelected} disabled={saving || saved} onChange={(event) => toggleRowSelection(row.id, event.nativeEvent.shiftKey)} /></Table.Td>
       <Table.Td className={`${codeClasses.rowNumber} ${!saved ? classes.newRowNumber : ''}`}>{(page - 1) * pageSize + index + 1}</Table.Td>
       {GRID_FIELDS.map(renderField)}
     </>;
@@ -1888,7 +1840,7 @@ export default function StockStandPage() {
 
   const deleteFromRibbon = () => {
     if (loading || saving || uploading) return;
-    if (selectedIds.length && !hasSavedStock) {
+    if (selectedIds.some((id) => rows.some((row) => row.id === id && !row.lineno))) {
       deleteSelectedRows();
     } else if (hasSavedStock) {
       requestDeleteAll();
@@ -1900,7 +1852,7 @@ export default function StockStandPage() {
   useErpPageRibbon({
     onSearch: runSearch,
     onAdd: addRow,
-    onCopy: selectedIds.length === 1 && !hasSavedStock && !hasTransactions ? copySelectedRow : undefined,
+    onCopy: selectedIds.length === 1 ? copySelectedRow : undefined,
     onSave: save,
     onDelete: deleteFromRibbon,
     onExcel: exportRows,
@@ -1917,7 +1869,7 @@ export default function StockStandPage() {
         <Group gap={8} align="center"><Text className={classes.sectionTitle} fw={700}>기초재고등록</Text><Badge color="gray" variant="light">{displayRowCount.toLocaleString()}행</Badge></Group>
         <Group className={classes.headerActions} gap={7} align="center" wrap="wrap">
           <Button variant="default" size="xs" leftSection={<IconDownload size={15} />} onClick={downloadTemplate} disabled={loading || uploading}>샘플양식</Button>
-          <Button variant="light" size="xs" leftSection={<IconUpload size={15} />} onClick={() => uploadInputRef.current?.click()} loading={uploading} disabled={saving || loading || hasSavedStock || hasTransactions}>엑셀 일괄등록</Button>
+          <Button variant="light" size="xs" leftSection={<IconUpload size={15} />} onClick={() => uploadInputRef.current?.click()} loading={uploading} disabled={saving || loading}>엑셀 일괄등록</Button>
           <input ref={uploadInputRef} type="file" accept=".xlsx,.xls" onChange={uploadExcel} hidden />
         </Group>
       </Group>

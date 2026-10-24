@@ -28,7 +28,7 @@ const TABLE_COLUMN_WIDTHS = {
   description: 120, created_at: 145, updated_at: 145,
 };
 const TABLE_COLUMNS = [
-  ['no', 'No.'], ['receptdate', '출고일자'], ['receiptno', '출고전표'], ['customname', '거래처'],
+  ['no', 'No.'], ['receptdate', '출고일자'], ['receiptno', '출고전표'], ['customname', '매출처'],
   ['warehousecodename', '창고'], ['productname', '제품번호'], ['itemname', '품명'],
   ['materialname', '강종'], ['surfacename', '표면'], ['myrtle', '도금량(g/㎡)'],
   ['thickness', '두께'], ['width', '폭'], ['length', '길이'], ['qty', '출고수량'], ['weight', '출고중량'],
@@ -66,7 +66,7 @@ const displayNumber = (value, maximumFractionDigits = 3) => {
 };
 
 const FILTERS = [
-  { key: 'customer', label: '거래처', placeholder: '거래처코드 또는 거래처명' },
+  { key: 'customer', label: '매출처', placeholder: '매출처코드 또는 매출처명' },
   { key: 'warehouse', label: '창고', placeholder: '창고코드 또는 창고명' },
   { key: 'receiptno', label: '출고전표번호', placeholder: '전표번호' },
   { key: 'iteminfo', label: '품목정보', placeholder: '품목코드 또는 품목명' },

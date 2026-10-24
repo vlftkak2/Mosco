@@ -23,12 +23,15 @@ export default function useErpPageRibbon(actions) {
     return Object.fromEntries(keys.map((key) => [key, (...args) => actionsRef.current?.[key]?.(...args)]));
   }, []);
   const showPrint = actions?.showPrint !== false;
+  const showExcel = Boolean(actions?.showExcel);
+  const closeDisabled = Boolean(actions?.disableClose);
   const useSaveColor = actions?.useSaveColor !== false;
   const ribbon = useMemo(() => (
     <ErpRibbon
       {...ribbonActions}
       onClose={closeActivePage}
       showPrint={showPrint}
+      showExcel={showExcel}
       useSaveColor={useSaveColor}
       disabled={{
         search: !availability.search,
@@ -38,12 +41,15 @@ export default function useErpPageRibbon(actions) {
         delete: !availability.delete,
         print: !availability.print,
         excel: !availability.excel,
+        close: closeDisabled,
       }}
     />
   ), [
     ribbonActions,
     closeActivePage,
     showPrint,
+    showExcel,
+    closeDisabled,
     useSaveColor,
     availability.search,
     availability.add,

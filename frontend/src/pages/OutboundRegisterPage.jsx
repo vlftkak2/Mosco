@@ -46,7 +46,7 @@ const localDate = () => {
 const EMPTY_HEADER = { receiptno: '', receptdate: localDate(), customcode: '', customname: '', description: '' };
 const DETAIL_FIELDS = [
   { key: 'receptdate', label: '출고일자', width: 120, required: true },
-  { key: 'customname', label: '거래처', width: 180 },
+  { key: 'customname', label: '매출처', width: 180 },
   { key: 'warehousecodename', label: '창고', width: 130 },
   { key: 'productname', label: '제품번호', width: 120 },
   { key: 'itemname', label: '품명', width: 170 },
@@ -77,7 +77,7 @@ const DETAIL_FIELDS = [
 ];
 const RECEIPT_COLUMNS = [
   { key: 'receptdate', label: '출고일자', width: 100, minWidth: 90 },
-  { key: 'customname', label: '거래처', width: 150, minWidth: 105 },
+  { key: 'customname', label: '매출처', width: 150, minWidth: 105 },
   { key: 'warehousecodename', label: '창고', width: 115, minWidth: 90 },
   { key: 'line_count', label: '상세건수', width: 78, minWidth: 68, align: 'right' },
   { key: 'total_qty', label: '수량', width: 78, minWidth: 68, align: 'right' },
@@ -109,7 +109,7 @@ const errorMessage = (error) => {
     const field = location.at(-1);
     const fieldNames = {
       stocksourcetype: '원천 재고 구분', stocksourceno: '원천 전표번호',
-      stocksourceline: '원천 순번', customcode: '거래처코드', unit: '단가기준',
+      stocksourceline: '원천 순번', customcode: '매출처코드', unit: '단가기준',
     };
     const rowLabel = itemIndex >= 0 && Number.isInteger(Number(location[itemIndex + 1]))
       ? `${Number(location[itemIndex + 1]) + 1}행 ` : '';
@@ -216,7 +216,7 @@ const CustomerPickerModal = memo(function CustomerPickerModal({ opened, onClose,
       setPage(nextPage);
       setSearch(nextSearch);
     } catch (error) {
-      if (requestId === requestIdRef.current) notifications.show({ title: '거래처 조회 실패', message: errorMessage(error), color: 'red' });
+      if (requestId === requestIdRef.current) notifications.show({ title: '매출처 조회 실패', message: errorMessage(error), color: 'red' });
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
@@ -234,10 +234,10 @@ const CustomerPickerModal = memo(function CustomerPickerModal({ opened, onClose,
   const changePage = useCallback((nextPage) => { void load(nextPage, search); }, [load, search]);
   const invalidatePending = useCallback(() => { requestIdRef.current += 1; onClose(); }, [onClose]);
 
-  return <Modal opened={opened} onClose={invalidatePending} title={<PickerModalTitle title="거래처 선택" />} classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader, title: classes.receiptFinderModalTitle, close: classes.receiptFinderModalClose }} centered size={900}>
+  return <Modal opened={opened} onClose={invalidatePending} title={<PickerModalTitle title="매출처 선택" />} classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader, title: classes.receiptFinderModalTitle, close: classes.receiptFinderModalClose }} centered size={900}>
     <Stack gap="sm" pt={10}>
       <Group gap={7} wrap="nowrap">
-        <TextInput className={classes.customerSearchInput} placeholder="거래처코드 또는 거래처명 검색" value={searchInput}
+        <TextInput className={classes.customerSearchInput} placeholder="매출처코드 또는 매출처명 검색" value={searchInput}
           onChange={(event) => setSearchInput(event.currentTarget.value)}
           onKeyDown={(event) => { if (event.key === 'Enter') searchCustomers(); }}
           leftSection={<IconSearch size={15} />} size="sm" autoFocus />
@@ -247,19 +247,19 @@ const CustomerPickerModal = memo(function CustomerPickerModal({ opened, onClose,
         {loading && <Loader className={classes.pickerLoader} size="xs" color="red" aria-label="조회 중" />}
         <ScrollArea h={420} type="auto" scrollbarSize={6}>
           <Table className={`${codeClasses.codeTable} ${classes.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
-            <Table.Thead><Table.Tr><Table.Th className={classes.customerCodeColumn}>거래처코드</Table.Th><Table.Th className={classes.customerNameColumn}>거래처명</Table.Th><Table.Th className={classes.customerBusinessColumn}>사업자번호</Table.Th></Table.Tr></Table.Thead>
+            <Table.Thead><Table.Tr><Table.Th className={classes.customerCodeColumn}>매출처코드</Table.Th><Table.Th className={classes.customerNameColumn}>매출처명</Table.Th><Table.Th className={classes.customerBusinessColumn}>사업자번호</Table.Th></Table.Tr></Table.Thead>
             <Table.Tbody>
               {customers.map((customer) => (
                 <Table.Tr key={customer.customercode} className={classes.customerResultRow} onClick={() => onSelect(customer)}>
                   <Table.Td>{customer.customercode}</Table.Td><Table.Td>{customer.customername}</Table.Td><Table.Td>{customer.businessno || ''}</Table.Td>
                 </Table.Tr>
               ))}
-              {!customers.length && <Table.Tr><Table.Td colSpan={3} className={classes.customerEmpty}>{loading ? '조회 중입니다.' : '조회된 거래처가 없습니다.'}</Table.Td></Table.Tr>}
+              {!customers.length && <Table.Tr><Table.Td colSpan={3} className={classes.customerEmpty}>{loading ? '조회 중입니다.' : '조회된 매출처가 없습니다.'}</Table.Td></Table.Tr>}
             </Table.Tbody>
           </Table>
         </ScrollArea>
       </Box>
-      <Group justify="space-between"><Text size="xs" c="dimmed">총 {total.toLocaleString()}개 거래처</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / 20))} value={page} onChange={changePage} withEdges color="red" disabled={loading} /></Group>
+      <Group justify="space-between"><Text size="xs" c="dimmed">총 {total.toLocaleString()}개 매출처</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / 20))} value={page} onChange={changePage} withEdges color="red" disabled={loading} /></Group>
     </Stack>
   </Modal>;
 });
@@ -441,13 +441,32 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
           </span>
         ) : key === 'manager' ? (
           <ManagerInput key={`${row.id}:${row.manager || ''}`} row={row} editable={managerEditable} label={label} onChange={onChange} onPaste={pasteHandler(key)} registerCellInput={registerCellInput} onFocusCell={onFocusCell} />
+        ) : key === 'customname' ? (
+          <Group gap={2} wrap="nowrap">
+            <input
+              ref={(element) => registerCellInput(row.id, key, element)}
+              className={`${codeClasses.cellInput} ${classes.autoFilledInput}`}
+              aria-label={label}
+              title="저장 전에 돋보기 버튼을 눌러 매출처를 변경할 수 있습니다."
+              data-row-id={row.id}
+              data-field={key}
+              value={row.customname || ''}
+              readOnly
+              disabled={disabled}
+              onFocus={() => onFocusCell(row.id, key)}
+              onDoubleClick={() => onFindCustomer(row.id)}
+            />
+            <ActionIcon size="sm" variant="subtle" color="red" aria-label="매출처 찾기" title="저장 전에 매출처 변경" disabled={disabled} onClick={() => onFindCustomer(row.id)}>
+              <IconSearch size={15} />
+            </ActionIcon>
+          </Group>
         ) : key === 'customcode' ? (
           <Group gap={2} wrap="nowrap">
             <input
               ref={(element) => registerCellInput(row.id, key, element)}
               className={codeClasses.cellInput}
               aria-label={label}
-              title="거래처 찾기"
+              title="매출처 찾기"
               data-row-id={row.id}
               data-field={key}
               value={row.customcode || ''}
@@ -456,7 +475,7 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
               onFocus={() => onFocusCell(row.id, key)}
               onDoubleClick={() => onFindCustomer(row.id)}
             />
-            <ActionIcon size="sm" variant="subtle" color="red" aria-label="거래처 찾기" disabled={disabled} onClick={() => onFindCustomer(row.id)}>
+            <ActionIcon size="sm" variant="subtle" color="red" aria-label="매출처 찾기" disabled={disabled} onClick={() => onFindCustomer(row.id)}>
               <IconSearch size={15} />
             </ActionIcon>
           </Group>
@@ -478,7 +497,7 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
             inputMode={NUMERIC_FIELDS.has(key) ? 'decimal' : undefined}
             value={displayValue(key)}
             placeholder={row.is_new && key !== 'description' && !READ_ONLY_DETAIL_FIELDS.has(key) ? label : ''}
-            disabled={key === 'manager' ? !managerEditable : disabled || key === 'unitprice' || key === 'unit'}
+            disabled={key === 'manager' ? !managerEditable : disabled || READ_ONLY_DETAIL_FIELDS.has(key) || key === 'unitprice' || key === 'unit'}
             onFocus={() => onFocusCell(row.id, key)}
             onDoubleClick={key === 'unit' ? () => onFindMaster(row.id, key) : undefined}
             onPaste={pasteHandler(key)}
@@ -549,6 +568,7 @@ export default function OutboundRegisterPage() {
   const locked = isReceiptConfirmed(subulyn);
   const readOnly = Boolean(selectedReceiptno) || locked;
   const hasManagerChanges = useMemo(() => Boolean(selectedReceiptno) && rows.some((row) => row.manager_dirty), [selectedReceiptno, rows]);
+  const hasNewDetails = useMemo(() => rows.some((row) => row.is_new), [rows]);
   const hasPendingChanges = useMemo(() => documentDirty || rows.some((row) => row.is_new || row.is_dirty), [documentDirty, rows]);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const virtuosoContext = useMemo(() => ({ selectedSet }), [selectedSet]);
@@ -976,8 +996,23 @@ export default function OutboundRegisterPage() {
   }, [readOnly, saving]);
 
   const addDetail = useCallback(() => {
-    if (!readOnly && !saving) setStockPickerOpen(true);
-  }, [readOnly, saving]);
+    if (saving) return;
+    if (selectedReceiptno && hasPendingChanges) {
+      notifications.show({ title: '저장되지 않은 변경사항', message: '기존 전표의 변경사항을 먼저 저장하거나 취소한 뒤 새 출고를 시작해 주세요.', color: 'orange' });
+      return;
+    }
+    if (selectedReceiptno) {
+      setHeader({ ...EMPTY_HEADER, receptdate: localDate() });
+      setReceiptMetadata({ companyid: '', companyname: '', created_at: '', updated_at: '' });
+      setRows([]);
+      setSelectedReceiptno('');
+      setSubulyn('N');
+      setDocumentDirty(false);
+      setSelectedIds([]);
+      selectionAnchorRef.current = '';
+    }
+    setStockPickerOpen(true);
+  }, [saving, selectedReceiptno, hasPendingChanges]);
 
   const applyAvailableStocks = useCallback((stocks) => {
     const addedRows = stocks.map((stock) => makeDetail({
@@ -1107,7 +1142,7 @@ export default function OutboundRegisterPage() {
     const failures = rows.flatMap((row, index) => {
       const errors = [];
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(row.receptdate || ''))) errors.push('출고일자(YYYY-MM-DD)');
-      if (!String(row.customcode || '').trim() && !String(row.customname || '').trim()) errors.push('거래처명');
+      if (!String(row.customcode || '').trim() && !String(row.customname || '').trim()) errors.push('매출처명');
       if (!String(row.stocksourcetype || '').trim() || !String(row.stocksourceno || '').trim() || !String(row.stocksourceline ?? '').trim()) errors.push('원천 재고 라인');
       if (!String(row.unit || '').trim()) errors.push('단가기준');
       const qtyText = String(row.qty ?? '').trim();
@@ -1155,7 +1190,7 @@ export default function OutboundRegisterPage() {
   }, [unitOptions]);
 
   const saveDocument = useCallback(async () => {
-    if (selectedReceiptno && hasManagerChanges && !locked) {
+    if (selectedReceiptno && hasManagerChanges && !hasNewDetails && !locked) {
       const managerItems = rows
         .filter((row) => row.manager_dirty)
         .map((row) => ({ lineno: row.lineno, manager: String(row.manager || '').trim() }));
@@ -1184,8 +1219,8 @@ export default function OutboundRegisterPage() {
       notifications.show({ title: '수불 확정 전표', message: '수불 확정된 출고전표는 수정할 수 없습니다.', color: 'orange' });
       return false;
     }
-    if (selectedReceiptno) {
-      notifications.show({ title: '저장된 전표', message: '저장된 출고전표는 담당자만 수정할 수 있습니다.', color: 'orange' });
+    if (selectedReceiptno && !hasPendingChanges) {
+      notifications.show({ title: '저장할 변경사항이 없습니다', message: '현재고 조회에서 출고할 재고를 추가한 뒤 저장해 주세요.', color: 'orange' });
       return false;
     }
     const sourceHeader = header;
@@ -1239,7 +1274,7 @@ export default function OutboundRegisterPage() {
     } finally {
       setSaving(false);
     }
-  }, [locked, selectedReceiptno, hasManagerChanges, rows, header, unitOptions, validateDetailMasters, validateDocument, loadReceipts, openReceipt]);
+  }, [locked, selectedReceiptno, hasManagerChanges, hasNewDetails, hasPendingChanges, rows, header, unitOptions, validateDetailMasters, validateDocument, loadReceipts, openReceipt]);
 
   const exportDocument = useCallback(() => {
     if (!header.receiptno || !rows.length) {
@@ -1313,9 +1348,26 @@ export default function OutboundRegisterPage() {
     notifications.show({ title: '상세 행 복사 완료', message: '선택한 행을 그대로 복사해 상세에 추가했습니다.', color: 'teal' });
   }, [readOnly, saving, selectedIds, rows]);
 
+  const removeSelectedDraftDetails = useCallback(() => {
+    if (saving || !selectedIds.length) return;
+    const selected = new Set(selectedIds);
+    const removedCount = rows.filter((row) => row.is_new && selected.has(row.id)).length;
+    if (!removedCount) return;
+    const remainingRows = rows.filter((row) => !(row.is_new && selected.has(row.id)));
+    setRows(remainingRows);
+    setSelectedIds((current) => current.filter((id) => remainingRows.some((row) => row.id === id)));
+    setDocumentDirty(remainingRows.some((row) => row.is_new || row.is_dirty));
+    selectionAnchorRef.current = '';
+    notifications.show({ title: '선택 행 제거 완료', message: `저장 전 재고 ${removedCount}행을 출고 상세에서 제거했습니다.`, color: 'teal' });
+  }, [saving, selectedIds, rows]);
+
   const requestToolbarDelete = useCallback(() => {
     if (!selectedReceiptno) {
-      notifications.show({ title: '삭제할 항목 없음', message: '출고전표를 선택하거나 상세 행을 선택해 주세요.', color: 'orange' });
+      if (selectedIds.length) {
+        removeSelectedDraftDetails();
+        return;
+      }
+      notifications.show({ title: '삭제할 행을 선택해 주세요', message: '저장 전에는 출고 상세에서 삭제할 행을 선택한 뒤 최상단 삭제를 눌러 주세요.', color: 'orange' });
       return;
     }
     if (hasPendingChanges) {
@@ -1323,7 +1375,7 @@ export default function OutboundRegisterPage() {
       return;
     }
     setDeleteOpen(true);
-  }, [selectedReceiptno, hasPendingChanges]);
+  }, [selectedReceiptno, selectedIds.length, removeSelectedDraftDetails, hasPendingChanges]);
 
   useEffect(() => {
     if (!registerPageRibbon) return undefined;
@@ -1331,17 +1383,17 @@ export default function OutboundRegisterPage() {
       <Group className={inboundClasses.commandRibbon} justify="flex-start" wrap="nowrap" gap={2}>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
         <span className={inboundClasses.ribbonSeparator} />
-        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={addDetail} disabled={saving || readOnly}>&#xCD94;&#xAC00;</Button>
-        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} onClick={copySelectedDetails} disabled={readOnly || saving || selectedIds.length !== 1}>복사</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={addDetail} disabled={saving}>&#xCD94;&#xAC00;</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} onClick={copySelectedDetails} disabled>복사</Button>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportDocument} loading={exporting} disabled={!selectedReceiptno || loading || detailLoading || !rows.length}>엑셀</Button>
-        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={() => saveDocument()} loading={saving} disabled={selectedReceiptno ? (locked || detailLoading || !hasManagerChanges) : (readOnly || detailLoading)}>저장</Button>
-        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={requestToolbarDelete} disabled={saving || locked || !selectedReceiptno}>삭제</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={() => saveDocument()} loading={saving} disabled={selectedReceiptno ? (locked || detailLoading || !(hasManagerChanges || hasPendingChanges)) : (readOnly || detailLoading)}>저장</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={requestToolbarDelete} disabled={saving || (selectedReceiptno ? locked : !selectedIds.length)}>삭제</Button>
         <span className={inboundClasses.ribbonSeparator} />
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closeActivePage}>닫기</Button>
       </Group>,
     );
     return () => registerPageRibbon(null);
-  }, [registerPageRibbon, closeActivePage, runSearch, loading, addDetail, copySelectedDetails, readOnly, saving, selectedIds.length, exportDocument, exporting, selectedReceiptno, rows.length, detailLoading, saveDocument, requestToolbarDelete, locked, hasManagerChanges]);
+  }, [registerPageRibbon, closeActivePage, runSearch, loading, addDetail, copySelectedDetails, readOnly, saving, selectedIds.length, exportDocument, exporting, selectedReceiptno, rows.length, detailLoading, saveDocument, requestToolbarDelete, locked, hasManagerChanges, hasPendingChanges]);
 
 
   const requestDeleteReceipt = useCallback(async () => {
@@ -1361,11 +1413,11 @@ export default function OutboundRegisterPage() {
   }, [selectedReceiptno, locked, loadReceipts, page, filters]);
 
   const rowContent = useCallback((index, row) => (
-    <DetailCells row={row} index={index} selected={selectedSet.has(row.id)} disabled={saving || readOnly} managerEditable={Boolean(selectedReceiptno) && !locked && !saving} saved={readOnly} unitOptions={unitOptions}
+    <DetailCells row={row} index={index} selected={selectedSet.has(row.id)} disabled={saving || locked || (Boolean(selectedReceiptno) && !row.is_new)} managerEditable={Boolean(selectedReceiptno) && !locked && !saving && !hasNewDetails} saved={locked || (Boolean(selectedReceiptno) && !row.is_new)} unitOptions={unitOptions}
       onSelect={toggleSelection} onChange={changeDetail} onPaste={pasteRange}
       registerCodeInput={registerCodeInput} registerCellInput={registerCellInput} onFindItem={setItemPickerTargetId}
       onFindMaster={openMasterPicker} onFindCustomer={openCustomerPicker} onFocusCell={setActiveCell} />
-  ), [selectedSet, saving, readOnly, selectedReceiptno, locked, unitOptions, toggleSelection, changeDetail, pasteRange, registerCodeInput, registerCellInput, openMasterPicker, openCustomerPicker, setActiveCell]);
+  ), [selectedSet, saving, selectedReceiptno, locked, hasNewDetails, unitOptions, toggleSelection, changeDetail, pasteRange, registerCodeInput, registerCellInput, openMasterPicker, openCustomerPicker, setActiveCell]);
 
   const headerColumns = [
     { key: 'select', width: 44, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="상세 전체 선택" checked={rows.length > 0 && selectedIds.length === rows.length} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
@@ -1494,7 +1546,7 @@ export default function OutboundRegisterPage() {
                 <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
                   style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
                   <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
-                  <Table.Tbody>{rows.map((row, index) => <Table.Tr key={row.id} className={selectedSet.has(row.id) ? classes.selectedRow : ''}>{rowContent(index, row)}</Table.Tr>)}</Table.Tbody>
+                  <Table.Tbody>{rows.map((row, index) => <Table.Tr key={row.id} className={[row.is_new && classes.newRow, selectedSet.has(row.id) && classes.selectedRow].filter(Boolean).join(' ')}>{rowContent(index, row)}</Table.Tr>)}</Table.Tbody>
                 </Table>
               </> : <TableVirtuoso ref={virtuosoRef} data={rows} context={virtuosoContext} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} increaseViewportBy={{ top: 84, bottom: 84 }} fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>} itemContent={rowContent} />
             ) : (
@@ -1539,7 +1591,7 @@ export default function OutboundRegisterPage() {
                   onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
               </Stack>
             </Box>
-            <TextInput label="거래처" placeholder="거래처코드 또는 거래처명" value={filterInputs.customer}
+            <TextInput label="매출처" placeholder="매출처코드 또는 매출처명" value={filterInputs.customer}
               onChange={(event) => setFilterInputs((current) => ({ ...current, customer: event.currentTarget.value }))}
               onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
             <TextInput label="출고전표번호" placeholder="전표번호" value={filterInputs.receiptno}
@@ -1552,7 +1604,7 @@ export default function OutboundRegisterPage() {
           <Box className={classes.outboundStockLookup}>
             <Text fw={700} size="sm">재고조회</Text>
             <Text size="xs" c="dimmed">기초재고와 입고재고에서 출고할 원천 행을 선택합니다.</Text>
-            <Button fullWidth color="red" leftSection={<IconSearch size={15} />} onClick={addDetail} disabled={saving || locked}>
+            <Button fullWidth color="red" leftSection={<IconSearch size={15} />} onClick={addDetail} disabled={saving}>
               현재고 조회
             </Button>
           </Box>
@@ -1575,6 +1627,8 @@ export default function OutboundRegisterPage() {
         opened={stockPickerOpen}
         receiptno={selectedReceiptno}
         existingRows={rows}
+        fixedCustomerCode={selectedReceiptno ? header.customcode : ''}
+        fixedCustomerName={selectedReceiptno ? header.customname : ''}
         onClose={() => setStockPickerOpen(false)}
         onApply={applyAvailableStocks}
       />

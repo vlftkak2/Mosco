@@ -58,6 +58,13 @@
 .receiptFinderModalClose:hover { background: #e8edf3; color: #334155; }
 .receiptFinderTitleIcon { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border: 1px solid #dce2e9; border-radius: 7px; background: #fff; color: #526079; }
 .modalHint { padding: 10px 12px; border: 1px solid #e0e6ef; border-radius: 6px; background: #f7f8fa; color: #596579; font-size: 12px; }
+.stockCustomerInputWrap { width: 100%; min-width: 0; }
+.stockCustomerInputWrap :global(.mantine-InputWrapper-label) { color: #526079; font-size: 12px; font-weight: 600; }
+.stockCustomerSuggestions { box-sizing: border-box; max-height: 256px; overflow: auto; padding: 2px; border: 1px solid #dce2e9; border-radius: 4px; background: #fff; }
+.stockCustomerSuggestion { display: flex; width: 100%; height: 32px; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px; border: 0; border-radius: 2px; background: transparent; color: #293a52; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.stockCustomerSuggestion:hover { background: #edf3f8; }
+.stockCustomerSuggestion span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stockCustomerSuggestion small { flex: 0 0 auto; color: #7b8798; font-size: 11px; }
 .receiptFinderFilters { padding: 15px 16px 13px; border: 1px solid #e5e9ef; border-radius: 8px; background: #fff; }
 .receiptFinderFilterGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; }
 .receiptFinderFilters :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #526079; font-size: 12px; font-weight: 600; }
