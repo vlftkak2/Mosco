@@ -999,7 +999,7 @@ export default function StockStandPage() {
       return;
     }
     const row = makeRow({
-      standdate,
+      standdate: localDate(),
       qtyunit: resolveMasterCode('qtyunit', 'EA', masters) || 'EA',
       unit: resolveMasterCode('unit', 'KG', masters) || 'KG',
     });
@@ -1367,7 +1367,7 @@ export default function StockStandPage() {
       };
       const parsedRows = sourceRows.map((source, index) => ({
         excelRow: index + 2,
-        standdate: parseExcelDate(getValue(source, 'standdate')) || standdate,
+        standdate: parseExcelDate(getValue(source, 'standdate')) || localDate(),
         itemcode: getValue(source, 'itemcode'), itemname: getValue(source, 'itemname'),
         customcode: getValue(source, 'customcode'), customname: getValue(source, 'customname'),
         productname: getValue(source, 'productname'),
@@ -1608,7 +1608,17 @@ export default function StockStandPage() {
       if (newRows.length) resultParts.push(`${newRows.length}건 등록`);
       if (changedPriceRows.length) resultParts.push(`${changedPriceRows.length}건 단가정보 수정`);
       notifications.show({ title: '기초재고 저장 완료', message: `${resultParts.join(', ')}했습니다. 저장된 행은 단가기준·기초단가를 수정할 수 있고, 기초금액은 자동 계산됩니다.`, color: 'teal' });
-      await loadRows(standdate, query, false);
+      if (newRows.length) {
+        const savedDates = newRows.map((row) => row.standdate || standdate).filter(Boolean).sort();
+        const savedDateFrom = savedDates[0] || dateFrom;
+        const savedDateTo = savedDates[savedDates.length - 1] || dateTo;
+        setDateFrom(savedDateFrom);
+        setDateTo(savedDateTo);
+        setPage(1);
+        await loadRows(standdate, query, false, false, 1, pageSize, savedDateFrom, savedDateTo, warehouseQuery);
+      } else {
+        await loadRows(standdate, query, false);
+      }
     } catch (error) {
         notifications.show({
           title: error.response?.status === 409 ? '입력값 확인 필요' : '기초재고 저장 실패',
