@@ -1223,8 +1223,8 @@ export default function OutboundRegisterPage() {
       notifications.show({
         title: '출고 저장 완료',
         message: data.group_count > 1
-          ? `${data.group_count}\uac1c \ucd9c\uace0\uc804\ud45c \ub4f1\ub85d \uc644\ub8cc (${(data.receipt_numbers || []).join(', ')}) / \uc0c1\uc138 ${data.saved_count}\uac74`
-          : `${data.receiptno} \uc804\ud45c\uc758 \uc0c1\uc138 ${data.saved_count}\uac74\uc744 \uc800\uc7a5\ud588\uc2b5\ub2c8\ub2e4.`,
+          ? `${data.group_count}개 출고전표 등록 완료 (${(data.receipt_numbers || []).join(', ')}) / 상세 ${data.saved_count}건`
+          : `${data.receiptno} 전표의 상세 ${data.saved_count}건을 저장했습니다.`,
         color: 'teal',
       });
       const defaultFilters = createDefaultReceiptFilters();

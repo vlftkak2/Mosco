@@ -19,30 +19,30 @@ import useErpPageRibbon from '../components/common/useErpPageRibbon';
 import ErpBreadcrumb from '../components/common/ErpBreadcrumb';
 
 const STOCK_EXCEL_COLUMNS = [
-  ['standdate', '\uAE30\uCD08\uC77C\uC790'], ['customname', '\uAC70\uB798\uCC98'], ['warehousecodename', '\uCC3D\uACE0'], ['productname', '\uC81C\uD488\uBC88\uD638'],
-  ['itemname', '\uD488\uBA85'], ['materialname', '\uAC15\uC885'], ['surfacename', '\uD45C\uBA74'], ['myrtle', '\uB3C4\uAE08\uB7C9(g/m\u00B2)'],
-  ['thickness', '\uB450\uAED8'], ['width', '\uD3ED'], ['length', '\uAE38\uC774'], ['qty', '\uAE30\uCD08\uC218\uB7C9'], ['weight', '\uAE30\uCD08\uC911\uB7C9'],
-  ['unitprice', '\uAE30\uCD08\uB2E8\uAC00'], ['supplyamt', '\uACF5\uAE09\uAC00'], ['vat', '\uBD80\uAC00\uC138'], ['unitamt', '\uD569\uACC4\uAE08\uC561'],
-  ['unit', '\uB2E8\uAC00\uAE30\uC900'], ['qtyunit', '\uC218\uB7C9\uB2E8\uC704'], ['description', '\uBE44\uACE0'],
+  ['standdate', '기초일자'], ['customname', '거래처'], ['warehousecodename', '창고'], ['productname', '제품번호'],
+  ['itemname', '품명'], ['materialname', '강종'], ['surfacename', '표면'], ['myrtle', '도금량(g/m²)'],
+  ['thickness', '두께'], ['width', '폭'], ['length', '길이'], ['qty', '기초수량'], ['weight', '기초중량'],
+  ['unitprice', '기초단가'], ['supplyamt', '공급가'], ['vat', '부가세'], ['unitamt', '합계금액'],
+  ['unit', '단가기준'], ['qtyunit', '수량단위'], ['description', '비고'],
 ];
 const STOCK_EXPORT_COLUMNS = [
   ...STOCK_EXCEL_COLUMNS,
-  ['created_at', '\uB4F1\uB85D\uC77C\uC790'], ['updated_at', '\uC218\uC815\uC77C\uC790'],
+  ['created_at', '등록일자'], ['updated_at', '수정일자'],
 ];
 const STOCK_PAGE_OPTIONS = [
-  { value: '15', label: '15\uAC1C\uC529' },
-  { value: '50', label: '50\uAC1C\uC529' },
-  { value: '100', label: '100\uAC1C\uC529' },
-  { value: '200', label: '200\uAC1C\uC529' },
+  { value: '15', label: '15개씩' },
+  { value: '50', label: '50개씩' },
+  { value: '100', label: '100개씩' },
+  { value: '200', label: '200개씩' },
 ];
 const GRID_FIELDS = ['standdate', 'customname', 'warehousecode', 'productname', 'itemname', 'materialcode', 'surfacecode', 'myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat', 'unitamt', 'unit', 'qtyunit', 'description'];
 const GRID_COLUMN_WIDTHS = { select: 44, number: 58, standdate: 118, customname: 160, itemcode: 135, itemname: 170, productname: 125, materialcode: 105, surfacecode: 100, myrtle: 110, thickness: 90, width: 90, length: 90, qty: 100, qtyunit: 100, warehousecode: 130, weight: 110, unit: 100, unitprice: 115, supplyamt: 120, vat: 100, unitamt: 120, description: 160 };
 const STOCK_GRID_COLUMNS = [
-  ['select', ''], ['number', 'No.'], ['standdate', '\uAE30\uCD08\uC77C\uC790 *'], ['customname', '\uAC70\uB798\uCC98'], ['warehousecode', '\uCC3D\uACE0 *'],
-  ['productname', '\uC81C\uD488\uBC88\uD638'], ['itemname', '\uD488\uBA85 *'], ['materialcode', '\uAC15\uC885 *'], ['surfacecode', '\uD45C\uBA74'], ['myrtle', '\uB3C4\uAE08\uB7C9(g/m\u00B2)'],
-  ['thickness', '\uB450\uAED8'], ['width', '\uD3ED'], ['length', '\uAE38\uC774'], ['qty', '\uAE30\uCD08\uC218\uB7C9 *'], ['weight', '\uAE30\uCD08\uC911\uB7C9 *'],
-  ['unitprice', '\uAE30\uCD08\uB2E8\uAC00'], ['supplyamt', '\uACF5\uAE09\uAC00'], ['vat', '\uBD80\uAC00\uC138'], ['unitamt', '\uD569\uACC4\uAE08\uC561'],
-  ['unit', '\uB2E8\uAC00\uAE30\uC900'], ['qtyunit', '\uC218\uB7C9\uB2E8\uC704 *'], ['description', '\uBE44\uACE0'],
+  ['select', ''], ['number', 'No.'], ['standdate', '기초일자 *'], ['customname', '거래처'], ['warehousecode', '창고 *'],
+  ['productname', '제품번호'], ['itemname', '품명 *'], ['materialcode', '강종 *'], ['surfacecode', '표면'], ['myrtle', '도금량(g/m²)'],
+  ['thickness', '두께'], ['width', '폭'], ['length', '길이'], ['qty', '기초수량 *'], ['weight', '기초중량 *'],
+  ['unitprice', '기초단가'], ['supplyamt', '공급가'], ['vat', '부가세'], ['unitamt', '합계금액'],
+  ['unit', '단가기준'], ['qtyunit', '수량단위 *'], ['description', '비고'],
 ];
 const MASTER_FIELDS = new Set(['qtyunit', 'warehousecode', 'unit', 'materialcode', 'surfacecode']);
 const PRICE_FIELDS = new Set(['unit', 'unitprice']);
@@ -121,9 +121,9 @@ const calculateAmounts = (row, priceOptions) => {
     const unitName = priceOptions.find((option) => option.code === row.unit)?.name || '';
     const unitToken = `${row.unit || ''} ${unitName}`.toLocaleUpperCase();
     let basis;
-    if (/QTY|COUNT|(^|[\s_-])(EA|PCS)([\s_-]|$)/.test(unitToken) || unitToken.includes('\uC218\uB7C9')) basis = Number(row.qty);
-    else if (/LENGTH|METER|(^|[\s_-])(M|MTR)([\s_-]|$)/.test(unitToken) || unitToken.includes('\uAE38\uC774')) basis = Number(row.length);
-    else basis = /TON|\uD1A4/.test(unitToken) ? Number(row.weight) / 1000 : Number(row.weight);
+    if (/QTY|COUNT|(^|[\s_-])(EA|PCS)([\s_-]|$)/.test(unitToken) || unitToken.includes('수량')) basis = Number(row.qty);
+    else if (/LENGTH|METER|(^|[\s_-])(M|MTR)([\s_-]|$)/.test(unitToken) || unitToken.includes('길이')) basis = Number(row.length);
+    else basis = /TON|톤/.test(unitToken) ? Number(row.weight) / 1000 : Number(row.weight);
     if (!Number.isFinite(basis)) return { supplyamt: '', vat: '', unitamt: '' };
     supplyamt = Number((basis * unitprice).toFixed(2));
   }
@@ -325,7 +325,7 @@ function ItemNameAutocompleteCell({ row, disabled, registerCellInput, onChange, 
         <input
           ref={(element) => registerCellInput(row.id, 'itemname', element)}
           className={`${codeClasses.cellInput} ${outboundClasses.itemCodePickerInput}`}
-          aria-label={'\uD488\uBA85'}
+          aria-label={'품명'}
           aria-autocomplete="list"
           aria-haspopup="listbox"
           aria-expanded={opened}
@@ -422,31 +422,31 @@ function CustomerPicker({ opened, onClose, onSelect }) {
         setCustomers(data.data || []);
         setTotal(data.total || 0);
       })
-      .catch((error) => { if (alive) notifications.show({ title: '\uAC70\uB798\uCC98 \uC870\uD68C \uC2E4\uD328', message: errorText(error), color: 'red' }); })
+      .catch((error) => { if (alive) notifications.show({ title: '거래처 조회 실패', message: errorText(error), color: 'red' }); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [opened, query, page]);
 
   const search = () => { setPage(1); setQuery(input.trim()); };
-  return <Modal opened={opened} onClose={onClose} title={<Group gap={9} wrap="nowrap"><Box className={outboundClasses.receiptFinderTitleIcon}><IconSearch size={17} /></Box><Text fw={750}>{'\uAC70\uB798\uCC98 \uC120\uD0DD'}</Text></Group>}
+  return <Modal opened={opened} onClose={onClose} title={<Group gap={9} wrap="nowrap"><Box className={outboundClasses.receiptFinderTitleIcon}><IconSearch size={17} /></Box><Text fw={750}>{'거래처 선택'}</Text></Group>}
     classNames={{ content: outboundClasses.receiptFinderModalContent, header: outboundClasses.receiptFinderModalHeader, title: outboundClasses.receiptFinderModalTitle, close: outboundClasses.receiptFinderModalClose }} centered size={900}>
     <Stack gap="sm" pt={10}>
       <Group gap={7} wrap="nowrap">
-        <TextInput className={outboundClasses.customerSearchInput} value={input} onChange={(event) => setInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') search(); }} placeholder={'\uAC70\uB798\uCC98\uCF54\uB4DC \uB610\uB294 \uAC70\uB798\uCC98\uBA85 \uAC80\uC0C9'} leftSection={<IconSearch size={15} />} size="sm" autoFocus />
-        <Button color="red" size="sm" leftSection={<IconSearch size={15} />} onClick={search}>{'\uC870\uD68C'}</Button>
+        <TextInput className={outboundClasses.customerSearchInput} value={input} onChange={(event) => setInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') search(); }} placeholder={'거래처코드 또는 거래처명 검색'} leftSection={<IconSearch size={15} />} size="sm" autoFocus />
+        <Button color="red" size="sm" leftSection={<IconSearch size={15} />} onClick={search}>{'조회'}</Button>
       </Group>
       <Box className={outboundClasses.pickerResults}>
         {loading && <Loader className={outboundClasses.pickerLoader} size="xs" color="red" />}
         <ScrollArea h={420} type="auto" scrollbarSize={6}>
           <Table className={`${codeClasses.codeTable} ${outboundClasses.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
-            <Table.Thead><Table.Tr><Table.Th>{'\uAC70\uB798\uCC98\uCF54\uB4DC'}</Table.Th><Table.Th>{'\uAC70\uB798\uCC98\uBA85'}</Table.Th><Table.Th>{'\uC0AC\uC5C5\uC790\uBC88\uD638'}</Table.Th></Table.Tr></Table.Thead>
+            <Table.Thead><Table.Tr><Table.Th>{'거래처코드'}</Table.Th><Table.Th>{'거래처명'}</Table.Th><Table.Th>{'사업자번호'}</Table.Th></Table.Tr></Table.Thead>
             <Table.Tbody>{customers.map((customer) => <Table.Tr key={customer.customercode} className={outboundClasses.customerResultRow} onClick={() => { onSelect(customer); onClose(); }}>
               <Table.Td>{customer.customercode}</Table.Td><Table.Td>{customer.customername}</Table.Td><Table.Td>{customer.businessno || ''}</Table.Td>
             </Table.Tr>)}</Table.Tbody>
           </Table>
         </ScrollArea>
       </Box>
-      <Group justify="space-between"><Text size="xs" c="dimmed">{`\uCD1D ${total.toLocaleString()}\uAC74`}</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / 20))} value={page} onChange={setPage} withEdges color="red" /></Group>
+      <Group justify="space-between"><Text size="xs" c="dimmed">{`총 ${total.toLocaleString()}건`}</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / 20))} value={page} onChange={setPage} withEdges color="red" /></Group>
     </Stack>
   </Modal>;
 }
@@ -519,7 +519,7 @@ function CustomerNameAutocompleteCell({ row, disabled, registerCellInput, onChan
         <input
           ref={(element) => registerCellInput(row.id, 'customname', element)}
           className={`${codeClasses.cellInput} ${outboundClasses.itemCodePickerInput}`}
-          aria-label={'\uAC70\uB798\uCC98\uBA85'}
+          aria-label={'거래처명'}
           aria-haspopup="listbox"
           aria-expanded={opened}
           value={editing ? draft : row.customname || ''}
@@ -578,7 +578,7 @@ function CustomerNameAutocompleteCell({ row, disabled, registerCellInput, onChan
       </div>
     </Popover.Target>
     <Popover.Dropdown className={itemMasterClasses.shapeSuggestions}>
-      <div role="listbox" aria-label={'\uAC70\uB798\uCC98 \uAC80\uC0C9 \uACB0\uACFC'}>
+      <div role="listbox" aria-label={'거래처 검색 결과'}>
         {customers.map((customer, index) => <button
           key={customer.customercode}
           type="button"
@@ -1340,19 +1340,19 @@ export default function StockStandPage() {
       if (sourceRows.length > 10000) throw new Error('한 번에 최대 10,000행까지 등록할 수 있습니다.');
       const normalize = (value) => String(value ?? '').trim().toLowerCase().replace(/[\s_-]+/g, '');
       const aliases = {
-        standdate: ['standdate', '\uAE30\uCD08\uC77C\uC790', '\uAE30\uC900\uC77C\uC790'],
-        itemcode: ['itemcode', '\uD488\uBAA9\uCF54\uB4DC'], itemname: ['itemname', '\uD488\uBA85', '\uD488\uBAA9\uBA85'],
-        customcode: ['customcode', '\uAC70\uB798\uCC98\uCF54\uB4DC'], customname: ['customname', '\uAC70\uB798\uCC98', '\uAC70\uB798\uCC98\uBA85'],
-        productname: ['productname', '\uC81C\uD488\uBC88\uD638'],
-        materialcode: ['materialcode', '\uAC15\uC885\uCF54\uB4DC'], materialname: ['materialname', '\uAC15\uC885'],
-        surfacecode: ['surfacecode', '\uD45C\uBA74\uCF54\uB4DC'], surfacename: ['surfacename', '\uD45C\uBA74'],
-        myrtle: ['myrtle', '\uB3C4\uAE08\uB7C9(g/m\u00B2)', '\uB3C4\uAE08\uB7C9'], thickness: ['thickness', '\uB450\uAED8'], width: ['width', '\uD3ED'], length: ['length', '\uAE38\uC774'],
-        qty: ['qty', '\uAE30\uCD08\uC218\uB7C9', '\uC218\uB7C9'], qtyunit: ['qtyunit', '\uC218\uB7C9\uB2E8\uC704\uCF54\uB4DC', '\uC218\uB7C9\uB2E8\uC704'],
-        weight: ['weight', '\uAE30\uCD08\uC911\uB7C9', '\uC911\uB7C9'], warehousecode: ['warehousecode', '\uCC3D\uACE0\uCF54\uB4DC'],
-        warehousecodename: ['warehousecodename', '\uCC3D\uACE0', '\uCC3D\uACE0\uBA85'], unit: ['unit', '\uB2E8\uAC00\uAE30\uC900'],
-        unitprice: ['unitprice', '\uAE30\uCD08\uB2E8\uAC00'], supplyamt: ['supplyamt', '\uACF5\uAE09\uAC00'],
-        vat: ['vat', '\uBD80\uAC00\uC138', '\uC138\uC561'], unitamt: ['unitamt', '\uD569\uACC4\uAE08\uC561', '\uAE30\uCD08\uAE08\uC561'],
-        description: ['description', '\uBE44\uACE0'],
+        standdate: ['standdate', '기초일자', '기준일자'],
+        itemcode: ['itemcode', '품목코드'], itemname: ['itemname', '품명', '품목명'],
+        customcode: ['customcode', '거래처코드'], customname: ['customname', '거래처', '거래처명'],
+        productname: ['productname', '제품번호'],
+        materialcode: ['materialcode', '강종코드'], materialname: ['materialname', '강종'],
+        surfacecode: ['surfacecode', '표면코드'], surfacename: ['surfacename', '표면'],
+        myrtle: ['myrtle', '도금량(g/m²)', '도금량'], thickness: ['thickness', '두께'], width: ['width', '폭'], length: ['length', '길이'],
+        qty: ['qty', '기초수량', '수량'], qtyunit: ['qtyunit', '수량단위코드', '수량단위'],
+        weight: ['weight', '기초중량', '중량'], warehousecode: ['warehousecode', '창고코드'],
+        warehousecodename: ['warehousecodename', '창고', '창고명'], unit: ['unit', '단가기준'],
+        unitprice: ['unitprice', '기초단가'], supplyamt: ['supplyamt', '공급가'],
+        vat: ['vat', '부가세', '세액'], unitamt: ['unitamt', '합계금액', '기초금액'],
+        description: ['description', '비고'],
       };
       const getValue = (source, key) => {
         const cells = Object.fromEntries(Object.entries(source).map(([name, value]) => [normalize(name), value]));
@@ -1415,13 +1415,13 @@ export default function StockStandPage() {
           const matches = activeCustomers[row.customcode.toLocaleLowerCase()] || [];
           if (matches.length === 1) {
             if (row.customname && row.customname.toLocaleLowerCase() !== matches[0].customername.toLocaleLowerCase()) {
-              row.customerResolveError = '\uAC70\uB798\uCC98\uCF54\uB4DC\uC640 \uAC70\uB798\uCC98\uBA85\uC774 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4';
+              row.customerResolveError = '거래처코드와 거래처명이 일치하지 않습니다';
             } else {
               row.customcode = matches[0].customercode;
               row.customname = matches[0].customername;
             }
           } else {
-            row.customerResolveError = '\uD65C\uC131 \uAC70\uB798\uCC98 \uB9C8\uC2A4\uD130\uC5D0\uC11C \uAC70\uB798\uCC98\uCF54\uB4DC\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4';
+            row.customerResolveError = '활성 거래처 마스터에서 거래처코드를 찾을 수 없습니다';
           }
         } else if (row.customname) {
           const matches = activeCustomers[row.customname.toLocaleLowerCase()] || [];
@@ -1429,7 +1429,7 @@ export default function StockStandPage() {
             row.customcode = matches[0].customercode;
             row.customname = matches[0].customername;
           } else if (matches.length > 1) {
-            row.customerResolveError = '\uAC70\uB798\uCC98\uBA85\uC774 \uC911\uBCF5\uB418\uC5B4 \uAC70\uB798\uCC98\uCF54\uB4DC\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4';
+            row.customerResolveError = '거래처명이 중복되어 거래처코드가 필요합니다';
           } else {
             row.customerResolveError = `활성 거래처 마스터에서 거래처명을 찾을 수 없습니다: ${row.customname}`;
           }
@@ -1444,9 +1444,9 @@ export default function StockStandPage() {
             row.itemcode = matches[0].itemcode;
             row.itemname = matches[0].itemname;
           } else if (matches.length > 1) {
-            row.itemResolveError = '\uD488\uBA85\uC774 \uC911\uBCF5\uB418\uC5B4 \uD488\uBAA9\uCF54\uB4DC\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4';
+            row.itemResolveError = '품명이 중복되어 품목코드가 필요합니다';
           } else {
-            row.itemResolveError = '\uD65C\uC131 \uD488\uBAA9 \uB9C8\uC2A4\uD130\uC5D0\uC11C \uD488\uBA85\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4';
+            row.itemResolveError = '활성 품목 마스터에서 품명을 찾을 수 없습니다';
           }
         }
         row.materialname = masters.material.find((option) => option.code === row.materialcode)?.name || '';
@@ -1458,7 +1458,7 @@ export default function StockStandPage() {
         const rowErrors = [];
         if (row.itemResolveError) rowErrors.push(row.itemResolveError);
         if (row.customerResolveError) rowErrors.push(row.customerResolveError);
-        if (!isValidDateInput(row.standdate)) rowErrors.push('\uAE30\uCD08\uC77C\uC790 YYYY-MM-DD');
+        if (!isValidDateInput(row.standdate)) rowErrors.push('기초일자 YYYY-MM-DD');
         if (!row.itemcode) rowErrors.push('품목코드 필수');
         else if (!row.itemname) rowErrors.push('품목코드가 미등록이거나 사용중지 상태입니다');
         if (!row.materialcode || !row.materialname) rowErrors.push('강종 확인 필요');
@@ -1523,10 +1523,10 @@ export default function StockStandPage() {
           const byName = data.names?.[value.toLocaleLowerCase()] || [];
           const match = byCode || (byName.length === 1 ? byName[0] : null);
           if (match) resolvedById.set(row.id, match);
-          else unresolved.push(`${rows.indexOf(row) + 1}\uD589 ${byName.length > 1 ? '\uD488\uBA85\uC774 \uC911\uBCF5\uB418\uC5B4 \uD488\uBAA9\uCF54\uB4DC\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4' : '\uD65C\uC131 \uD488\uBAA9 \uB9C8\uC2A4\uD130\uC5D0\uC11C \uD488\uBA85\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4'}`);
+          else unresolved.push(`${rows.indexOf(row) + 1}행 ${byName.length > 1 ? '품명이 중복되어 품목코드가 필요합니다' : '활성 품목 마스터에서 품명을 찾을 수 없습니다'}`);
         });
         if (unresolved.length) {
-          notifications.show({ title: '\uD488\uBAA9 \uC815\uBCF4 \uD655\uC778', message: unresolved.slice(0, 5).join(' / '), color: 'orange', autoClose: 9000 });
+          notifications.show({ title: '품목 정보 확인', message: unresolved.slice(0, 5).join(' / '), color: 'orange', autoClose: 9000 });
           return;
         }
         newRows = newRows.map((row) => {
@@ -1551,7 +1551,7 @@ export default function StockStandPage() {
     const invalid = [];
     newRows.forEach((row) => {
       const rowNo = rows.indexOf(row) + 1;
-      if (!isValidDateInput(row.standdate)) invalid.push(`${rowNo}\uD589 \uAE30\uCD08\uC77C\uC790`);
+      if (!isValidDateInput(row.standdate)) invalid.push(`${rowNo}행 기초일자`);
       if (!row.itemcode.trim() || !row.itemname.trim()) invalid.push(`${rowNo}행 품목`);
       if (!row.materialcode || !row.materialname) invalid.push(`${rowNo}행 강종`);
       if (!row.qtyunit) invalid.push(`${rowNo}행 수량단위`);
@@ -1563,12 +1563,12 @@ export default function StockStandPage() {
       }
       for (const key of ['supplyamt', 'vat']) {
         if (row[`${key}_manual`] && row[key] !== '' && (!Number.isFinite(Number(row[key])) || Number(row[key]) < 0)) {
-          invalid.push(`${rowNo}\uD589 ${key === 'supplyamt' ? '\uACF5\uAE09\uAC00' : '\uBD80\uAC00\uC138'}`);
+          invalid.push(`${rowNo}행 ${key === 'supplyamt' ? '공급가' : '부가세'}`);
         }
       }
     });
     [...newRows, ...changedPriceRows].forEach((row) => {
-      if (!row.unit) invalid.push(`${rows.indexOf(row) + 1}\uD589 \uB2E8\uAC00\uAE30\uC900`);
+      if (!row.unit) invalid.push(`${rows.indexOf(row) + 1}행 단가기준`);
       for (const key of ['unitprice']) {
         if (row[key] !== '' && (!Number.isFinite(Number(row[key])) || Number(row[key]) < 0)) invalid.push(`${rows.indexOf(row) + 1}행 기초단가`);
       }
@@ -1752,7 +1752,7 @@ export default function StockStandPage() {
         <input
           ref={(element) => registerCellInput(row.id, key, element)}
           className={codeClasses.cellInput}
-          aria-label={'\uAE30\uCD08\uC77C\uC790'}
+          aria-label={'기초일자'}
           data-row-id={row.id}
           data-field={key}
           type="text"
@@ -1949,7 +1949,7 @@ export default function StockStandPage() {
               style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
               <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
             </Table>
-            <Box className={classes.emptyTableMessage}>{'\uD45C\uC2DC\uD560 \uAE30\uCD08\uC7AC\uACE0\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.'}</Box>
+            <Box className={classes.emptyTableMessage}>{'표시할 기초재고가 없습니다.'}</Box>
           </Box>
         )}
       </Box>
@@ -1965,19 +1965,19 @@ export default function StockStandPage() {
     </Paper>
     {filterOpen && <Paper component="aside" className={inboundClasses.receiptFilterSidebar} withBorder>
       <Group className={inboundClasses.receiptFilterHeader} justify="space-between" align="center">
-        <Text fw={700}>{'\uC870\uD68C\uC870\uAC74'}</Text>
-        <ActionIcon variant="subtle" color="gray" aria-label={'\uC870\uD68C\uC870\uAC74 \uB2EB\uAE30'} onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon>
+        <Text fw={700}>{'조회조건'}</Text>
+        <ActionIcon variant="subtle" color="gray" aria-label={'조회조건 닫기'} onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon>
       </Group>
       <Stack gap="sm" className={inboundClasses.receiptFilterFields}>
         <Box>
-          <Text size="xs" fw={700} mb={5}>{'\uAE30\uC900\uAE30\uAC04'}</Text>
+          <Text size="xs" fw={700} mb={5}>{'기준기간'}</Text>
           <Stack gap={6}>
-            <TextInput type="date" aria-label={'\uAE30\uC900\uAE30\uAC04 \uC2DC\uC791\uC77C'} value={dateFrom} onChange={(event) => setDateFrom(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
-            <TextInput type="date" aria-label={'\uAE30\uC900\uAE30\uAC04 \uC885\uB8CC\uC77C'} value={dateTo} onChange={(event) => setDateTo(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+            <TextInput type="date" aria-label={'기준기간 시작일'} value={dateFrom} onChange={(event) => setDateFrom(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+            <TextInput type="date" aria-label={'기준기간 종료일'} value={dateTo} onChange={(event) => setDateTo(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
           </Stack>
         </Box>
-        <TextInput label={'\uD488\uBAA9'} placeholder={'\uD488\uBAA9\uCF54\uB4DC \uB610\uB294 \uD488\uBAA9\uBA85'} value={searchInput} onChange={(event) => setSearchInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
-        <TextInput label={'\uCC3D\uACE0'} placeholder={'\uCC3D\uACE0\uCF54\uB4DC \uB610\uB294 \uCC3D\uACE0\uBA85'} value={warehouseInput} onChange={(event) => setWarehouseInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+        <TextInput label={'품목'} placeholder={'품목코드 또는 품목명'} value={searchInput} onChange={(event) => setSearchInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+        <TextInput label={'창고'} placeholder={'창고코드 또는 창고명'} value={warehouseInput} onChange={(event) => setWarehouseInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
       </Stack>
     </Paper>}
     </Box>

@@ -18,6 +18,10 @@ const TYPE_OPTIONS = [{ value: "ALL", label: "전체" }, { value: "ST", label: "
 const TYPE_NAMES = { ST: "기초", IN: "입고", OUT: "출고" };
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
+const dimensionText = (item) => [item.thickness, item.width, item.length]
+  .filter((value) => value !== null && value !== undefined && String(value).trim() !== '')
+  .map(numberText)
+  .join(' × ');
 const timestampText = (value) => { if (!value) return ''; const d = new Date(value); return Number.isNaN(d.getTime()) ? String(value) : new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d); };
 export default function IniopStockPage() {
   const [inputs, setInputs] = useState(monthFilters);
@@ -61,26 +65,27 @@ export default function IniopStockPage() {
     <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder><Group className={classes.resultsToolbar} justify="space-between"><Text fw={700}>재고수불현황</Text><Button size="xs" variant="light" color="red" leftSection={<IconDownload size={14} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>엑셀 다운로드</Button></Group>
       <Box className={classes.tableWrap}>{loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}{items.length ? <ResizableVirtualTable data={items} computeItemKey={(_index, item) => `${item.iniotype}:${item.receiptno}:${item.lineno}`} rowOffset={(page - 1) * pageSize} minTableWidth={0} columns={[
           { key: 'no', label: 'No.', width: 48, minWidth: 45, render: (_item, index) => index + 1 },
+          { key: 'iniotype', label: '수불유형', width: 70, minWidth: 60, render: (item) => TYPE_NAMES[item.iniotype] || item.iniotype },
           { key: 'iniodate', label: '수불일자', width: 100, minWidth: 90, render: (item) => String(item.iniodate || '').slice(0, 10) },
-          { key: 'iniotype', label: '유형', width: 65, minWidth: 58, render: (item) => TYPE_NAMES[item.iniotype] || item.iniotype },
-          { key: 'receiptno', label: '수불전표', width: 140, minWidth: 125, render: (item) => item.receiptno },
-          { key: 'customcode', label: '거래처코드', width: 95, minWidth: 82, render: (item) => item.customcode },
-          { key: 'customname', label: '거래처명', width: 125, minWidth: 105, render: (item) => item.customname },
-          { key: 'lineno', label: '라인', width: 50, minWidth: 45, render: (item) => item.lineno },
-          { key: 'itemcode', label: '품목코드', width: 100, minWidth: 88, render: (item) => item.itemcode },
-          { key: 'itemname', label: '품목명', width: 120, minWidth: 102, render: (item) => item.itemname },
-          { key: 'productname', label: '\uC81C\uD488\uBC88\uD638', width: 105, minWidth: 90, render: (item) => item.productname || '' },
-          { key: 'materialname', label: '강판', width: 85, minWidth: 72, render: (item) => item.materialname || '' },
+          { key: 'customname', label: '거래처명', width: 125, minWidth: 105, render: (item) => item.customname || '' },
+          { key: 'receiptno', label: '수불전표', width: 140, minWidth: 125, render: (item) => item.receiptno || '' },
+          { key: 'lineno', label: '순번', width: 55, minWidth: 48, render: (item) => item.lineno ?? '' },
+          { key: 'warehousecodename', label: '창고명', width: 110, minWidth: 95, render: (item) => item.warehousecodename || '' },
+          { key: 'itemname', label: '품명', width: 120, minWidth: 102, render: (item) => item.itemname || '' },
+          { key: 'productname', label: '제품번호', width: 105, minWidth: 90, render: (item) => item.productname || '' },
+          { key: 'materialname', label: '강종', width: 85, minWidth: 72, render: (item) => item.materialname || '' },
           { key: 'surfacename', label: '표면', width: 75, minWidth: 65, render: (item) => item.surfacename || '' },
           { key: 'myrtle', label: '도금량(g/㎡)', width: 100, minWidth: 90, render: (item) => numberText(item.myrtle) },
           { key: 'manager', label: '담당자', width: 80, minWidth: 68, render: (item) => item.manager || '' },
-          { key: 'thickness', label: '두께', width: 60, minWidth: 52, render: (item) => numberText(item.thickness) },
-          { key: 'width', label: '폭', width: 50, minWidth: 45, render: (item) => numberText(item.width) },
-          { key: 'length', label: '길이', width: 60, minWidth: 52, render: (item) => numberText(item.length) },
-          { key: 'qty', label: '수량', width: 70, minWidth: 60, render: (item) => numberText(item.qty) },
-          { key: 'qtyunit', label: '수량단위', width: 75, minWidth: 65, render: (item) => item.qtyunit },
-          { key: 'weight', label: '중량', width: 80, minWidth: 70, render: (item) => numberText(item.weight) },
-          { key: 'warehousecodename', label: '창고명', width: 110, minWidth: 95, render: (item) => item.warehousecodename },
+          { key: 'specification', label: '규격', width: 125, minWidth: 100, render: (item) => dimensionText(item) },
+          { key: 'qty', label: '수량', width: 80, minWidth: 68, render: (item) => numberText(item.qty) },
+          { key: 'weight', label: '중량(KG)', width: 90, minWidth: 78, render: (item) => numberText(item.weight) },
+          { key: 'unitprice', label: '단가', width: 95, minWidth: 82, render: (item) => numberText(item.unitprice) },
+          { key: 'supplyamt', label: '공급가', width: 100, minWidth: 88, render: (item) => numberText(item.supplyamt) },
+          { key: 'vat', label: '부가세', width: 90, minWidth: 78, render: (item) => numberText(item.vat) },
+          { key: 'unitamt', label: '합계금액', width: 105, minWidth: 92, render: (item) => numberText(item.unitamt) },
+          { key: 'qtyunit', label: '수량단위', width: 75, minWidth: 65, render: (item) => item.qtyunit || '' },
+          { key: 'unit', label: '단가기준', width: 75, minWidth: 65, render: (item) => item.unit || '' },
           { key: 'created_at', label: '등록일자', width: 145, minWidth: 130, render: (item) => timestampText(item.created_at) },
           { key: 'updated_at', label: '수정일자', width: 145, minWidth: 130, render: (item) => timestampText(item.updated_at) },
         ]} /> : <Box className={classes.emptyState}>조회된 수불 내역이 없습니다.</Box>}</Box>

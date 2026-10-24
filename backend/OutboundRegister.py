@@ -105,6 +105,24 @@ def _row_dict(cursor, row):
     return dict(zip((column[0] for column in cursor.description), row))
 
 
+def _load_quantity_unit_codes(cursor, companyid: str) -> dict[str, str]:
+    cursor.execute(
+        """SELECT code, code_name FROM CodeMaster01t
+           WHERE companyid = %s AND groupcode = 'QTY'""",
+        (companyid,),
+    )
+    by_code = {}
+    by_name = {}
+    for code, name in cursor.fetchall():
+        normalized_code = str(code or "").strip()
+        normalized_name = str(name or "").strip()
+        if normalized_code:
+            by_code[normalized_code] = normalized_code
+        if normalized_name:
+            by_name.setdefault(normalized_name, normalized_code)
+    return {**by_name, **by_code}
+
+
 def _calculate_unit_amount(
     weight: Decimal, unitprice: Decimal, unit_code: str, unit_name: str,
     qty: Decimal = Decimal("0"), length: Decimal = Decimal("0"),
@@ -424,6 +442,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
             if invalid_units:
                 raise ValueError("등록되어 사용 중인 단가기준을 확인해 주세요: " + ", ".join(invalid_units[:5]))
 
+            quantity_unit_codes = _load_quantity_unit_codes(cursor, companyid)
             source_cache = {}
             demands = {}
             for index, item in enumerate(items, start=1):
@@ -444,7 +463,10 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
                     source_row = cursor.fetchone()
                     if not source_row:
                         raise ValueError(f"{index}행에서 선택한 원천 재고를 현재 회사에서 찾을 수 없습니다.")
-                    source_cache[source_key] = _row_dict(cursor, source_row)
+                    source_data = _row_dict(cursor, source_row)
+                    source_qtyunit = str(source_data.get("qtyunit") or "").strip()
+                    source_data["qtyunit"] = quantity_unit_codes.get(source_qtyunit, source_qtyunit)
+                    source_cache[source_key] = source_data
                 stock = source_cache[source_key]
                 demand = demands.setdefault(source_key, {"qty": Decimal("0"), "weight": Decimal("0"), "stock": stock})
                 demand["qty"] += Decimal(str(item["qty"]))
@@ -502,6 +524,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
                         "lineno": line_no, "itemcode": stock["itemcode"], "itemname": stock["itemname"],
                         "thickness": stock["thickness"], "width": stock["width"], "length": stock["length"],
                         "qty": qty, "qtyunit": stock["qtyunit"], "weight": weight,
+                        "unit": unit, "unitprice": unitprice, "supplyamt": supplyamt, "vat": vat, "unitamt": unitamt,
                         "warehousecode": stock["warehousecode"], "warehousecodename": stock["warehousecodename"],
                     })
                 cursor.executemany(
@@ -643,6 +666,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                      customer_name, payload.get("description") or None),
                 )
 
+            quantity_unit_codes = _load_quantity_unit_codes(cursor, companyid)
             source_cache = {}
             demands = {}
             for index, item in enumerate(items, start=1):
@@ -667,7 +691,10 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                     source_row = cursor.fetchone()
                     if not source_row:
                         raise ValueError(f"{index}행 선택한 원천 재고를 현재 회사에서 찾을 수 없습니다.")
-                    source_cache[source_key] = _row_dict(cursor, source_row)
+                    source_data = _row_dict(cursor, source_row)
+                    source_qtyunit = str(source_data.get("qtyunit") or "").strip()
+                    source_data["qtyunit"] = quantity_unit_codes.get(source_qtyunit, source_qtyunit)
+                    source_cache[source_key] = source_data
                 stock = source_cache[source_key]
                 demand = demands.setdefault(source_key, {"qty": Decimal("0"), "weight": Decimal("0"), "stock": stock})
                 demand["qty"] += Decimal(str(item["qty"]))
@@ -712,6 +739,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                     "lineno": line_no, "itemcode": stock["itemcode"], "itemname": stock["itemname"],
                     "thickness": stock["thickness"], "width": stock["width"], "length": stock["length"],
                     "qty": qty, "qtyunit": stock["qtyunit"], "weight": weight,
+                    "unit": unit, "unitprice": unitprice, "supplyamt": supplyamt, "vat": vat, "unitamt": unitamt,
                     "warehousecode": stock["warehousecode"], "warehousecodename": stock["warehousecodename"],
                 })
             cursor.executemany(

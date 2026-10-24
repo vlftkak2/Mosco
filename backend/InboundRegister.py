@@ -427,6 +427,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                 )
 
                 detail_values = []
+                calculated_amounts = []
                 for line_no, item in enumerate(group_items, start=1):
                     weight = Decimal(str(item["weight"]))
                     unitprice = Decimal(str(item["unitprice"]))
@@ -443,6 +444,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                     if vat is None:
                         vat = (supplyamt * Decimal("0.1")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
                     unitamt = (supplyamt + vat).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    calculated_amounts.append((supplyamt, vat, unitamt))
                     detail_values.append((
                         companyid, companyname, receiptno, line_no,
                         item["itemcode"].strip(), item["itemname"].strip(),
@@ -475,12 +477,17 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                     **item,
                     "lineno": line_no,
                     "itemname": master_items[item["itemcode"].strip()],
+                    "unit": item["unit"].strip(),
+                    "unitprice": item["unitprice"],
+                    "supplyamt": amounts[0],
+                    "vat": amounts[1],
+                    "unitamt": amounts[2],
                     "thickness": item.get("thickness"),
                     "width": item.get("width"),
                     "length": item.get("length"),
                     "warehousecode": item["warehousecode"].strip(),
                     "warehousecodename": warehouse_names[item["warehousecode"].strip()],
-                } for line_no, item in enumerate(group_items, start=1)]
+                } for line_no, (item, amounts) in enumerate(zip(group_items, calculated_amounts), start=1)]
                 current_stock_module.record_document(
                     cursor, companyid, companyname, header_receptdate, "IN", receiptno, stock_lines,
                     customcode=customcode, customname=customer_name,

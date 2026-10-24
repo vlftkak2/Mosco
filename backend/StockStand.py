@@ -304,13 +304,13 @@ def _calculate_unitamt(qty, length, weight, unitprice, unit: str, price_units: d
         return None
     unit_price = Decimal(str(unitprice))
     unit_token = f"{unit or ''} {price_units.get(unit or '', '')}".upper()
-    if "QTY" in unit_token or "COUNT" in unit_token or "\uC218\uB7C9" in unit_token or unit_token.strip() in {"EA", "PCS"}:
+    if "QTY" in unit_token or "COUNT" in unit_token or "수량" in unit_token or unit_token.strip() in {"EA", "PCS"}:
         basis = qty
-    elif "LENGTH" in unit_token or "METER" in unit_token or "\uAE38\uC774" in unit_token or unit_token.strip() in {"M", "MTR"}:
+    elif "LENGTH" in unit_token or "METER" in unit_token or "길이" in unit_token or unit_token.strip() in {"M", "MTR"}:
         basis = length
     else:
         basis = weight
-        if basis is not None and ("TON" in unit_token or "\uD1A4" in unit_token):
+        if basis is not None and ("TON" in unit_token or "톤" in unit_token):
             basis = Decimal(str(basis)) / Decimal("1000")
     if basis is None:
         return None
@@ -436,6 +436,7 @@ def save_stand_items(companyid: str, companyname: str, standdate: date, items: l
             cursor.execute("SELECT COALESCE(MAX(lineno), 0) FROM StandStock01t WHERE companyid = %s", (companyid,))
             next_lineno = cursor.fetchone()[0] + 1
             values = []
+            calculated_amounts = []
             for item in items:
                 code = item["itemcode"].strip()
                 warehousecode = item["warehousecode"].strip()
@@ -446,6 +447,7 @@ def save_stand_items(companyid: str, companyname: str, standdate: date, items: l
                     supplyamt=item.get("supplyamt"), vat=item.get("vat"),
                     supplyamt_manual=item.get("supplyamt_manual", False), vat_manual=item.get("vat_manual", False),
                 )
+                calculated_amounts.append((supplyamt, vat, unitamt))
                 values.append((
                     companyid, companyname, item_date, next_lineno, code, active_items[code],
                     item.get("customcode", "").strip() or None,
@@ -486,9 +488,12 @@ def save_stand_items(companyid: str, companyname: str, standdate: date, items: l
                 "length": item.get("length"),
                 "unit": item.get("unit"),
                 "unitprice": item.get("unitprice"),
+                "supplyamt": amounts[0],
+                "vat": amounts[1],
+                "unitamt": amounts[2],
                 "warehousecode": item["warehousecode"].strip(),
                 "warehousecodename": codes["WAREHOUSE"][item["warehousecode"].strip()],
-            } for index, item in enumerate(items)]
+            } for index, (item, amounts) in enumerate(zip(items, calculated_amounts))]
             current_stock_module.record_document(
                 cursor, companyid, companyname, standdate, "ST", opening_receiptno, stock_lines,
             )
@@ -552,7 +557,7 @@ def update_stand_prices(companyid: str, items: list[dict]):
                     """UPDATE CurrentStock01t
                        SET unit = NULLIF(%s, ''), unitprice = %s, updated_at = CURRENT_TIMESTAMP
                        WHERE companyid = %s AND sourcetype = 'OPENING' AND sourceline = %s""",
-                    (item["unit"], item["unitprice"], companyid, item["lineno"]),
+                    (active_price_units[item["unit"]], item["unitprice"], companyid, item["lineno"]),
                 )
                 if cursor.rowcount != 1:
                     raise ValueError(f"기초재고 현재고 원천 라인을 찾을 수 없습니다: {item['lineno']}")

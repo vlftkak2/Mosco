@@ -136,6 +136,7 @@
 .pickerTable :global(th),
 .pickerTable :global(td) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stockPickerTable { min-width: 1320px; width: max-content; table-layout: fixed; }
+.stockPickerTable :global(th) { text-align: center !important; }
 .stockPickerTable :global(th),
 .stockPickerTable :global(td) { white-space: nowrap; }
 .stockDraftInput { width: 88px; height: 28px; padding: 3px 6px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; color: #24364b; text-align: right; font: inherit; }

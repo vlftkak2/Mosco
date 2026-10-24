@@ -948,7 +948,7 @@ export default function AIOrderPage() {
       </Group>
       {validating && uploadProgress && <Box className={classes.uploadProgress} role="status" aria-live="polite">
         <Group justify="space-between" gap="xs" mb={6} wrap="nowrap">
-          <Text size="xs" fw={600}>{'\ucca8\ubd80\ud30c\uc77c \ud655\uc778 \uc911'} &middot; {uploadProgress.current}/{uploadProgress.total}</Text>
+          <Text size="xs" fw={600}>{'첨부파일 확인 중'} &middot; {uploadProgress.current}/{uploadProgress.total}</Text>
           <Text size="xs" c="dimmed" lineClamp={1}>{uploadProgress.name}</Text>
         </Group>
         <Progress value={uploadProgress.total ? Math.max(4, ((uploadProgress.current - 0.5) / uploadProgress.total) * 100) : 4} animated striped color="red" size="sm" radius="xl" />

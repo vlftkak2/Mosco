@@ -34,7 +34,7 @@ const TABLE_COLUMNS = [
   ['surfacename', '표면'], ['myrtle', '도금량(g/㎡)'], ['thickness', '두께'], ['width', '폭'], ['length', '길이'],
   ['qty', '수량'], ['weight', '중량'], ['unitprice', '매입단가'], ['supplyamt', '공급가'], ['vat', '부가세'],
   ['unitamt', '합계금액'], ['qtyunit', '수량단위'], ['unit', '단가기준'], ['manager', '담당자'], ['description', '비고'],
-  ['created_at', '\uB4F1\uB85D\uC77C\uC790'], ['updated_at', '\uC218\uC815\uC77C\uC790'],
+  ['created_at', '등록일자'], ['updated_at', '수정일자'],
 ].map(([key, label]) => ({ key, label, width: TABLE_COLUMN_WIDTHS[key], minWidth: Math.min(TABLE_COLUMN_WIDTHS[key], 72) }));
 
 const makeDefaultFilters = () => {

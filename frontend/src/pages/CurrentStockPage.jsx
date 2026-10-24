@@ -23,6 +23,10 @@ const createDefaultFilters = () => {
 };
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
+const dimensionText = (item) => [item.thickness, item.width, item.length]
+  .filter((value) => value !== null && value !== undefined && String(value).trim() !== '')
+  .map(numberText)
+  .join(' × ');
 const sourceName = (value) => value === 'OPENING' ? '기초' : value === 'INBOUND' ? '입고' : '';
 const timestampText = (value) => {
   if (!value) return '';
@@ -109,24 +113,21 @@ export default function CurrentStockPage() {
           { key: 'customname', label: '거래처', width: 125, minWidth: 105, render: (item) => item.customname || '' },
           { key: 'sourceno', label: '원천전표', width: 140, minWidth: 120, render: (item) => item.sourceno || '' },
           { key: 'sourceline', label: '원천순번', width: 55, minWidth: 48, render: (item) => item.sourceline ?? '' },
-          { key: 'itemcode', label: '품목코드', width: 100, minWidth: 88, render: (item) => item.itemcode },
-          { key: 'itemname', label: '품목명', width: 120, minWidth: 102, render: (item) => item.itemname },
+          { key: 'warehousecodename', label: '창고명', width: 110, minWidth: 95, render: (item) => item.warehousecodename || '' },
+          { key: 'itemname', label: '품명', width: 120, minWidth: 102, render: (item) => item.itemname || '' },
           { key: 'productname', label: '제품번호', width: 105, minWidth: 90, render: (item) => item.productname || '' },
           { key: 'materialname', label: '강종', width: 85, minWidth: 72, render: (item) => item.materialname || '' },
           { key: 'surfacename', label: '표면', width: 75, minWidth: 65, render: (item) => item.surfacename || '' },
           { key: 'myrtle', label: '도금량(g/㎡)', width: 100, minWidth: 90, render: (item) => numberText(item.myrtle) },
           { key: 'manager', label: '담당자', width: 80, minWidth: 68, render: (item) => item.manager || '' },
-          { key: 'thickness', label: '두께', width: 60, minWidth: 52, render: (item) => item.thickness ?? '' },
-          { key: 'width', label: '폭', width: 50, minWidth: 45, render: (item) => item.width ?? '' },
-          { key: 'length', label: '길이', width: 60, minWidth: 52, render: (item) => item.length ?? '' },
+          { key: 'specification', label: '규격', width: 125, minWidth: 100, render: (item) => dimensionText(item) },
           { key: 'originalqty', label: '최초수량', width: 80, minWidth: 68, render: (item) => numberText(item.originalqty) },
           { key: 'qty', label: '현재수량', width: 80, minWidth: 68, render: (item) => numberText(item.qty) },
-          { key: 'qtyunit', label: '수량단위', width: 75, minWidth: 65, render: (item) => item.qtyunit },
           { key: 'originalweight', label: '최초중량(KG)', width: 100, minWidth: 88, render: (item) => numberText(item.originalweight) },
           { key: 'weight', label: '현재중량', width: 90, minWidth: 78, render: (item) => numberText(item.weight) },
-          { key: 'unit', label: '단가기준', width: 75, minWidth: 65, render: (item) => item.unit || '' },
           { key: 'unitprice', label: '매입단가', width: 90, minWidth: 78, render: (item) => numberText(item.unitprice) },
-          { key: 'warehousecodename', label: '창고명', width: 110, minWidth: 95, render: (item) => item.warehousecodename },
+          { key: 'qtyunit', label: '수량단위', width: 75, minWidth: 65, render: (item) => item.qtyunit || '' },
+          { key: 'unit', label: '단가기준', width: 75, minWidth: 65, render: (item) => item.unit || '' },
           { key: 'created_at', label: '등록일자', width: 145, minWidth: 130, render: (item) => timestampText(item.created_at) },
           { key: 'updated_at', label: '수정일자', width: 145, minWidth: 130, render: (item) => timestampText(item.updated_at) },
         ]} /> : <Box className={classes.emptyState}>조회된 현재고가 없습니다.</Box>}
