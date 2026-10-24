@@ -44,7 +44,7 @@ const mockdata = [
     links: [
       { label: '품목코드', link: '/ItemMasterPage', icon: '', MenuID: 'M7' },
       {label: '일반코드',link: '/CodeMasterPage',icon: '',MenuID: 'M1'},
-      {label: '사용자관리',link: '/',icon: '',MenuID: 'M1'},
+      {label: '사용자관리',link: '/',icon: '',MenuID: 'M1', disabled: true},
       { label: '거래처관리', link: '/CustomerPage', icon: '', MenuID:'M-11' },
 
     ],
@@ -100,8 +100,8 @@ const mockdata = [
     initiallyOpened: false,
     links: [
       
-      { label: '상담게시판', link: '/', icon: '', MenuID: 'M-22' },
-      { label: '공지사항', link: '/', icon: '', MenuID: 'M-23' },
+      { label: '상담게시판', link: '/', icon: '', MenuID: 'M-22', disabled: true},
+      { label: '공지사항', link: '/', icon: '', MenuID: 'M-23', disabled: true},
     ],
   },
 
@@ -112,9 +112,9 @@ const mockdata = [
     icon: <IconAdjustmentsHorizontal size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      { label: '고객사등록', link: '/', icon: '✔️', MenuID:'M-17' },
-      { label: '고객사 권한관리', link: '/', icon: '✔️', MenuID:'M-18' },
-      { label: '설정', link: '/', icon: '✔️', MenuID:'M-19' },
+      { label: '고객사등록', link: '/', icon: '✔️', MenuID:'M-17', disabled: true},
+      { label: '고객사 권한관리', link: '/', icon: '✔️', MenuID:'M-18', disabled: true},
+      { label: '설정', link: '/', icon: '✔️', MenuID:'M-19', disabled: true},
     ],
   },
 
@@ -134,6 +134,9 @@ function findMenuLabel(items, path) {
     '/inboundsearch': '입고현황',
     '/inboundsearchpage': '입고현황',
     '/currentstockpage': '현재고현황',
+    '/outboundregisterpage': '출고등록',
+    '/outboundsearchpage': '출고현황',
+    '/aiorderpage': 'AI 가공솔루션',
   };
 
   if (routeLabelAliases[normalizedPath]) return routeLabelAliases[normalizedPath];
@@ -163,6 +166,7 @@ export default function MainLayout({ children }) {
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
     '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage', '/aiorderconfirmpage',
     '/currentstockpage', '/iniopstockpage', '/stockstandpage',
+    '/outboundregisterpage', '/outboundsearchpage',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
   const [pageRibbon, setPageRibbon] = useState(null);
   const registerPageRibbon = useCallback((content) => setPageRibbon(() => content), []);

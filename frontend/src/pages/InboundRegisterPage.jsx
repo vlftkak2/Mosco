@@ -82,22 +82,22 @@ const DETAIL_FIELDS = [
   { key: 'description', label: '비고', width: 160, minWidth: 100 },
 ];
 const RECEIPT_COLUMNS = [
-  { key: 'receptdate', label: '입고일자', width: 118, minWidth: 112 },
-  { key: 'customname', label: '매입처', width: 190, minWidth: 110 },
-  { key: 'warehousecodename', label: '창고', width: 145, minWidth: 100 },
-  { key: 'line_count', label: '상세건수', width: 90, minWidth: 80, align: 'right' },
-  { key: 'total_qty', label: '수량', width: 95, minWidth: 75, align: 'right' },
-  { key: 'total_weight', label: '중량', width: 100, minWidth: 80, align: 'right' },
-  { key: 'supply_amount', label: '공급가', width: 120, minWidth: 90, align: 'right' },
-  { key: 'vat_amount', label: '부가세', width: 105, minWidth: 75, align: 'right' },
-  { key: 'total_amount', label: '합계금액', width: 125, minWidth: 105, align: 'right' },
-  { key: 'qtyunit', label: '수량단위', width: 95, minWidth: 85 },
-  { key: 'unit', label: '단가기준', width: 95, minWidth: 85 },
-  { key: 'receiptno', label: '입고전표', width: 190, minWidth: 150 },
-  { key: 'description', label: '비고', width: 160, minWidth: 100 },
+  { key: 'receptdate', label: '입고일자', width: 100, minWidth: 90 },
+  { key: 'customname', label: '매입처', width: 150, minWidth: 105 },
+  { key: 'warehousecodename', label: '창고', width: 115, minWidth: 90 },
+  { key: 'line_count', label: '상세건수', width: 78, minWidth: 68, align: 'right' },
+  { key: 'total_qty', label: '수량', width: 78, minWidth: 68, align: 'right' },
+  { key: 'total_weight', label: '중량', width: 82, minWidth: 72, align: 'right' },
+  { key: 'supply_amount', label: '공급가', width: 105, minWidth: 85, align: 'right' },
+  { key: 'vat_amount', label: '부가세', width: 90, minWidth: 75, align: 'right' },
+  { key: 'total_amount', label: '합계금액', width: 115, minWidth: 95, align: 'right' },
+  { key: 'qtyunit', label: '수량단위', width: 80, minWidth: 70 },
+  { key: 'unit', label: '단가기준', width: 80, minWidth: 70 },
+  { key: 'receiptno', label: '입고전표', width: 155, minWidth: 125 },
+  { key: 'description', label: '비고', width: 115, minWidth: 85 },
 ];
 const fitColumnWidth = (label, values, baseWidth, minWidth, maxWidth = 420) => {
-  const measure = (value) => Array.from(String(value ?? '')).reduce((width, character) => width + (character.charCodeAt(0) > 255 ? 14 : 7), 0) + 30;
+  const measure = (value) => Array.from(String(value ?? '')).reduce((width, character) => width + (character.charCodeAt(0) > 255 ? 11 : 6.5), 0) + 20;
   const contentWidth = Math.max(measure(label), ...values.map(measure));
   return Math.max(minWidth, Math.min(maxWidth, Math.max(baseWidth, contentWidth)));
 };
@@ -834,6 +834,27 @@ const GeneralCodeNameAutocompleteCell = memo(function GeneralCodeNameAutocomplet
   </Popover>;
 });
 
+const ManagerInput = memo(function ManagerInput({ row, editable, label, onChange, onPaste, registerCellInput, onFocusCell }) {
+  const [value, setValue] = useState(row.manager || '');
+
+  return <input
+    ref={(element) => registerCellInput(row.id, 'manager', element)}
+    className={`${codeClasses.cellInput} ${editable ? '' : classes.autoFilledInput}`}
+    aria-label={label}
+    data-row-id={row.id}
+    data-field="manager"
+    type="text"
+    value={value}
+    disabled={!editable}
+    onFocus={() => onFocusCell(row.id, 'manager')}
+    onChange={(event) => setValue(event.currentTarget.value)}
+    onPaste={onPaste}
+    onBlur={() => {
+      if (editable && value !== String(row.manager || '')) onChange(row.id, 'manager', value);
+    }}
+  />;
+});
+
 const DetailCells = memo(function DetailCells({ row, index, selected, disabled, managerEditable, saved, unitOptions, onSelect, onChange, onPaste, registerCellInput, onSelectItem, onSelectCustomer, onSelectWarehouse, onSelectGeneralMaster, onFindItem, onFindCustomer, onFindMaster, onFocusCell }) {
   const displayValue = (key) => {
     if (key === 'qtyunit') return unitOptions.quantity.find((option) => option.code === resolveMasterCode('qtyunit', row.qtyunit, unitOptions))?.name || row.qtyunit || '';
@@ -861,10 +882,12 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
     <Table.Td className={`${codeClasses.rowNumber} ${saved ? classes.savedCell : ''}`} style={{ width: 58, minWidth: 58 }}>{index + 1}</Table.Td>
     {DETAIL_FIELDS.map(({ key, label }) => (
       <Table.Td key={key} className={[
-        saved ? classes.savedCell : '',
+        saved && !(key === 'manager' && managerEditable) ? classes.savedCell : '',
         key === 'manager' && managerEditable ? classes.managerEditableCell : '',
       ].filter(Boolean).join(' ')}>
-        {key === 'receptdate' ? (
+        {key === 'manager' ? (
+          <ManagerInput key={`${row.id}:${row.manager || ''}`} row={row} editable={!disabled || managerEditable} label={label} onChange={onChange} onPaste={pasteHandler(key)} registerCellInput={registerCellInput} onFocusCell={onFocusCell} />
+        ) : key === 'receptdate' ? (
           <input
             ref={(element) => registerCellInput(row.id, key, element)}
             className={codeClasses.cellInput}
@@ -1967,7 +1990,7 @@ export default function InboundRegisterPage() {
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={addDetail} disabled={saving}>추가</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} onClick={copySelectedDetails} disabled={readOnly || saving || selectedIds.length !== 1}>복사</Button>
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportDocument} loading={exporting} disabled={!selectedReceiptno || loading || detailLoading || !rows.length}>EXCEL</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportDocument} loading={exporting} disabled={!selectedReceiptno || loading || detailLoading || !rows.length}>엑셀</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={() => saveDocument()} loading={saving} disabled={selectedReceiptno ? (locked || detailLoading || !hasManagerChanges) : (readOnly || detailLoading)}>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={requestToolbarDelete} disabled={saving || locked || (!selectedReceiptno && (!selectedIds.length || readOnly))}>삭제</Button>
         <span className={classes.ribbonSeparator} />

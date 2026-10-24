@@ -45,7 +45,7 @@ def get_receipts(
     user: dict = Depends(security_module.get_current_user),
 ):
     if date_from and date_to and date_from > date_to:
-        raise HTTPException(status_code=422, detail="\uC2DC\uC791\uC77C\uC740 \uC885\uB8CC\uC77C\uBCF4\uB2E4 \uB4A4\uC5D0 \uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.")
+        raise HTTPException(status_code=422, detail="시작일은 종료일보다는 뒤에 올 수 없습니다.")
     try:
         return {"success": True, **outbound_module.list_receipts(
             user["companyid"], page, page_size, q, date_from, date_to,
@@ -68,21 +68,54 @@ def get_receipt(receiptno: str, user: dict = Depends(security_module.get_current
         raise HTTPException(status_code=500, detail="출고 상세를 조회하지 못했습니다.") from error
 
 
-@router.put("/receipts")
-def save_receipt(
-    data: outbound_module.OutboundSaveRequest,
-    user: dict = Depends(security_module.get_current_user),
-):
+def _save_receipt(data: outbound_module.OutboundSaveRequest, user: dict, is_new: bool):
     try:
+        payload = data.model_dump()
+        payload["is_new"] = is_new
         result = outbound_module.save_receipt(
             user["companyid"], user.get("companyname") or user["companyid"],
-            data.model_dump(),
+            payload,
         )
         return {"success": True, **result}
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
         raise HTTPException(status_code=500, detail="출고 저장 중 오류가 발생했습니다.") from error
+
+
+@router.post("/receipts")
+def create_receipt(
+    data: outbound_module.OutboundSaveRequest,
+    user: dict = Depends(security_module.get_current_user),
+):
+    return _save_receipt(data, user, is_new=True)
+
+
+@router.put("/receipts")
+def update_receipt(
+    data: outbound_module.OutboundSaveRequest,
+    user: dict = Depends(security_module.get_current_user),
+):
+    if not data.receiptno.strip():
+        raise HTTPException(status_code=422, detail="수정할 출고전표번호가 없습니다.")
+    return _save_receipt(data, user, is_new=False)
+
+
+@router.patch("/receipts/{receiptno}/manager")
+def update_receipt_managers(
+    receiptno: str,
+    data: outbound_module.OutboundManagerUpdateRequest,
+    user: dict = Depends(security_module.get_current_user),
+):
+    try:
+        updated_count = outbound_module.update_receipt_managers(
+            user["companyid"], receiptno, [item.model_dump() for item in data.items],
+        )
+        return {"success": True, "updated_count": updated_count}
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=500, detail="담당자 수정 중 오류가 발생했습니다.") from error
 
 
 @router.delete("/receipts/{receiptno}")

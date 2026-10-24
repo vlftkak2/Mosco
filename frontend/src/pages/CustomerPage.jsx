@@ -1187,7 +1187,7 @@ export default function CustomerPage() {
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={startNewCustomer} loading={allocatingCode}>추가</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} disabled>복사</Button>
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportCustomers} loading={exportLoading} disabled={listLoading}>EXCEL</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportCustomers} loading={exportLoading} disabled={listLoading}>엑셀</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={saveCustomer} loading={saving || allocatingCode} disabled={allocatingCode}>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
         <span className={classes.ribbonSeparator} />

@@ -21,6 +21,9 @@ def export_outbound_details(
     customname: str = Query(default="", max_length=100),
     itemcode: str = Query(default="", max_length=100),
     itemname: str = Query(default="", max_length=150),
+    customer: str = Query(default="", max_length=150),
+    warehouse: str = Query(default="", max_length=100),
+    iteminfo: str = Query(default="", max_length=150),
     user: dict = Depends(security_module.get_current_user),
 ):
     if date_from and date_to and date_from > date_to:
@@ -38,6 +41,9 @@ def export_outbound_details(
             customname=customname,
             itemcode=itemcode,
             itemname=itemname,
+            customer=customer,
+            warehouse=warehouse,
+            iteminfo=iteminfo,
         )
     except Exception as error:
         os.unlink(temp_file.name)
@@ -63,6 +69,9 @@ def get_outbound_details(
     customname: str = Query(default="", max_length=100),
     itemcode: str = Query(default="", max_length=100),
     itemname: str = Query(default="", max_length=150),
+    customer: str = Query(default="", max_length=150),
+    warehouse: str = Query(default="", max_length=100),
+    iteminfo: str = Query(default="", max_length=150),
     user: dict = Depends(security_module.get_current_user),
 ):
     if date_from and date_to and date_from > date_to:
@@ -79,6 +88,9 @@ def get_outbound_details(
                 customname=customname,
                 itemcode=itemcode,
                 itemname=itemname,
+                customer=customer,
+                warehouse=warehouse,
+                iteminfo=iteminfo,
             ),
         }
     except Exception as error:

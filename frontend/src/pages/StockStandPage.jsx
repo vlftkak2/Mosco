@@ -2,58 +2,96 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
 import {
-  ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper,
-  ScrollArea, Select, Stack, Table, Text, TextInput, Tooltip,
+  ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper, Popover,
+  ScrollArea, Select, Stack, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconDownload, IconSearch, IconTrash, IconUpload } from '@tabler/icons-react';
+import { IconDownload, IconSearch, IconTrash, IconUpload, IconX } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
 import codeClasses from '../styles/pages/CodeMasterPage.module.css';
 import outboundClasses from '../styles/pages/OutboundRegister.module.css';
+import inboundClasses from '../styles/pages/InboundRegister.module.css';
+import itemMasterClasses from '../styles/pages/ItemMaster.module.css';
 import classes from '../styles/pages/StockStand.module.css';
 import { applyExcelHeaderStyle } from '../utils/excelHeaderStyle';
 import useErpPageRibbon from '../components/common/useErpPageRibbon';
 import ErpBreadcrumb from '../components/common/ErpBreadcrumb';
 
 const STOCK_EXCEL_COLUMNS = [
-  ['itemcode', '품목코드'], ['itemname', '품목명'], ['size', '규격'], ['qty', '기초수량'],
-  ['qtyunit', '수량단위코드'], ['weight', '기초중량'], ['warehousecode', '창고코드'],
-  ['warehousecodename', '창고명'], ['unit', '단가기준'], ['unitprice', '기초단가'],
-  ['unitamt', '기초금액'], ['description', '비고'],
+  ['standdate', '\uAE30\uCD08\uC77C\uC790'], ['customname', '\uAC70\uB798\uCC98'], ['warehousecodename', '\uCC3D\uACE0'], ['productname', '\uC81C\uD488\uBC88\uD638'],
+  ['itemname', '\uD488\uBA85'], ['materialname', '\uAC15\uC885'], ['surfacename', '\uD45C\uBA74'], ['myrtle', '\uB3C4\uAE08\uB7C9(g/m\u00B2)'],
+  ['thickness', '\uB450\uAED8'], ['width', '\uD3ED'], ['length', '\uAE38\uC774'], ['qty', '\uAE30\uCD08\uC218\uB7C9'], ['weight', '\uAE30\uCD08\uC911\uB7C9'],
+  ['unitprice', '\uAE30\uCD08\uB2E8\uAC00'], ['supplyamt', '\uACF5\uAE09\uAC00'], ['vat', '\uBD80\uAC00\uC138'], ['unitamt', '\uD569\uACC4\uAE08\uC561'],
+  ['unit', '\uB2E8\uAC00\uAE30\uC900'], ['qtyunit', '\uC218\uB7C9\uB2E8\uC704'], ['description', '\uBE44\uACE0'],
 ];
 const STOCK_EXPORT_COLUMNS = [
   ...STOCK_EXCEL_COLUMNS,
-  ['created_at', '등록일자'], ['updated_at', '수정일자'],
+  ['created_at', '\uB4F1\uB85D\uC77C\uC790'], ['updated_at', '\uC218\uC815\uC77C\uC790'],
 ];
 const STOCK_PAGE_OPTIONS = [
-  { value: '15', label: '15개씩' },
-  { value: '50', label: '50개씩' },
-  { value: '100', label: '100개씩' },
-  { value: '200', label: '200개씩' },
+  { value: '15', label: '15\uAC1C\uC529' },
+  { value: '50', label: '50\uAC1C\uC529' },
+  { value: '100', label: '100\uAC1C\uC529' },
+  { value: '200', label: '200\uAC1C\uC529' },
 ];
-const GRID_FIELDS = ['itemcode', 'itemname', 'size', 'qty', 'qtyunit', 'warehousecode', 'weight', 'unit', 'unitprice', 'unitamt', 'description'];
-const GRID_COLUMN_WIDTHS = { select: 44, number: 58, itemcode: 150, itemname: 180, size: 125, qty: 115, qtyunit: 110, warehousecode: 120, weight: 135, unit: 115, unitprice: 125, unitamt: 125, description: 180, action: 58 };
-const MASTER_FIELDS = new Set(['qtyunit', 'warehousecode', 'unit']);
-const PRICE_FIELDS = new Set(['unit', 'unitprice', 'unitamt']);
+const GRID_FIELDS = ['standdate', 'customname', 'warehousecode', 'productname', 'itemname', 'materialcode', 'surfacecode', 'myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat', 'unitamt', 'unit', 'qtyunit', 'description'];
+const GRID_COLUMN_WIDTHS = { select: 44, number: 58, standdate: 118, customname: 160, itemcode: 135, itemname: 170, productname: 125, materialcode: 105, surfacecode: 100, myrtle: 110, thickness: 90, width: 90, length: 90, qty: 100, qtyunit: 100, warehousecode: 130, weight: 110, unit: 100, unitprice: 115, supplyamt: 120, vat: 100, unitamt: 120, description: 160 };
+const MASTER_FIELDS = new Set(['qtyunit', 'warehousecode', 'unit', 'materialcode', 'surfacecode']);
+const PRICE_FIELDS = new Set(['unit', 'unitprice']);
 const EDITABLE_PRICE_FIELDS = new Set(['unit', 'unitprice']);
-const MASTER_KIND = { qtyunit: 'quantity', warehousecode: 'warehouse', unit: 'price' };
-const MASTER_TITLE = { qtyunit: '수량단위 선택', warehousecode: '창고 선택', unit: '단가기준 선택' };
+const MASTER_KIND = { qtyunit: 'quantity', warehousecode: 'warehouse', unit: 'price', materialcode: 'material', surfacecode: 'surface' };
+const MASTER_TITLE = { qtyunit: '수량단위 선택', warehousecode: '창고 선택', unit: '단가기준 선택', materialcode: '강종 선택', surfacecode: '표면 선택' };
 
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const localDate = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 };
+const isValidDateInput = (value) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '').trim());
+  if (!match) return false;
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText), month = Number(monthText), day = Number(dayText);
+  if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+  const check = new Date(0);
+  check.setUTCHours(0, 0, 0, 0);
+  check.setUTCFullYear(year, month - 1, day);
+  return check.getUTCFullYear() === year && check.getUTCMonth() === month - 1 && check.getUTCDate() === day;
+};
+const currentMonthRange = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
+  return { from: `${year}-${month}-01`, to: `${year}-${month}-${String(lastDay).padStart(2, '0')}` };
+};
+const hasRowInput = (row) => ['itemcode', 'itemname', 'customname', 'productname', 'materialcode', 'surfacecode', 'myrtle', 'thickness', 'width', 'length', 'qty', 'qtyunit', 'weight', 'warehousecode', 'unitprice', 'supplyamt', 'vat', 'description'].some((key) => String(row[key] ?? '').trim() !== '' && !(key === 'qtyunit' && row[key] === 'EA'));
+const fitColumnWidth = (label, values, baseWidth, minWidth, maxWidth = 420) => {
+  const measure = (value) => Array.from(String(value ?? '')).reduce((width, character) => width + (character.charCodeAt(0) > 255 ? 11 : 6.5), 0) + 20;
+  return Math.max(minWidth, Math.min(maxWidth, Math.max(baseWidth, measure(label), ...values.map(measure))));
+};
 const makeRow = (values = {}) => ({
   id: values.lineno ? `saved-${values.lineno}` : `new-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   isNew: !values.lineno,
   lineno: values.lineno ?? null,
-  itemcode: values.itemcode || '', itemname: values.itemname || '', size: values.size || '',
+  standdate: values.standdate || localDate(),
+  itemcode: values.itemcode || '', itemname: values.itemname || '', productname: values.productname || '',
+  customcode: values.customcode || '', customname: values.customname || '',
+  materialcode: values.materialcode || '', materialname: values.materialname || '',
+  surfacecode: values.surfacecode || '', surfacename: values.surfacename || '',
+  myrtle: values.myrtle == null ? '' : String(values.myrtle),
+  thickness: values.thickness == null ? '' : String(values.thickness),
+  width: values.width == null ? '' : String(values.width),
+  length: values.length == null ? '' : String(values.length),
   qty: values.qty == null ? '' : String(values.qty), qtyunit: values.qtyunit || '',
   weight: values.weight == null ? '' : String(values.weight),
   warehousecode: values.warehousecode || '', warehousecodename: values.warehousecodename || '',
   unit: values.unit || '', unitprice: values.unitprice == null ? '' : String(values.unitprice),
+  supplyamt: values.supplyamt == null ? '' : String(values.supplyamt),
+  vat: values.vat == null ? '' : String(values.vat),
+  supplyamt_manual: values.supplyamt_manual ?? (values.supplyamt != null && values.supplyamt !== ''),
+  vat_manual: values.vat_manual ?? (values.vat != null && values.vat !== ''),
   unitamt: values.unitamt == null ? '' : String(values.unitamt), description: values.description || '',
   created_at: values.created_at || '', updated_at: values.updated_at || '',
   has_movements: Boolean(values.has_movements),
@@ -66,15 +104,26 @@ const numberText = (value) => {
   const grouped = (integer || '0').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return decimal.length ? `${grouped}.${decimal.join('')}` : grouped;
 };
-const calculateAmount = (row, priceOptions) => {
-  if (!String(row.weight ?? '').trim() || !String(row.unitprice ?? '').trim()) return '';
-  const weight = Number(row.weight);
-  const unitprice = Number(row.unitprice);
-  if (!Number.isFinite(weight) || !Number.isFinite(unitprice)) return '';
-  const unitName = priceOptions.find((option) => option.code === row.unit)?.name || '';
-  const unitToken = `${row.unit || ''} ${unitName}`.toLocaleUpperCase();
-  const quantity = /TON|\uD1A4/.test(unitToken) ? weight / 1000 : weight;
-  return (quantity * unitprice).toFixed(2);
+const calculateAmounts = (row, priceOptions) => {
+  let supplyamt;
+  if (row.supplyamt_manual) supplyamt = Number(row.supplyamt || 0);
+  else {
+    if (!String(row.unitprice ?? '').trim()) return { supplyamt: '', vat: '', unitamt: '' };
+    const unitprice = Number(row.unitprice);
+    if (!Number.isFinite(unitprice)) return { supplyamt: '', vat: '', unitamt: '' };
+    const unitName = priceOptions.find((option) => option.code === row.unit)?.name || '';
+    const unitToken = `${row.unit || ''} ${unitName}`.toLocaleUpperCase();
+    let basis;
+    if (/QTY|COUNT|(^|[\s_-])(EA|PCS)([\s_-]|$)/.test(unitToken) || unitToken.includes('\uC218\uB7C9')) basis = Number(row.qty);
+    else if (/LENGTH|METER|(^|[\s_-])(M|MTR)([\s_-]|$)/.test(unitToken) || unitToken.includes('\uAE38\uC774')) basis = Number(row.length);
+    else basis = /TON|\uD1A4/.test(unitToken) ? Number(row.weight) / 1000 : Number(row.weight);
+    if (!Number.isFinite(basis)) return { supplyamt: '', vat: '', unitamt: '' };
+    supplyamt = Number((basis * unitprice).toFixed(2));
+  }
+  if (!Number.isFinite(supplyamt)) return { supplyamt: '', vat: '', unitamt: '' };
+  const vat = row.vat_manual ? Number(row.vat || 0) : Number((supplyamt * 0.1).toFixed(2));
+  if (!Number.isFinite(vat)) return { supplyamt: '', vat: '', unitamt: '' };
+  return { supplyamt: supplyamt.toFixed(2), vat: vat.toFixed(2), unitamt: (supplyamt + vat).toFixed(2) };
 };
 const formatAmount = (value) => {
   const amount = Number(value);
@@ -102,9 +151,25 @@ const resolveMasterCode = (field, value, masters) => {
     || String(option.name).trim().toLocaleLowerCase() === text
     || `${String(option.code).trim()} - ${String(option.name).trim()}`.toLocaleLowerCase() === text)?.code || '';
 };
+const VALIDATION_FIELD_LABELS = {
+  standdate: '기초일자', itemcode: '품목코드', itemname: '품명', customcode: '거래처코드', customname: '거래처',
+  productname: '제품번호', materialcode: '강종코드', materialname: '강종', surfacecode: '표면코드', surfacename: '표면',
+  myrtle: '도금량', thickness: '두께', width: '폭', length: '길이', qty: '기초수량', qtyunit: '수량단위',
+  weight: '기초중량', warehousecode: '창고코드', warehousecodename: '창고명', unit: '단가기준',
+  unitprice: '기초단가', supplyamt: '공급가', vat: '부가세', description: '비고',
+};
 const errorText = (error) => {
   const detail = error.response?.data?.detail;
-  if (Array.isArray(detail)) return detail.slice(0, 5).map((item) => item.msg || String(item)).join(' / ');
+  if (Array.isArray(detail)) return [...new Set(detail.slice(0, 5).map((item) => {
+    const path = Array.isArray(item.loc) ? [...item.loc].reverse().find((part) => typeof part === 'string' && part !== 'body') : '';
+    const label = VALIDATION_FIELD_LABELS[path];
+    if (['string_too_short', 'missing'].includes(item.type) || item.msg === 'String should have at least 1 character') {
+      return label ? `${label} 항목이 비어 있습니다. 값을 입력해 주세요.` : '필수 입력 항목이 비어 있습니다. 값을 입력해 주세요.';
+    }
+    if (item.type === 'string_too_long') return `${label || '입력 항목'}의 글자 수가 허용 범위를 넘었습니다.`;
+    if (item.type === 'float_parsing' || item.type === 'int_parsing') return `${label || '입력 항목'}에 숫자를 입력해 주세요.`;
+    return label ? `${label}: ${item.msg || '입력값을 확인해 주세요.'}` : item.msg || String(item);
+  }))].join(' / ');
   return detail || error.message || '요청을 처리하지 못했습니다.';
 };
 
@@ -185,6 +250,469 @@ function ItemPicker({ opened, onClose, onSelect }) {
   </Modal>;
 }
 
+function ItemNameAutocompleteCell({ row, disabled, registerCellInput, onChange, onSelect, onFindItem, onFocus, onPaste }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(row.itemname || '');
+  const [items, setItems] = useState([]);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const requestIdRef = useRef(0);
+  const query = String(draft || '').trim();
+  const opened = editing && !disabled && query.length > 0 && items.length > 0;
+
+  useEffect(() => {
+    if (!editing || disabled || !query) {
+      setItems([]);
+      return undefined;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const { data } = await axios.get('/api/item-master/items/suggest', {
+          ...authConfig(),
+          params: { q: query },
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted) setItems(data.items || []);
+      } catch { /* Keep suggestions closed if lookup fails. */ }
+    }, 180);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [editing, disabled, query]);
+
+  const chooseItem = (item) => {
+    requestIdRef.current += 1;
+    onSelect(row.id, item);
+    setDraft(item.itemname || '');
+    setItems([]);
+    setEditing(false);
+    setActiveIndex(-1);
+  };
+
+  const commitExactMatch = async () => {
+    const requestId = ++requestIdRef.current;
+    const normalized = query.toLocaleLowerCase();
+    if (!normalized) {
+      onChange(row.id, 'itemname', '');
+      setEditing(false);
+      return;
+    }
+    let candidates = items;
+    if (!candidates.some((item) => [item.itemname, item.itemcode]
+      .some((value) => String(value || '').trim().toLocaleLowerCase() === normalized))) {
+      try {
+        const { data } = await axios.get('/api/item-master/items/suggest', {
+          ...authConfig(), params: { q: query },
+        });
+        candidates = data.items || [];
+      } catch { /* Keep the typed value so save validation can explain the mismatch. */ }
+    }
+    if (requestId !== requestIdRef.current) return;
+    const exact = candidates.filter((item) => [item.itemname, item.itemcode]
+      .some((value) => String(value || '').trim().toLocaleLowerCase() === normalized));
+    if (exact.length === 1) chooseItem(exact[0]);
+    else setEditing(false);
+  };
+
+  return <Popover opened={opened} onChange={(value) => { if (!value) setEditing(false); }} position="bottom-start" width="target" withinPortal shadow="sm" offset={2} zIndex={500}>
+    <Popover.Target>
+      <div>
+        <input
+          ref={(element) => registerCellInput(row.id, 'itemname', element)}
+          className={`${codeClasses.cellInput} ${outboundClasses.itemCodePickerInput}`}
+          aria-label={'\uD488\uBA85'}
+          aria-autocomplete="list"
+          aria-haspopup="listbox"
+          aria-expanded={opened}
+          value={editing ? draft : row.itemname || ''}
+          maxLength={150}
+          disabled={disabled}
+          onPaste={onPaste}
+          onFocus={(event) => {
+            requestIdRef.current += 1;
+            setDraft(row.itemname || '');
+            setEditing(true);
+            onFocus();
+            event.currentTarget.select();
+          }}
+          onBlur={() => { void commitExactMatch(); }}
+          onChange={(event) => {
+            const value = event.currentTarget.value;
+            setDraft(value);
+            setActiveIndex(-1);
+            setEditing(true);
+            onChange(row.id, 'itemname', value);
+          }}
+          onClick={(event) => {
+            if (!disabled && event.nativeEvent.offsetX >= event.currentTarget.clientWidth - 28) {
+              event.preventDefault();
+              event.stopPropagation();
+              setEditing(false);
+              onFindItem(row.id);
+            }
+          }}
+          onDoubleClick={() => onFindItem(row.id)}
+          onKeyDown={(event) => {
+            if (event.key === 'F2') {
+              event.preventDefault();
+              onFindItem(row.id);
+            } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+              if (!items.length) return;
+              event.preventDefault();
+              event.stopPropagation();
+              setActiveIndex((current) => event.key === 'ArrowDown'
+                ? (current + 1) % items.length
+                : (current <= 0 ? items.length - 1 : current - 1));
+            } else if (event.key === 'Enter' && activeIndex >= 0 && items[activeIndex]) {
+              event.preventDefault();
+              event.stopPropagation();
+              chooseItem(items[activeIndex]);
+            } else if (event.key === 'Escape' && opened) {
+              event.preventDefault();
+              event.stopPropagation();
+              setEditing(false);
+            }
+          }}
+        />
+      </div>
+    </Popover.Target>
+    <Popover.Dropdown p={4} mah={240} style={{ overflowY: 'auto' }}>
+      <Stack gap={2} role="listbox">
+        {items.map((item, index) => <Box
+          key={item.itemcode}
+          role="option"
+          aria-selected={index === activeIndex}
+          onMouseDown={(event) => event.preventDefault()}
+          onMouseEnter={() => setActiveIndex(index)}
+          onClick={() => chooseItem(item)}
+          style={{
+            display: 'flex', justifyContent: 'space-between', gap: 12, padding: '7px 9px',
+            borderRadius: 4, cursor: 'pointer', fontSize: 12,
+            background: index === activeIndex ? 'var(--mantine-color-blue-0)' : undefined,
+          }}
+        >
+          <Text size="xs" truncate>{item.itemname}</Text>
+          <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>{item.itemcode}</Text>
+        </Box>)}
+      </Stack>
+    </Popover.Dropdown>
+  </Popover>;
+}
+
+function CustomerPicker({ opened, onClose, onSelect }) {
+  const [input, setInput] = useState('');
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [customers, setCustomers] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!opened) return undefined;
+    let alive = true;
+    setLoading(true);
+    axios.get('/api/list', { ...authConfig(), params: { search_keyword: query || undefined, status: 'Y', page, page_size: 20, include_total: true } })
+      .then(({ data }) => {
+        if (!alive) return;
+        setCustomers(data.data || []);
+        setTotal(data.total || 0);
+      })
+      .catch((error) => { if (alive) notifications.show({ title: '\uAC70\uB798\uCC98 \uC870\uD68C \uC2E4\uD328', message: errorText(error), color: 'red' }); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [opened, query, page]);
+
+  const search = () => { setPage(1); setQuery(input.trim()); };
+  return <Modal opened={opened} onClose={onClose} title={<Group gap={9} wrap="nowrap"><Box className={outboundClasses.receiptFinderTitleIcon}><IconSearch size={17} /></Box><Text fw={750}>{'\uAC70\uB798\uCC98 \uC120\uD0DD'}</Text></Group>}
+    classNames={{ content: outboundClasses.receiptFinderModalContent, header: outboundClasses.receiptFinderModalHeader, title: outboundClasses.receiptFinderModalTitle, close: outboundClasses.receiptFinderModalClose }} centered size={900}>
+    <Stack gap="sm" pt={10}>
+      <Group gap={7} wrap="nowrap">
+        <TextInput className={outboundClasses.customerSearchInput} value={input} onChange={(event) => setInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') search(); }} placeholder={'\uAC70\uB798\uCC98\uCF54\uB4DC \uB610\uB294 \uAC70\uB798\uCC98\uBA85 \uAC80\uC0C9'} leftSection={<IconSearch size={15} />} size="sm" autoFocus />
+        <Button color="red" size="sm" leftSection={<IconSearch size={15} />} onClick={search}>{'\uC870\uD68C'}</Button>
+      </Group>
+      <Box className={outboundClasses.pickerResults}>
+        {loading && <Loader className={outboundClasses.pickerLoader} size="xs" color="red" />}
+        <ScrollArea h={420} type="auto" scrollbarSize={6}>
+          <Table className={`${codeClasses.codeTable} ${outboundClasses.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
+            <Table.Thead><Table.Tr><Table.Th>{'\uAC70\uB798\uCC98\uCF54\uB4DC'}</Table.Th><Table.Th>{'\uAC70\uB798\uCC98\uBA85'}</Table.Th><Table.Th>{'\uC0AC\uC5C5\uC790\uBC88\uD638'}</Table.Th></Table.Tr></Table.Thead>
+            <Table.Tbody>{customers.map((customer) => <Table.Tr key={customer.customercode} className={outboundClasses.customerResultRow} onClick={() => { onSelect(customer); onClose(); }}>
+              <Table.Td>{customer.customercode}</Table.Td><Table.Td>{customer.customername}</Table.Td><Table.Td>{customer.businessno || ''}</Table.Td>
+            </Table.Tr>)}</Table.Tbody>
+          </Table>
+        </ScrollArea>
+      </Box>
+      <Group justify="space-between"><Text size="xs" c="dimmed">{`\uCD1D ${total.toLocaleString()}\uAC74`}</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / 20))} value={page} onChange={setPage} withEdges color="red" /></Group>
+    </Stack>
+  </Modal>;
+}
+
+function CustomerNameAutocompleteCell({ row, disabled, registerCellInput, onChange, onSelect, onFindCustomer, onFocus, onPaste }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(row.customname || '');
+  const [customers, setCustomers] = useState([]);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const requestIdRef = useRef(0);
+  const query = String(draft || '').trim();
+  const opened = editing && !disabled && query.length > 0 && customers.length > 0;
+
+  useEffect(() => {
+    if (!editing || disabled || !query) {
+      setCustomers([]);
+      return undefined;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const { data } = await axios.get('/api/list', {
+          ...authConfig(),
+          params: { search_keyword: query, status: 'Y', page: 1, page_size: 8, include_total: false },
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted) setCustomers(data.data || []);
+      } catch { /* Keep suggestions closed if lookup fails. */ }
+    }, 220);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [editing, disabled, query]);
+
+  const chooseCustomer = (customer) => {
+    requestIdRef.current += 1;
+    onSelect(row.id, customer);
+    setDraft(customer.customername || '');
+    setEditing(false);
+    setActiveIndex(-1);
+  };
+
+  const commitExactMatch = async () => {
+    const requestId = ++requestIdRef.current;
+    const normalized = query.toLocaleLowerCase();
+    if (!normalized) {
+      onChange(row.id, 'customname', '');
+      setEditing(false);
+      return;
+    }
+    let candidates = customers;
+    if (!candidates.some((customer) => [customer.customername, customer.customercode]
+      .some((value) => String(value || '').trim().toLocaleLowerCase() === normalized))) {
+      try {
+        const { data } = await axios.get('/api/list', {
+          ...authConfig(),
+          params: { search_keyword: query, status: 'Y', page: 1, page_size: 8, include_total: false },
+        });
+        candidates = data.data || [];
+      } catch { /* Keep the typed optional value if lookup fails. */ }
+    }
+    if (requestId !== requestIdRef.current) return;
+    const exact = candidates.filter((customer) => [customer.customername, customer.customercode]
+      .some((value) => String(value || '').trim().toLocaleLowerCase() === normalized));
+    if (exact.length === 1) chooseCustomer(exact[0]);
+    else setEditing(false);
+  };
+
+  return <Popover opened={opened} onChange={(value) => { if (!value) setEditing(false); }} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500}>
+    <Popover.Target>
+      <div>
+        <input
+          ref={(element) => registerCellInput(row.id, 'customname', element)}
+          className={`${codeClasses.cellInput} ${outboundClasses.itemCodePickerInput}`}
+          aria-label={'\uAC70\uB798\uCC98\uBA85'}
+          aria-haspopup="listbox"
+          aria-expanded={opened}
+          value={editing ? draft : row.customname || ''}
+          maxLength={100}
+          disabled={disabled}
+          onPaste={onPaste}
+          onFocus={(event) => {
+            requestIdRef.current += 1;
+            setDraft(row.customname || '');
+            setEditing(true);
+            onFocus();
+            event.currentTarget.select();
+          }}
+          onBlur={() => { void commitExactMatch(); }}
+          onChange={(event) => {
+            const value = event.currentTarget.value;
+            setDraft(value);
+            setActiveIndex(-1);
+            setEditing(true);
+            onChange(row.id, 'customname', value);
+          }}
+          onClick={(event) => {
+            if (!disabled && event.nativeEvent.offsetX >= event.currentTarget.clientWidth - 28) {
+              event.preventDefault();
+              event.stopPropagation();
+              setEditing(false);
+              onFindCustomer(row.id);
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'F2') {
+              event.preventDefault();
+              onFindCustomer(row.id);
+            } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+              if (!customers.length) return;
+              event.preventDefault();
+              event.stopPropagation();
+              setActiveIndex((current) => event.key === 'ArrowDown'
+                ? (current + 1) % customers.length
+                : (current - 1 + customers.length) % customers.length);
+            } else if (event.key === 'Enter' && opened) {
+              event.preventDefault();
+              event.stopPropagation();
+              const customer = customers[activeIndex >= 0 ? activeIndex : 0];
+              if (customer) chooseCustomer(customer);
+            } else if (event.key === 'Escape' && opened) {
+              event.preventDefault();
+              event.stopPropagation();
+              setDraft(row.customname || '');
+              setEditing(false);
+              setActiveIndex(-1);
+            }
+          }}
+          onDoubleClick={() => { if (!disabled) onFindCustomer(row.id); }}
+        />
+      </div>
+    </Popover.Target>
+    <Popover.Dropdown className={itemMasterClasses.shapeSuggestions}>
+      <div role="listbox" aria-label={'\uAC70\uB798\uCC98 \uAC80\uC0C9 \uACB0\uACFC'}>
+        {customers.map((customer, index) => <button
+          key={customer.customercode}
+          type="button"
+          role="option"
+          aria-selected={index === activeIndex}
+          className={itemMasterClasses.shapeSuggestion}
+          style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          onMouseDown={(event) => event.preventDefault()}
+          onMouseEnter={() => setActiveIndex(index)}
+          onClick={() => chooseCustomer(customer)}
+        >
+          <span>{customer.customername}</span>
+        </button>)}
+      </div>
+    </Popover.Dropdown>
+  </Popover>;
+}
+
+function MasterNameAutocompleteCell({ row, field, options, disabled, registerCellInput, onChange, onFindMaster, onFocus, onPaste }) {
+  const nameField = field === 'warehousecode' ? 'warehousecodename' : field === 'materialcode' ? 'materialname' : 'surfacename';
+  const getDisplayValue = () => options.find((option) => option.code === row[field])?.name || row[nameField] || row[field] || '';
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(getDisplayValue());
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const pickerOpenRef = useRef(false);
+  const query = String(draft || '').trim().toLocaleLowerCase();
+  const matches = useMemo(() => query
+    ? options.filter((option) => `${option.name || ''} ${option.code || ''}`.toLocaleLowerCase().includes(query)).slice(0, 8)
+    : [], [options, query]);
+  const opened = editing && !disabled && matches.length > 0;
+
+  const choose = (option) => {
+    onChange(row.id, field, option.code);
+    setDraft(option.name || '');
+    setEditing(false);
+    setActiveIndex(-1);
+  };
+  const commit = () => {
+    const value = String(draft || '').trim();
+    if (!value) {
+      onChange(row.id, field, '');
+      setEditing(false);
+      return;
+    }
+    const exact = options.filter((option) => [option.code, option.name]
+      .some((candidate) => String(candidate || '').trim().toLocaleLowerCase() === value.toLocaleLowerCase()));
+    if (exact.length === 1) choose(exact[0]);
+    else {
+      onChange(row.id, field, value);
+      setEditing(false);
+    }
+  };
+  const openPicker = () => {
+    pickerOpenRef.current = true;
+    setEditing(false);
+    onFindMaster(row.id, field);
+  };
+
+  return <Popover opened={opened} onChange={(value) => { if (!value) setEditing(false); }} position="bottom-start" width="target" withinPortal shadow="sm" offset={2} zIndex={500}>
+    <Popover.Target>
+      <div>
+        <input
+          ref={(element) => registerCellInput(row.id, field, element)}
+          className={`${codeClasses.cellInput} ${outboundClasses.itemCodePickerInput}`}
+          aria-label={field === 'warehousecode' ? '창고' : field === 'materialcode' ? '강종' : '표면'}
+          aria-autocomplete="list"
+          aria-haspopup="listbox"
+          aria-expanded={opened}
+          value={editing ? draft : getDisplayValue()}
+          maxLength={100}
+          disabled={disabled}
+          onFocus={(event) => {
+            pickerOpenRef.current = false;
+            setDraft(getDisplayValue());
+            setEditing(true);
+            onFocus();
+            event.currentTarget.select();
+          }}
+          onBlur={() => { if (!pickerOpenRef.current) commit(); }}
+          onChange={(event) => { setDraft(event.currentTarget.value); setActiveIndex(-1); setEditing(true); }}
+          onClick={(event) => {
+            if (event.nativeEvent.offsetX >= event.currentTarget.clientWidth - 28) {
+              event.preventDefault();
+              event.stopPropagation();
+              openPicker();
+            }
+          }}
+          onDoubleClick={openPicker}
+          onPaste={(event) => {
+            const text = event.clipboardData.getData('text/plain');
+            onPaste(event);
+            setDraft(text.split(/[\t\r\n]/, 1)[0].trim());
+            setEditing(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'F2') {
+              event.preventDefault();
+              event.stopPropagation();
+              if (!disabled) openPicker();
+            } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+              if (!matches.length) return;
+              event.preventDefault();
+              event.stopPropagation();
+              setActiveIndex((current) => event.key === 'ArrowDown'
+                ? (current + 1) % matches.length
+                : (current - 1 + matches.length) % matches.length);
+            } else if (event.key === 'Enter' && opened) {
+              event.preventDefault();
+              event.stopPropagation();
+              const option = matches[activeIndex >= 0 ? activeIndex : 0];
+              if (option) choose(option);
+            } else if (event.key === 'Escape' && opened) {
+              event.preventDefault();
+              event.stopPropagation();
+              setDraft(getDisplayValue());
+              setEditing(false);
+              setActiveIndex(-1);
+            }
+          }}
+        />
+      </div>
+    </Popover.Target>
+    <Popover.Dropdown p={4} mah={240} style={{ overflowY: 'auto' }}>
+      <Stack gap={2} role="listbox">
+        {matches.map((option, index) => <button
+          key={option.code}
+          type="button"
+          role="option"
+          aria-selected={index === activeIndex}
+          onMouseDown={(event) => event.preventDefault()}
+          onMouseEnter={() => setActiveIndex(index)}
+          onClick={() => choose(option)}
+          style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '7px 9px', border: 0, borderRadius: 4, background: index === activeIndex ? 'var(--mantine-color-blue-0)' : 'transparent', cursor: 'pointer', fontSize: 12, textAlign: 'left' }}
+        >
+          <span>{option.name}</span><Text size="xs" c="dimmed">{option.code}</Text>
+        </button>)}
+      </Stack>
+    </Popover.Dropdown>
+  </Popover>;
+}
+
 function StockMasterPicker({ opened, title, options, onClose, onSelect }) {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -223,15 +751,21 @@ function StockMasterPicker({ opened, title, options, onClose, onSelect }) {
 }
 
 export default function StockStandPage() {
+  const initialRange = currentMonthRange();
   const [standdate, setStanddate] = useState(localDate);
+  const [dateFrom, setDateFrom] = useState(initialRange.from);
+  const [dateTo, setDateTo] = useState(initialRange.to);
   const [searchInput, setSearchInput] = useState('');
   const [query, setQuery] = useState('');
+  const [warehouseInput, setWarehouseInput] = useState('');
+  const [warehouseQuery, setWarehouseQuery] = useState('');
+  const [filterOpen, setFilterOpen] = useState(true);
   const [rows, setRows] = useState([]);
   const [totalRows, setTotalRows] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [selectedIds, setSelectedIds] = useState([]);
-  const [masters, setMasters] = useState({ quantity: [], warehouse: [], price: [] });
+  const [masters, setMasters] = useState({ quantity: [], warehouse: [], price: [], material: [], surface: [] });
   const [hasSavedStock, setHasSavedStock] = useState(false);
   const [hasTransactions, setHasTransactions] = useState(false);
   const [hasStockMovements, setHasStockMovements] = useState(false);
@@ -241,8 +775,8 @@ export default function StockStandPage() {
   const [exporting, setExporting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [itemPickerId, setItemPickerId] = useState('');
+  const [customerPickerId, setCustomerPickerId] = useState('');
   const [masterPickerTarget, setMasterPickerTarget] = useState(null);
-  const [selectedDeleteOpen, setSelectedDeleteOpen] = useState(false);
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [columnWidths, setColumnWidths] = useState({});
   const uploadInputRef = useRef(null);
@@ -257,7 +791,7 @@ export default function StockStandPage() {
   const loadingMoreRef = useRef(false);
   const hasMoreRowsRef = useRef(false);
   const nextCursorRef = useRef(0);
-  const hasNewRows = rows.some((row) => !row.lineno);
+  const hasNewRows = rows.some((row) => !row.lineno && hasRowInput(row));
   const changedPriceRows = rows.filter((row) => {
     if (!row.lineno) return false;
     const original = originalRowsRef.current.get(row.id);
@@ -297,7 +831,7 @@ export default function StockStandPage() {
     window.addEventListener('pointercancel', finish);
   }, [columnWidths]);
 
-  const loadRows = useCallback(async (nextDate = standdate, nextQuery = query, confirmDiscard = true, useRegisteredDate = false, nextPage = page, nextPageSize = pageSize) => {
+  const loadRows = useCallback(async (nextDate = standdate, nextQuery = query, confirmDiscard = true, useRegisteredDate = false, nextPage = page, nextPageSize = pageSize, nextDateFrom = dateFrom, nextDateTo = dateTo, nextWarehouse = warehouseQuery) => {
     if (confirmDiscard && hasChanges && !window.confirm('저장하지 않은 변경사항이 있습니다. 조회하면 변경 내용이 사라집니다. 계속할까요?')) return;
     const requestId = ++listRequestIdRef.current;
     loadingMoreRef.current = false;
@@ -307,12 +841,14 @@ export default function StockStandPage() {
     setLoading(true);
     try {
       const offset = (nextPage - 1) * nextPageSize;
-      let response = await axios.get('/api/stock-stand/items', { ...authConfig(), params: { standdate: nextDate, q: nextQuery || undefined, cursor: 0, limit: nextPageSize, offset } });
+      let response = await axios.get('/api/stock-stand/items', { ...authConfig(), params: { standdate: nextDate, date_from: nextDateFrom || undefined, date_to: nextDateTo || undefined, q: nextQuery || undefined, warehouse: nextWarehouse || undefined, cursor: 0, limit: nextPageSize, offset } });
       let data = response.data;
       const registeredDate = data.registered_standdate ? String(data.registered_standdate).slice(0, 10) : '';
       if (useRegisteredDate && data.has_stock_rows && registeredDate && registeredDate !== nextDate) {
         setStanddate(registeredDate);
-        response = await axios.get('/api/stock-stand/items', { ...authConfig(), params: { standdate: registeredDate, q: nextQuery || undefined, cursor: 0, limit: nextPageSize, offset } });
+        setDateFrom(registeredDate);
+        setDateTo(registeredDate);
+        response = await axios.get('/api/stock-stand/items', { ...authConfig(), params: { standdate: registeredDate, date_from: registeredDate, date_to: registeredDate, q: nextQuery || undefined, warehouse: nextWarehouse || undefined, cursor: 0, limit: nextPageSize, offset } });
         data = response.data;
       }
       if (requestId !== listRequestIdRef.current) return;
@@ -340,7 +876,7 @@ export default function StockStandPage() {
       notifications.show({ title: '기초재고 조회 실패', message: errorText(error), color: 'red' });
       return false;
     } finally { if (requestId === listRequestIdRef.current) setLoading(false); }
-  }, [standdate, query, hasChanges, page, pageSize]);
+  }, [standdate, query, hasChanges, page, pageSize, dateFrom, dateTo, warehouseQuery]);
 
   const changePage = async (nextPage) => {
     if (nextPage < 1 || nextPage > pageCount || nextPage === page) return;
@@ -360,9 +896,17 @@ export default function StockStandPage() {
 
   const runSearch = async () => {
     const nextQuery = searchInput.trim();
+    const nextWarehouse = warehouseInput.trim();
+    if (dateFrom && dateTo && dateFrom > dateTo) {
+      notifications.show({ title: '조회 기간 확인', message: '시작일은 종료일보다 늦을 수 없습니다.', color: 'red' });
+      return;
+    }
     if (hasChanges && !window.confirm('저장하지 않은 변경사항이 있습니다. 조회하면 변경 내용이 사라집니다. 계속할까요?')) return;
-    if (!(await loadRows(standdate, nextQuery, false, false, 1, pageSize))) return;
+    const nextDate = dateTo || dateFrom || standdate;
+    if (!(await loadRows(nextDate, nextQuery, false, false, 1, pageSize, dateFrom, dateTo, nextWarehouse))) return;
+    setStanddate(nextDate);
     setQuery(nextQuery);
+    setWarehouseQuery(nextWarehouse);
     setPage(1);
   };
 
@@ -381,12 +925,39 @@ export default function StockStandPage() {
 
   useEffect(() => {
     loadRows(standdate, '', false, true);
-    Promise.all([loadCodes('QTY'), loadCodes('WAREHOUSE'), loadCodes('PRICE_UNIT')])
-      .then(([quantity, warehouse, price]) => setMasters({ quantity, warehouse, price }))
+    Promise.all([loadCodes('QTY'), loadCodes('WAREHOUSE'), loadCodes('PRICE_UNIT'), loadCodes('MATERIAL'), loadCodes('SURFACE')])
+      .then(([quantity, warehouse, price, material, surface]) => setMasters({ quantity, warehouse, price, material, surface }))
       .catch((error) => notifications.show({ title: '기초재고 코드 조회 실패', message: errorText(error), color: 'red' }));
   // Initial load; date changes are explicitly searched to protect edits.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!masters.warehouse.length && !masters.material.length && !masters.surface.length) return;
+    setRows((current) => {
+      let changed = false;
+      const nextRows = current.map((row) => {
+        if (row.lineno) return row;
+        const next = { ...row };
+        let rowChanged = false;
+        for (const [field, nameField] of [
+          ['warehousecode', 'warehousecodename'],
+          ['materialcode', 'materialname'],
+          ['surfacecode', 'surfacename'],
+        ]) {
+          const code = resolveMasterCode(field, next[nameField] || next[field], masters);
+          if (!code) continue;
+          const option = masters[MASTER_KIND[field]].find((entry) => entry.code === code);
+          if (next[field] !== code || next[nameField] !== option?.name) rowChanged = true;
+          next[field] = code;
+          next[nameField] = option?.name || '';
+        }
+        if (rowChanged) changed = true;
+        return rowChanged ? next : row;
+      });
+      return changed ? nextRows : current;
+    });
+  }, [masters]);
 
   useEffect(() => {
     if (page > pageCount) setPage(pageCount);
@@ -398,12 +969,22 @@ export default function StockStandPage() {
       if (row.id !== id && !(applyToSelected && selectedSet.has(row.id))) return row;
       if (row.lineno && !PRICE_FIELDS.has(key)) return row;
       const next = { ...row, [key]: value };
+      if (key === 'itemcode') next.itemname = '';
+      if (key === 'itemname') next.itemcode = '';
+      if (key === 'customname') next.customcode = '';
+      if (key === 'supplyamt' || key === 'vat') next[`${key}_manual`] = true;
+      if (key === 'unit' || key === 'unitprice') {
+        next.supplyamt_manual = false;
+        next.vat_manual = false;
+      }
       if (MASTER_FIELDS.has(key)) {
         const code = resolveMasterCode(key, value, masters);
         next[key] = code || value;
         if (key === 'warehousecode') next.warehousecodename = masters.warehouse.find((option) => option.code === code)?.name || '';
+        if (key === 'materialcode') next.materialname = masters.material.find((option) => option.code === code)?.name || '';
+        if (key === 'surfacecode') next.surfacename = masters.surface.find((option) => option.code === code)?.name || '';
       }
-      if (['unit', 'weight', 'unitprice'].includes(key)) next.unitamt = calculateAmount(next, masters.price);
+      if (['unit', 'qty', 'length', 'weight', 'unitprice', 'supplyamt', 'vat'].includes(key)) Object.assign(next, calculateAmounts(next, masters.price));
       return next;
     }));
   }, [masters, selectedIds.length, selectedSet]);
@@ -417,18 +998,66 @@ export default function StockStandPage() {
       });
       return;
     }
-    const row = makeRow({ qtyunit: resolveMasterCode('qtyunit', 'EA', masters) || 'EA' });
+    const row = makeRow({
+      standdate,
+      qtyunit: resolveMasterCode('qtyunit', 'EA', masters) || 'EA',
+      unit: resolveMasterCode('unit', 'KG', masters) || 'KG',
+    });
     setRows((current) => [...current, row]);
     const nextPage = Math.ceil((rows.length + 1) / pageSize);
     setPage(nextPage);
     setSelectedIds([]);
     selectionAnchorRef.current = '';
-    pendingCellFocusRef.current = { key: `${row.id}:itemcode` };
+    pendingCellFocusRef.current = { key: `${row.id}:standdate` };
     requestAnimationFrame(() => {
       virtuosoRef.current?.scrollToIndex({ index: Math.max(0, rows.length - (nextPage - 1) * pageSize), align: 'end', behavior: 'auto' });
     });
   };
+  const copySelectedRow = () => {
+    if (hasSavedStock || hasTransactions || saving || loading || uploading) return;
+    if (selectedIds.length !== 1) {
+      notifications.show({ title: '복사할 행 선택', message: '복사할 기초재고 행을 하나 선택해 주세요.', color: 'orange' });
+      return;
+    }
+    const source = rows.find((row) => row.id === selectedIds[0]);
+    if (!source || source.lineno) return;
+    const values = Object.fromEntries(Object.entries(source)
+      .filter(([key]) => !['id', 'lineno', 'isNew', 'has_movements', 'created_at', 'updated_at'].includes(key)));
+    const copy = makeRow(values);
+    const nextPage = Math.ceil((rows.length + 1) / pageSize);
+    setRows((current) => [...current, copy]);
+    setSelectedIds([copy.id]);
+    setPage(nextPage);
+    selectionAnchorRef.current = '';
+    pendingCellFocusRef.current = { key: `${copy.id}:standdate` };
+    requestAnimationFrame(() => {
+      virtuosoRef.current?.scrollToIndex({ index: Math.max(0, rows.length - (nextPage - 1) * pageSize), align: 'end', behavior: 'auto' });
+    });
+    notifications.show({ title: '행 복사 완료', message: '선택한 행의 입력값을 그대로 복사했습니다.', color: 'teal' });
+  };
   const selectItem = (id, item) => setRows((current) => current.map((row) => row.id === id ? { ...row, itemcode: item.itemcode, itemname: item.itemname } : row));
+  const selectCustomerForRow = (rowId, customer) => {
+    setRows((current) => current.map((row) => row.id === rowId
+      ? { ...row, customcode: customer.customercode || '', customname: customer.customername || '' }
+      : row));
+  };
+  const selectCustomer = (customer) => {
+    selectCustomerForRow(customerPickerId, customer);
+    setCustomerPickerId('');
+  };
+  const resolveCustomerName = async (id, value) => {
+    const customerValue = value.trim();
+    if (!customerValue) return;
+    try {
+      const { data } = await axios.get('/api/list', { ...authConfig(), params: { search_keyword: customerValue, status: 'Y', page: 1, page_size: 20, include_total: false } });
+      const normalizedValue = customerValue.toLocaleLowerCase();
+      const matches = (data.data || []).filter((customer) => [customer.customercode, customer.customername]
+        .some((candidate) => String(candidate || '').trim().toLocaleLowerCase() === normalizedValue));
+      if (matches.length === 1) setRows((current) => current.map((row) => row.id === id
+        ? { ...row, customcode: matches[0].customercode || '', customname: matches[0].customername || '' }
+        : row));
+    } catch { /* Keep the entered optional customer name if lookup fails. */ }
+  };
 
   const registerCellInput = useCallback((id, field, element) => {
     const key = `${id}:${field}`;
@@ -480,6 +1109,8 @@ export default function StockStandPage() {
       if (!targetIds.has(row.id)) return row;
       const next = { ...row, [active.field]: value };
       if (active.field === 'warehousecode') next.warehousecodename = masters.warehouse.find((option) => option.code === value)?.name || '';
+      if (active.field === 'materialcode') next.materialname = masters.material.find((option) => option.code === value)?.name || '';
+      if (active.field === 'surfacecode') next.surfacename = masters.surface.find((option) => option.code === value)?.name || '';
       return next;
     }));
     notifications.show({ title: '아래로 채우기 완료', message: `${targetRows.length}개 행에 현재 셀의 값을 복사했습니다.`, color: 'teal' });
@@ -567,20 +1198,33 @@ export default function StockStandPage() {
     const nextRows = [...workingRows];
     const additions = [];
     matrix.forEach((line, rowOffset) => {
-      const target = nextRows[startIndex + rowOffset] ? { ...nextRows[startIndex + rowOffset] } : makeRow({ qtyunit: resolveMasterCode('qtyunit', 'EA', masters) || 'EA' });
+      const target = nextRows[startIndex + rowOffset] ? { ...nextRows[startIndex + rowOffset] } : makeRow({ standdate, qtyunit: resolveMasterCode('qtyunit', 'EA', masters) || 'EA' });
       line.forEach((cell, columnOffset) => {
         const key = GRID_FIELDS[startColumn + columnOffset];
-        if (!key || key === 'itemname') return;
+        if (!key || key === 'unitamt') return;
         if (target.lineno && !EDITABLE_PRICE_FIELDS.has(key)) return;
         const value = String(cell ?? '').trim();
+        if (key === 'unit' || key === 'unitprice') {
+          target.supplyamt_manual = false;
+          target.vat_manual = false;
+        }
         if (MASTER_FIELDS.has(key)) {
           const code = resolveMasterCode(key, value, masters);
           target[key] = value ? code || value : '';
           if (key === 'warehousecode') target.warehousecodename = masters.warehouse.find((option) => option.code === code)?.name || '';
-        } else if (['qty', 'weight', 'unitprice'].includes(key)) target[key] = value ? cleanNumber(value) : '';
-        else target[key] = value;
+          if (key === 'materialcode') target.materialname = masters.material.find((option) => option.code === code)?.name || '';
+          if (key === 'surfacecode') target.surfacename = masters.surface.find((option) => option.code === code)?.name || '';
+        } else if (['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat'].includes(key)) {
+          target[key] = value ? cleanNumber(value) : '';
+          if (key === 'supplyamt' || key === 'vat') target[`${key}_manual`] = true;
+        }
+        else {
+          target[key] = value;
+          if (key === 'customname') target.customcode = '';
+          if (key === 'itemname') target.itemcode = '';
+        }
       });
-      target.unitamt = calculateAmount(target, masters.price);
+      Object.assign(target, calculateAmounts(target, masters.price));
       if (nextRows[startIndex + rowOffset]) nextRows[startIndex + rowOffset] = target;
       else additions.push(target);
     });
@@ -610,7 +1254,7 @@ export default function StockStandPage() {
     const headers = STOCK_EXCEL_COLUMNS.map(([, label]) => label);
     const worksheet = XLSX.utils.aoa_to_sheet([headers, Array(headers.length).fill('')]);
     applyExcelHeaderStyle(worksheet, headers.length);
-    worksheet['!cols'] = STOCK_EXCEL_COLUMNS.map(([key]) => ({ wch: ['itemname', 'description'].includes(key) ? 24 : 16 }));
+    worksheet['!cols'] = STOCK_EXCEL_COLUMNS.map(([key]) => ({ wch: ['itemname', 'customname', 'warehousecodename', 'materialname', 'surfacename', 'description'].includes(key) ? 24 : 16 }));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '기초재고');
     XLSX.writeFile(workbook, `기초재고_일괄등록_샘플.xlsx`);
@@ -643,13 +1287,14 @@ export default function StockStandPage() {
         headers,
         ...rowsForExport.map((row) => STOCK_EXPORT_COLUMNS.map(([key]) => {
           const value = row[key];
+          if (key === 'standdate') return row.standdate || standdate;
           if (key === 'created_at' || key === 'updated_at') return formatTimestamp(value);
-          return ['qty', 'weight', 'unitprice', 'unitamt'].includes(key) && value !== '' && value != null
+          return ['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat', 'unitamt'].includes(key) && value !== '' && value != null
             ? Number(cleanNumber(value)) : value ?? '';
         })),
       ]);
       applyExcelHeaderStyle(worksheet, headers.length);
-      worksheet['!cols'] = STOCK_EXPORT_COLUMNS.map(([key]) => ({ wch: ['itemname', 'description'].includes(key) ? 24 : ['created_at', 'updated_at'].includes(key) ? 19 : 16 }));
+      worksheet['!cols'] = STOCK_EXPORT_COLUMNS.map(([key]) => ({ wch: ['itemname', 'materialname', 'surfacename', 'description'].includes(key) ? 24 : ['created_at', 'updated_at'].includes(key) ? 19 : 16 }));
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, '기초재고');
       XLSX.writeFile(workbook, `기초재고_${standdate.replaceAll('-', '')}.xlsx`);
@@ -684,17 +1329,36 @@ export default function StockStandPage() {
       if (sourceRows.length > 10000) throw new Error('한 번에 최대 10,000행까지 등록할 수 있습니다.');
       const normalize = (value) => String(value ?? '').trim().toLowerCase().replace(/[\s_-]+/g, '');
       const aliases = {
-        itemcode: ['itemcode', '품목코드'], itemname: ['itemname', '품목명'], size: ['size', '규격'],
-        qty: ['qty', '기초수량', '수량'], qtyunit: ['qtyunit', '수량단위코드', '수량단위'],
-        weight: ['weight', '기초중량', '중량'], warehousecode: ['warehousecode', '창고코드'],
-        warehousecodename: ['warehousecodename', '창고명'], unit: ['unit', '단가기준'],
-        unitprice: ['unitprice', '기초단가'], unitamt: ['unitamt', '기초금액'],
-        description: ['description', '비고'],
+        standdate: ['standdate', '\uAE30\uCD08\uC77C\uC790', '\uAE30\uC900\uC77C\uC790'],
+        itemcode: ['itemcode', '\uD488\uBAA9\uCF54\uB4DC'], itemname: ['itemname', '\uD488\uBA85', '\uD488\uBAA9\uBA85'],
+        customcode: ['customcode', '\uAC70\uB798\uCC98\uCF54\uB4DC'], customname: ['customname', '\uAC70\uB798\uCC98', '\uAC70\uB798\uCC98\uBA85'],
+        productname: ['productname', '\uC81C\uD488\uBC88\uD638'],
+        materialcode: ['materialcode', '\uAC15\uC885\uCF54\uB4DC'], materialname: ['materialname', '\uAC15\uC885'],
+        surfacecode: ['surfacecode', '\uD45C\uBA74\uCF54\uB4DC'], surfacename: ['surfacename', '\uD45C\uBA74'],
+        myrtle: ['myrtle', '\uB3C4\uAE08\uB7C9(g/m\u00B2)', '\uB3C4\uAE08\uB7C9'], thickness: ['thickness', '\uB450\uAED8'], width: ['width', '\uD3ED'], length: ['length', '\uAE38\uC774'],
+        qty: ['qty', '\uAE30\uCD08\uC218\uB7C9', '\uC218\uB7C9'], qtyunit: ['qtyunit', '\uC218\uB7C9\uB2E8\uC704\uCF54\uB4DC', '\uC218\uB7C9\uB2E8\uC704'],
+        weight: ['weight', '\uAE30\uCD08\uC911\uB7C9', '\uC911\uB7C9'], warehousecode: ['warehousecode', '\uCC3D\uACE0\uCF54\uB4DC'],
+        warehousecodename: ['warehousecodename', '\uCC3D\uACE0', '\uCC3D\uACE0\uBA85'], unit: ['unit', '\uB2E8\uAC00\uAE30\uC900'],
+        unitprice: ['unitprice', '\uAE30\uCD08\uB2E8\uAC00'], supplyamt: ['supplyamt', '\uACF5\uAE09\uAC00'],
+        vat: ['vat', '\uBD80\uAC00\uC138', '\uC138\uC561'], unitamt: ['unitamt', '\uD569\uACC4\uAE08\uC561', '\uAE30\uCD08\uAE08\uC561'],
+        description: ['description', '\uBE44\uACE0'],
       };
       const getValue = (source, key) => {
         const cells = Object.fromEntries(Object.entries(source).map(([name, value]) => [normalize(name), value]));
         const header = aliases[key].map(normalize).find((name) => cells[name] !== undefined);
         return header === undefined ? '' : String(cells[header] ?? '').trim();
+      };
+      const parseExcelDate = (value) => {
+        const text = String(value ?? '').trim();
+        if (!text) return '';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+        if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(text)) return text.replaceAll('/', '-').replace(/-(\d)(?=-|$)/g, '-0$1');
+        const serial = Number(text);
+        if (Number.isFinite(serial)) {
+          const date = XLSX.SSF.parse_date_code(serial);
+          if (date) return `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`;
+        }
+        return text;
       };
       const parseNumber = (value) => value === '' ? '' : Number(String(value).replace(/,/g, '').trim());
       const resolveMaster = (value, options) => {
@@ -703,39 +1367,101 @@ export default function StockStandPage() {
       };
       const parsedRows = sourceRows.map((source, index) => ({
         excelRow: index + 2,
+        standdate: parseExcelDate(getValue(source, 'standdate')) || standdate,
         itemcode: getValue(source, 'itemcode'), itemname: getValue(source, 'itemname'),
-        size: getValue(source, 'size'), qty: parseNumber(getValue(source, 'qty')),
+        customcode: getValue(source, 'customcode'), customname: getValue(source, 'customname'),
+        productname: getValue(source, 'productname'),
+        materialcode: resolveMaster(getValue(source, 'materialcode') || getValue(source, 'materialname'), masters.material),
+        surfacecode: resolveMaster(getValue(source, 'surfacecode') || getValue(source, 'surfacename'), masters.surface),
+        myrtle: parseNumber(getValue(source, 'myrtle')),
+        thickness: parseNumber(getValue(source, 'thickness')), width: parseNumber(getValue(source, 'width')), length: parseNumber(getValue(source, 'length')),
+        qty: parseNumber(getValue(source, 'qty')),
         qtyunit: resolveMaster(getValue(source, 'qtyunit'), masters.quantity),
         weight: parseNumber(getValue(source, 'weight')),
         warehousecode: resolveMaster(getValue(source, 'warehousecode') || getValue(source, 'warehousecodename'), masters.warehouse),
         unit: getValue(source, 'unit') ? resolveMaster(getValue(source, 'unit'), masters.price) : '',
-        unitprice: parseNumber(getValue(source, 'unitprice')), unitamt: parseNumber(getValue(source, 'unitamt')),
+        unitprice: parseNumber(getValue(source, 'unitprice')), supplyamt: parseNumber(getValue(source, 'supplyamt')),
+        vat: parseNumber(getValue(source, 'vat')), unitamt: parseNumber(getValue(source, 'unitamt')),
+        supplyamt_manual: getValue(source, 'supplyamt') !== '', vat_manual: getValue(source, 'vat') !== '',
         description: getValue(source, 'description'),
-      })).filter(({ excelRow, ...row }) => Object.values(row).some((value) => value !== '' && value != null));
+      })).filter((row) => Object.entries(row).some(([key, value]) => key !== 'excelRow' && key !== 'standdate' && value !== '' && value != null));
       if (!parsedRows.length) throw new Error('업로드할 데이터가 없습니다. 첫 번째 시트의 열 이름을 확인해 주세요.');
 
       const itemcodes = [...new Set(parsedRows.map((row) => row.itemcode).filter(Boolean))];
+      const itemnames = [...new Set(parsedRows.filter((row) => !row.itemcode).map((row) => row.itemname).filter(Boolean))];
+      const customernames = [...new Set(parsedRows.flatMap((row) => [row.customcode, row.customname]).filter(Boolean))];
       let activeItems = {};
-      if (itemcodes.length) {
-        const { data } = await axios.post('/api/stock-stand/items/resolve', { itemcodes }, authConfig());
+      let activeItemNames = {};
+      let activeCustomers = {};
+      if (itemcodes.length || itemnames.length || customernames.length) {
+        const { data } = await axios.post('/api/stock-stand/items/resolve', { itemcodes, itemnames, customernames }, authConfig());
         activeItems = data.items || {};
+        activeItemNames = data.names || {};
+        activeCustomers = data.customers || {};
       }
       parsedRows.forEach((row) => {
-        row.itemname = activeItems[row.itemcode] || '';
+        if (row.customcode) {
+          const matches = activeCustomers[row.customcode.toLocaleLowerCase()] || [];
+          if (matches.length === 1) {
+            if (row.customname && row.customname.toLocaleLowerCase() !== matches[0].customername.toLocaleLowerCase()) {
+              row.customerResolveError = '\uAC70\uB798\uCC98\uCF54\uB4DC\uC640 \uAC70\uB798\uCC98\uBA85\uC774 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4';
+            } else {
+              row.customcode = matches[0].customercode;
+              row.customname = matches[0].customername;
+            }
+          } else {
+            row.customerResolveError = '\uD65C\uC131 \uAC70\uB798\uCC98 \uB9C8\uC2A4\uD130\uC5D0\uC11C \uAC70\uB798\uCC98\uCF54\uB4DC\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4';
+          }
+        } else if (row.customname) {
+          const matches = activeCustomers[row.customname.toLocaleLowerCase()] || [];
+          if (matches.length === 1) {
+            row.customcode = matches[0].customercode;
+            row.customname = matches[0].customername;
+          } else if (matches.length > 1) {
+            row.customerResolveError = '\uAC70\uB798\uCC98\uBA85\uC774 \uC911\uBCF5\uB418\uC5B4 \uAC70\uB798\uCC98\uCF54\uB4DC\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4';
+          } else {
+            row.customerResolveError = `활성 거래처 마스터에서 거래처명을 찾을 수 없습니다: ${row.customname}`;
+          }
+        }
+        if (row.itemcode) {
+          const match = activeItems[row.itemcode.toLocaleLowerCase()];
+          row.itemcode = match?.itemcode || row.itemcode;
+          row.itemname = match?.itemname || '';
+        } else if (row.itemname) {
+          const matches = activeItemNames[row.itemname.toLocaleLowerCase()] || [];
+          if (matches.length === 1) {
+            row.itemcode = matches[0].itemcode;
+            row.itemname = matches[0].itemname;
+          } else if (matches.length > 1) {
+            row.itemResolveError = '\uD488\uBA85\uC774 \uC911\uBCF5\uB418\uC5B4 \uD488\uBAA9\uCF54\uB4DC\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4';
+          } else {
+            row.itemResolveError = '\uD65C\uC131 \uD488\uBAA9 \uB9C8\uC2A4\uD130\uC5D0\uC11C \uD488\uBA85\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4';
+          }
+        }
+        row.materialname = masters.material.find((option) => option.code === row.materialcode)?.name || '';
+        row.surfacename = masters.surface.find((option) => option.code === row.surfacecode)?.name || '';
       });
 
       const errors = [];
       parsedRows.forEach((row) => {
         const rowErrors = [];
+        if (row.itemResolveError) rowErrors.push(row.itemResolveError);
+        if (row.customerResolveError) rowErrors.push(row.customerResolveError);
+        if (!isValidDateInput(row.standdate)) rowErrors.push('\uAE30\uCD08\uC77C\uC790 YYYY-MM-DD');
         if (!row.itemcode) rowErrors.push('품목코드 필수');
         else if (!row.itemname) rowErrors.push('품목코드가 미등록이거나 사용중지 상태입니다');
+        if (!row.materialcode || !row.materialname) rowErrors.push('강종 확인 필요');
+        if ((getValue(sourceRows[row.excelRow - 2], 'surfacecode') || getValue(sourceRows[row.excelRow - 2], 'surfacename')) && !row.surfacecode) rowErrors.push('표면 확인 필요');
         if (!row.qtyunit) rowErrors.push('수량단위 확인 필요');
         if (row.qty === '' || !Number.isFinite(row.qty) || row.qty <= 0) rowErrors.push('기초수량은 양수');
         if (!Number.isFinite(row.weight) || row.weight <= 0) rowErrors.push('기초중량은 양수');
         if (!row.warehousecode) rowErrors.push('창고코드/창고명 확인 필요');
-        if (getValue(sourceRows[row.excelRow - 2], 'unit') && !row.unit) rowErrors.push('단가기준 확인 필요');
-        for (const key of ['unitprice']) {
-          if (row[key] !== '' && (!Number.isFinite(row[key]) || row[key] < 0)) rowErrors.push('기초단가는 0 이상 숫자');
+        if (!row.unit) rowErrors.push('단가기준 확인 필요');
+        for (const key of ['myrtle', 'thickness', 'width', 'length']) {
+          if (row[key] !== '' && (!Number.isFinite(row[key]) || row[key] < 0)) rowErrors.push('??/???? 0 ?? ??');
+        }
+        for (const key of ['unitprice', 'supplyamt', 'vat']) {
+          if (row[key] !== '' && (!Number.isFinite(row[key]) || row[key] < 0)) rowErrors.push('????/???/???? 0 ?? ??');
         }
         if (rowErrors.length) errors.push(`${row.excelRow}행: ${rowErrors.join(', ')}`);
       });
@@ -746,17 +1472,17 @@ export default function StockStandPage() {
 
       setRows((current) => [...current, ...parsedRows.map(({ excelRow, ...row }) => makeRow({
         ...row,
-        unitamt: calculateAmount(row, masters.price),
+        ...calculateAmounts(row, masters.price),
         warehousecodename: masters.warehouse.find((option) => option.code === row.warehousecode)?.name || '',
       }))]);
       notifications.show({ title: '엑셀 업로드 완료', message: `${parsedRows.length.toLocaleString()}건을 입력 목록에 추가했습니다. 저장 버튼을 눌러 반영해 주세요.`, color: 'teal', autoClose: 7000 });
     } catch (error) {
       notifications.show({ title: '엑셀 업로드 실패', message: errorText(error), color: 'red' });
     } finally { setUploading(false); }
-  }, [hasChanges, masters, hasSavedStock, hasTransactions, registrationBlockMessage]);
+  }, [hasChanges, masters, hasSavedStock, hasTransactions, registrationBlockMessage, standdate]);
 
   const save = async () => {
-    const newRows = rows.filter((row) => !row.lineno);
+    let newRows = rows.filter((row) => !row.lineno && hasRowInput(row));
     if (newRows.length && (hasSavedStock || hasTransactions)) {
       notifications.show({
         title: '기초재고를 등록할 수 없습니다',
@@ -769,18 +1495,71 @@ export default function StockStandPage() {
       notifications.show({ title: '저장할 변경사항 없음', message: '새 기초재고를 입력하거나 단가 정보를 변경해 주세요.', color: 'blue' });
       return;
     }
+    const pendingItemRows = newRows.filter((row) => !row.itemcode.trim() && row.itemname.trim());
+    if (pendingItemRows.length) {
+      setSaving(true);
+      try {
+        const values = [...new Set(pendingItemRows.map((row) => row.itemname.trim()))];
+        const { data } = await axios.post('/api/stock-stand/items/resolve', {
+          itemcodes: values,
+          itemnames: values,
+        }, authConfig());
+        const unresolved = [];
+        const resolvedById = new Map();
+        pendingItemRows.forEach((row) => {
+          const value = row.itemname.trim();
+          const byCode = data.items?.[value.toLocaleLowerCase()];
+          const byName = data.names?.[value.toLocaleLowerCase()] || [];
+          const match = byCode || (byName.length === 1 ? byName[0] : null);
+          if (match) resolvedById.set(row.id, match);
+          else unresolved.push(`${rows.indexOf(row) + 1}\uD589 ${byName.length > 1 ? '\uD488\uBA85\uC774 \uC911\uBCF5\uB418\uC5B4 \uD488\uBAA9\uCF54\uB4DC\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4' : '\uD65C\uC131 \uD488\uBAA9 \uB9C8\uC2A4\uD130\uC5D0\uC11C \uD488\uBA85\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4'}`);
+        });
+        if (unresolved.length) {
+          notifications.show({ title: '\uD488\uBAA9 \uC815\uBCF4 \uD655\uC778', message: unresolved.slice(0, 5).join(' / '), color: 'orange', autoClose: 9000 });
+          return;
+        }
+        newRows = newRows.map((row) => {
+          const match = resolvedById.get(row.id);
+          return match ? { ...row, itemcode: match.itemcode, itemname: match.itemname } : row;
+        });
+        setRows((current) => current.map((row) => {
+          const match = resolvedById.get(row.id);
+          return match ? { ...row, itemcode: match.itemcode, itemname: match.itemname } : row;
+        }));
+      } catch (error) {
+        notifications.show({
+          title: error.response?.status === 409 ? '입력값 확인 필요' : '기초재고 저장 실패',
+          message: errorText(error),
+          color: error.response?.status === 409 ? 'orange' : 'red',
+        });
+        return;
+      } finally {
+        setSaving(false);
+      }
+    }
     const invalid = [];
     newRows.forEach((row) => {
       const rowNo = rows.indexOf(row) + 1;
+      if (!isValidDateInput(row.standdate)) invalid.push(`${rowNo}\uD589 \uAE30\uCD08\uC77C\uC790`);
       if (!row.itemcode.trim() || !row.itemname.trim()) invalid.push(`${rowNo}행 품목`);
+      if (!row.materialcode || !row.materialname) invalid.push(`${rowNo}행 강종`);
       if (!row.qtyunit) invalid.push(`${rowNo}행 수량단위`);
       if (!row.qty || !Number.isFinite(Number(row.qty)) || Number(row.qty) <= 0) invalid.push(`${rowNo}행 기초수량`);
       if (!row.weight || !Number.isFinite(Number(row.weight)) || Number(row.weight) <= 0) invalid.push(`${rowNo}행 기초중량`);
       if (!row.warehousecode) invalid.push(`${rowNo}행 창고`);
+      for (const key of ['myrtle', 'thickness', 'width', 'length']) {
+        if (row[key] !== '' && (!Number.isFinite(Number(row[key])) || Number(row[key]) < 0)) invalid.push(`${rowNo}행 규격/도금량`);
+      }
+      for (const key of ['supplyamt', 'vat']) {
+        if (row[`${key}_manual`] && row[key] !== '' && (!Number.isFinite(Number(row[key])) || Number(row[key]) < 0)) {
+          invalid.push(`${rowNo}\uD589 ${key === 'supplyamt' ? '\uACF5\uAE09\uAC00' : '\uBD80\uAC00\uC138'}`);
+        }
+      }
     });
     [...newRows, ...changedPriceRows].forEach((row) => {
+      if (!row.unit) invalid.push(`${rows.indexOf(row) + 1}\uD589 \uB2E8\uAC00\uAE30\uC900`);
       for (const key of ['unitprice']) {
-        if (row[key] !== '' && (!Number.isFinite(Number(row[key])) || Number(row[key]) < 0)) invalid.push(`${rows.indexOf(row) + 1}행 ${key === 'unitprice' ? '기초단가' : '기초금액'}`);
+        if (row[key] !== '' && (!Number.isFinite(Number(row[key])) || Number(row[key]) < 0)) invalid.push(`${rows.indexOf(row) + 1}행 기초단가`);
       }
     });
     if (invalid.length) {
@@ -794,12 +1573,24 @@ export default function StockStandPage() {
         await axios.post('/api/stock-stand/items', {
           standdate,
           items: newRows.map((row) => ({
-            itemcode: row.itemcode.trim(), itemname: row.itemname.trim(), size: row.size.trim(),
+            standdate: row.standdate,
+            itemcode: row.itemcode.trim(), itemname: row.itemname.trim(), productname: row.productname.trim(),
+            customcode: row.customcode.trim(), customname: row.customname.trim(),
+            materialcode: row.materialcode, materialname: row.materialname,
+            surfacecode: row.surfacecode, surfacename: row.surfacename,
+            myrtle: row.myrtle === '' ? null : cleanNumber(row.myrtle),
+            thickness: row.thickness === '' ? null : cleanNumber(row.thickness),
+            width: row.width === '' ? null : cleanNumber(row.width),
+            length: row.length === '' ? null : cleanNumber(row.length),
             qty: cleanNumber(row.qty), qtyunit: row.qtyunit,
             weight: cleanNumber(row.weight), warehousecode: row.warehousecode,
             warehousecodename: row.warehousecodename, unit: row.unit,
             unitprice: row.unitprice === '' ? null : cleanNumber(row.unitprice),
-            unitamt: calculateAmount(row, masters.price) || null, description: row.description.trim(),
+            supplyamt: row.supplyamt_manual && row.supplyamt !== '' ? cleanNumber(row.supplyamt) : null,
+            vat: row.vat_manual && row.vat !== '' ? cleanNumber(row.vat) : null,
+            supplyamt_manual: Boolean(row.supplyamt_manual), vat_manual: Boolean(row.vat_manual),
+            ...Object.fromEntries(Object.entries(calculateAmounts(row, masters.price)).map(([key, value]) => [key, value || null])),
+            description: row.description.trim(),
           })),
         }, authConfig());
       }
@@ -809,7 +1600,7 @@ export default function StockStandPage() {
             lineno: row.lineno,
             unit: row.unit || '',
             unitprice: row.unitprice === '' ? null : cleanNumber(row.unitprice),
-            unitamt: calculateAmount(row, masters.price) || null,
+            ...Object.fromEntries(Object.entries(calculateAmounts(row, masters.price)).map(([key, value]) => [key, value || null])),
           })),
         }, authConfig());
       }
@@ -819,7 +1610,11 @@ export default function StockStandPage() {
       notifications.show({ title: '기초재고 저장 완료', message: `${resultParts.join(', ')}했습니다. 저장된 행은 단가기준·기초단가를 수정할 수 있고, 기초금액은 자동 계산됩니다.`, color: 'teal' });
       await loadRows(standdate, query, false);
     } catch (error) {
-      notifications.show({ title: '기초재고 저장 실패', message: errorText(error), color: 'red' });
+        notifications.show({
+          title: error.response?.status === 409 ? '입력값 확인 필요' : '기초재고 저장 실패',
+          message: errorText(error),
+          color: error.response?.status === 409 ? 'orange' : 'red',
+        });
     } finally { setSaving(false); }
   };
 
@@ -856,28 +1651,7 @@ export default function StockStandPage() {
       setHasStockMovements(false);
       notifications.show({ title: '기초재고 전체 삭제 완료', message: `${Number(data.deleted_count || 0).toLocaleString()}건을 삭제했습니다.`, color: 'teal' });
     } catch (error) {
-      notifications.show({ title: '기초재고 삭제 실패', message: errorText(error), color: 'red' });
-    } finally { setSaving(false); }
-  };
-
-  const deleteRow = async (row) => {
-    if (saving) return;
-    if (row.lineno) {
-      notifications.show({ title: '행 단위 삭제 불가', message: '저장된 기초재고는 행별로 삭제할 수 없습니다. 기초재고 전체 삭제를 이용해 주세요.', color: 'orange' });
-      return;
-    }
-    if (row.has_movements) {
-      notifications.show({ title: '삭제할 수 없음', message: '입고 또는 출고 이력이 있는 기초재고는 삭제할 수 없습니다.', color: 'orange' });
-      return;
-    }
-    if (!window.confirm(`${row.itemcode || '신규 행'} 기초재고를 삭제할까요?`)) return;
-    setSaving(true);
-    try {
-      setRows((current) => current.filter((item) => item.id !== row.id));
-      setSelectedIds((current) => current.filter((id) => id !== row.id));
-      notifications.show({ title: '기초재고 삭제 완료', message: '선택한 행을 삭제했습니다.', color: 'teal' });
-    } catch (error) {
-      notifications.show({ title: '기초재고 삭제 실패', message: errorText(error), color: 'red' });
+        notifications.show({ title: '기초재고 전체 삭제 실패', message: errorText(error), color: 'red' });
     } finally { setSaving(false); }
   };
 
@@ -888,7 +1662,6 @@ export default function StockStandPage() {
     setRows((current) => current.filter((row) => !ids.has(row.id) || row.lineno));
     setSelectedIds([]);
     selectionAnchorRef.current = '';
-    setSelectedDeleteOpen(false);
     notifications.show({ title: '선택 삭제 완료', message: `${deletedCount}개 입력 행을 삭제했습니다.`, color: 'teal' });
   };
 
@@ -897,20 +1670,27 @@ export default function StockStandPage() {
     selectionAnchorRef.current = '';
   };
   const columns = [
-    ['select', ''], ['number', 'No.'], ['itemcode', '품목코드 *'], ['itemname', '품목명 *'], ['size', '규격'],
-    ['qty', '기초수량 *'], ['qtyunit', '수량단위 *'], ['warehousecode', '창고명 *'], ['weight', '기초중량 *'],
-    ['unit', '단가기준'], ['unitprice', '기초단가'], ['unitamt', '기초금액'], ['description', '비고'], ['action', ''],
+    ['select', ''], ['number', 'No.'], ['standdate', '\uAE30\uCD08\uC77C\uC790 *'], ['customname', '\uAC70\uB798\uCC98'], ['warehousecode', '\uCC3D\uACE0 *'],
+    ['productname', '\uC81C\uD488\uBC88\uD638'], ['itemname', '\uD488\uBA85 *'], ['materialcode', '\uAC15\uC885 *'], ['surfacecode', '\uD45C\uBA74'], ['myrtle', '\uB3C4\uAE08\uB7C9(g/m\u00B2)'],
+    ['thickness', '\uB450\uAED8'], ['width', '\uD3ED'], ['length', '\uAE38\uC774'], ['qty', '\uAE30\uCD08\uC218\uB7C9 *'], ['weight', '\uAE30\uCD08\uC911\uB7C9 *'],
+    ['unitprice', '\uAE30\uCD08\uB2E8\uAC00'], ['supplyamt', '\uACF5\uAE09\uAC00'], ['vat', '\uBD80\uAC00\uC138'], ['unitamt', '\uD569\uACC4\uAE08\uC561'],
+    ['unit', '\uB2E8\uAC00\uAE30\uC900'], ['qtyunit', '\uC218\uB7C9\uB2E8\uC704 *'], ['description', '\uBE44\uACE0'],
   ];
-
-  const headerColumns = columns.map(([key, label]) => ({
-    key,
-    label: key === 'select'
-      ? <input type="checkbox" aria-label="전체 선택" disabled={hasSavedStock || !rows.some((row) => !row.lineno)} checked={rows.some((row) => !row.lineno) && rows.filter((row) => !row.lineno).every((row) => selectedSet.has(row.id))} onChange={(event) => toggleAll(event.currentTarget.checked)} />
-      : label,
-    width: GRID_COLUMN_WIDTHS[key],
-    minWidth: ['select', 'action'].includes(key) ? 42 : key === 'number' ? 48 : 70,
-    className: key === 'select' ? codeClasses.checkCol : key === 'number' ? codeClasses.numberCol : key === 'action' ? codeClasses.actionCol : '',
-  }));
+  const columnOrder = ['select', 'number', 'standdate', 'customname', 'warehousecode', 'productname', 'itemname', 'materialcode', 'surfacecode', 'myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat', 'unitamt', 'unit', 'qtyunit', 'description'];
+  columns.sort(([left], [right]) => columnOrder.indexOf(left) - columnOrder.indexOf(right));
+  const headerColumns = columns.map(([key, label]) => {
+    const minWidth = key === 'select' ? 42 : key === 'number' ? 48 : 70;
+    const width = fitColumnWidth(label, rows.map((row) => row[key]), GRID_COLUMN_WIDTHS[key], minWidth);
+    return {
+      key,
+      label: key === 'select'
+        ? <input type="checkbox" aria-label="전체 선택" disabled={hasSavedStock || !rows.some((row) => !row.lineno)} checked={rows.some((row) => !row.lineno) && rows.filter((row) => !row.lineno).every((row) => selectedSet.has(row.id))} onChange={(event) => toggleAll(event.currentTarget.checked)} />
+        : label,
+      width,
+      minWidth,
+      className: key === 'select' ? codeClasses.checkCol : key === 'number' ? codeClasses.numberCol : '',
+    };
+  });
   const tableWidth = headerColumns.reduce((sum, column) => sum + (columnWidths[column.key] ?? column.width), 0);
   const renderHeader = (column) => (
     <Table.Th key={column.key} className={[codeClasses.resizableHeader, column.className].filter(Boolean).join(' ')} style={{ width: columnWidths[column.key] ?? column.width }}>
@@ -924,12 +1704,15 @@ export default function StockStandPage() {
       const editableSavedPrice = saved && EDITABLE_PRICE_FIELDS.has(key);
       const masterKey = MASTER_FIELDS.has(key);
       const masterOptions = masters[MASTER_KIND[key]] || [];
+      const amounts = calculateAmounts(row, masters.price);
       const displayed = key === 'qtyunit' || key === 'unit'
         ? masterOptions.find((option) => option.code === row[key])?.name || row[key] || ''
         : key === 'warehousecode' ? row.warehousecodename || row.warehousecode || ''
-          : key === 'unitamt' ? formatAmount(calculateAmount(row, masters.price))
-            : ['qty', 'weight', 'unitprice'].includes(key) ? numberText(row[key]) : row[key] ?? '';
-      const readOnly = key === 'itemname' || key === 'unitamt';
+          : key === 'materialcode' ? masterOptions.find((option) => option.code === row.materialcode)?.name || row.materialname || row.materialcode || ''
+            : key === 'surfacecode' ? masterOptions.find((option) => option.code === row.surfacecode)?.name || row.surfacename || row.surfacecode || ''
+              : ['supplyamt', 'vat', 'unitamt'].includes(key) ? formatAmount(amounts[key])
+                : ['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice'].includes(key) ? numberText(row[key]) : row[key] ?? '';
+      const readOnly = key === 'unitamt';
       const disabled = saving || (saved && !PRICE_FIELDS.has(key));
       const pasted = (event) => {
         if (key === 'unitamt') {
@@ -945,37 +1728,132 @@ export default function StockStandPage() {
           updateRow(row.id, key, text.trim());
         }
       };
+      if (key === 'standdate') return <Table.Td key={key} className={saved ? outboundClasses.savedCell : ''}>
+        <input
+          ref={(element) => registerCellInput(row.id, key, element)}
+          className={codeClasses.cellInput}
+          aria-label={'\uAE30\uCD08\uC77C\uC790'}
+          data-row-id={row.id}
+          data-field={key}
+          type="text"
+          inputMode="numeric"
+          maxLength={10}
+          placeholder="YYYY-MM-DD"
+          value={row.standdate || ''}
+          disabled={disabled}
+          onFocus={() => { activeCellRef.current = { id: row.id, field: key }; }}
+          onChange={(event) => updateRow(row.id, key, event.currentTarget.value)}
+          onPaste={pasted}
+        />
+      </Table.Td>;
+      if (key === 'customname') return <Table.Td key={key} className={saved ? outboundClasses.savedCell : ''}>
+        <CustomerNameAutocompleteCell
+          row={row}
+          disabled={disabled}
+          registerCellInput={registerCellInput}
+          onChange={updateRow}
+          onSelect={selectCustomerForRow}
+          onFindCustomer={setCustomerPickerId}
+          onFocus={() => { activeCellRef.current = { id: row.id, field: key }; }}
+          onPaste={pasted}
+        />
+      </Table.Td>;
+      if (key === 'itemname') return <Table.Td key={key} className={saved ? outboundClasses.savedCell : ''}>
+        <ItemNameAutocompleteCell
+          row={row}
+          disabled={disabled}
+          registerCellInput={registerCellInput}
+          onChange={updateRow}
+          onSelect={selectItem}
+          onFindItem={setItemPickerId}
+          onFocus={() => { activeCellRef.current = { id: row.id, field: key }; }}
+          onPaste={pasted}
+        />
+      </Table.Td>;
+      if (['warehousecode', 'materialcode', 'surfacecode'].includes(key)) return <Table.Td key={key} className={saved ? outboundClasses.savedCell : ''}>
+        <MasterNameAutocompleteCell
+          row={row}
+          field={key}
+          options={masterOptions}
+          disabled={disabled}
+          registerCellInput={registerCellInput}
+          onChange={updateRow}
+          onFindMaster={(id, field) => setMasterPickerTarget({ id, field })}
+          onFocus={() => { activeCellRef.current = { id: row.id, field: key }; }}
+          onPaste={pasted}
+        />
+      </Table.Td>;
+      if (key === 'unit' || key === 'qtyunit') {
+        const defaultValue = key === 'unit' ? 'KG' : 'EA';
+        const value = resolveMasterCode(key, row[key] || defaultValue, masters) || row[key] || defaultValue;
+        return <Table.Td key={key} className={saved ? outboundClasses.savedCell : ''}>
+          <select
+            ref={(element) => registerCellInput(row.id, key, element)}
+            className={`${codeClasses.cellSelect} ${inboundClasses.priceUnitSelect}`}
+            aria-label={columns.find(([columnKey]) => columnKey === key)?.[1] || key}
+            data-row-id={row.id}
+            data-field={key}
+            value={value}
+            disabled={disabled}
+            onFocus={() => { activeCellRef.current = { id: row.id, field: key }; }}
+            onPaste={pasted}
+            onChange={(event) => updateRow(row.id, key, event.currentTarget.value)}
+          >
+            {row[key] && !resolveMasterCode(key, row[key], masters) && <option value={row[key]}>{row[key]}</option>}
+            {masterOptions.map((option) => <option key={option.code} value={option.code}>{option.name || option.code}</option>)}
+          </select>
+        </Table.Td>;
+      }
       return <Table.Td key={key} className={saved ? (editableSavedPrice ? classes.savedEditableCell : outboundClasses.savedCell) : ''}>
         <input
           ref={(element) => {
             registerCellInput(row.id, key, element);
           }}
-          className={`${codeClasses.cellInput} ${key === 'itemname' ? outboundClasses.autoFilledInput : ''} ${key === 'unitamt' ? outboundClasses.amountInput : ''} ${key === 'itemcode' || masterKey ? outboundClasses.itemCodePickerInput : ''}`}
+          className={`${codeClasses.cellInput} ${['unitamt', 'supplyamt', 'vat'].includes(key) ? outboundClasses.amountInput : ''} ${key === 'itemcode' || key === 'itemname' || key === 'customname' || masterKey ? outboundClasses.itemCodePickerInput : ''}`}
           aria-label={columns.find(([columnKey]) => columnKey === key)?.[1] || key}
-          title={key === 'itemcode' ? '더블클릭하여 품목 선택' : masterKey ? '더블클릭하여 마스터 코드 선택' : undefined}
+          title={key === 'itemcode' || key === 'itemname' ? '더블클릭하여 품목 선택' : masterKey ? '더블클릭하여 마스터 코드 선택' : undefined}
           data-row-id={row.id}
           data-field={key}
-          inputMode={['qty', 'weight', 'unitprice'].includes(key) ? 'decimal' : undefined}
+          inputMode={['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat'].includes(key) ? 'decimal' : undefined}
           value={displayed}
           placeholder={row.isNew && (key === 'itemcode' || key === 'itemname') ? (key === 'itemcode' ? '품목코드' : '품목명') : ''}
           readOnly={readOnly || disabled}
           disabled={disabled}
           onFocus={() => { activeCellRef.current = { id: row.id, field: key }; }}
+          onClick={(event) => {
+            if (masterKey && !disabled && event.nativeEvent.offsetX >= event.currentTarget.clientWidth - 28) {
+              event.preventDefault();
+              event.stopPropagation();
+              setMasterPickerTarget({ id: row.id, field: key });
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'F2' && !disabled) {
+              event.preventDefault();
+              event.stopPropagation();
+              if (key === 'customname') setCustomerPickerId(row.id);
+              else if (key === 'itemcode' || key === 'itemname') setItemPickerId(row.id);
+              else if (masterKey) setMasterPickerTarget({ id: row.id, field: key });
+            }
+          }}
           onDoubleClick={() => {
-            if (key === 'itemcode') setItemPickerId(row.id);
+            if (key === 'customname') setCustomerPickerId(row.id);
+            else if (key === 'itemcode' || key === 'itemname') setItemPickerId(row.id);
             else if (masterKey) setMasterPickerTarget({ id: row.id, field: key });
           }}
           onPaste={pasted}
-          onBlur={key === 'itemcode' ? async (event) => {
-            const itemcode = event.currentTarget.value.trim();
-            if (!itemcode) return;
+          onBlur={key === 'customname' ? (event) => { void resolveCustomerName(row.id, event.currentTarget.value); } : key === 'itemcode' || key === 'itemname' ? async (event) => {
+            const itemValue = event.currentTarget.value.trim();
+            if (!itemValue) return;
             try {
-              const { data } = await axios.get('/api/item-master/items/picker', { ...authConfig(), params: { q: itemcode, page: 1, page_size: 20 } });
-              const match = (data.items || []).find((item) => String(item.itemcode).toLocaleLowerCase() === itemcode.toLocaleLowerCase());
+              const { data } = await axios.get('/api/item-master/items/picker', { ...authConfig(), params: { q: itemValue, page: 1, page_size: 20 } });
+              const normalizedValue = itemValue.toLocaleLowerCase();
+              const match = (data.items || []).find((item) => String(item.itemcode).trim().toLocaleLowerCase() === normalizedValue
+                || String(item.itemname).trim().toLocaleLowerCase() === normalizedValue);
               if (match) selectItem(row.id, match);
             } catch { /* Keep the entered code so validation can identify it on save. */ }
           } : undefined}
-          onChange={(event) => updateRow(row.id, key, ['qty', 'weight', 'unitprice'].includes(key) ? cleanNumber(event.currentTarget.value) : event.currentTarget.value)}
+          onChange={(event) => updateRow(row.id, key, ['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat'].includes(key) ? cleanNumber(event.currentTarget.value) : event.currentTarget.value)}
         />
       </Table.Td>;
     };
@@ -984,18 +1862,13 @@ export default function StockStandPage() {
       <Table.Td className={codeClasses.checkCol}><input type="checkbox" checked={isSelected} disabled={saving || saved || hasSavedStock} onChange={(event) => toggleRowSelection(row.id, event.nativeEvent.shiftKey)} /></Table.Td>
       <Table.Td className={`${codeClasses.rowNumber} ${!saved ? classes.newRowNumber : ''}`}>{(page - 1) * pageSize + index + 1}</Table.Td>
       {GRID_FIELDS.map(renderField)}
-      <Table.Td className={codeClasses.actionCol}>
-        <Tooltip label={saved ? '저장된 행은 행별 삭제할 수 없습니다. 전체 삭제를 이용해 주세요.' : '행 삭제'}>
-          <ActionIcon variant="subtle" color="red" aria-label="행 삭제" disabled={saving || saved} onClick={() => deleteRow(row)}><IconTrash size={16} /></ActionIcon>
-        </Tooltip>
-      </Table.Td>
     </>;
   };
 
   const deleteFromRibbon = () => {
     if (loading || saving || uploading) return;
     if (selectedIds.length && !hasSavedStock) {
-      setSelectedDeleteOpen(true);
+      deleteSelectedRows();
     } else if (hasSavedStock) {
       requestDeleteAll();
     } else {
@@ -1006,6 +1879,7 @@ export default function StockStandPage() {
   useErpPageRibbon({
     onSearch: runSearch,
     onAdd: addRow,
+    onCopy: selectedIds.length === 1 && !hasSavedStock && !hasTransactions ? copySelectedRow : undefined,
     onSave: save,
     onDelete: deleteFromRibbon,
     onExcel: exportRows,
@@ -1014,28 +1888,19 @@ export default function StockStandPage() {
   });
 
   return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="재고관리" current="기초재고등록" />
+    <ErpBreadcrumb parent="재고관리" current="기초재고등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
 
-    <Box className={classes.workspace}>
+    <Box className={`${classes.workspace} ${filterOpen ? classes.workspaceWithFilter : ''}`}>
     <Paper className={`${sharedClasses.panel} ${codeClasses.codePanel} ${classes.editorPanel}`} withBorder>
       <Group className={`${sharedClasses.panelHeader} ${codeClasses.codeHeader} ${classes.codeHeader}`} justify="space-between" align="flex-start" wrap="wrap" gap="sm">
         <Group gap={8} align="center"><Text className={classes.sectionTitle} fw={700}>기초재고등록</Text><Badge color="gray" variant="light">{displayRowCount.toLocaleString()}행</Badge></Group>
         <Group className={classes.headerActions} gap={7} align="center" wrap="wrap">
           <Button variant="default" size="xs" leftSection={<IconDownload size={15} />} onClick={downloadTemplate} disabled={loading || uploading}>샘플양식</Button>
-          <Button variant="light" size="xs" leftSection={<IconDownload size={15} />} onClick={exportRows} loading={exporting} disabled={loading || uploading}>엑셀 다운로드</Button>
           <Button variant="light" size="xs" leftSection={<IconUpload size={15} />} onClick={() => uploadInputRef.current?.click()} loading={uploading} disabled={saving || loading || hasSavedStock || hasTransactions}>엑셀 일괄등록</Button>
           <input ref={uploadInputRef} type="file" accept=".xlsx,.xls" onChange={uploadExcel} hidden />
         </Group>
       </Group>
-      <Group className={`${sharedClasses.toolbar} ${codeClasses.toolbar} ${classes.filterToolbar}`} justify="space-between" wrap="wrap" gap={8}>
-        <Group className={classes.searchGroup} gap={6} wrap="wrap" align="end">
-          <TextInput className={classes.dateFilter} type="date" label="기준일자" value={standdate} onChange={(event) => setStanddate(event.currentTarget.value)} size="xs" />
-          <TextInput className={classes.stockSearch} placeholder="품목코드 또는 품목명 검색" aria-label="품목 검색" leftSection={<IconSearch size={15} />} value={searchInput} onChange={(event) => setSearchInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} size="xs" />
-          <Button size="xs" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
-        </Group>
-      </Group>
       <Group className={`${sharedClasses.toolbar} ${codeClasses.toolbar} ${classes.detailToolbar}`} justify="space-between" wrap="wrap" gap={6}>
-        <Group gap={8}><Text className={classes.sectionTitle} fw={700}>기초재고 상세</Text><Badge color="gray" variant="light">{displayRowCount.toLocaleString()}행</Badge></Group>
         {selectedIds.length > 1 && <Text size="xs" c="red" fw={600}>마스터 값 변경 시 {selectedIds.length}개 행에 일괄 적용됩니다.</Text>}
       </Group>
       <Box className={`${codeClasses.tableWrap} ${classes.tableViewport}`} style={{ '--code-table-min-width': `${Math.max(1730, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
@@ -1051,10 +1916,17 @@ export default function StockStandPage() {
             fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>}
             itemContent={itemContent}
           />
-        ) : <Box className={codeClasses.emptyState}>{'\uD45C\uC2DC\uD560 \uAE30\uCD08\uC7AC\uACE0\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.'}</Box>}
+        ) : (
+          <Box className={classes.emptyTableState}>
+            <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders
+              style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
+              <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
+            </Table>
+            <Box className={classes.emptyTableMessage}>{'\uD45C\uC2DC\uD560 \uAE30\uCD08\uC7AC\uACE0\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.'}</Box>
+          </Box>
+        )}
       </Box>
       <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter} ${classes.stockFooter}`} justify="space-between" wrap="wrap">
-        <Text className={classes.footerNotice} size="xs" c="dimmed">기초금액 자동 계산: KG = 중량 × 단가, TON = (중량 ÷ 1,000) × 단가. 저장된 행은 단가기준·기초단가만 수정할 수 있습니다.</Text>
         <Group className={classes.paginationBar} gap="md" justify="flex-end" wrap="wrap">
           <Text size="xs" c="dimmed">총 {displayRowCount.toLocaleString()}건</Text>
           {loadingMoreRows && <Text size="xs" c="dimmed">추가 행 확인 중</Text>}
@@ -1064,8 +1936,26 @@ export default function StockStandPage() {
         </Group>
       </Group>
     </Paper>
+    {filterOpen && <Paper component="aside" className={inboundClasses.receiptFilterSidebar} withBorder>
+      <Group className={inboundClasses.receiptFilterHeader} justify="space-between" align="center">
+        <Text fw={700}>{'\uC870\uD68C\uC870\uAC74'}</Text>
+        <ActionIcon variant="subtle" color="gray" aria-label={'\uC870\uD68C\uC870\uAC74 \uB2EB\uAE30'} onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon>
+      </Group>
+      <Stack gap="sm" className={inboundClasses.receiptFilterFields}>
+        <Box>
+          <Text size="xs" fw={700} mb={5}>{'\uAE30\uC900\uAE30\uAC04'}</Text>
+          <Stack gap={6}>
+            <TextInput type="date" aria-label={'\uAE30\uC900\uAE30\uAC04 \uC2DC\uC791\uC77C'} value={dateFrom} onChange={(event) => setDateFrom(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+            <TextInput type="date" aria-label={'\uAE30\uC900\uAE30\uAC04 \uC885\uB8CC\uC77C'} value={dateTo} onChange={(event) => setDateTo(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+          </Stack>
+        </Box>
+        <TextInput label={'\uD488\uBAA9'} placeholder={'\uD488\uBAA9\uCF54\uB4DC \uB610\uB294 \uD488\uBAA9\uBA85'} value={searchInput} onChange={(event) => setSearchInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+        <TextInput label={'\uCC3D\uACE0'} placeholder={'\uCC3D\uACE0\uCF54\uB4DC \uB610\uB294 \uCC3D\uACE0\uBA85'} value={warehouseInput} onChange={(event) => setWarehouseInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+      </Stack>
+    </Paper>}
     </Box>
     <ItemPicker opened={Boolean(itemPickerId)} onClose={() => setItemPickerId('')} onSelect={(item) => selectItem(itemPickerId, item)} />
+    <CustomerPicker opened={Boolean(customerPickerId)} onClose={() => setCustomerPickerId('')} onSelect={selectCustomer} />
     <StockMasterPicker
       opened={Boolean(masterPickerTarget)}
       title={MASTER_TITLE[masterPickerTarget?.field] || '코드 선택'}
@@ -1073,15 +1963,6 @@ export default function StockStandPage() {
       onClose={() => setMasterPickerTarget(null)}
       onSelect={chooseMaster}
     />
-    <Modal opened={selectedDeleteOpen} onClose={() => !saving && setSelectedDeleteOpen(false)} title="선택 행 삭제" centered size="sm">
-      <Stack gap="md">
-        <Text size="sm" c="dimmed">선택한 {selectedIds.length.toLocaleString()}개 입력 행을 삭제할까요? 아직 저장되지 않은 행만 삭제됩니다.</Text>
-        <Group justify="flex-end">
-          <Button variant="default" onClick={() => setSelectedDeleteOpen(false)} disabled={saving}>취소</Button>
-          <Button color="red" leftSection={<IconTrash size={15} />} onClick={deleteSelectedRows} disabled={hasSavedStock || saving}>삭제</Button>
-        </Group>
-      </Stack>
-    </Modal>
     <Modal opened={deleteAllOpen} onClose={() => !saving && setDeleteAllOpen(false)} title="기초재고 전체 삭제" centered size="sm">
       <Stack gap="md">
         <Text size="sm" c="dimmed">이 회사에 등록된 기초재고 전체를 삭제합니다. 삭제한 데이터는 복구할 수 없습니다.</Text>
