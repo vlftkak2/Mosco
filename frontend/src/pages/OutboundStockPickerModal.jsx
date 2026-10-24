@@ -23,6 +23,14 @@ const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.get
 const sourceKey = (stock) => [stock.sourcetype || stock.stocksourcetype, stock.sourceno || stock.stocksourceno, stock.sourceline ?? stock.stocksourceline].join('\u001f');
 const num = (value) => Number(value) || 0;
 const numberText = (value) => num(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
+const cleanDraftNumber = (value) => String(value ?? '').replace(/,/g, '').replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
+const draftNumberText = (value) => {
+  const raw = cleanDraftNumber(value);
+  if (!raw) return '';
+  const [integer, ...decimal] = raw.split('.');
+  const grouped = (integer || '0').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return decimal.length ? `${grouped}.${decimal.join('')}` : grouped;
+};
 const dimensionText = (stock) => [stock.thickness, stock.width, stock.length]
   .filter((value) => value !== null && value !== undefined && String(value).trim() !== '')
   .map(numberText)
@@ -105,7 +113,7 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
   const updateDraft = (stock, field, value) => {
     const key = sourceKey(stock);
     const limit = remaining(stock);
-    const nextValue = Math.max(0, num(value));
+    const nextValue = Math.max(0, num(cleanDraftNumber(value)));
     setDrafts((current) => {
       const previous = current[key] || {
         qty: String(Math.min(1, limit.qty)),
@@ -125,7 +133,7 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
     const key = sourceKey(stock);
     setDrafts((current) => ({
       ...current,
-      [key]: { ...(current[key] || getDraft(stock)), unitprice: value },
+      [key]: { ...(current[key] || getDraft(stock)), unitprice: cleanDraftNumber(value) },
     }));
   };
 
@@ -176,7 +184,7 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
         return;
       }
       if (!unitpriceText || !Number.isFinite(unitprice) || unitprice < 0) {
-        notifications.show({ title: '\uCD9C\uACE0\uB2E8\uAC00 \uD655\uC778', message: `${stock.itemname}: \uCD9C\uACE0\uB2E8\uAC00\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.`, color: 'orange' });
+        notifications.show({ title: '출고단가 확인', message: `${stock.itemname}: 출고단가를 입력해 주세요.`, color: 'orange' });
         return;
       }
       result.push({ ...stock, qty: String(qty), weight: String(weight), unitprice: String(unitprice) });
@@ -209,11 +217,11 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
               <Table.Th style={{ width: 120 }}>품명</Table.Th>
               <Table.Th style={{ width: 145 }}>규격</Table.Th>
               <Table.Th style={{ width: 115 }}>창고</Table.Th>
-              <Table.Th ta="right" style={{ width: 100 }}>현재고수량</Table.Th>
-              <Table.Th ta="right" style={{ width: 125 }}>현재고중량(kg)</Table.Th>
-              <Table.Th ta="right" style={{ width: 130 }}>&#xCD9C;&#xACE0;&#xB2E8;&#xAC00;</Table.Th>
-              <Table.Th ta="right" style={{ width: 100 }}>출고수량</Table.Th>
-              <Table.Th ta="right" style={{ width: 125 }}>출고중량(kg)</Table.Th>
+              <Table.Th style={{ width: 100 }}>현재고수량</Table.Th>
+              <Table.Th style={{ width: 125 }}>현재고중량(kg)</Table.Th>
+              <Table.Th style={{ width: 130 }}>&#xCD9C;&#xACE0;&#xB2E8;&#xAC00;</Table.Th>
+              <Table.Th style={{ width: 100 }}>출고수량</Table.Th>
+              <Table.Th style={{ width: 125 }}>출고중량(kg)</Table.Th>
               <Table.Th style={{ width: 120 }}>제품번호</Table.Th>
             </Table.Tr></Table.Thead>
             <Table.Tbody>
@@ -232,9 +240,9 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
                   <Table.Td>{stock.warehousecodename || stock.warehousecode}</Table.Td>
                   <Table.Td ta="right">{numberText(stock.current_qty)}</Table.Td>
                   <Table.Td ta="right">{numberText(stock.current_weight)}</Table.Td>
-                  <Table.Td><input ref={(element) => { const inputKey = `${key}:unitprice`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="number" min="0" step="0.01" value={draft.unitprice} disabled={alreadyAdded} onChange={(event) => updateUnitPriceDraft(stock, event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'unitprice', event)} /></Table.Td>
-                  <Table.Td><input ref={(element) => { const inputKey = `${key}:qty`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="number" min="0" max={available.qty} step="0.001" value={draft.qty} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'qty', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'qty', event)} /></Table.Td>
-                  <Table.Td><input ref={(element) => { const inputKey = `${key}:weight`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="number" min="0" max={available.weight} step="0.001" value={draft.weight} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'weight', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'weight', event)} /></Table.Td>
+                  <Table.Td><input ref={(element) => { const inputKey = `${key}:unitprice`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="text" inputMode="decimal" value={draftNumberText(draft.unitprice)} disabled={alreadyAdded} onChange={(event) => updateUnitPriceDraft(stock, event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'unitprice', event)} /></Table.Td>
+                  <Table.Td><input ref={(element) => { const inputKey = `${key}:qty`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="text" inputMode="decimal" value={draftNumberText(draft.qty)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'qty', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'qty', event)} /></Table.Td>
+                  <Table.Td><input ref={(element) => { const inputKey = `${key}:weight`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="text" inputMode="decimal" value={draftNumberText(draft.weight)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'weight', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'weight', event)} /></Table.Td>
                   <Table.Td>{stock.productname || ''}</Table.Td>
                 </Table.Tr>;
               })}

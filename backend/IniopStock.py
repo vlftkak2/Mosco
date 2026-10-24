@@ -73,13 +73,19 @@ def list_iniop_stock(companyid: str, page: int, page_size: int, **filters):
             f"""SELECT i.iniodate, i.iniotype, i.receiptno, i.customcode, i.customname, i.lineno, i.itemcode, i.itemname,
                        i.productname, i.materialcode, i.materialname, i.surfacecode, i.surfacename, i.myrtle, i.manager,
                        i.thickness, i.width, i.length,
-                       i.qty, COALESCE(qty_code.code_name, i.qtyunit) AS qtyunit, i.weight, i.warehousecode, i.warehousecodename,
+                       i.qty, COALESCE(qty_code.code_name, i.qtyunit) AS qtyunit, i.weight,
+                       COALESCE(price_code.code_name, i.unit) AS unit, i.unitprice, i.supplyamt, i.vat, i.unitamt,
+                       i.warehousecode, i.warehousecodename,
                        i.created_at, i.updated_at
                 FROM Iniop01t AS i
                 LEFT JOIN CodeMaster01t AS qty_code
                   ON qty_code.companyid = i.companyid
                  AND qty_code.groupcode = 'QTY'
                  AND qty_code.code = i.qtyunit
+                LEFT JOIN CodeMaster01t AS price_code
+                  ON price_code.companyid = i.companyid
+                 AND price_code.groupcode = 'PRICE_UNIT'
+                 AND price_code.code = i.unit
                 WHERE {where}
                 ORDER BY i.iniodate ASC, i.receiptno ASC, i.lineno
                 LIMIT %s OFFSET %s""",

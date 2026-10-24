@@ -130,8 +130,27 @@ def _uses_source_lines(cursor) -> bool:
     return cursor.fetchone()[0]
 
 
+def _load_master_names(cursor, companyid: str, groupcode: str, values: list[str]) -> dict[str, str]:
+    normalized_values = list(dict.fromkeys(str(value or "").strip() for value in values if str(value or "").strip()))
+    if not normalized_values:
+        return {}
+    cursor.execute(
+        """SELECT code, code_name FROM CodeMaster01t
+           WHERE companyid = %s AND groupcode = %s
+             AND (code = ANY(%s) OR code_name = ANY(%s))""",
+        (companyid, groupcode, normalized_values, normalized_values),
+    )
+    names = {}
+    for code, code_name in cursor.fetchall():
+        name = str(code_name or code).strip()
+        names[str(code).strip()] = name
+        names[name] = name
+    return names
+
+
 def _insert_source_stock(cursor, companyid, companyname, source_type, source_no, source_line,
-                         receipt_date, customcode, customname, movement, line):
+                         receipt_date, customcode, customname, movement, line,
+                         quantity_unit_name: str, price_unit_name: str):
     if source_type not in {"OPENING", "INBOUND"}:
         raise ValueError("현재고 원천구분을 확인해 주세요.")
     if not source_no or source_line <= 0:
@@ -153,8 +172,8 @@ def _insert_source_stock(cursor, companyid, companyname, source_type, source_no,
          (line.get("surfacename") or "").strip() or None,
          line.get("myrtle"), (line.get("manager") or "").strip() or None,
          movement["thickness"], movement["width"], movement["length"],
-         movement["qty"], movement["qty"], movement["qtyunit"],
-         movement["weight"], movement["weight"], line.get("unit") or None,
+         movement["qty"], movement["qty"], quantity_unit_name,
+         movement["weight"], movement["weight"], price_unit_name or None,
          line.get("unitprice"), movement["warehousecode"], movement["warehousecodename"]),
     )
     if cursor.rowcount != 1:
@@ -204,10 +223,25 @@ def _change_single_source_stock(cursor, companyid, movement, reverse=False, sour
         )
     else:
         cursor.execute(
-            """UPDATE CurrentStock01t SET qty = qty - %s, weight = weight - %s,
+            """UPDATE CurrentStock01t AS stock
+               SET qty = stock.qty - %s,
+                   weight = stock.weight - %s,
+                   qtyunit = COALESCE((
+                       SELECT code_name FROM CodeMaster01t
+                       WHERE companyid = stock.companyid AND groupcode = 'QTY'
+                         AND (code = stock.qtyunit OR code_name = stock.qtyunit)
+                       LIMIT 1
+                   ), stock.qtyunit),
+                   unit = COALESCE((
+                       SELECT code_name FROM CodeMaster01t
+                       WHERE companyid = stock.companyid AND groupcode = 'PRICE_UNIT'
+                         AND (code = stock.unit OR code_name = stock.unit)
+                       LIMIT 1
+                   ), stock.unit),
                       updated_at = CURRENT_TIMESTAMP
-               WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
-                 AND qty >= %s AND weight >= %s""",
+               WHERE stock.companyid = %s AND stock.sourcetype = %s
+                 AND stock.sourceno = %s AND stock.sourceline = %s
+                 AND stock.qty >= %s AND stock.weight >= %s""",
             (movement["qty"], movement["weight"], companyid, source_type, source_no, source_line,
              movement["qty"], movement["weight"]),
         )
@@ -231,6 +265,12 @@ def record_document(
     movements = [_normalized_movement(line) for line in lines]
     if not _uses_source_lines(cursor):
         raise ValueError("현재고 테이블에 원천 라인 구조가 적용되지 않았습니다.")
+    quantity_unit_names = _load_master_names(
+        cursor, companyid, "QTY", [movement["qtyunit"] for movement in movements],
+    )
+    price_unit_names = _load_master_names(
+        cursor, companyid, "PRICE_UNIT", [line.get("unit") for line in lines],
+    )
     for line_no, movement in enumerate(movements, start=1):
         line = lines[line_no - 1]
         source_lineno = int(line.get("lineno") or line_no)
@@ -264,8 +304,8 @@ def record_document(
                    (companyid, companyname, iniodate, iniotype, receiptno, lineno, customcode, customname,
                     itemcode, itemname, productname, materialcode, materialname, surfacecode, surfacename,
                     myrtle, manager, thickness, width, length, qty, qtyunit, weight,
-                    warehousecode, warehousecodename)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    warehousecode, warehousecodename, unit, unitprice, supplyamt, vat, unitamt)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
                 companyid, companyname, movement_date, iniotype, receiptno, source_lineno, movement_customcode, movement_customname or None,
                 movement["itemcode"], movement["itemname"],
@@ -275,8 +315,11 @@ def record_document(
                 (metadata.get("surfacename") or "").strip() or None,
                 metadata.get("myrtle"), (metadata.get("manager") or "").strip() or None,
                 movement["thickness"], movement["width"], movement["length"], movement["qty"],
-                movement["qtyunit"], movement["weight"], movement["warehousecode"],
+                quantity_unit_names.get(movement["qtyunit"], movement["qtyunit"]),
+                movement["weight"], movement["warehousecode"],
                 movement["warehousecodename"],
+                price_unit_names.get(str(line.get("unit") or "").strip(), str(line.get("unit") or "").strip()) or None,
+                line.get("unitprice"), line.get("supplyamt"), line.get("vat"), line.get("unitamt"),
             ),
         )
         if iniotype == "OUT":
@@ -286,6 +329,8 @@ def record_document(
                 cursor, companyid, companyname, "OPENING" if iniotype == "ST" else "INBOUND",
                 receiptno, source_lineno, movement_date, movement_customcode, movement_customname,
                 movement, line,
+                quantity_unit_names.get(movement["qtyunit"], movement["qtyunit"]),
+                price_unit_names.get(str(line.get("unit") or "").strip(), str(line.get("unit") or "").strip()),
             )
     return len(movements)
 
@@ -349,6 +394,13 @@ def lookup_stock(companyid: str, items: list[dict]):
         itemcode, thickness, width, length, warehousecode, qtyunit = _stock_key(item)
         requested.append((index, companyid, itemcode, thickness, width, length, warehousecode, qtyunit))
     with _connect() as connection, connection.cursor() as cursor:
+        quantity_unit_names = _load_master_names(
+            cursor, companyid, "QTY", [item[-1] for item in requested],
+        )
+        requested = [
+            (*item[:-1], quantity_unit_names.get(item[-1], item[-1]))
+            for item in requested
+        ]
         execute_values(
             cursor,
             """SELECT requested.request_no, requested.itemcode, requested.thickness,
@@ -432,7 +484,7 @@ def _current_stock_select(source_lines: bool):
     source_fields = (
         "stock.sourcetype, stock.sourceno, stock.sourceline, stock.receiptdate, "
         "stock.customcode, stock.customname, stock.originalqty, stock.originalweight, "
-        "stock.unit, stock.unitprice"
+        "COALESCE(price_unit.code_name, stock.unit) AS unit, stock.unitprice"
         if source_lines else
         "NULL::text AS sourcetype, NULL::text AS sourceno, NULL::integer AS sourceline, "
         "NULL::date AS receiptdate, NULL::text AS customcode, NULL::text AS customname, "
@@ -462,6 +514,10 @@ def list_current_stock(companyid: str, page: int, page_size: int, **filters):
                   ON qty_code.companyid = stock.companyid
                  AND qty_code.groupcode = 'QTY'
                  AND qty_code.code = stock.qtyunit
+                LEFT JOIN CodeMaster01t AS price_unit
+                  ON price_unit.companyid = stock.companyid
+                 AND price_unit.groupcode = 'PRICE_UNIT'
+                 AND price_unit.code = stock.unit
                 WHERE {where}
                 ORDER BY {('stock.receiptdate ASC, stock.sourcetype, stock.sourceno, stock.sourceline' if source_lines else 'stock.itemcode, stock.thickness, stock.width, stock.length, stock.warehousecode, stock.qtyunit')}
                 LIMIT %s OFFSET %s""",
@@ -481,6 +537,10 @@ def write_current_stock_excel(companyid: str, output_path: str, **filters):
                   ON qty_code.companyid = stock.companyid
                  AND qty_code.groupcode = 'QTY'
                  AND qty_code.code = stock.qtyunit
+                LEFT JOIN CodeMaster01t AS price_unit
+                  ON price_unit.companyid = stock.companyid
+                 AND price_unit.groupcode = 'PRICE_UNIT'
+                 AND price_unit.code = stock.unit
                 WHERE {where}
                 ORDER BY {('stock.receiptdate ASC, stock.sourcetype, stock.sourceno, stock.sourceline' if source_lines else 'stock.itemcode, stock.thickness, stock.width, stock.length, stock.warehousecode, stock.qtyunit')}"""
     headers = ["No.", "재고구분", "원천전표", "원천순번", "입고일자", "거래처코드", "거래처명",

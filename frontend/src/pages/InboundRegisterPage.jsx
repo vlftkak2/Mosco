@@ -167,7 +167,7 @@ const formatAmount = (value) => {
     maximumFractionDigits: 2,
   });
 };
-const formatWon = (value) => `${formatAmount(value)}\uC6D0`;
+const formatWon = (value) => `${formatAmount(value)}원`;
 const NUMERIC_FIELDS = new Set(['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat']);
 const cleanNumericInput = (value) => String(value ?? '').replace(/,/g, '').replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
 const formatNumericInput = (value) => {
@@ -1831,13 +1831,13 @@ export default function InboundRegisterPage() {
         );
         await openReceipt(selectedReceiptno, true);
         notifications.show({
-          title: '\ub2f4\ub2f9\uc790 \uc218\uc815 \uc644\ub8cc',
-          message: data.updated_count + ' \ud589\uc758 \ub2f4\ub2f9\uc790\ub97c \uc785\uace0\uc0c1\uc138\u00b7\ud604\uc7ac\uace0\u00b7\uc218\ubd88\ud604\ud669\uc5d0 \ubc18\uc601\ud588\uc2b5\ub2c8\ub2e4.',
+          title: '담당자 수정 완료',
+          message: data.updated_count + ' 행의 담당자를 입고상세·현재고·수불현황에 반영했습니다.',
           color: 'teal',
         });
         return true;
       } catch (error) {
-        notifications.show({ title: '\ub2f4\ub2f9\uc790 \uc218\uc815 \uc2e4\ud328', message: errorMessage(error), color: 'red', autoClose: 9000 });
+        notifications.show({ title: '담당자 수정 실패', message: errorMessage(error), color: 'red', autoClose: 9000 });
         return false;
       } finally {
         setSaving(false);
@@ -2037,7 +2037,7 @@ export default function InboundRegisterPage() {
   ))), [rows]);
   const allRowsSelected = rows.length > 0 && selectedIds.length === rows.length;
   const headerColumns = [
-    { key: 'select', width: 42, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="\uc0c1\uc138 \uc804\uccb4 \uc120\ud0dd" checked={allRowsSelected} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
+    { key: 'select', width: 42, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="상세 전체 선택" checked={allRowsSelected} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
     { key: 'number', width: 58, minWidth: 58, className: codeClasses.numberCol, label: 'No.' },
     ...DETAIL_FIELDS.map(({ key, label, width, minWidth, required }) => {
       const fittedWidth = detailAutoWidths[key];
@@ -2159,7 +2159,7 @@ export default function InboundRegisterPage() {
               {selectedReceiptno && <Badge color="gray" variant="light">{selectedReceiptno}</Badge>}
             </Group>
             <Group gap={8} align="center">
-              {selectedReceiptno && <Badge color={locked ? 'green' : 'gray'} variant="light">{locked ? '\uC218\uBD88 \uD655\uC815' : '\uC800\uC7A5\uB428 \u00B7 \uB2F4\uB2F9\uC790 \uC218\uC815 \uAC00\uB2A5'}</Badge>}
+              {selectedReceiptno && <Badge color={locked ? 'green' : 'gray'} variant="light">{locked ? '수불 확정' : '저장됨 · 담당자 수정 가능'}</Badge>}
               {selectedIds.length > 0 && <Badge color="gray" variant="light">{selectedIds.length}개 선택</Badge>}
             </Group>
           </Group>
@@ -2170,7 +2170,7 @@ export default function InboundRegisterPage() {
                 <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
                   style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
                   <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
-                  <Table.Tbody>{rows.map((row, index) => <Table.Tr key={row.id}>{rowContent(index, row)}</Table.Tr>)}</Table.Tbody>
+                  <Table.Tbody>{rows.map((row, index) => <Table.Tr key={row.id} className={[row.is_new && codeClasses.newRow, row.is_new && classes.newRow].filter(Boolean).join(' ')}>{rowContent(index, row)}</Table.Tr>)}</Table.Tbody>
                   <Table.Tfoot><Table.Tr className={classes.detailSubtotalRow}>{headerColumns.map((column) => <Table.Td key={column.key} className={column.className}>
                     {column.key === 'number' ? '소계'
                       : column.key === 'qty' ? detailSubtotals.qty.toLocaleString(undefined, { maximumFractionDigits: 3 })
