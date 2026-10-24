@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import {
-  ActionIcon,
   Badge,
   Box,
   Button,
@@ -16,7 +15,6 @@ import {
   Text,
   TextInput,
   Title,
-  Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -50,16 +48,18 @@ const errorMessage = (error) => {
 
 // 서버와 같은 고정 그룹 목록입니다. DB에 항목이 없어도 그룹은 화면에 표시합니다.
 const FIXED_GROUPS = [
-  { groupcode: 'MATERIAL', name: '강종구분', codeLabel: '강종코드', nameLabel: '강종코드명', properties: ['비중'] },
+  { groupcode: 'MATERIAL', name: '강종구분', codeLabel: '강종코드', nameLabel: '강종구분명', properties: ['비중'] },
+  { groupcode: 'PROCESS', name: '공정구분', codeLabel: '공정코드', nameLabel: '공정구분명', properties: ['속성'] },
   { groupcode: 'SHAPE', name: '형태구분', codeLabel: '형태구분코드', nameLabel: '형태구분명', properties: ['속성'] },
-  { groupcode: 'PROCESS', name: '공정구분', codeLabel: '공정코드', nameLabel: '공정코드명', properties: ['속성'] },
-  { groupcode: 'OTHER_COST', name: '기타비용코드', codeLabel: '기타비용코드', nameLabel: '기타비용코드명', properties: ['속성'] },
+  { groupcode: 'SURFACE', name: '표면', codeLabel: '표면코드', nameLabel: '표면명', properties: ['속성'] },
+  { groupcode: 'OTHER_COST', name: '기타비용', codeLabel: '기타비용코드', nameLabel: '기타비용명', properties: ['속성'] },
   { groupcode: 'PRICE_UNIT', name: '단가단위', codeLabel: '단가단위코드', nameLabel: '단가단위명', properties: ['속성'], helpText: '코드명 예: Kg, 수량, 길이' },
   { groupcode: 'QTY', name: '수량단위', codeLabel: '수량단위코드', nameLabel: '수량단위명', properties: ['속성'], helpText: '코드명 예: EA' },
   { groupcode: 'BANK', name: '은행코드', codeLabel: '은행코드', nameLabel: '은행명', properties: ['속성'] },
   { groupcode: 'JOB', name: '직위구분', codeLabel: '직위코드', nameLabel: '직위명', properties: ['속성'] },
   { groupcode: 'WAREHOUSE', name: '창고', codeLabel: '창고코드', nameLabel: '창고명', properties: ['소속사업장'] },
-  { groupcode: 'SURFACE', name: '표면', codeLabel: '표면코드', nameLabel: '표면명', properties: ['속성'] },
+  
+  
 ];
 
 // 최초 렌더와 조회 응답 정규화에 사용할 빈 그룹 상태를 생성합니다.
@@ -82,7 +82,7 @@ const groupPropertyIndex = (group) => Number(group?.propertyIndex || group?.prop
 const PASTE_FIELDS = ['code', 'name', 'property', 'order', 'use', 'description'];
 
 // 화면에 보이는 행만 렌더링하고, 일반 코드 수정 시에는 변경된 행만 다시 렌더링합니다.
-const CodeMasterTableCells = memo(function CodeMasterTableCells({ row, index, codeLabel, nameLabel, propertyLabel, selected, disabled, saving, onToggleSelection, onUpdateRow, onPasteRange, onRegisterCodeInput, onRegisterCellInput, onFocusCell, onDelete }) {
+const CodeMasterTableCells = memo(function CodeMasterTableCells({ row, index, codeLabel, nameLabel, propertyLabel, selected, disabled, saving, onToggleSelection, onUpdateRow, onPasteRange, onRegisterCodeInput, onRegisterCellInput, onFocusCell }) {
   const paste = (field) => (event) => {
     if (!event.clipboardData.getData('text/plain').includes('\t') && !event.clipboardData.getData('text/plain').includes('\n')) return;
     event.preventDefault();
@@ -98,7 +98,6 @@ const CodeMasterTableCells = memo(function CodeMasterTableCells({ row, index, co
       <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'order', element)} className={classes.cellInput} aria-label="정렬 순서" data-row-id={row.id} data-field="order" type="number" min={0} value={String(row.order)} disabled={disabled} onFocus={() => onFocusCell(row.id, 'order')} onPaste={paste('order')} onChange={(event) => onUpdateRow(row.id, 'order', Number(event.currentTarget.value))} /></Table.Td>
       <Table.Td><select ref={(element) => onRegisterCellInput(row.id, 'use', element)} className={classes.cellSelect} aria-label={`${row.code || '코드'} 사용여부`} data-row-id={row.id} data-field="use" value={row.use ? 'Y' : 'N'} disabled={disabled} onFocus={() => onFocusCell(row.id, 'use')} onPaste={paste('use')} onChange={(event) => onUpdateRow(row.id, 'use', event.currentTarget.value === 'Y')}><option value="Y">사용중</option><option value="N">사용중지</option></select></Table.Td>
       <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'description', element)} className={classes.cellInput} aria-label="비고" data-row-id={row.id} data-field="description" value={row.description ?? ''} disabled={disabled} onFocus={() => onFocusCell(row.id, 'description')} onPaste={paste('description')} onChange={(event) => onUpdateRow(row.id, 'description', event.currentTarget.value)} /></Table.Td>
-      <Table.Td className={classes.actionCol}><Tooltip label="코드 삭제"><ActionIcon variant="subtle" color="red" aria-label="코드 삭제" disabled={saving || disabled} onClick={() => onDelete(row)}><IconTrash size={16} /></ActionIcon></Tooltip></Table.Td>
     </>
   );
 });
@@ -737,24 +736,6 @@ export default function CodeMasterPage() {
   };
 
   // 실제 삭제는 모달에서 사용자가 확인한 뒤 수행되도록 대상만 기록합니다.
-  const deleteUnsavedRows = useCallback((groupcode, rows) => {
-    const unsavedRows = rows.filter((row) => row.isNew);
-    if (!unsavedRows.length) return;
-    const ids = new Set(unsavedRows.map((row) => row.id));
-    setDirtyRows((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !ids.has(id))));
-    setGroups((current) => current.map((group) => group.groupcode !== groupcode
-      ? group : { ...group, rowCount: Math.max(0, group.rowCount - unsavedRows.length) }));
-    setSelectedRows((current) => current.filter((id) => !ids.has(id)));
-    notifications.show({ title: '삭제 완료', message: `공통코드 ${unsavedRows.length}건을 삭제했습니다.`, color: 'teal' });
-  }, []);
-  const requestDeleteRow = useCallback((row) => {
-    if (saving) return;
-    if (row.isNew) {
-      deleteUnsavedRows(selectedId, [row]);
-      return;
-    }
-    setDeleteRequest({ groupcode: selectedId, rows: [row] });
-  }, [selectedId, saving, deleteUnsavedRows]);
   const requestDeleteSelected = () => {
     if (saving) return;
     // 행마다 배열 includes를 반복하지 않고, 선택 id Set으로 한 번에 확인합니다.
@@ -837,9 +818,8 @@ export default function CodeMasterPage() {
       onRegisterCodeInput={registerCodeInput}
       onRegisterCellInput={registerCellInput}
       onFocusCell={setActiveCell}
-      onDelete={requestDeleteRow}
     />
-  ), [selectedGroup, selectedRowIds, uploadProgress, saving, toggleRowSelection, updateRow, pasteRange, registerCodeInput, registerCellInput, setActiveCell, requestDeleteRow]);
+  ), [selectedGroup, selectedRowIds, uploadProgress, saving, toggleRowSelection, updateRow, pasteRange, registerCodeInput, registerCellInput, setActiveCell]);
   const headerColumns = [
     { key: 'select', width: 46, minWidth: 42, className: classes.checkCol, label: <input aria-label="현재 목록 전체 선택" type="checkbox" checked={visibleRows.length > 0 && visibleRows.every((row) => selectedRowIds.has(row.id))} onChange={(event) => toggleCurrentPageSelection(event.currentTarget.checked)} /> },
     { key: 'number', width: 62, minWidth: 48, className: classes.numberCol, label: 'No.' },
@@ -849,7 +829,6 @@ export default function CodeMasterPage() {
     { key: 'order', width: 126, minWidth: 74, className: classes.orderCol, label: '정렬' },
     { key: 'use', width: 105, minWidth: 90, className: classes.statusCol, label: '사용여부' },
     { key: 'description', width: 180, minWidth: 90, label: '비고' },
-    { key: 'action', width: 76, minWidth: 50, className: classes.actionCol, label: '관리' },
   ];
   const tableWidth = headerColumns.reduce((total, column) => total + (columnWidths[column.key] ?? column.width), 0);
   const renderResizableHeader = (column) => {

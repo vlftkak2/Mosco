@@ -22,6 +22,11 @@ const HEADER_FIELDS = [
   ['buyer', '발주처'], ['recipient', '수신처'], ['order_date', '발주일자'],
   ['due_date', '납기일자'], ['delivery_location', '납품 장소'],
 ];
+const NUMERIC_LINE_FIELDS = {
+  thickness: '두께', width: '폭', length: '길이', quantity: '수량', weight_kg: '중량',
+};
+const NUMERIC_EDIT_PATTERN = /^\d{0,12}(?:\.\d{0,3})?$/;
+const NUMERIC_VALUE_PATTERN = /^(?:\d{1,12}(?:\.\d{0,3})?|\.\d{1,3})$/;
 const LINE_COLUMNS = [
   ['source_product_name', '품명', 180], ['steel_grade', '강종', 100], ['spec_raw', '규격 원문', 190],
   ['thickness', '두께', 90], ['width', '폭', 90], ['length', '길이', 90],
@@ -69,6 +74,35 @@ function numericValue(raw) {
   if (!cleaned || !/^-?(?:\d+\.?\d*|\.\d+)$/.test(cleaned)) return null;
   const value = Number(cleaned);
   return Number.isFinite(value) ? value : null;
+}
+
+function isValidNumericValue(value) {
+  const text = String(value ?? '').trim();
+  return !text || (NUMERIC_VALUE_PATTERN.test(text) && Number.isFinite(Number(text)));
+}
+
+function formatNumericDisplay(value) {
+  const text = String(value ?? '').trim();
+  if (!text || !NUMERIC_VALUE_PATTERN.test(text)) return text;
+  const [integerPart, decimalPart] = text.split('.');
+  const groupedInteger = (integerPart || '0').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${groupedInteger}${decimalPart === undefined ? '' : `.${decimalPart}`}`;
+}
+
+function koreanParticle(word, withFinalConsonant, withoutFinalConsonant) {
+  const lastCode = word.charCodeAt(word.length - 1);
+  const hasFinalConsonant = lastCode >= 0xac00 && lastCode <= 0xd7a3 && (lastCode - 0xac00) % 28 !== 0;
+  return hasFinalConsonant ? withFinalConsonant : withoutFinalConsonant;
+}
+
+function findInvalidNumericLine(items = []) {
+  for (const [rowIndex, item] of items.entries()) {
+    for (const [field, label] of Object.entries(NUMERIC_LINE_FIELDS)) {
+      const value = item.__draft?.[field] ?? orderLineDisplayValue(item, field);
+      if (!isValidNumericValue(value)) return { row: rowIndex + 1, label };
+    }
+  }
+  return null;
 }
 
 function createManualOrderLine() {
@@ -127,17 +161,37 @@ const OrderLineCells = memo(function OrderLineCells({ item, index, selected, onT
     {LINE_COLUMNS.map(([key, label]) => {
       const source = item.__manual ? null : aiSourceFor(item, key);
       const hasAiSource = Boolean(source);
+      const handlePaste = (event) => {
+        const text = event.clipboardData.getData('text/plain');
+        if (text.includes('\t') || text.includes('\n')) {
+          event.preventDefault();
+          onPaste(index, key, text);
+        }
+      };
       return <Table.Td key={key} className={hasAiSource ? classes.aiExtractedCell : undefined} title={hasAiSource ? 'AI가 읽어 추출한 값입니다.' : undefined}>
-        <input className={`${outboundTableClasses.cellInput} ${classes.cellInput}`} aria-label={`${index + 1}행 ${label}`} data-row-index={index} data-field={key} value={item.__draft?.[key] ?? numberInputValue(orderLineDisplayValue(item, key))} onChange={(event) => onChange(index, key, event.currentTarget.value)} onPaste={(event) => {
-          const text = event.clipboardData.getData('text/plain');
-          if (text.includes('\t') || text.includes('\n')) {
-            event.preventDefault();
-            onPaste(index, key, text);
-          }
-        }} />
+        <OrderLineInput item={item} index={index} field={key} label={label} onChange={onChange} onPaste={handlePaste} />
       </Table.Td>;
     })}
   </>;
+});
+
+const OrderLineInput = memo(function OrderLineInput({ item, index, field, label, onChange, onPaste }) {
+  const numeric = Boolean(NUMERIC_LINE_FIELDS[field]);
+  const [focused, setFocused] = useState(false);
+  const rawValue = item.__draft?.[field] ?? numberInputValue(orderLineDisplayValue(item, field));
+  return <input
+    className={`${outboundTableClasses.cellInput} ${classes.cellInput}`}
+    type="text"
+    inputMode={numeric ? 'decimal' : undefined}
+    aria-label={`${index + 1}행 ${label}`}
+    data-row-index={index}
+    data-field={field}
+    value={numeric && !focused ? formatNumericDisplay(rawValue) : rawValue}
+    onFocus={numeric ? () => setFocused(true) : undefined}
+    onBlur={numeric ? () => setFocused(false) : undefined}
+    onChange={(event) => onChange(index, field, event.currentTarget.value)}
+    onPaste={onPaste}
+  />;
 });
 
 const AIOrderVirtualRow = ({ item, className, ...props }) => (
@@ -184,12 +238,12 @@ function scorePageRotation(canvas, angle) {
   return { angle, score: variance / Math.max(height, 1) / (total + 1), topBias, ink: total };
 }
 
-function usePreviewPan(stageRef) {
+function usePreviewPan(stageRef, enabled = true) {
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const offsetRef = useRef({ x: 0, y: 0 });
   useEffect(() => {
     const stage = stageRef.current;
-    if (!stage) return undefined;
+    if (!enabled || !stage) return undefined;
     let drag = null;
     const stopPan = (event) => {
       if (!drag || (event.pointerId !== undefined && drag.pointerId !== event.pointerId)) return;
@@ -229,7 +283,7 @@ function usePreviewPan(stageRef) {
       stage.removeEventListener('pointerdown', startPan);
       stopPan({});
     };
-  }, [stageRef]);
+  }, [stageRef, enabled]);
   const resetPan = () => {
     const initialOffset = { x: 0, y: 0 };
     offsetRef.current = initialOffset;
@@ -271,7 +325,7 @@ function PdfPreview({ file, currentPage, setCurrentPage, pageCount, setPageCount
   const canvasRef = useRef(null);
   const renderTaskRef = useRef(null);
   const stageRef = useRef(null);
-  const pan = usePreviewPan(stageRef);
+  const pan = usePreviewPan(stageRef, Boolean(pdfDocument));
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const serverCorrection = correctedPages.find((entry) => entry.page_number === currentPage);
   const correction = serverCorrection || pageCorrections[currentPage];
@@ -467,7 +521,7 @@ function documentStatus(doc) {
   if (doc.status === 'queued') return ['분석 대기', 'gray'];
   if (doc.status === 'failed') return ['분석 실패', 'red'];
   if (doc.status === 'completed' && doc.reviewed) return ['검토 완료', 'teal'];
-  if (doc.status === 'completed' && doc.extraction?.items?.some((item) => item.needs_review)) return ['확인 필요', 'orange'];
+  if (doc.status === 'completed' && (doc.extraction?.header?.needs_review || doc.extraction?.items?.some((item) => item.needs_review))) return ['확인 필요', 'orange'];
   if (doc.status === 'completed') return ['분석 완료', 'indigo'];
   return ['분석 전', 'gray'];
 }
@@ -509,6 +563,7 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
   const [pageCount, setPageCount] = useState(0);
   const [columnWidthOverrides, setColumnWidthOverrides] = useState({});
   const tableWrapRef = useRef(null);
+  const numericNoticeRef = useRef(false);
   const virtuosoRef = useRef(null);
   const scrollToAddedLine = useRef(false);
   const focusAddedRowRef = useRef(null);
@@ -556,7 +611,7 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
     });
   }, [extraction?.items?.length]);
 
-  const updateHeader = (key, value) => updateExtraction((current) => ({ ...current, header: { ...current.header, [key]: value || null } }));
+  const updateHeader = (key, value) => updateExtraction((current) => ({ ...current, header: { ...current.header, [key]: value || null, ...(key === 'delivery_location' ? { needs_review: false, review_reasons: [] } : {}) } }));
   const startColumnResize = (event, column) => {
     event.preventDefault();
     const startX = event.clientX;
@@ -618,16 +673,26 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
     event.preventDefault();
     focusGridCell(nextRow, LINE_COLUMNS[nextColumn][0]);
   }, [itemCount, focusGridCell]);
-  const updateLine = useCallback((index, key, rawValue) => updateExtraction((current) => ({
-    ...current,
-    items: current.items.map((item, itemIndex) => itemIndex !== index ? item : {
-      ...item,
-      [key]: ['thickness', 'width', 'length', 'quantity', 'weight_kg'].includes(key) ? numericValue(rawValue) : (rawValue || null),
-      ...(key === 'quantity' ? { quantity_raw: rawValue || null } : {}),
-      ...(key === 'weight_kg' ? { weight_raw: rawValue || null } : {}),
-      __draft: { ...(item.__draft || {}), [key]: rawValue },
-    }),
-  })), [updateExtraction]);
+  const updateLine = useCallback((index, key, rawValue) => {
+    if (NUMERIC_LINE_FIELDS[key] && !NUMERIC_EDIT_PATTERN.test(rawValue)) {
+      if (!numericNoticeRef.current) {
+        notifications.show({ title: '숫자 입력 확인', message: '두께·폭·길이·수량·중량은 숫자만 입력할 수 있으며, 소수점은 셋째 자리까지 가능합니다.', color: 'orange' });
+        numericNoticeRef.current = true;
+      }
+      return;
+    }
+    numericNoticeRef.current = false;
+    updateExtraction((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) => itemIndex !== index ? item : {
+        ...item,
+        [key]: NUMERIC_LINE_FIELDS[key] ? numericValue(rawValue) : (rawValue || null),
+        ...(key === 'quantity' ? { quantity_raw: rawValue || null } : {}),
+        ...(key === 'weight_kg' ? { weight_raw: rawValue || null } : {}),
+        __draft: { ...(item.__draft || {}), [key]: rawValue },
+      }),
+    }));
+  }, [updateExtraction]);
   const addLine = () => {
     scrollToAddedLine.current = true;
     focusAddedRowRef.current = extraction.items.length;
@@ -646,6 +711,15 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
     const matrix = pastedText.replace(/\r/g, '').split('\n').filter((line, index, all) => line || index < all.length - 1).map((line) => line.split('\t'));
     const startColumn = LINE_COLUMNS.findIndex(([key]) => key === startField);
     if (startIndex < 0 || startColumn < 0 || !matrix.length) return;
+    for (const [rowOffset, line] of matrix.entries()) {
+      for (const [columnOffset, rawValue] of line.entries()) {
+        const key = LINE_COLUMNS[startColumn + columnOffset]?.[0];
+        if (NUMERIC_LINE_FIELDS[key] && !isValidNumericValue(rawValue)) {
+          notifications.show({ title: '숫자 입력 확인', message: `${startIndex + rowOffset + 1}행 ${NUMERIC_LINE_FIELDS[key]}${koreanParticle(NUMERIC_LINE_FIELDS[key], '은', '는')} 숫자만 입력할 수 있으며 소수점은 셋째 자리까지 가능합니다.`, color: 'orange' });
+          return;
+        }
+      }
+    }
     updateExtraction((current) => {
       const items = [...current.items];
       matrix.forEach((line, rowOffset) => {
@@ -655,7 +729,7 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
           const key = LINE_COLUMNS[startColumn + columnOffset]?.[0];
           if (!key) return;
           const value = String(rawValue ?? '');
-          item[key] = ['thickness', 'width', 'length', 'quantity', 'weight_kg'].includes(key) ? numericValue(value) : (value || null);
+          item[key] = NUMERIC_LINE_FIELDS[key] ? numericValue(value) : (value || null);
           if (key === 'quantity') item.quantity_raw = value || null;
           if (key === 'weight_kg') item.weight_raw = value || null;
           item.__draft = { ...(item.__draft || {}), [key]: value };
@@ -696,7 +770,7 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
               : doc.status === 'failed'
                 ? <Box className={classes.selectOrderPrompt}>분석에 실패했습니다. 오류 내용을 확인하고 다시 실행해주세요.</Box>
                 : <Box className={classes.selectOrderPrompt}>목록에서 발주서를 선택하고 분석을 실행해주세요.</Box> : <Box className={classes.resultContent}>
-          <Box className={classes.resultContentInner}><Box className={classes.orderHeaderSection}><Text size="sm" fw={700} mb="xs">주문서 헤더</Text>
+          <Box className={classes.resultContentInner}><Box className={classes.orderHeaderSection}><Group gap="xs" mb="xs"><Text size="sm" fw={700}>주문서 헤더</Text>{extraction.header.needs_review && <Badge size="xs" color="orange" variant="light" title={(extraction.header.review_reasons || []).join(' · ')}>납품장소 확인 필요</Badge>}</Group>
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
               {HEADER_FIELDS.map(([key, label]) => <TextInput key={key} type={['order_date', 'due_date'].includes(key) ? 'date' : 'text'} style={key === 'delivery_location' ? { gridColumn: '1 / -1' } : undefined} label={<ExtractionFieldLabel label={label} source={aiSourceFor(extraction.header, key)} />} value={['order_date', 'due_date'].includes(key) ? dateInputValue(extraction.header[key]) : (extraction.header[key] || '')} onChange={(event) => updateHeader(key, event.currentTarget.value)} />)}
             </SimpleGrid>
@@ -753,10 +827,23 @@ export default function AIOrderPage() {
   const updateDocument = useCallback((id, updater) => setDocuments((current) => current.map((doc) => doc.id === id ? (typeof updater === 'function' ? updater(doc) : { ...doc, ...updater }) : doc)), []);
   const selectedDoc = documents.find((doc) => doc.id === selectedId) || documents[0] || null;
   const orderConfirmTarget = documents.find((doc) => doc.id === orderConfirmTargetId) || null;
-  const requestOrderConfirmation = (doc) => setOrderConfirmTargetId(doc.id);
+  const requestOrderConfirmation = (doc) => {
+    const invalid = findInvalidNumericLine(doc.extraction?.items);
+    if (invalid) {
+      notifications.show({ title: '숫자 입력 확인', message: <>{invalid.row}행 {invalid.label}{koreanParticle(invalid.label, '을', '를')} 확인해 주세요.<br />숫자만 입력할 수 있으며 소수점은 셋째 자리까지 가능합니다.</>, color: 'orange' });
+      return;
+    }
+    setOrderConfirmTargetId(doc.id);
+  };
   const confirmDocument = async () => {
     const doc = orderConfirmTarget;
     if (!doc || !doc.analysisRequestId || !doc.extraction?.items?.length || confirmingId) return;
+    const invalid = findInvalidNumericLine(doc.extraction.items);
+    if (invalid) {
+      notifications.show({ title: '숫자 입력 확인', message: <>{invalid.row}행 {invalid.label}{koreanParticle(invalid.label, '을', '를')} 확인해 주세요.<br />숫자만 입력할 수 있으며 소수점은 셋째 자리까지 가능합니다.</>, color: 'orange' });
+      setOrderConfirmTargetId(null);
+      return;
+    }
     setConfirmingId(doc.id);
     try {
       const { data } = await axios.post('/api/ai-order/confirmed', {
