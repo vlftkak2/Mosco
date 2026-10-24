@@ -29,12 +29,12 @@ class Line(BaseModel):
     source_product_name: str | None = Field(default=None, max_length=255)
     steel_grade: str | None = Field(default=None, max_length=100)
     spec_raw: str | None = None
-    thickness: Decimal | None = Field(default=None, ge=0)
-    width: Decimal | None = Field(default=None, ge=0)
-    length: Decimal | None = Field(default=None, ge=0)
-    quantity: Decimal | None = Field(default=None, ge=0)
+    thickness: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
+    width: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
+    length: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
+    quantity: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
     quantity_unit: str | None = Field(default=None, max_length=30)
-    weight_kg: Decimal | None = Field(default=None, ge=0)
+    weight_kg: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
     notes: str | None = None
     quantity_raw: str | None = None
     weight_raw: str | None = None

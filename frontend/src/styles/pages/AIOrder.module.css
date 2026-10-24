@@ -117,16 +117,16 @@
 .resultContent { width: 100%; height: 0; min-height: 0; flex: 1 1 auto; overflow: hidden; }
 .resultContentInner { display: flex; height: 100%; min-height: 0; flex-direction: column; gap: 10px; padding: 12px; }
 .orderHeaderSection { flex: 0 0 auto; }
-.detailSection { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 0; overflow: hidden; padding: 0; border-color: #e2e7ee; border-radius: 8px; background: #fff; }
+.detailSection { display: flex; min-height: 380px; flex: 1 1 380px; flex-direction: column; gap: 0; overflow: hidden; padding: 0; border-color: #e2e7ee; border-radius: 8px; background: #fff; }
 .detailToolbar { flex: 0 0 auto; border-bottom: 1px solid #e3e8ef; }
-.gridScroll { width: 100%; height: 0; max-width: 100%; min-height: 0; flex: 1 1 auto; overflow: hidden; }
-.gridScroll :global([data-virtuoso-scroller]) { overflow-x: auto !important; scrollbar-gutter: stable; }
+.gridScroll { width: 100%; height: 0; max-width: 100%; min-height: 320px; flex: 1 1 320px; overflow: hidden; }
+.gridScroll :global([data-virtuoso-scroller]) { overflow-x: auto !important; overflow-y: auto !important; scrollbar-gutter: stable; }
 .gridScroll :global([data-virtuoso-scroller])::-webkit-scrollbar { width: 9px; height: 9px; }
 .gridScroll :global([data-virtuoso-scroller])::-webkit-scrollbar-track { border-radius: 999px; background: #edf0f4; }
 .gridScroll :global([data-virtuoso-scroller])::-webkit-scrollbar-thumb { border: 2px solid #edf0f4; border-radius: 999px; background: #aeb8c5; }
 .gridScroll :global([data-virtuoso-scroller])::-webkit-scrollbar-thumb:hover { background: #8492a3; }
 .resultGrid { table-layout: fixed; }
-.resultGrid thead th { position: sticky; z-index: 3; top: 0; height: 34px; padding: 5px 8px; background: #fff3f3; color: #bd343a; white-space: nowrap; }
+.resultGrid thead th { position: sticky; z-index: 3; top: 0; height: 34px; padding: 5px 8px; border: 1px solid #e0e6ef; background: #f0f3f7; color: #354052; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .resultGrid thead th:not(:first-child) { padding-right: 12px; }
 .columnResizeHandle { position: absolute; z-index: 4; top: 0; right: -2px; width: 7px; height: 100%; cursor: col-resize; touch-action: none; user-select: none; }
 .columnResizeHandle:hover, .columnResizeHandle:active { background: #d94b5240; }

@@ -44,6 +44,11 @@
   padding: 5px 13px;
   background: #fff;
 }
+.editorPanel .codeHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
 .headerActions { min-width: 0; justify-content: flex-end; }
 .headerActions :global(.mantine-Button-root) {
   height: 32px;
@@ -115,7 +120,8 @@
 .loading { display: grid; height: 100%; min-height: 300px; place-items: center; }
 
 @container (max-width: 700px) {
-  .codeHeader { align-items: stretch; }
+  .editorPanel .codeHeader { display: flex; flex-wrap: wrap; align-items: stretch; }
+  .editorPanel .codeHeader > :first-child { align-self: center; }
   .headerActions { width: 100%; justify-content: flex-end; }
   .searchGroup, .listActions { width: 100%; }
   .listActions { justify-content: flex-end; }
