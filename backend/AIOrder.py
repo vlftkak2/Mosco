@@ -17,7 +17,7 @@ from fastapi import HTTPException, UploadFile, status
 from openai import AsyncOpenAI
 from PIL import Image, ImageOps, UnidentifiedImageError
 import psycopg2
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from config import DB_CONFIG, JWT_SECRET_KEY  # Loads backend/.env before the AI settings are read.
 
 logger = logging.getLogger(__name__)
@@ -29,13 +29,13 @@ MAX_OUTPUT_TOKENS = max(512, int(os.getenv("AI_ORDER_MAX_OUTPUT_TOKENS", "6000")
 MAX_PDF_PAGES = max(1, int(os.getenv("AI_ORDER_MAX_PDF_PAGES", "10")))
 MAX_IMAGE_PAGES = max(1, int(os.getenv("AI_ORDER_MAX_IMAGE_PAGES", "10")))
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini").strip() or "gpt-5.4-mini"
-_SUPPORTED_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
+_SUPPORTED_REASONING_EFFORTS = {"none", "low", "medium"}
 _configured_reasoning_effort = os.getenv("AI_ORDER_REASONING_EFFORT", "low").split("#", 1)[0].strip().lower()
 if _configured_reasoning_effort not in _SUPPORTED_REASONING_EFFORTS:
     logger.warning("Unsupported AI_ORDER_REASONING_EFFORT; using low")
     _configured_reasoning_effort = "low"
 REASONING_EFFORT = _configured_reasoning_effort
-EXTRACTION_SCHEMA_VERSION = 14
+EXTRACTION_SCHEMA_VERSION = 20
 DAILY_LIMIT = max(1, int(os.getenv("AI_ORDER_DAILY_LIMIT", "100")))
 COMPANY_DAILY_LIMIT = max(1, int(os.getenv("AI_ORDER_COMPANY_DAILY_LIMIT", "100")))
 MONTHLY_BUDGET_USD = max(0.01, float(os.getenv("AI_ORDER_MONTHLY_BUDGET_USD", "20")))
@@ -86,10 +86,37 @@ class OrderHeader(BaseModel):
     recipient: str | None = Field(description="발주서를 받는 수신처 또는 공급처 회사명. 발주처와 구분해서 원문에 있는 값만 추출")
     order_date: str | None = Field(description="발주일자, 확실할 때 YYYY-MM-DD")
     due_date: str | None = Field(description="납기일 또는 입고일, 확실할 때 YYYY-MM-DD")
-    delivery_location: str | None = Field(description="명시적 납품장소가 없으면 문서에서 유일하게 확인된 발주처 또는 수신처의 사업장 주소를 기본 납품장소로 적용할 수 있음. 주소가 추정값이면 needs_review=true로 표시")
+    delivery_location: str | None = Field(description="명시적 납품장소가 없고 발주처 정보 블록에 '주소'로 표시된 주소가 하나만 있으면 그 주소를 기본 납품장소로 적용할 수 있음. 이 경우 needs_review=true로 표시")
     needs_review: bool = Field(description="헤더 값, 특히 기본값으로 추정한 납품장소를 사람이 확인해야 하면 true")
     review_reasons: list[str] = Field(description="헤더 확인 필요 사유. 없으면 빈 배열")
     source_locations: list["SourceLocation"] = Field(description="주요 헤더 값의 원본 근거 위치. 모르면 빈 배열")
+
+    @model_validator(mode="before")
+    @classmethod
+    def mark_incomplete_month_dates(cls, values: Any) -> Any:
+        if not isinstance(values, dict):
+            return values
+        values = dict(values)
+        reasons = list(values.get("review_reasons") or [])
+        date_labels = {"order_date": "발주일자", "due_date": "납기일"}
+        for field_name, label in date_labels.items():
+            raw_value = values.get(field_name)
+            if not isinstance(raw_value, str):
+                continue
+            text = raw_value.strip()
+            month_only = re.fullmatch(
+                r"\d{4}\s*(?:년|[./-])\s*\d{1,2}\s*(?:월)?\.?",
+                text,
+            )
+            if month_only:
+                values[field_name] = None
+                values["needs_review"] = True
+                reason = f"{label}에 연·월만 있고 일이 없어 날짜를 확정할 수 없습니다."
+                if reason not in reasons:
+                    reasons.append(reason)
+        if reasons:
+            values["review_reasons"] = reasons
+        return values
 
     @field_validator("order_date", "due_date")
     @classmethod
@@ -220,7 +247,7 @@ SYSTEM_PROMPT = """당신은 철강 주문서 데이터 추출기입니다. 입�
 품명/규격 숫자·소수점·기호·자릿수를 그대로 보존하세요. 0.6 × 191과 0.6 × 190을 혼동하지 말고, 다른 값으로 보정·반올림·추정하지 마세요.
 숫자 쉼표는 제거해 수량·중량 숫자를 반환하고, 수량 원문과 중량 원문도 보존하세요. 수량이 나머지, 전량, -, 기타 문자이면 quantity는 null, quantity_raw는 원문입니다.
 단위 KG, TON, EA, SHEET 등을 구별하세요. 수량 칸에 수량(KG)처럼 단위가 붙으면 quantity_unit을 KG로 쓰고, 별도 중량이 표시되지 않는 한 weight_kg를 중복해서 채우지 마세요. 중량이 별도 칸에 TON으로 명시되면 weight_kg로 환산할 수 있지만 weight_raw에 원문을 보존하세요.
-날짜는 발주일자와 납기일/입고일을 구별하고, 모호하지 않을 때만 YYYY-MM-DD로 표준화하세요. 발주처와 수신처를 읽을 때 법인 표기 '(주)', '㈜', '주식회사'를 생략하지 말고 원문대로 보존하세요. 납품 장소는 문서 전체에서 찾으세요. 상단 헤더뿐 아니라 품목 표 아래의 번호 조항, 하단 안내문, 비고와 Remarks도 빠짐없이 읽으세요. '납품장소는 X 납품을 원칙으로 합니다', 'X로 납품', '납품처: X'처럼 장소를 직접 지정한 문장은 실제 배송 위치를 가리키는 근거로 사용하세요. 다만 X가 회사명이나 창고명이고 같은 문서의 해당 회사 정보 블록에 도로명 주소가 있으면, delivery_location에는 창고명 대신 도로명 주소를 원문 그대로 기록하세요. 도로명 주소와 산단·공단의 별도 지번/부지 표기가 함께 있으면 도로명 주소를 우선하고 별도 부지 표기는 덧붙이지 마세요. source_locations에는 납품 지시 문구와 주소 원문을 각각 인용하세요. 프롬프트의 예시용 X 또는 다른 예시 문구는 문서 증거가 아니므로, 원문에서 확인하지 못한 값은 결과에 복사하지 마세요. 주소가 여러 개이거나 해당 회사 정보 블록과 연결되지 않으면 임의로 고르지 말고 delivery_location을 null로 두세요. 주소가 외부 지식으로 보완되지 않도록 하고 문서에 인쇄된 주소를 그대로 사용하세요. 우편번호가 문서에 있으면 주소 앞에 '(우편번호) 주소' 형식으로 작성하고, 없으면 주소만 작성하세요.
+날짜는 발주일자와 납기일/입고일을 구별하고, 모호하지 않을 때만 YYYY-MM-DD로 표준화하세요. 발주처와 수신처를 읽을 때 법인 표기 '(주)', '㈜', '주식회사'를 생략하지 말고 원문대로 보존하세요. 납품 장소는 문서 전체에서 찾으세요. 상단 헤더뿐 아니라 품목 표 아래의 번호 조항, 하단 안내문, 비고와 Remarks도 빠짐없이 읽으세요. '납품장소는 X 납품을 원칙으로 합니다', 'X로 납품', '납품처: X'처럼 장소를 직접 지정한 문장은 실제 배송 위치를 가리키는 근거로 사용하세요. '도착지: 당사/자사/본사'처럼 도착지가 발주처를 가리키는 상대 표현이면 발주처(주문서를 발행한 회사)를 식별하고, 그 회사 정보 블록에 인쇄된 유일한 주소를 delivery_location으로 사용하세요. 위와 같은 명시적 납품 지시가 없고 발주처 정보 블록에 '주소'라고 표시된 주소가 하나만 있으면, 그 주소를 기본 delivery_location으로 사용하고 needs_review=true로 표시하세요. 이 기본값 규칙은 발주처 주소에만 적용하며, 수신처 주소나 라벨이 없는 주소를 납품장소로 대신 사용하지 마세요. 주소가 여러 개이거나 발주처 주소인지 분명하지 않으면 임의로 고르지 말고 delivery_location을 null로 두세요. source_locations에는 주소 원문과 회사명을 근거로 남기세요. 다만 X가 회사명이나 창고명이고 같은 문서의 해당 회사 정보 블록에 도로명 주소가 있으면, delivery_location에는 창고명 대신 도로명 주소를 원문 그대로 기록하세요. 도로명 주소와 산단·공단의 별도 지번/부지 표기가 함께 있으면 도로명 주소를 우선하고 별도 부지 표기는 덧붙이지 마세요. source_locations에는 납품 지시 문구와 주소 원문을 각각 인용하세요. 프롬프트의 예시용 X 또는 다른 예시 문구는 문서 증거가 아니므로, 원문에서 확인하지 못한 값은 결과에 복사하지 마세요. 주소가 외부 지식으로 보완되지 않도록 하고 문서에 인쇄된 주소를 그대로 사용하세요. 우편번호가 문서에 있으면 주소 앞에 '(우편번호) 주소' 형식으로 작성하고, 없으면 주소만 작성하세요.
 품목은 품명, 강종, 규격 원문, 두께, 폭, 길이, 수량, 단위, 중량, 품목별 비고를 추출하세요. 규격 원문은 기호와 숫자를 그대로 보존하세요. 두께·폭·길이는 규격에 각 치수가 명확하게 구분될 때만 채우고, 강종이 명시되지 않으면 품명에서 추측하지 마세요.
 헤더는 발주처, 수신처, 발주일자, 납기일(입고일), 납품 장소만 추출하세요. 발주번호와 헤더 공통 비고는 추출하지 마세요. 헤더의 각 값과 상세 항목에는 source_locations를 제공하되 실제 확인한 원문과 페이지 번호만 적으세요. 좌표 상자를 추측하지 마세요. 불명확하면 null로 두고 needs_review=true와 구체적인 review_reasons를 작성하세요."""
 
@@ -522,7 +549,7 @@ def _load_company_ai_order_rules(companyid: str) -> list[dict[str, Any]]:
 def _instructions_with_company_rules(rules: list[dict[str, Any]]) -> str:
     delivery_location_instructions = """납품장소를 추출하기 전에 첫 페이지 상단의 회사 정보 블록을 별도로 확인하세요.
 발주처는 발주서를 작성·발행한 회사이고, 수신처는 문서에서 '업체명', '수신', '납품처' 등으로 표시된 상대 회사입니다. 로고나 주소가 있는 발행 회사와 '업체명' 값을 혼동하지 말고, 특히 '업체명' 라벨 바로 뒤의 전체 회사명을 법인 표기까지 원문대로 읽으세요. 프롬프트에 나오는 설명 문구와 예시는 문서의 증거가 아닙니다. 문서에서 실제로 읽지 못한 회사명, 수신처, 주소, 창고명은 결과에 절대 복사하지 마세요.
-납품 지시가 회사의 자재창고·공장 등으로 되어 있고 같은 회사의 정보 블록에 도로명 주소가 인쇄되어 있으면, delivery_location은 그 도로명 주소만 원문대로 기록하세요. 도로명 주소와 산단·공단의 별도 지번/부지 표기가 함께 있으면 도로명 주소를 우선하고 별도 부지 표기는 포함하지 마세요. 창고명은 주소로 대신 쓰지 마세요. 주소가 여러 개이거나 납품 지시의 회사와 주소 블록의 회사가 일치하는지 분명하지 않으면 임의로 선택하지 말고 null로 두세요. 주소를 외부 지식으로 보완하지 마세요. header.source_locations에는 납품 지시 문구와 연결된 주소를 모두 원문 근거로 남기세요. 회사 주소를 기본값으로 쓴 경우 needs_review=true로 표시하세요.
+납품 지시가 '도착지: 당사/자사/본사'라면 발주처(문서를 발행한 회사)의 정보 블록을 확인하세요. 그 블록에 인쇄된 주소가 하나뿐이면, '주소'라는 라벨이 없어도 그 주소를 delivery_location으로 채우고 needs_review=true로 표시하세요. 위와 같은 명시적 납품 지시가 없고 발주처 정보 블록에 '주소'라고 표시된 주소가 하나만 있으면, 그 주소를 기본 delivery_location으로 채우고 needs_review=true로 표시하세요. 이 기본값 규칙은 발주처 주소에만 적용하며, 수신처 주소나 라벨이 없는 주소를 납품장소로 대신 사용하지 마세요. 주소가 여러 개이거나 발주처 주소인지 분명하지 않으면 임의로 고르지 말고 null로 두세요. 납품 지시가 회사의 자재창고·공장 등으로 되어 있고 같은 회사의 정보 블록에 도로명 주소가 인쇄되어 있으면, delivery_location은 그 도로명 주소만 원문대로 기록하세요. 도로명 주소와 산단·공단의 별도 지번/부지 표기가 함께 있으면 도로명 주소를 우선하고 별도 부지 표기는 포함하지 마세요. 창고명은 주소로 대신 쓰지 마세요. 납품 지시의 회사와 주소 블록의 회사가 일치하는지 분명하지 않으면 임의로 선택하지 말고 null로 두세요. 주소를 외부 지식으로 보완하지 마세요. header.source_locations에는 납품 지시 문구와 연결된 주소를 모두 원문 근거로 남기세요. 회사 주소를 기본값으로 쓴 경우 needs_review=true로 표시하세요.
 주소가 여러 개거나, 제삼자 주소이거나, 회사 정보 블록에 연결되는지 분명하지 않으면 기본값으로 쓰지 말고 delivery_location=null, needs_review=true로 두세요. 주소를 외부 지식으로 보충하지 말고 문서에 인쇄된 주소만 사용하세요. 이 규칙은 납품장소에만 적용하며 다른 필드를 추정하는 근거로 사용하지 마세요."""
     numeric_reading_instructions = """\
 
@@ -893,7 +920,7 @@ def _create_order_detail_crops(extension: str, data: bytes) -> list[tuple[int, s
                 regions.append(("회사 정보·주소", (0, 0, width, int(height * 0.58))))
                 # Focused high-resolution views preserve small recipient labels and street addresses.
                 regions.append(("수신처·업체명 확대", (0, 0, int(width * 0.55), int(height * 0.40))))
-                regions.append(("발행 회사·주소 확대", (int(width * 0.45), 0, width, int(height * 0.40))))
+                regions.append(("발행 회사·주소 확대", (0, 0, width, int(height * 0.40))))
             # Keep the full width so table headings remain attached to values.
             regions.append(("품목 표", (0, int(height * 0.30), width, int(height * 0.96))))
             for region_name, bounds in regions:
@@ -1286,7 +1313,6 @@ async def _analyze_order_document(
     try:
         extracted = AIOrderExtraction.model_validate_json(output_text)
     except (ValidationError, ValueError) as exc:
-        await asyncio.to_thread(_update_analysis_audit, request_id, "invalid_output", usage=usage, error_type=type(exc).__name__)
         if isinstance(exc, ValidationError):
             # Record field paths and error categories only; never log extracted values or document text.
             validation_issues = [
@@ -1298,6 +1324,16 @@ async def _analyze_order_document(
             ]
         else:
             validation_issues = [{"field": "<json>", "type": type(exc).__name__}]
+        issue_summary = ";".join(
+            f"{issue['field']}:{issue['type']}" for issue in validation_issues
+        )
+        await asyncio.to_thread(
+            _update_analysis_audit,
+            request_id,
+            "invalid_output",
+            usage=usage,
+            error_type=f"{type(exc).__name__}:{issue_summary}"[:100],
+        )
         logger.warning(
             "AI order output validation failed company=%s request_id=%s request=%s issues=%s",
             companyid, request_id, request_hash[:12], validation_issues,
