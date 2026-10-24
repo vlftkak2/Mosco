@@ -382,7 +382,7 @@ def lookup_stock(companyid: str, items: list[dict]):
 def _current_stock_conditions(companyid, itemcode, itemname, thickness, width, length,
                               warehousecode, warehousecodename, sourcetype="", customname="",
                               include_zero=False, source_lines=False, item_search="",
-                              warehouse_search="", date_from=None, date_to=None):
+                              product_search="", warehouse_search="", date_from=None, date_to=None):
     where = ["stock.companyid = %s"]
     params = [companyid]
     if source_lines:
@@ -404,8 +404,11 @@ def _current_stock_conditions(companyid, itemcode, itemname, thickness, width, l
         # The legacy aggregate table has no source receipt date to filter by.
         where.append("FALSE")
     if item_search.strip():
-        where.append("(stock.itemcode ILIKE %s OR stock.itemname ILIKE %s)")
-        params.extend([f"%{item_search.strip()}%", f"%{item_search.strip()}%"])
+        where.append("(stock.itemcode ILIKE %s OR stock.itemname ILIKE %s OR stock.productname ILIKE %s)")
+        params.extend([f"%{item_search.strip()}%", f"%{item_search.strip()}%", f"%{item_search.strip()}%"])
+    if product_search.strip():
+        where.append("stock.productname ILIKE %s")
+        params.append(f"%{product_search.strip()}%")
     if warehouse_search.strip():
         where.append("(stock.warehousecode ILIKE %s OR stock.warehousecodename ILIKE %s)")
         params.extend([f"%{warehouse_search.strip()}%", f"%{warehouse_search.strip()}%"])
@@ -460,7 +463,7 @@ def list_current_stock(companyid: str, page: int, page_size: int, **filters):
                  AND qty_code.groupcode = 'QTY'
                  AND qty_code.code = stock.qtyunit
                 WHERE {where}
-                ORDER BY {('stock.receiptdate DESC, stock.sourcetype, stock.sourceno, stock.sourceline' if source_lines else 'stock.itemcode, stock.thickness, stock.width, stock.length, stock.warehousecode, stock.qtyunit')}
+                ORDER BY {('stock.receiptdate ASC, stock.sourcetype, stock.sourceno, stock.sourceline' if source_lines else 'stock.itemcode, stock.thickness, stock.width, stock.length, stock.warehousecode, stock.qtyunit')}
                 LIMIT %s OFFSET %s""",
             (*params, page_size, (page - 1) * page_size),
         )
@@ -479,7 +482,7 @@ def write_current_stock_excel(companyid: str, output_path: str, **filters):
                  AND qty_code.groupcode = 'QTY'
                  AND qty_code.code = stock.qtyunit
                 WHERE {where}
-                ORDER BY {('stock.receiptdate DESC, stock.sourcetype, stock.sourceno, stock.sourceline' if source_lines else 'stock.itemcode, stock.thickness, stock.width, stock.length, stock.warehousecode, stock.qtyunit')}"""
+                ORDER BY {('stock.receiptdate ASC, stock.sourcetype, stock.sourceno, stock.sourceline' if source_lines else 'stock.itemcode, stock.thickness, stock.width, stock.length, stock.warehousecode, stock.qtyunit')}"""
     headers = ["No.", "재고구분", "원천전표", "원천순번", "입고일자", "거래처코드", "거래처명",
                "최초수량", "최초중량", "단가기준", "매입단가", "품목코드", "품목명", "Lot번호",
                "강판코드", "강판", "표면코드", "표면", "도금량(g/㎡)", "담당자", "두께", "폭", "길이",

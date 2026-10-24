@@ -11,7 +11,7 @@ import classes from '../styles/pages/InboundSearch.module.css';
 
 const monthFilters = () => {
   const now = new Date(); const y = now.getFullYear(); const m = now.getMonth(); const pad = (v) => String(v).padStart(2, '0');
-  return { date_from: `${y}-${pad(m + 1)}-01`, date_to: `${y}-${pad(m + 1)}-${pad(new Date(y, m + 1, 0).getDate())}`, iniotype: "", customname: "", item_search: "", warehouse_search: "" };
+  return { date_from: `${y}-${pad(m + 1)}-01`, date_to: `${y}-${pad(m + 1)}-${pad(new Date(y, m + 1, 0).getDate())}`, iniotype: "", customname: "", item_search: "", product_search: "", warehouse_search: "" };
 };
 const PAGE_OPTIONS = [{ value: '15', label: '15개씩' }, { value: '50', label: '50개씩' }, { value: '100', label: '100개씩' }, { value: '200', label: '200개씩' }];
 const TYPE_OPTIONS = [{ value: "ALL", label: "전체" }, { value: "ST", label: "기초" }, { value: "IN", label: "입고" }, { value: "OUT", label: "출고" }];
@@ -34,7 +34,7 @@ export default function IniopStockPage() {
   useEffect(() => { void load(); }, [load]);
   const search = () => { if (inputs.date_from && inputs.date_to && inputs.date_from > inputs.date_to) { notifications.show({ title: "조회 조건 확인", message: "수불 시작일은 종료일보다 뒤일 수 없습니다.", color: "orange" }); return; } setFilters(Object.fromEntries(Object.entries(inputs).map(([key, value]) => [key, String(value || "").trim()]))); setPage(1); };
   const exportExcel = async () => { if (!total || exporting) return; setExporting(true); try { const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value)); const { data } = await axios.get('/api/iniop-stock/items/export', { ...authConfig(), params, responseType: 'blob' }); const url = URL.createObjectURL(data); const link = document.createElement('a'); link.href = url; link.download = `수불장_${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.xlsx`; document.body.appendChild(link); link.click(); link.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); } catch { notifications.show({ title: '엑셀 다운로드 실패', message: '수불장을 엑셀로 저장하지 못했습니다.', color: 'red' }); } finally { setExporting(false); } };
-  const fields = [["customname", "거래처명"], ["item_search", "품목"], ["warehouse_search", "창고"]];
+  const fields = [["customname", "거래처명"], ["item_search", "품목"], ["product_search", "제품번호"], ["warehouse_search", "창고"]];
 
   useErpPageRibbon({ onSearch: search, onExcel: exportExcel, showPrint: false, useSaveColor: false });
 
@@ -55,7 +55,7 @@ export default function IniopStockPage() {
             <TextInput aria-label="재고기간 종료일" type="date" value={inputs.date_to} onChange={(event) => setInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} onKeyDown={(event) => event.key === "Enter" && search()} />
           </Stack>
         </Box>
-        {fields.map(([key, label]) => <TextInput key={key} label={label} placeholder={key === "customname" ? "거래처명 검색" : key === "item_search" ? "품목코드 또는 품목명" : "창고코드 또는 창고명"} value={inputs[key] || ""} onChange={(event) => setInputs((current) => ({ ...current, [key]: event.currentTarget.value }))} onKeyDown={(event) => event.key === "Enter" && search()} />)}
+        {fields.map(([key, label]) => <TextInput key={key} label={label} placeholder={key === "customname" ? "거래처명 검색" : key === "item_search" ? "품목코드 또는 품목명" : key === "product_search" ? "제품번호 검색" : "창고코드 또는 창고명"} value={inputs[key] || ""} onChange={(event) => setInputs((current) => ({ ...current, [key]: event.currentTarget.value }))} onKeyDown={(event) => event.key === "Enter" && search()} />)}
       </Stack>
     </Paper>}
     <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder><Group className={classes.resultsToolbar} justify="space-between"><Text fw={700}>재고수불현황</Text><Button size="xs" variant="light" color="red" leftSection={<IconDownload size={14} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>엑셀 다운로드</Button></Group>
@@ -80,7 +80,6 @@ export default function IniopStockPage() {
           { key: 'qty', label: '수량', width: 70, minWidth: 60, render: (item) => numberText(item.qty) },
           { key: 'qtyunit', label: '수량단위', width: 75, minWidth: 65, render: (item) => item.qtyunit },
           { key: 'weight', label: '중량', width: 80, minWidth: 70, render: (item) => numberText(item.weight) },
-          { key: 'warehousecode', label: '창고코드', width: 90, minWidth: 78, render: (item) => item.warehousecode },
           { key: 'warehousecodename', label: '창고명', width: 110, minWidth: 95, render: (item) => item.warehousecodename },
           { key: 'created_at', label: '등록일자', width: 145, minWidth: 130, render: (item) => timestampText(item.created_at) },
           { key: 'updated_at', label: '수정일자', width: 145, minWidth: 130, render: (item) => timestampText(item.updated_at) },

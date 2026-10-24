@@ -885,7 +885,13 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
         saved && !(key === 'manager' && managerEditable) ? classes.savedCell : '',
         key === 'manager' && managerEditable ? classes.managerEditableCell : '',
       ].filter(Boolean).join(' ')}>
-        {key === 'manager' ? (
+        {saved && key !== 'manager' ? (
+          <span className={classes.savedCellText} title={String(displayValue(key))}>
+            {key === 'supplyamt' || key === 'vat'
+              ? formatNumericInput(row[`${key}_manual`] ? row[key] : (key === 'vat' ? vatOf({ ...row, vat_manual: false }, unitOptions.price) : amountOf({ ...row, supplyamt_manual: false }, unitOptions.price)))
+              : displayValue(key)}
+          </span>
+        ) : key === 'manager' ? (
           <ManagerInput key={`${row.id}:${row.manager || ''}`} row={row} editable={!disabled || managerEditable} label={label} onChange={onChange} onPaste={pasteHandler(key)} registerCellInput={registerCellInput} onFocusCell={onFocusCell} />
         ) : key === 'receptdate' ? (
           <input
@@ -1026,6 +1032,7 @@ export default function InboundRegisterPage() {
   const [masterPickerTarget, setMasterPickerTarget] = useState(null);
   const [unitOptions, setUnitOptions] = useState({ price: [], quantity: [], warehouse: [], material: [], surface: [] });
   const virtuosoRef = useRef(null);
+  const detailScrollerRef = useRef(null);
   const receiptTableRef = useRef(null);
   const receiptSubtotalRef = useRef(null);
   const cellInputsRef = useRef(new Map());
@@ -1038,8 +1045,8 @@ export default function InboundRegisterPage() {
   const selectionAnchorRef = useRef('');
   const locked = isReceiptConfirmed(subulyn);
   const readOnly = Boolean(selectedReceiptno) || locked;
-  const hasManagerChanges = Boolean(selectedReceiptno) && rows.some((row) => row.manager_dirty);
-  const hasPendingChanges = documentDirty || rows.some((row) => row.is_new || row.is_dirty);
+  const hasManagerChanges = useMemo(() => Boolean(selectedReceiptno) && rows.some((row) => row.manager_dirty), [selectedReceiptno, rows]);
+  const hasPendingChanges = useMemo(() => documentDirty || rows.some((row) => row.is_new || row.is_dirty), [documentDirty, rows]);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const receiptAutoWidths = useMemo(() => Object.fromEntries(RECEIPT_COLUMNS.map((column) => {
     const values = receipts.map((receipt) => {
@@ -1570,6 +1577,7 @@ export default function InboundRegisterPage() {
     selectionAnchorRef.current = '';
     requestAnimationFrame(() => {
       virtuosoRef.current?.scrollToIndex({ index: rows.length, align: 'end', behavior: 'auto' });
+      if (detailScrollerRef.current) detailScrollerRef.current.scrollTop = detailScrollerRef.current.scrollHeight;
     });
   }, [saving, selectedReceiptno, createReceipt, readOnly, rows.length]);
 
@@ -2024,23 +2032,27 @@ export default function InboundRegisterPage() {
       onFindCustomer={openCustomerPicker} onFindMaster={openMasterPicker} onFocusCell={setActiveCell} />
   ), [selectedSet, saving, readOnly, selectedReceiptno, locked, unitOptions, toggleSelection, changeDetail, pasteRange, registerCellInput, selectItem, selectCustomerForRow, selectWarehouse, selectGeneralMaster, openItemPicker, openCustomerPicker, openMasterPicker, setActiveCell]);
 
+  const detailAutoWidths = useMemo(() => Object.fromEntries(DETAIL_FIELDS.map(({ key, label, width, minWidth }) => (
+    [key, fitColumnWidth(label, rows.map((row) => row[key]), width, minWidth || width)]
+  ))), [rows]);
+  const allRowsSelected = rows.length > 0 && selectedIds.length === rows.length;
   const headerColumns = [
-    { key: 'select', width: 42, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="\uc0c1\uc138 \uc804\uccb4 \uc120\ud0dd" checked={rows.length > 0 && rows.every((row) => selectedSet.has(row.id))} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
+    { key: 'select', width: 42, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="\uc0c1\uc138 \uc804\uccb4 \uc120\ud0dd" checked={allRowsSelected} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
     { key: 'number', width: 58, minWidth: 58, className: codeClasses.numberCol, label: 'No.' },
     ...DETAIL_FIELDS.map(({ key, label, width, minWidth, required }) => {
-      const fittedWidth = fitColumnWidth(label, rows.map((row) => row[key]), width, minWidth || width);
+      const fittedWidth = detailAutoWidths[key];
       return { key, width: fittedWidth, minWidth: minWidth || width, label: <>{label}{required && <span className={codeClasses.required}> *</span>}</> };
     }),
   ];
   const tableWidth = headerColumns.reduce((sum, column) => sum + (columnWidths[column.key] ?? column.width), 0);
-  const detailSubtotals = rows.reduce((totals, row) => {
+  const detailSubtotals = useMemo(() => rows.reduce((totals, row) => {
     totals.qty += Number(cleanNumericInput(row.qty)) || 0;
     totals.weight += Number(cleanNumericInput(row.weight)) || 0;
     totals.amount += Number(amountOf(row, unitOptions.price)) || 0;
     totals.vat += Number(vatOf(row, unitOptions.price)) || 0;
     totals.total += Number(totalAmountOf(row, unitOptions.price)) || 0;
     return totals;
-  }, { qty: 0, weight: 0, amount: 0, vat: 0, total: 0 });
+  }, { qty: 0, weight: 0, amount: 0, vat: 0, total: 0 }), [rows, unitOptions.price]);
   const renderHeader = (column) => (
     <Table.Th key={column.key} className={[codeClasses.resizableHeader, column.className].filter(Boolean).join(' ')} style={{ width: columnWidths[column.key] ?? column.width }}>
       <span style={{ whiteSpace: 'nowrap' }}>{column.label}</span><span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeColumn(event, column.key, column.width, column.minWidth, tableWidth)} role="separator" aria-label={`${column.key} 열 너비 조절`} />
@@ -2152,9 +2164,24 @@ export default function InboundRegisterPage() {
             </Group>
           </Group>
 
-          <Box className={`${codeClasses.tableWrap} ${!detailLoading && !rows.length ? classes.emptyDetailWrap : ''}`} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
+          <Box ref={detailScrollerRef} className={`${codeClasses.tableWrap} ${(rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? classes.savedDetailScroller : ''} ${!detailLoading && !rows.length ? classes.emptyDetailWrap : ''}`} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
             {detailLoading ? <Box className={classes.receiptLoading}><Loader size="sm" color="red" /></Box> : rows.length ? (
-              <TableVirtuoso ref={virtuosoRef} data={rows} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} defaultItemHeight={42} increaseViewportBy={{ top: 160, bottom: 320 }} fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>} fixedFooterContent={() => <Table.Tr className={classes.detailSubtotalRow}>
+              (rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? <>
+                <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
+                  style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
+                  <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
+                  <Table.Tbody>{rows.map((row, index) => <Table.Tr key={row.id}>{rowContent(index, row)}</Table.Tr>)}</Table.Tbody>
+                  <Table.Tfoot><Table.Tr className={classes.detailSubtotalRow}>{headerColumns.map((column) => <Table.Td key={column.key} className={column.className}>
+                    {column.key === 'number' ? '소계'
+                      : column.key === 'qty' ? detailSubtotals.qty.toLocaleString(undefined, { maximumFractionDigits: 3 })
+                        : column.key === 'weight' ? detailSubtotals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 })
+                          : column.key === 'supplyamt' ? formatAmount(detailSubtotals.amount.toFixed(2))
+                            : column.key === 'vat' ? formatAmount(detailSubtotals.vat.toFixed(2))
+                              : column.key === 'unitamt' ? formatAmount(detailSubtotals.total.toFixed(2))
+                                : column.key === 'description' ? `합계 ${formatAmount(String(detailSubtotals.total))}` : ''}
+                  </Table.Td>)}</Table.Tr></Table.Tfoot>
+                </Table>
+              </> : <TableVirtuoso ref={virtuosoRef} data={rows} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} increaseViewportBy={{ top: 84, bottom: 84 }} fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>} fixedFooterContent={() => <Table.Tr className={classes.detailSubtotalRow}>
                 {headerColumns.map((column) => <Table.Td key={column.key} className={column.className}>
                   {column.key === 'number' ? '소계'
                     : column.key === 'qty' ? detailSubtotals.qty.toLocaleString(undefined, { maximumFractionDigits: 3 })
@@ -2180,8 +2207,8 @@ export default function InboundRegisterPage() {
           <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="space-between" wrap="wrap">
             <Text size="xs" c="dimmed">엑셀 셀 범위를 붙여넣고 저장할 수 있습니다.</Text>
             <Group gap={16}>
-              <Text size="xs" fw={700}>합계 중량 {rows.reduce((sum, row) => { const weight = Number(cleanNumericInput(row.weight)); return Number.isFinite(weight) ? sum + weight : sum; }, 0).toLocaleString(undefined, { maximumFractionDigits: 3 })} kg</Text>
-              <Text size="xs" fw={700}>공급가 {formatWon(rows.reduce((sum, row) => sum + (Number(amountOf(row, unitOptions.price)) || 0), 0).toFixed(2))} · 부가세 {formatWon(rows.reduce((sum, row) => sum + (Number(vatOf(row, unitOptions.price)) || 0), 0).toFixed(2))} · 합계 {formatWon(rows.reduce((sum, row) => sum + (Number(amountOf(row, unitOptions.price)) || 0) + (Number(vatOf(row, unitOptions.price)) || 0), 0).toFixed(2))}</Text>
+              <Text size="xs" fw={700}>합계 중량 {detailSubtotals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 })} kg</Text>
+              <Text size="xs" fw={700}>공급가 {formatWon(detailSubtotals.amount.toFixed(2))} · 부가세 {formatWon(detailSubtotals.vat.toFixed(2))} · 합계 {formatWon(detailSubtotals.total.toFixed(2))}</Text>
             </Group>
           </Group>
         </Paper>

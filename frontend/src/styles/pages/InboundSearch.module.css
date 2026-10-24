@@ -111,6 +111,8 @@
 .inboundSearchScroller {
   max-width: 100%;
   overflow-x: auto !important;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: #aab6c4 #f1f4f7;
@@ -121,6 +123,8 @@
 .resizableVirtualScroller {
   max-width: 100%;
   overflow-x: auto !important;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: #aab6c4 #f1f4f7;

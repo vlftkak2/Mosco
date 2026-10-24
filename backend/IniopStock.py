@@ -21,6 +21,7 @@ def _conditions(
     warehousecode: str,
     warehousecodename: str,
     item_search: str = "",
+    product_search: str = "",
     warehouse_search: str = "",
 ):
     where = ["i.companyid = %s"]
@@ -46,8 +47,11 @@ def _conditions(
             params.append(f"%{normalized}%")
     if item_search.strip():
         pattern = f"%{item_search.strip()}%"
-        where.append("(i.itemcode ILIKE %s OR i.itemname ILIKE %s)")
-        params.extend((pattern, pattern))
+        where.append("(i.itemcode ILIKE %s OR i.itemname ILIKE %s OR i.productname ILIKE %s)")
+        params.extend((pattern, pattern, pattern))
+    if product_search.strip():
+        where.append("i.productname ILIKE %s")
+        params.append(f"%{product_search.strip()}%")
     if warehouse_search.strip():
         pattern = f"%{warehouse_search.strip()}%"
         where.append("(i.warehousecode ILIKE %s OR i.warehousecodename ILIKE %s)")
