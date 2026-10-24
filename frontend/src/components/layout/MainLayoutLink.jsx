@@ -56,8 +56,10 @@ function NestedMenuItem({ item, pathname, navigate, depth = 0 }) {
     <Text
       component="a"
       key={item.label}
-      className={`${classes.subLink} ${normalizePath(item.link) === normalizePath(pathname) ? classes.subLinkActive : ''}`}
+      className={`${classes.subLink} ${normalizePath(item.link) === normalizePath(pathname) ? classes.subLinkActive : ''} ${item.disabled ? classes.subLinkDisabled : ''}`}
       aria-current={normalizePath(item.link) === normalizePath(pathname) ? 'page' : undefined}
+      aria-disabled={item.disabled || undefined}
+      tabIndex={item.disabled ? -1 : undefined}
       onClick={(event) => {
         event.preventDefault();
         if (!item.disabled && item.link) navigate(item.link);

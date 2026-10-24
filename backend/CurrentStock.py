@@ -264,8 +264,8 @@ def record_document(
                    (companyid, companyname, iniodate, iniotype, receiptno, lineno, customcode, customname,
                     itemcode, itemname, productname, materialcode, materialname, surfacecode, surfacename,
                     myrtle, manager, thickness, width, length, qty, qtyunit, weight,
-                    warehousecode, warehousecodename, stocksourcetype, stocksourceno, stocksourceline)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    warehousecode, warehousecodename)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
                 companyid, companyname, movement_date, iniotype, receiptno, source_lineno, movement_customcode, movement_customname or None,
                 movement["itemcode"], movement["itemname"],
@@ -276,7 +276,7 @@ def record_document(
                 metadata.get("myrtle"), (metadata.get("manager") or "").strip() or None,
                 movement["thickness"], movement["width"], movement["length"], movement["qty"],
                 movement["qtyunit"], movement["weight"], movement["warehousecode"],
-                movement["warehousecodename"], *(source_key or (None, None, None)),
+                movement["warehousecodename"],
             ),
         )
         if iniotype == "OUT":
@@ -293,7 +293,7 @@ def record_document(
 def reverse_document(cursor, companyid: str, iniotype: str, receiptno: str):
     cursor.execute(
         """SELECT companyname, lineno, itemcode, itemname, thickness, width, length, qty, qtyunit, weight,
-                  warehousecode, warehousecodename, stocksourcetype, stocksourceno, stocksourceline
+                  warehousecode, warehousecodename
            FROM Iniop01t
            WHERE companyid = %s AND iniotype = %s AND receiptno = %s
            ORDER BY lineno
@@ -308,9 +308,16 @@ def reverse_document(cursor, companyid: str, iniotype: str, receiptno: str):
         raise ValueError("현재고 테이블에 원천 라인 구조가 적용되지 않았습니다.")
     for movement in movements:
         if iniotype == "OUT":
-            source_key = None
-            if movement.get("stocksourcetype") and movement.get("stocksourceno") and movement.get("stocksourceline"):
-                source_key = (movement["stocksourcetype"], movement["stocksourceno"], movement["stocksourceline"])
+            cursor.execute(
+                """SELECT stocksourcetype, stocksourceno, stocksourceline
+                   FROM Outbound02t
+                   WHERE companyid = %s AND receiptno = %s AND lineno = %s
+                   FOR UPDATE""",
+                (companyid, receiptno, movement["lineno"]),
+            )
+            source_key = cursor.fetchone()
+            if not source_key or not all(source_key) or int(source_key[2]) <= 0:
+                raise ValueError("출고 상세에서 원천 재고 연결 정보를 찾을 수 없습니다.")
             _change_single_source_stock(cursor, companyid, movement, reverse=True, source_key=source_key)
         else:
             _delete_source_stock(

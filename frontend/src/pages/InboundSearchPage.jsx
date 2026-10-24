@@ -22,11 +22,11 @@ const PAGE_SIZE_OPTIONS = [
 ];
 const EMPTY_SUMMARY = { receipt_count: 0, detail_count: 0, total_weight: 0, total_amount: 0 };
 const TABLE_COLUMN_WIDTHS = {
-  no: 56, receptdate: 120, receiptno: 175, customname: 190, warehousecodename: 160,
-  productname: 140, itemname: 200, materialname: 130, surfacename: 120, myrtle: 130,
-  thickness: 90, width: 90, length: 90, qty: 105, weight: 115, unitprice: 125,
-  supplyamt: 120, vat: 110, unitamt: 130, qtyunit: 110, unit: 110, manager: 130,
-  description: 220, created_at: 160, updated_at: 160,
+  no: 45, receptdate: 100, receiptno: 140, customname: 125, warehousecodename: 110,
+  productname: 105, itemname: 125, materialname: 85, surfacename: 75, myrtle: 100,
+  thickness: 60, width: 50, length: 60, qty: 70, weight: 80, unitprice: 90,
+  supplyamt: 90, vat: 80, unitamt: 95, qtyunit: 75, unit: 75, manager: 80,
+  description: 120, created_at: 145, updated_at: 145,
 };
 const BASE_TABLE_WIDTH = Object.values(TABLE_COLUMN_WIDTHS).reduce((sum, width) => sum + width, 0);
 const TABLE_COLUMNS = [
@@ -227,8 +227,8 @@ export default function InboundSearchPage() {
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} disabled>추가</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} disabled>복사</Button>
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>EXCEL</Button>
-        <Button className={`${classes.ribbonTool} ${classes.ribbonSave}`} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>엑셀</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closeActivePage}>닫기</Button>

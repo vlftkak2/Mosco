@@ -18,54 +18,25 @@
   align-items: stretch;
 }
 
-.outboundReceiptPanel {
-  display: grid !important;
-  width: 100%;
-  height: auto;
-  min-width: 0;
-  min-height: 0;
-  flex: 0 0 43%;
-  grid-template-rows: 42px minmax(100px, 1fr) auto 38px;
-  overflow: hidden;
-  padding: 0 0 3px;
-}
-.outboundReceiptToolbar { min-height: 42px; padding: 11px 13px; border-bottom: 1px solid #e5e9ef; }
 .outboundFinderButton { color: #536174 !important; font-size: 11px; }
 .outboundFinderButton:hover { background: #f2f4f7; color: #f0444c !important; }
-.outboundReceiptTableWrap {
-  position: relative;
-  width: 100%;
-  min-width: 0;
-  min-height: 0;
-  overflow-x: auto;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #aab6c4 #f1f4f7;
-}
-.outboundReceiptTableWrap::-webkit-scrollbar { width: 12px; height: 12px; }
-.outboundReceiptTableWrap::-webkit-scrollbar-thumb { border: 3px solid #f1f4f7; border-radius: 8px; background: #aab6c4; }
-.outboundReceiptTableWrap::-webkit-scrollbar-track { background: #f1f4f7; }
-.outboundReceiptTable { border-collapse: collapse; font-size: 12px; }
-.outboundReceiptTable thead th { position: sticky; top: 0; z-index: 2; height: 34px; padding: 5px 8px; border: 1px solid #e0e6ef; background: #f0f3f7; color: #354052; font-size: 11px; font-weight: 700; white-space: nowrap; }
-.outboundReceiptTable tbody tr { height: 34px; cursor: pointer; }
-.outboundReceiptTable tbody td { height: 34px; padding: 5px 8px; border: 1px solid #e0e6ef; color: #252a32; font-size: 11px; white-space: nowrap; }
-.outboundReceiptSubtotal td { height: 30px; padding: 0 8px; border: 1px solid #cbd5e1; background: #e8edf3; color: #233148; font-size: 11px; font-weight: 500; }
-.outboundReceiptSubtotalViewport { width: 100%; min-width: 0; overflow: hidden; }
-.outboundReceiptSubtotalTable { border-collapse: collapse; }
-.outboundReceiptEmpty { position: absolute; inset: 35px 0 0; display: grid; place-items: center; color: #7c899b; font-size: 13px; pointer-events: none; }
-.outboundReceiptPagination { min-height: 38px; padding-top: 4px; }
 .outboundWorkspace { height: 0; flex: 1 1 0; min-height: 0; }
-.outboundPrimaryColumn { display: flex; height: 100%; min-height: 0; flex-direction: column; gap: 10px; }
+.outboundPrimaryColumn { display: flex; height: 100%; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 10px; }
 .outboundFilterSidebar { height: 100%; }
+.outboundStockLookup { display: grid; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid #e5e9ef; }
+.outboundStockLookup :global(.mantine-Text-root:first-child) { color: #34445a; }
+.outboundStockLookup :global(.mantine-Button-root) { min-height: 36px; font-size: 12px; font-weight: 650; }
 .receiptFinderRow { cursor: pointer; }
 .receiptFinderRowActive > td { background: #fceff0; }
 .receiptFinderAmount { color: #354052; font-weight: 600; }
 
 .editorPanel {
   display: flex !important;
+  width: 100%;
   min-width: 0;
   height: 100%;
   min-height: 0;
+  flex: 1 1 0;
   flex-direction: column;
   overflow: hidden;
   box-shadow: none;
@@ -101,19 +72,14 @@
 .receiptLoading { display: grid; min-height: 180px; flex: 1; place-items: center; }
 
 .editorPanel { position: relative; }
-.headerForm {
-  display: grid;
-  grid-template-columns: minmax(135px, 0.9fr) minmax(145px, 1fr) minmax(155px, 1.1fr) minmax(160px, 1.1fr);
-  align-items: end;
-  gap: 8px;
-  padding: 9px 12px 10px;
-  border-bottom: 1px solid #e3e8ef;
-}
-.headerForm :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #526079; font-size: 12px; font-weight: 600; }
-.headerForm :global(.mantine-Input-input) { min-height: 33px; font-size: 12px; }
-.headerDescription { min-width: 120px; }
 .amountInput { padding-right: 9px; background: #f8f9fb; color: #637188; text-align: right; }
 .newRow :global(input):not(.itemCodePickerInput) { background-color: #fff !important; color: #293a52 !important; }
+.selectedRow > td,
+.newRow.selectedRow > td { background: #e8f1ff !important; }
+.selectedRow > td.rowNumberCell,
+.newRow.selectedRow > td.rowNumberCell { background: #e8f1ff !important; color: #293a52 !important; }
+.selectedRow > td :global(input),
+.newRow.selectedRow > td :global(input) { background: #e8f1ff !important; color: #293a52 !important; }
 .autoFilledInput { background: #f1f3f5 !important; color: #8b95a3 !important; cursor: not-allowed; }
 .currentStockInput,
 .newRow :global(input).currentStockInput { background: #f1f3f5 !important; color: #8b95a3 !important; cursor: not-allowed; }
@@ -154,6 +120,10 @@
 .pickerTable thead th { position: sticky !important; top: 0; z-index: 2; }
 .pickerTable :global(th),
 .pickerTable :global(td) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stockPickerTable { min-width: 1320px; width: max-content; table-layout: fixed; }
+.stockPickerTable :global(th),
+.stockPickerTable :global(td) { white-space: nowrap; }
+.stockDraftInput { width: 88px; height: 28px; padding: 3px 6px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; color: #24364b; text-align: right; font: inherit; }
 .customerCodeColumn { width: 26%; }
 .customerNameColumn { width: 38%; }
 .customerBusinessColumn { width: 36%; }
@@ -162,14 +132,11 @@
 .customerEmpty { height: 120px; color: #7d899a !important; text-align: center !important; }
 
 @media (max-width: 1120px) {
-  .headerForm { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
-  .headerDescription { grid-column: span 2; }
 }
 
 @media (max-width: 850px) {
   .outboundWorkspace { height: auto; min-height: 0; flex: 1 1 auto; overflow: auto; }
   .outboundPrimaryColumn { height: auto; }
-  .outboundReceiptPanel { height: 320px; min-height: 260px; flex: 0 0 320px; }
   .workspace { height: 560px; min-height: 460px; flex: 0 0 560px; }
   .editorPanel { height: 100%; }
 }
@@ -180,8 +147,6 @@
 
 @media (max-width: 560px) {
   .workspace { gap: 12px; }
-  .headerForm { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; gap: 8px; }
-  .headerDescription { grid-column: span 2; }
   .receiptFinderFilterGrid { grid-template-columns: minmax(0, 1fr); }
   .editorPanel > :global(.mantine-Group-root:first-child) { align-items: stretch; padding: 13px; }
   .editorPanel > :global(.mantine-Group-root:first-child) > :global(.mantine-Group-root:last-child) { justify-content: flex-end; }

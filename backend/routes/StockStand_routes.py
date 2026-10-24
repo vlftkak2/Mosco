@@ -13,7 +13,10 @@ logger = logging.getLogger(__name__)
 @router.get("/items")
 def get_stand_items(
     standdate: date = Query(...),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     q: str = Query(default="", max_length=150),
+    warehouse: str = Query(default="", max_length=150),
     cursor: int = Query(default=0, ge=0),
     limit: int = Query(default=500, ge=1, le=1000),
     offset: int | None = Query(default=None, ge=0),
@@ -23,7 +26,10 @@ def get_stand_items(
     try:
         return {
             "success": True,
-            **stock_stand_module.list_stand_items(user["companyid"], standdate, q, cursor, limit, include_metadata, offset),
+            **stock_stand_module.list_stand_items(
+                user["companyid"], standdate, q, cursor, limit, include_metadata, offset,
+                date_from=date_from, date_to=date_to, warehouse=warehouse,
+            ),
         }
     except Exception as error:
         logger.exception(
@@ -39,8 +45,9 @@ def resolve_stand_items(
     user: dict = Depends(security_module.get_current_user),
 ):
     try:
-        items = stock_stand_module.resolve_active_items(user["companyid"], data.itemcodes)
-        return {"success": True, "items": items}
+        items, names = stock_stand_module.resolve_active_items(user["companyid"], data.itemcodes, data.itemnames)
+        customers = stock_stand_module.resolve_active_customers(user["companyid"], data.customernames)
+        return {"success": True, "items": items, "names": names, "customers": customers}
     except Exception as error:
         logger.exception("Failed to resolve opening stock item codes (companyid=%s)", user.get("companyid"))
         raise HTTPException(status_code=500, detail="품목 마스터 정보를 확인하지 못했습니다.") from error

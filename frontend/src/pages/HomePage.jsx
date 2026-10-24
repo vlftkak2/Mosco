@@ -1,30 +1,24 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  Badge,
-  Group,
-  Paper,
-  SegmentedControl,
-  Stack,
-  Text,
-  ThemeIcon,
-  Title,
-} from '@mantine/core';
-import {
-  IconBell,
+  IconArrowRight,
+  IconBuildingFactory2,
   IconCalendar,
   IconChartBar,
-  IconClipboardList,
-  IconCube,
+  IconChartDonut,
+  IconCrane,
+  IconMessageCircleQuestion,
+  IconNews,
+  IconShip,
   IconShoppingCart,
+  IconTarget,
   IconTrendingUp,
-  IconWallet,
+  IconTruckDelivery,
 } from '@tabler/icons-react';
 import {
   Bar,
+  BarChart,
   CartesianGrid,
-  ComposedChart,
   Cell,
-  Line,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -34,302 +28,183 @@ import {
 } from 'recharts';
 import classes from '../styles/pages/HomePage.module.css';
 
-const monthlyData = [
-  { month: '5월', sales: 115000000, purchases: 92000000, profit: 23000000, salesKg: 1180, purchasesKg: 940, profitKg: 240 },
-  { month: '6월', sales: 116000000, purchases: 90000000, profit: 26000000, salesKg: 1205, purchasesKg: 925, profitKg: 280 },
-  { month: '7월', sales: 116000000, purchases: 88000000, profit: 28000000, salesKg: 1210, purchasesKg: 900, profitKg: 310 },
-  { month: '8월', sales: 137000000, purchases: 107000000, profit: 30000000, salesKg: 1430, purchasesKg: 1100, profitKg: 330 },
-  { month: '9월', sales: 128000000, purchases: 106000000, profit: 22000000, salesKg: 1335, purchasesKg: 1080, profitKg: 255 },
-  { month: '10월', sales: 131000000, purchases: 112000000, profit: 19000000, salesKg: 1360, purchasesKg: 1145, profitKg: 215 },
+const incoming = [
+  { date: '03.31', item: 'H-Beam 300×300', weight: '25,000', amount: '31,250,000', customer: '한성철강', status: '입고완료' },
+  { date: '03.30', item: '철판 SS400 12T', weight: '12,800', amount: '16,384,000', customer: '동국제강', status: '입고완료' },
+  { date: '03.29', item: '배관용 강관 100A', weight: '8,200', amount: '10,660,000', customer: '유성스틸', status: '입고완료' },
+  { date: '03.28', item: '앵글 50×50×5T', weight: '6,500', amount: '8,450,000', customer: '대한강재', status: '입고완료' },
 ];
-
-const salesMix = [
-  { name: '형강', share: 38, amount: 486343000, color: '#4f7fe8' },
-  { name: '철판', share: 27, amount: 345559500, color: '#41b99a' },
-  { name: '철근', share: 21, amount: 268695000, color: '#f0aa55' },
-  { name: '기타', share: 14, amount: 179130500, color: '#a58add' },
+const outgoing = [
+  { date: '03.31', item: 'H-Beam 300×300', weight: '18,000', amount: '25,200,000', customer: '현대건설', status: '출고완료' },
+  { date: '03.30', item: '철판 6T', weight: '9,600', amount: '13,920,000', customer: '삼성물산', status: '출고완료' },
+  { date: '03.29', item: '배관용 강관 100A', weight: '6,200', amount: '8,680,000', customer: '포스코건설', status: '출고완료' },
+  { date: '03.28', item: '평철 12T', weight: '4,800', amount: '7,200,000', customer: '한국중공업', status: '출고완료' },
 ];
-
-const alerts = [
-  {
-    group: '재고 관리',
-    title: '안전재고 미달 품목',
-    description: '발주 기준 이하로 내려간 품목이 있어 재고 보충 확인이 필요합니다.',
-    action: '3개 품목 확인 필요',
-    icon: IconCube,
-    state: '재고 점검',
-    stateTone: 'warning',
-    tone: 'blue',
-    attention: true,
-    stats: [
-      { label: '전체 보유량', value: '482,350 KG' },
-      { label: '재고 평가액', value: '₩ 1.28B' },
-    ],
-  },
-  {
-    group: '매출 채권',
-    title: '기한 초과 미수금',
-    description: '결제 예정일이 지난 거래처의 입금 상태를 확인해 주세요.',
-    action: '거래처 2곳 확인 필요',
-    icon: IconWallet,
-    tone: 'orange',
-    state: '입금 확인',
-    stateTone: 'critical',
-    attention: true,
-    stats: [
-      { label: '미수금 잔액', value: '₩ 45.28M' },
-      { label: '기한 초과', value: '2개 거래처' },
-    ],
-  },
-  {
-    group: '현장 업무',
-    title: '철강알바 처리 현황',
-    description: '오늘 접수된 작업 요청이 모두 처리되었습니다.',
-    action: '당일 등록 업무',
-    icon: IconClipboardList,
-    tone: 'green',
-    state: '처리 완료',
-    stateTone: 'success',
-    attention: false,
-    stats: [
-      { label: '오늘 등록', value: '4건' },
-      { label: '처리 완료', value: '4 / 4건', progress: 100 },
-    ],
-  },
+const monthly = [
+  { month: '10월', volume: 340, profit: 18 }, { month: '11월', volume: 365, profit: 21 },
+  { month: '12월', volume: 305, profit: 17 }, { month: '1월', volume: 390, profit: 25 },
+  { month: '2월', volume: 325, profit: 20 }, { month: '3월', volume: 412, profit: 29 },
 ];
-
-const metrics = [
-  { title: '매출', dailyAmount: 127985000, change: '+12.5%', detailLabel: '출고 중량', dailyDetail: 1279, icon: IconChartBar, tone: 'green' },
-  { title: '매입', dailyAmount: 98430000, change: '+8.3%', detailLabel: '입고 중량', dailyDetail: 985, icon: IconShoppingCart, tone: 'blue' },
-  { title: '매출이익', dailyAmount: 29555000, subLabel: '이익률', subValue: '23.1%', icon: IconChartBar, tone: 'purple' },
-  { title: '미수금 잔액', dailyAmount: 45280000, badge: '확인 필요 0건', icon: IconWallet, tone: 'orange', pointInTime: true },
+const aging = [
+  { name: '3년 이상', value: 18.6, amount: '232.4 Ton', color: '#e5444b' },
+  { name: '2년 이상', value: 39.9, amount: '498.2 Ton', color: '#293747' },
+  { name: '1년 이상', value: 28.5, amount: '356.1 Ton', color: '#4585f4' },
+  { name: '1년 미만', value: 13, amount: '161.8 Ton', color: '#f7a512' },
+];
+const news = [
+  { icon: IconBuildingFactory2, title: '국내 철강 시장, 공급 및 수요 동향 점검… 유통가 관망세 지속', description: '열연·후판·형강 등 주요 품목의 가격 흐름과 수요 반등 가능성을 점검합니다.', category: '시장 동향', date: '2026-03-31', featured: true },
+  { icon: IconChartBar, title: '철강 제품별 시황과 가격 전망… 건설향 수요와 재고 흐름 주목', description: '품목별 가격 변동과 재고 수준, 현장 출고량 변화를 살펴봅니다.', category: '제품 시황', date: '2026-03-30', featured: true, tone: 'slate' },
+  { icon: IconShip, title: '글로벌 철강 수출입 시장 주요 이슈', description: '국가별 교역과 운임 변동 관련 소식입니다.', category: '수출입', date: '2026-03-29', tone: 'blue' },
+  { icon: IconChartBar, title: '철강 가공 및 생산 기술 트렌드', description: '슬리팅·절단·가공설비 자동화 동향입니다.', category: '가공 기술', date: '2026-03-28', tone: 'sand' },
+  { icon: IconCrane, title: '건설향 철강 수요 회복 기대감 확대', description: '건설·플랜트 프로젝트 수요 관련 소식입니다.', category: '건설 수요', date: '2026-03-27', tone: 'tan' },
+  { icon: IconTrendingUp, title: '원자재 가격과 철강 유통단가 변화 추이', description: '원재료 가격 변화에 따른 유통가 흐름입니다.', category: '가격 동향', date: '2026-03-26', tone: 'gray' },
 ];
 
 export default function HomePage() {
-  const [dateFrom, setDateFrom] = useState(() => startOfMonth());
-  const [dateTo, setDateTo] = useState(() => localDateString(new Date()));
+  const [from, setFrom] = useState('2026-03-01');
+  const [to, setTo] = useState('2026-03-31');
   const [period, setPeriod] = useState('month');
-  const [chartMode, setChartMode] = useState('amount');
-  const weightMode = chartMode === 'weight';
-  const selectedDays = period === 'today' ? 1 : countInclusiveDays(dateFrom, dateTo);
-  const visibleMetrics = metrics.map((metric) => ({
-    ...metric,
-    title: metric.title === '매출' || metric.title === '매입'
-      ? `${period === 'today' ? '금일' : period === 'month' ? '당월' : '선택 기간'} ${metric.title}`
-      : metric.title,
-    amount: metric.pointInTime ? metric.dailyAmount : metric.dailyAmount * selectedDays,
-    detail: metric.dailyDetail ? `${(metric.dailyDetail * selectedDays).toLocaleString('ko-KR')} KG` : null,
-  }));
-  const chartKeys = weightMode
-    ? { sales: 'salesKg', purchases: 'purchasesKg', profit: 'profitKg' }
-    : { sales: 'sales', purchases: 'purchases', profit: 'profit' };
+  const [search, setSearch] = useState('');
+  const [inquirySent, setInquirySent] = useState(false);
+  const rows = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    const filter = (items) => items.filter((row) => !query || Object.values(row).some((value) => String(value).toLocaleLowerCase().includes(query)));
+    return [filter(incoming), filter(outgoing)];
+  }, [search]);
 
-  const selectPeriod = (nextPeriod) => {
-    const today = new Date();
-    setDateTo(localDateString(today));
-    setDateFrom(nextPeriod === 'today' ? localDateString(today) : startOfMonth(today));
-    setPeriod(nextPeriod);
+  const choosePeriod = (value) => {
+    const now = new Date();
+    const today = localDate(now);
+    setPeriod(value);
+    setTo(today);
+    setFrom(value === 'today' ? today : `${today.slice(0, 7)}-01`);
   };
 
   return (
-    <main className={classes.root}>
-      <Stack className={classes.dashboardStack} gap="lg">
-        <Paper className={classes.dashboardHeader}>
-          <Group className={classes.pageHeading} justify="space-between" align="center" wrap="wrap">
-            <div className={classes.headerCopy}>
-              <Title order={1} className={classes.pageTitle}>스틸119 대시보드 <span>Monitor</span></Title>
-              <Text className={classes.pageSubtitle}>오늘의 매출부터 재고·미수금까지, 주요 운영 현황을 확인하세요.</Text>
-              <Group className={classes.sampleNotice} gap={8}>
-                <span className={classes.statusDot} />
-                <Text size="xs">데모 데이터</Text>
-                <span className={classes.noticeDivider} />
-                <Text size="xs">실제 연동 전 화면 미리보기</Text>
-              </Group>
-            </div>
-          </Group>
-        </Paper>
-
-        <Paper className={classes.periodToolbar} withBorder>
-          <Group className={classes.periodControls} justify="flex-start" wrap="wrap">
-            <div className={classes.periodHeading}>
-              <Text className={classes.periodLabel}>조회 기간</Text>
-            </div>
-            <Group gap="sm" className={classes.periodInputs}>
-              <div className={classes.dateRange}>
-                <IconCalendar size={17} aria-hidden="true" />
-                <input aria-label="조회 시작일" type="date" value={dateFrom} max={dateTo} onChange={(event) => { setDateFrom(event.target.value); setPeriod('custom'); }} />
-                <span className={classes.rangeSeparator}>–</span>
-                <input aria-label="조회 종료일" type="date" value={dateTo} min={dateFrom} onChange={(event) => { setDateTo(event.target.value); setPeriod('custom'); }} />
-              </div>
-              <SegmentedControl
-                value={period === 'custom' ? '' : period}
-                onChange={selectPeriod}
-                data={[{ label: '오늘', value: 'today' }, { label: '이번 달', value: 'month' }]}
-                classNames={{ root: classes.periodToggle, indicator: classes.periodIndicator, label: classes.periodOption }}
-              />
-            </Group>
-          </Group>
-        </Paper>
-
-        <div className={classes.metricGrid}>
-          {visibleMetrics.map((metric) => <MetricCard key={metric.title} metric={metric} period={period} />)}
+    <main className={`${classes.root} ${classes.dashboardExample}`}>
+      <div className={classes.exampleToolbar}>
+        <div className={classes.exampleFilters}>
+          <span className={classes.exampleFilterLabel}><IconCalendar size={16} /> 조회기간</span>
+          <input aria-label="시작일" type="date" value={from} max={to} onChange={(event) => { setFrom(event.target.value); setPeriod('custom'); }} />
+          <span className={classes.exampleMuted}>~</span>
+          <input aria-label="종료일" type="date" value={to} min={from} onChange={(event) => { setTo(event.target.value); setPeriod('custom'); }} />
+          <button type="button" className={period === 'today' ? classes.examplePeriodActive : classes.examplePeriod} onClick={() => choosePeriod('today')}>오늘</button>
+          <button type="button" className={period === 'month' ? classes.examplePeriodActive : classes.examplePeriod} onClick={() => choosePeriod('month')}>이번달</button>
         </div>
+        <span className={classes.exampleDemo}>예시 데이터 · 실제 ERP 연동 전</span>
+      </div>
 
-        <div className={classes.analyticsGrid}>
-          <Paper className={classes.chartPanel} withBorder>
-            <Group justify="space-between" align="center" mb="md" wrap="wrap">
-              <div>
-                <Title order={3} className={classes.sectionTitle}>매출 · 매입 추이</Title>
-                <Text className={classes.panelCaption}>최근 6개월 월별 실적</Text>
-              </div>
-              <Group gap="md" className={classes.chartTools}>
-                <span className={classes.legend}><i className={classes.salesDot} />{weightMode ? '출고 중량' : '매출액'}</span>
-                <span className={classes.legend}><i className={classes.purchaseDot} />{weightMode ? '매입 중량' : '매입액'}</span>
-                <span className={classes.legend}><i className={classes.profitDot} />{weightMode ? '이익 중량' : '매출이익'}</span>
-                <SegmentedControl
-                  value={chartMode}
-                  onChange={setChartMode}
-                  data={[{ label: '금액', value: 'amount' }, { label: '중량', value: 'weight' }]}
-                  classNames={{ root: classes.chartModeToggle, indicator: classes.chartModeIndicator, label: classes.chartModeOption }}
-                />
-              </Group>
-            </Group>
-            <div className={classes.chart}>
-              <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 640, height: 228 }}>
-                <ComposedChart data={monthlyData} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid vertical={false} stroke="#edf1f6" />
-                  <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#8491a4', fontSize: 12 }} />
-                  <YAxis
-                    axisLine={false}
-                    tickLine={false}
-                    width={weightMode ? 55 : 48}
-                    domain={[0, weightMode ? 1600 : 160000000]}
-                    ticks={weightMode ? [0, 400, 800, 1200, 1600] : [0, 40000000, 80000000, 120000000, 160000000]}
-                    tickFormatter={(value) => weightMode ? `${value}` : compactWon(value)}
-                    tick={{ fill: '#8491a4', fontSize: 11 }}
-                  />
-                  <Tooltip formatter={(value, name) => [weightMode ? `${Number(value).toLocaleString('ko-KR')} KG` : `₩ ${Number(value).toLocaleString('ko-KR')}`, name]} />
-                  <Bar dataKey={chartKeys.sales} name={weightMode ? '출고 중량' : '매출액'} fill="#4f7fe8" radius={[5, 5, 0, 0]} barSize={30} />
-                  <Bar dataKey={chartKeys.purchases} name={weightMode ? '매입 중량' : '매입액'} fill="#b9c9e4" radius={[5, 5, 0, 0]} barSize={30} />
-                  <Line dataKey={chartKeys.profit} name={weightMode ? '이익 중량' : '매출이익'} stroke="#16b69a" strokeWidth={2.5} dot={{ r: 3, fill: '#fff', strokeWidth: 2 }} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </Paper>
-
-          <Paper className={classes.mixPanel} withBorder>
-            <div>
-              <Title order={3} className={classes.sectionTitle}>품목별 매출 비중</Title>
-              <Text className={classes.panelCaption}>이번 달 품목 구성</Text>
-            </div>
-            <div className={classes.donutWrap}>
-              <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 220, height: 174 }}>
-                <PieChart>
-                  <Pie data={salesMix} dataKey="share" nameKey="name" innerRadius={58} outerRadius={82} paddingAngle={3} stroke="none" cornerRadius={4}>
-                    {salesMix.map((item) => <Cell key={item.name} fill={item.color} />)}
-                  </Pie>
-                  <Tooltip formatter={(value, name) => [`${value}%`, name]} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className={classes.donutCenter}><strong>₩ 1.28B</strong><span>총 매출</span></div>
-            </div>
-            <Stack gap={0} className={classes.mixList}>
-              {salesMix.map((item) => (
-                <div className={classes.mixRow} key={item.name}>
-                  <span className={classes.mixName}><i style={{ background: item.color }} />{item.name}</span>
-                  <Text size="xs" c="dimmed">{item.share}%</Text>
-                  <Text size="xs" fw={700}>{compactWon(item.amount)}</Text>
-                </div>
-              ))}
-            </Stack>
-          </Paper>
+      <section className={classes.exampleKpis} aria-label="주요 실적">
+        <Kpi icon={IconChartBar} title="금일 매출" value="127,985,000" detailLabel="매출중량" detail="12,790 KG" trend="▲ 12.5%" />
+        <Kpi icon={IconShoppingCart} title="금일 매입" value="98,430,000" detailLabel="매입중량" detail="9,850 KG" trend="▲ 8.3%" muted />
+        <Kpi icon={IconChartBar} title="금일 매출이익" value="29,555,000" detailLabel="매출이익률" detail="23.1%" trend="▲ 2.1%p" blue />
+        <div className={`${classes.exampleCard} ${classes.exampleKpi} ${classes.exampleGoal}`}>
+          <div className={classes.exampleKpiHead}><span>당월 매출 목표 달성률</span><span className={`${classes.exampleIcon} ${classes.iconGold}`}><IconTarget size={19} /></span></div>
+          <div className={classes.exampleGoalTrack}><div><strong>84.2%</strong></div></div>
+          <div className={classes.exampleGoalFoot}><span>누적 실적<strong>842,000,000원</strong></span><span>월 목표<strong>1,000,000,000원</strong></span></div>
         </div>
+      </section>
 
-        <Paper className={classes.alertPanel} withBorder>
-          <Group justify="space-between" align="center" mb="md" wrap="wrap">
-            <div>
-              <Group gap="sm"><span className={classes.alertHeadingIcon}><IconBell size={17} /></span><Title order={3} className={classes.sectionTitle}>오늘의 업무 알림</Title></Group>
-              <Text className={classes.panelCaption}>재고·채권·현장 업무 중 확인이 필요한 항목입니다.</Text>
-            </div>
-            <Group gap={8} className={classes.alertSummary}>
-              <Badge className={classes.pendingBadge} variant="light">확인 필요 {alerts.filter((alert) => alert.attention).length}건</Badge>
-              <Text size="xs" c="dimmed">전체 {alerts.length}건</Text>
-            </Group>
-          </Group>
-          <Stack gap="sm">
-            {alerts.map((alert) => <AlertRow key={alert.title} alert={alert} />)}
-          </Stack>
-        </Paper>
-      </Stack>
+      <section className={`${classes.exampleCard} ${classes.exampleTransactions}`}>
+        <div className={classes.exampleSectionHead}>
+          <div className={classes.exampleHeading}><IconTruckDelivery size={19} /> 최근 입고 / 출고 현황</div>
+          <input aria-label="입출고 내역 검색" className={classes.exampleSearch} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="거래처명, 품목, 규격 검색..." />
+        </div>
+        <div className={classes.exampleTables}>
+          <TransactionTable title="최근 입고 현황" rows={rows[0]} />
+          <TransactionTable title="최근 출고 현황" rows={rows[1]} outbound />
+        </div>
+        <p className={classes.exampleNote}>중량·매입금액·매출금액은 디자인 검토용 예시 데이터입니다.</p>
+      </section>
+
+      <div className={classes.exampleMiddle}>
+        <section className={`${classes.exampleCard} ${classes.examplePanel}`}>
+          <div className={classes.examplePanelHead}>
+            <div className={classes.exampleHeading}><IconChartBar size={18} /> 월별 판매량 및 매출이익</div>
+            <div className={classes.exampleLegend}><span><i />판매량</span><span><i />매출이익</span></div>
+          </div>
+          <div className={classes.exampleChart}>
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 640, height: 205 }}>
+              <BarChart data={monthly} margin={{ top: 8, right: 8, left: -18, bottom: 0 }} barCategoryGap="35%">
+                <CartesianGrid vertical={false} stroke="#edf0f4" />
+                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#738198', fontSize: 11 }} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#8a96a8', fontSize: 10 }} />
+                <Tooltip formatter={(value, name) => [`${value} ${name === '판매량' ? 'Ton' : '백만원'}`, name]} />
+                <Bar dataKey="volume" name="판매량" fill="#e5444b" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="profit" name="매출이익" fill="#293747" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className={classes.exampleChartSummary}><span>당월 판매량<strong>412.5 Ton</strong></span><span>당월 매출이익률<strong>23.1%</strong></span><span>당월 매출금액<strong>842,000,000원</strong></span></div>
+        </section>
+
+        <section className={`${classes.exampleCard} ${classes.examplePanel} ${classes.exampleInventory}`}>
+          <div className={classes.examplePanelHead}><div className={classes.exampleHeading}><IconChartDonut size={18} /> 장기재고 비중</div><span className={classes.exampleMuted}>총 재고 1,248.5 Ton</span></div>
+          <div className={classes.exampleDonutArea}>
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} initialDimension={{ width: 260, height: 170 }}>
+              <PieChart><Pie data={aging} dataKey="value" innerRadius={46} outerRadius={64} paddingAngle={2} stroke="none">{aging.map((entry) => <Cell key={entry.name} fill={entry.color} />)}</Pie><Tooltip formatter={(value) => [`${value}%`, '재고 비중']} /></PieChart>
+            </ResponsiveContainer>
+            <div className={classes.exampleDonutCenter}><span>3년 이상 재고</span><strong>18.6%</strong></div>
+          </div>
+          <div className={classes.exampleAgingList}>{aging.map((entry) => <div key={entry.name}><span><i style={{ background: entry.color }} />{entry.name}</span><strong>{entry.amount} ({entry.value}%)</strong></div>)}</div>
+        </section>
+
+        <section className={`${classes.exampleCard} ${classes.examplePanel} ${classes.exampleInquiry}`}>
+          <div className={classes.exampleInquiryHead}><div className={classes.exampleHeading}><IconMessageCircleQuestion size={18} /> 문의 남기기</div><span>제품 규격과 요청사항을 남겨주세요.</span></div>
+          {inquirySent ? <div className={classes.exampleInquiryDone}>문의 등록은 화면 시안입니다.</div> : <form className={classes.exampleInquiryForm} onSubmit={(event) => { event.preventDefault(); setInquirySent(true); }}>
+            <input aria-label="회사명" placeholder="회사명" />
+            <input aria-label="담당자명" placeholder="담당자명" />
+            <input aria-label="연락처" placeholder="연락처" />
+            <input aria-label="제품" placeholder="제품" />
+            <input aria-label="두께" placeholder="두께" />
+            <input aria-label="폭" placeholder="폭" />
+            <input aria-label="길이" placeholder="길이" />
+            <input aria-label="수량 또는 중량" placeholder="수량 또는 중량" />
+            <textarea aria-label="요청사항" placeholder="요청사항" />
+            <button type="submit">문의 간편 등록 <IconArrowRight size={15} /></button>
+          </form>}
+        </section>
+      </div>
+
+      <section className={`${classes.exampleCard} ${classes.exampleNews}`}>
+        <div className={classes.examplePanelHead}>
+          <div><div className={classes.exampleHeading}><IconNews size={19} /> 철강 뉴스</div><div className={classes.exampleMuted}>연동 시 실제 기사 이미지와 제목·요약이 표시됩니다.</div></div>
+          <button type="button" className={classes.exampleNewsMore}>전체보기 ›</button>
+        </div>
+        <div className={classes.exampleNewsGrid}>{news.map((item) => <NewsCard key={item.title} item={item} />)}</div>
+      </section>
     </main>
   );
 }
 
-function MetricCard({ metric, period }) {
-  const Icon = metric.icon;
-  return (
-    <Paper withBorder className={`${classes.metricCard} ${classes[metric.tone]}`}>
-      <Group gap="sm" wrap="nowrap">
-        <ThemeIcon className={classes.metricIcon} radius="xl" size={52} variant="light"><Icon size={25} /></ThemeIcon>
-        <Text fw={800} className={classes.metricTitle}>{metric.title}</Text>
-      </Group>
-      <Text className={classes.metricAmount}>{formatWon(metric.amount)}</Text>
-      {metric.change ? (
-        <Group gap={7} className={classes.metricChange}><IconTrendingUp size={16} /><Text size="sm" c="dimmed">{period === 'today' ? '전일 대비' : '이전 기간 대비'}</Text><Text size="sm" fw={700}>{metric.change}</Text></Group>
-      ) : metric.subLabel ? (
-        <Group gap="sm" mt="md"><Text size="sm" c="dimmed">{metric.subLabel}</Text><Text fw={800}>{metric.subValue}</Text></Group>
-      ) : <Badge className={classes.receivableBadge} variant="filled">{metric.badge}</Badge>}
-      {metric.detail && <div className={classes.metricDetail}><Text size="xs" c="dimmed">{metric.detailLabel}</Text><Text fw={700} mt={4}>{metric.detail}</Text></div>}
-    </Paper>
-  );
+function Kpi({ icon: Icon, title, value, detailLabel, detail, trend, muted, blue }) {
+  return <div className={`${classes.exampleCard} ${classes.exampleKpi}`}>
+    <div className={classes.exampleKpiHead}><span>{title}</span><span className={`${classes.exampleIcon} ${blue ? classes.iconBlue : muted ? classes.iconSlate : classes.iconRed}`}><Icon size={19} /></span></div>
+    <div className={classes.exampleAmount}>{value}<small>원</small></div>
+    <div className={classes.exampleKpiFoot}><span>{detailLabel}<strong>{detail}</strong></span><b className={blue ? classes.trendBlue : muted ? classes.trendMuted : ''}>{trend}</b></div>
+  </div>;
 }
 
-function AlertRow({ alert }) {
-  const Icon = alert.icon;
-  return (
-    <Paper className={`${classes.alertRow} ${classes[`alert_${alert.tone}`]} ${alert.attention ? classes.needsAttention : classes.isComplete}`} withBorder>
-      <ThemeIcon className={classes.alertIcon} variant="light" radius="xl" size={44}><Icon size={21} /></ThemeIcon>
-      <div className={classes.alertCopy}>
-        <Text className={classes.alertGroup}>{alert.group}</Text>
-        <Text fw={750} className={classes.alertTitle}>{alert.title}</Text>
-        <Text size="xs" c="dimmed" mt={4} className={classes.alertDescription}>{alert.description}</Text>
-        <Text className={classes.alertAction} size="xs" mt={7}>{alert.action}</Text>
-      </div>
-      <div className={classes.alertStats}>
-        {alert.stats.map((stat) => <div className={classes.alertStat} key={stat.label}>
-          <Text size="xs" c="dimmed">{stat.label}</Text>
-          <Text fw={800} mt={5}>{stat.value}</Text>
-          {stat.progress !== undefined && <div className={classes.progressTrack}><span style={{ width: `${stat.progress}%` }} /></div>}
-        </div>)}
-      </div>
-      <Badge className={classes[`state_${alert.stateTone}`]} variant="light">{alert.state}</Badge>
-    </Paper>
-  );
+function TransactionTable({ title, rows, outbound = false }) {
+  return <div className={classes.exampleTableWrap}>
+    <h3 className={outbound ? classes.exampleOutboundTitle : ''}>{title}</h3>
+    <div className={classes.exampleTableScroll}><table><thead><tr><th>일자</th><th>품목 및 규격</th><th>{outbound ? '출고' : '입고'}중량(KG)</th><th>{outbound ? '매출' : '매입'}금액(원)</th><th>거래처</th><th>상태</th></tr></thead>
+      <tbody>{rows.map((row) => <tr key={`${row.date}-${row.item}`}><td>{row.date}</td><td>{row.item}</td><td>{row.weight}</td><td>{row.amount}</td><td>{row.customer}</td><td><span className={`${classes.exampleStatus} ${outbound ? classes.statusOutbound : ''}`}>{row.status}</span></td></tr>)}{rows.length === 0 && <tr><td colSpan="6" className={classes.exampleNoRows}>검색 결과가 없습니다.</td></tr>}</tbody>
+    </table></div>
+  </div>;
 }
 
-function localDateString(date) {
+function NewsCard({ item }) {
+  const Icon = item.icon;
+  return <article className={`${classes.exampleNewsItem} ${item.featured ? classes.newsFeatured : ''}`}>
+    <div className={`${classes.exampleNewsThumb} ${item.tone ? classes[`newsTone_${item.tone}`] : ''}`}><Icon size={item.featured ? 27 : 22} /></div>
+    <div className={classes.exampleNewsCopy}><div className={classes.exampleNewsTitle}>{item.title}</div><p>{item.description}</p><div className={classes.exampleNewsMeta}>{item.category} · {item.date}</div></div>
+  </article>;
+}
+
+function localDate(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
-}
-
-function startOfMonth(date = new Date()) {
-  return localDateString(new Date(date.getFullYear(), date.getMonth(), 1));
-}
-
-function countInclusiveDays(from, to) {
-  const start = new Date(`${from}T00:00:00`);
-  const end = new Date(`${to}T00:00:00`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 1;
-  return Math.floor((end - start) / 86400000) + 1;
-}
-
-function formatWon(value) {
-  return `₩ ${Number(value).toLocaleString('ko-KR')}`;
-}
-
-function compactWon(value) {
-  if (value === 0) return '0';
-  return `${Math.round(value / 1000000)}M`;
 }

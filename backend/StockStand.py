@@ -40,28 +40,43 @@ def _connect():
 
 
 class StandItemInput(BaseModel):
+    standdate: date | None = None
     itemcode: str = Field(min_length=1, max_length=100)
     itemname: str = Field(min_length=1, max_length=150)
-    size: str = Field(default="", max_length=100)
+    customcode: str = Field(default="", max_length=50)
+    customname: str = Field(default="", max_length=100)
+    productname: str = Field(default="", max_length=100)
+    surfacecode: str = Field(default="", max_length=100)
+    surfacename: str = Field(default="", max_length=100)
+    materialcode: str = Field(min_length=1, max_length=100)
+    materialname: str = Field(min_length=1, max_length=100)
+    myrtle: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
+    thickness: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
+    width: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
+    length: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
     qty: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
     qtyunit: str = Field(min_length=1, max_length=20)
     weight: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
     warehousecode: str = Field(min_length=1, max_length=50)
     warehousecodename: str = Field(min_length=1, max_length=50)
-    unit: str = Field(default="", max_length=20)
+    unit: str = Field(min_length=1, max_length=20)
     unitprice: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=2)
+    supplyamt: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=2)
+    vat: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=2)
     unitamt: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=2)
+    supplyamt_manual: bool = False
+    vat_manual: bool = False
     description: str = Field(default="", max_length=500)
 
-    @field_validator("itemcode", "itemname", "size", "qtyunit", "warehousecode", "warehousecodename", "unit", "description")
+    @field_validator("itemcode", "itemname", "customcode", "customname", "productname", "surfacecode", "surfacename", "materialcode", "materialname", "qtyunit", "warehousecode", "warehousecodename", "unit", "description")
     @classmethod
     def strip_text(cls, value: str) -> str:
         return value.strip()
 
     @model_validator(mode="after")
     def require_base_fields(self):
-        if not self.itemcode or not self.itemname or not self.qtyunit or not self.warehousecode or not self.warehousecodename:
-            raise ValueError("품목, 수량단위, 창고는 필수 입력입니다.")
+        if not self.itemcode or not self.itemname or not self.materialcode or not self.materialname or not self.qtyunit or not self.unit or not self.warehousecode or not self.warehousecodename:
+            raise ValueError("품목, 강종, 수량단위, 창고는 필수 입력입니다.")
         return self
 
 
@@ -72,14 +87,17 @@ class StandSaveRequest(BaseModel):
 
 class StandPriceInput(BaseModel):
     lineno: int = Field(gt=0)
-    unit: str = Field(default="", max_length=20)
+    unit: str = Field(min_length=1, max_length=20)
     unitprice: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=2)
     unitamt: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=2)
 
     @field_validator("unit")
     @classmethod
     def strip_unit(cls, value: str) -> str:
-        return value.strip()
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("단가기준은 필수 입력입니다.")
+        return normalized
 
 
 class StandPriceSaveRequest(BaseModel):
@@ -87,11 +105,13 @@ class StandPriceSaveRequest(BaseModel):
 
 
 class StandItemResolveRequest(BaseModel):
-    itemcodes: list[str] = Field(min_length=1, max_length=10000)
+    itemcodes: list[str] = Field(default_factory=list, max_length=10000)
+    itemnames: list[str] = Field(default_factory=list, max_length=10000)
+    customernames: list[str] = Field(default_factory=list, max_length=10000)
 
-    @field_validator("itemcodes")
+    @field_validator("itemcodes", "itemnames", "customernames")
     @classmethod
-    def clean_itemcodes(cls, values: list[str]) -> list[str]:
+    def clean_values(cls, values: list[str]) -> list[str]:
         return list(dict.fromkeys(value.strip() for value in values if value and value.strip()))
 
 
@@ -111,13 +131,27 @@ def list_stand_items(
     page_size: int = 500,
     include_metadata: bool = True,
     page_offset: int | None = None,
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    warehouse: str = "",
 ):
-    where = ["s.companyid = %s", "s.standdate = %s"]
-    params: list = [companyid, standdate]
+    where = ["s.companyid = %s"]
+    params: list = [companyid]
+    if date_from or date_to:
+        where.append("s.standdate >= %s AND s.standdate <= %s")
+        params.extend((date_from or date_to or standdate, date_to or date_from or standdate))
+    else:
+        where.append("s.standdate = %s")
+        params.append(standdate)
     normalized_query = query.strip()
     if normalized_query:
         where.append("(s.itemcode ILIKE %s OR s.itemname ILIKE %s)")
         params.extend((f"%{normalized_query}%", f"%{normalized_query}%"))
+    normalized_warehouse = warehouse.strip()
+    if normalized_warehouse:
+        where.append("(s.warehousecode ILIKE %s OR s.warehousecodename ILIKE %s)")
+        params.extend((f"%{normalized_warehouse}%", f"%{normalized_warehouse}%"))
     where_sql = " AND ".join(where)
 
     page_where_sql = f"{where_sql} AND s.lineno > %s" if page_offset is None else where_sql
@@ -131,8 +165,11 @@ def list_stand_items(
             LIMIT %s OFFSET %s
         )
         SELECT s.companyid, s.companyname, s.standdate, s.lineno, s.itemcode, s.itemname,
-               s.size, s.qty, s.qtyunit, s.weight, s.warehousecode, s.warehousecodename,
-               s.unit, s.unitprice, s.unitamt, s.description, s.created_at, s.updated_at,
+               s.customcode, s.customname,
+               s.productname, s.surfacecode, s.surfacename, s.materialcode, s.materialname,
+               s.myrtle, s.thickness, s.width, s.length, s.qty, s.qtyunit, s.weight,
+               s.warehousecode, s.warehousecodename, s.unit, s.unitprice,
+               s.supplyamt, s.vat, s.unitamt, s.description, s.created_at, s.updated_at,
                (
                    EXISTS (
                        SELECT 1 FROM Inbound01t h
@@ -212,35 +249,82 @@ def _load_active_codes(cursor, companyid: str):
         """SELECT groupcode, code, code_name FROM CodeMaster01t
            WHERE companyid = %s AND groupcode = ANY(%s)
              AND UPPER(BTRIM(use_yn)) = 'Y'""",
-        (companyid, ["QTY", "WAREHOUSE", "PRICE_UNIT"]),
+        (companyid, ["QTY", "WAREHOUSE", "PRICE_UNIT", "MATERIAL", "SURFACE"]),
     )
-    codes = {group: {} for group in ("QTY", "WAREHOUSE", "PRICE_UNIT")}
+    codes = {group: {} for group in ("QTY", "WAREHOUSE", "PRICE_UNIT", "MATERIAL", "SURFACE")}
     for groupcode, code, name in cursor.fetchall():
         codes[groupcode][str(code).strip()] = str(name or "").strip()
     return codes
 
 
-def resolve_active_items(companyid: str, itemcodes: list[str]):
-    normalized_codes = list(dict.fromkeys(code.strip() for code in itemcodes if code and code.strip()))
-    if not normalized_codes:
-        return {}
+def resolve_active_items(companyid: str, itemcodes: list[str], itemnames: list[str] | None = None):
+    normalized_codes = list(dict.fromkeys(code.strip().lower() for code in itemcodes if code and code.strip()))
+    normalized_names = list(dict.fromkeys(name.strip().lower() for name in (itemnames or []) if name and name.strip()))
+    if not normalized_codes and not normalized_names:
+        return {}, {}
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """SELECT itemcode, itemname FROM ItemCode01t
-               WHERE companyid = %s AND UPPER(BTRIM(use_yn)) = 'Y' AND itemcode = ANY(%s)""",
-            (companyid, normalized_codes),
+               WHERE companyid = %s AND UPPER(BTRIM(use_yn)) = 'Y'
+                 AND (LOWER(BTRIM(itemcode)) = ANY(%s) OR LOWER(BTRIM(itemname)) = ANY(%s))""",
+            (companyid, normalized_codes, normalized_names),
         )
-        return {str(code): str(name or "") for code, name in cursor.fetchall()}
+        rows = cursor.fetchall()
+    by_code = {str(code).strip().lower(): {"itemcode": str(code).strip(), "itemname": str(name or "").strip()} for code, name in rows}
+    by_name: dict[str, list[dict[str, str]]] = {}
+    for code, name in rows:
+        normalized_name = str(name or "").strip()
+        by_name.setdefault(normalized_name.lower(), []).append({"itemcode": str(code).strip(), "itemname": normalized_name})
+    return by_code, by_name
 
 
-def _calculate_unitamt(weight, unitprice, unit: str, price_units: dict[str, str]):
-    if weight is None or unitprice is None:
+def resolve_active_customers(companyid: str, customernames: list[str]):
+    values = list(dict.fromkeys(value.strip().lower() for value in customernames if value and value.strip()))
+    if not values:
+        return {}
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT customercode, customername FROM customer01t
+               WHERE companyid = %s AND UPPER(BTRIM(useyn)) = 'Y'
+                 AND (LOWER(BTRIM(customername)) = ANY(%s) OR LOWER(BTRIM(customercode)) = ANY(%s))""",
+            (companyid, values, values),
+        )
+        rows = cursor.fetchall()
+    matches: dict[str, list[dict[str, str]]] = {}
+    for code, name in rows:
+        normalized_name = str(name or "").strip()
+        customer = {"customercode": str(code).strip(), "customername": normalized_name}
+        for key in {str(code).strip().lower(), normalized_name.lower()}:
+            matches.setdefault(key, []).append(customer)
+    return matches
+
+
+def _calculate_unitamt(qty, length, weight, unitprice, unit: str, price_units: dict[str, str]):
+    if unitprice is None:
         return None
-    weight_value = Decimal(str(weight))
-    price_value = Decimal(str(unitprice))
+    unit_price = Decimal(str(unitprice))
     unit_token = f"{unit or ''} {price_units.get(unit or '', '')}".upper()
-    quantity = weight_value / Decimal("1000") if "TON" in unit_token or "톤" in unit_token else weight_value
-    return (quantity * price_value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if "QTY" in unit_token or "COUNT" in unit_token or "\uC218\uB7C9" in unit_token or unit_token.strip() in {"EA", "PCS"}:
+        basis = qty
+    elif "LENGTH" in unit_token or "METER" in unit_token or "\uAE38\uC774" in unit_token or unit_token.strip() in {"M", "MTR"}:
+        basis = length
+    else:
+        basis = weight
+        if basis is not None and ("TON" in unit_token or "\uD1A4" in unit_token):
+            basis = Decimal(str(basis)) / Decimal("1000")
+    if basis is None:
+        return None
+    return (Decimal(str(basis)) * unit_price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _calculate_amounts(qty, length, weight, unitprice, unit: str, price_units: dict[str, str], *, supplyamt=None, vat=None, supplyamt_manual=False, vat_manual=False):
+    supply = (Decimal(str(supplyamt or 0)) if supplyamt_manual
+              else _calculate_unitamt(qty, length, weight, unitprice, unit, price_units))
+    if supply is None:
+        return None, None, None
+    tax = (Decimal(str(vat or 0)) if vat_manual
+           else (supply * Decimal("0.10")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    return supply, tax, supply + tax
 
 
 def save_stand_items(companyid: str, companyname: str, standdate: date, items: list[dict]):
@@ -276,18 +360,73 @@ def save_stand_items(companyid: str, companyname: str, standdate: date, items: l
             )
             active_items = {code: name for code, name in cursor.fetchall()}
 
+            customer_values = list(dict.fromkeys(
+                value.strip().lower()
+                for item in items
+                for value in (item.get("customcode", ""), item.get("customname", ""))
+                if value and value.strip()
+            ))
+            cursor.execute(
+                """SELECT customercode, customername FROM customer01t
+                   WHERE companyid = %s AND UPPER(BTRIM(useyn)) = 'Y'
+                     AND (LOWER(BTRIM(customercode)) = ANY(%s) OR LOWER(BTRIM(customername)) = ANY(%s))""",
+                (companyid, customer_values, customer_values),
+            )
+            active_customers = cursor.fetchall()
+            customers_by_code = {str(code).strip().lower(): (str(code).strip(), str(name or "").strip()) for code, name in active_customers}
+            customers_by_name: dict[str, list[tuple[str, str]]] = {}
+            for code, name in active_customers:
+                customer = (str(code).strip(), str(name or "").strip())
+                customers_by_name.setdefault(customer[1].lower(), []).append(customer)
+
             errors = []
             for index, item in enumerate(items, start=1):
                 code = item["itemcode"].strip()
                 warehousecode = item["warehousecode"].strip()
+                customer_code = item.get("customcode", "").strip()
+                customer_name = item.get("customname", "").strip()
+                if customer_code:
+                    customer = customers_by_code.get(customer_code.lower())
+                    if not customer:
+                        errors.append(f"{index}행 거래처 코드가 없거나 사용 중이 아닙니다: {customer_code}")
+                    elif customer_name and customer_name.lower() not in {customer[0].lower(), customer[1].lower()}:
+                        errors.append(f"{index}행 거래처 코드와 거래처명이 일치하지 않습니다: {customer_code}")
+                    else:
+                        item["customcode"], item["customname"] = customer
+                elif customer_name:
+                    customer_from_code = customers_by_code.get(customer_name.lower())
+                    if customer_from_code:
+                        item["customcode"], item["customname"] = customer_from_code
+                    else:
+                        matches = customers_by_name.get(customer_name.lower(), [])
+                        if len(matches) == 1:
+                            item["customcode"], item["customname"] = matches[0]
+                        elif len(matches) > 1:
+                            errors.append(f"{index}행 거래처명이 중복됩니다. 거래처 코드를 입력해 주세요.")
+                        else:
+                            errors.append(f"{index}행 거래처명이 거래처 마스터에 없습니다: {customer_name}")
                 if code not in active_items:
                     errors.append(f"{index}행 품목코드가 없거나 사용중지 상태입니다: {code}")
                 elif active_items[code] != item["itemname"].strip():
                     errors.append(f"{index}행 품목코드와 품목명이 일치하지 않습니다: {code}")
-                for field, group, label in (("qtyunit", "QTY", "수량단위"), ("warehousecode", "WAREHOUSE", "창고")):
+                for field, group, label in (("qtyunit", "QTY", "수량단위"), ("warehousecode", "WAREHOUSE", "창고"), ("materialcode", "MATERIAL", "강종")):
                     value = item[field].strip()
                     if value not in codes[group]:
                         errors.append(f"{index}행 {label} 코드가 없거나 사용중지 상태입니다: {value}")
+                    elif field == "materialcode" and codes[group][value] != item["materialname"].strip():
+                        errors.append(f"{index}행 강종 코드와 이름이 일치하지 않습니다: {value}")
+                surfacecode = item.get("surfacecode", "").strip()
+                surfacename = item.get("surfacename", "").strip()
+                if surfacecode and surfacecode not in codes["SURFACE"]:
+                    errors.append(
+                        f"{index}행 표면 코드 '{surfacecode}'를 찾을 수 없습니다. "
+                        "등록된 표면 코드를 입력하거나 표면 선택 버튼에서 항목을 골라 주세요."
+                    )
+                elif surfacecode and codes["SURFACE"][surfacecode] != surfacename:
+                    errors.append(
+                        f"{index}행 표면 코드와 표면명이 서로 다릅니다. "
+                        "표면 선택 버튼에서 다시 선택해 주세요."
+                    )
                 unit = item.get("unit", "").strip()
                 if unit and unit not in codes["PRICE_UNIT"]:
                     errors.append(f"{index}행 단가기준 코드가 없거나 사용중지 상태입니다: {unit}")
@@ -301,28 +440,52 @@ def save_stand_items(companyid: str, companyname: str, standdate: date, items: l
                 code = item["itemcode"].strip()
                 warehousecode = item["warehousecode"].strip()
                 unit = item.get("unit", "").strip()
+                item_date = item.get("standdate") or standdate
+                supplyamt, vat, unitamt = _calculate_amounts(
+                    item.get("qty"), item.get("length"), item.get("weight"), item.get("unitprice"), unit, codes["PRICE_UNIT"],
+                    supplyamt=item.get("supplyamt"), vat=item.get("vat"),
+                    supplyamt_manual=item.get("supplyamt_manual", False), vat_manual=item.get("vat_manual", False),
+                )
                 values.append((
-                    companyid, companyname, standdate, next_lineno,
-                    code, active_items[code], item.get("size", "").strip() or None,
+                    companyid, companyname, item_date, next_lineno, code, active_items[code],
+                    item.get("customcode", "").strip() or None,
+                    item.get("customname", "").strip() or None,
+                    item.get("productname", "").strip() or None,
+                    item.get("surfacecode", "").strip() or None,
+                    item.get("surfacename", "").strip() or None,
+                    item["materialcode"].strip(), item["materialname"].strip(), item.get("myrtle"),
+                    item.get("thickness"), item.get("width"), item.get("length"),
                     item.get("qty"), item["qtyunit"].strip(), item["weight"],
-                    warehousecode, codes["WAREHOUSE"][warehousecode],
-                    unit or None, item.get("unitprice"), _calculate_unitamt(item["weight"], item.get("unitprice"), unit, codes["PRICE_UNIT"]),
-                    item.get("description", "").strip() or None,
+                    warehousecode, codes["WAREHOUSE"][warehousecode], unit or None, item.get("unitprice"),
+                    supplyamt, vat, unitamt, item.get("description", "").strip() or None,
                 ))
                 next_lineno += 1
             cursor.executemany(
                 """INSERT INTO StandStock01t
-                   (companyid, companyname, standdate, lineno, itemcode, itemname, size, qty, qtyunit,
-                    weight, warehousecode, warehousecodename, unit, unitprice, unitamt, description)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   (companyid, companyname, standdate, lineno, itemcode, itemname, customcode, customname, productname,
+                    surfacecode, surfacename, materialcode, materialname, myrtle,
+                    thickness, width, length, qty, qtyunit, weight, warehousecode, warehousecodename,
+                    unit, unitprice, supplyamt, vat, unitamt, description)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 values,
             )
             opening_receiptno = current_stock_module.next_opening_receiptno(cursor, companyid)
             stock_lines = [{
                 **item,
+                "receptdate": item.get("standdate") or standdate,
                 "lineno": values[index][3],
                 "itemname": active_items[item["itemcode"].strip()],
-                "size": item.get("size", "").strip(),
+                "productname": item.get("productname", "").strip(),
+                "surfacecode": item.get("surfacecode", "").strip(),
+                "surfacename": item.get("surfacename", "").strip(),
+                "materialcode": item.get("materialcode", "").strip(),
+                "materialname": item.get("materialname", "").strip(),
+                "myrtle": item.get("myrtle"),
+                "thickness": item.get("thickness"),
+                "width": item.get("width"),
+                "length": item.get("length"),
+                "unit": item.get("unit"),
+                "unitprice": item.get("unitprice"),
                 "warehousecode": item["warehousecode"].strip(),
                 "warehousecodename": codes["WAREHOUSE"][item["warehousecode"].strip()],
             } for index, item in enumerate(items)]
@@ -347,11 +510,11 @@ def update_stand_prices(companyid: str, items: list[dict]):
 
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
-            "SELECT lineno, weight FROM StandStock01t WHERE companyid = %s AND lineno = ANY(%s) FOR UPDATE",
+            "SELECT lineno, qty, length, weight FROM StandStock01t WHERE companyid = %s AND lineno = ANY(%s) FOR UPDATE",
             (companyid, linenos),
         )
-        weights = {row[0]: row[1] for row in cursor.fetchall()}
-        found = set(weights)
+        stock_values = {row[0]: row[1:] for row in cursor.fetchall()}
+        found = set(stock_values)
         missing = sorted(set(linenos) - found)
         if missing:
             raise ValueError("수정할 기초재고 행을 찾을 수 없습니다. 목록을 새로고침해 주세요.")
@@ -374,11 +537,12 @@ def update_stand_prices(companyid: str, items: list[dict]):
 
         cursor.executemany(
             """UPDATE StandStock01t
-               SET unit = NULLIF(%s, ''), unitprice = %s, unitamt = %s, updated_at = CURRENT_TIMESTAMP
+               SET unit = NULLIF(%s, ''), unitprice = %s, supplyamt = %s, vat = %s, unitamt = %s,
+                   updated_at = CURRENT_TIMESTAMP
                WHERE companyid = %s AND lineno = %s""",
             [(
                 item["unit"], item["unitprice"],
-                _calculate_unitamt(weights[item["lineno"]], item["unitprice"], item["unit"], active_price_units),
+                *_calculate_amounts(*stock_values[item["lineno"]], item["unitprice"], item["unit"], active_price_units),
                 companyid, item["lineno"],
             ) for item in items],
         )

@@ -7,7 +7,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus,
-  IconPrinter, IconSearch, IconTrash, IconX,
+  IconSearch, IconTrash, IconX,
 } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
 import { PageRibbonContext } from '../components/layout/MainLayout';
@@ -21,6 +21,22 @@ const PAGE_SIZE_OPTIONS = [
   { value: '200', label: '200개씩' },
 ];
 const EMPTY_SUMMARY = { receipt_count: 0, total_qty: 0, detail_count: 0, total_weight: 0, total_amount: 0 };
+const TABLE_COLUMN_WIDTHS = {
+  no: 45, receptdate: 100, receiptno: 140, customname: 125, warehousecodename: 110,
+  productname: 105, itemname: 125, materialname: 85, surfacename: 75, myrtle: 100,
+  thickness: 60, width: 50, length: 60, qty: 70, weight: 80, unitprice: 90,
+  supplyamt: 90, vat: 80, unitamt: 95, qtyunit: 75, unit: 75, manager: 80,
+  description: 120, created_at: 145, updated_at: 145,
+};
+const TABLE_COLUMNS = [
+  ['no', 'No.'], ['receptdate', '출고일자'], ['receiptno', '출고전표'], ['customname', '거래처'],
+  ['warehousecodename', '창고'], ['productname', '제품번호'], ['itemname', '품명'],
+  ['materialname', '강종'], ['surfacename', '표면'], ['myrtle', '도금량(g/㎡)'],
+  ['thickness', '두께'], ['width', '폭'], ['length', '길이'], ['qty', '출고수량'], ['weight', '출고중량'],
+  ['unitprice', '판매단가'], ['supplyamt', '공급가'], ['vat', '부가세'], ['unitamt', '합계금액'],
+  ['qtyunit', '수량단위'], ['unit', '단가기준'], ['manager', '담당자'], ['description', '비고'],
+  ['created_at', '상세 등록일자'], ['updated_at', '상세 수정일자'],
+].map(([key, label]) => ({ key, label, width: TABLE_COLUMN_WIDTHS[key], minWidth: Math.min(TABLE_COLUMN_WIDTHS[key], 72) }));
 
 const makeDefaultFilters = () => {
   const today = new Date();
@@ -30,7 +46,7 @@ const makeDefaultFilters = () => {
   return {
     date_from: `${year}-${pad(month + 1)}-01`,
     date_to: `${year}-${pad(month + 1)}-${pad(new Date(year, month + 1, 0).getDate())}`,
-    receiptno: '', customcode: '', customname: '', itemcode: '', itemname: '',
+    receiptno: '', customer: '', warehouse: '', iteminfo: '',
   };
 };
 
@@ -42,7 +58,7 @@ const virtuosoComponents = {
   Scroller: HorizontalScroller,
   Table: ({ style, ...props }) => (
     <Table {...props} className={classes.statusTable} withTableBorder withColumnBorders highlightOnHover
-      style={{ ...style, width: 'max(100%, 2500px)', minWidth: 2500, tableLayout: 'fixed' }} />
+      style={{ ...style, width: 'var(--outbound-search-table-width)', minWidth: 'var(--outbound-search-table-width)', tableLayout: 'fixed' }} />
   ),
   TableHead: Table.Thead,
   TableBody: Table.Tbody,
@@ -64,11 +80,10 @@ const displayNumber = (value, maximumFractionDigits = 3) => {
 };
 
 const FILTERS = [
-  { key: 'receiptno', label: '출고전표번호', placeholder: '출고전표번호' },
-  { key: 'customcode', label: '거래처코드', placeholder: '거래처코드' },
-  { key: 'customname', label: '거래처명', placeholder: '거래처명' },
-  { key: 'itemcode', label: '품목코드', placeholder: '품목코드' },
-  { key: 'itemname', label: '품목명', placeholder: '품목명' },
+  { key: 'customer', label: '거래처', placeholder: '거래처코드 또는 거래처명' },
+  { key: 'warehouse', label: '창고', placeholder: '창고코드 또는 창고명' },
+  { key: 'receiptno', label: '출고전표번호', placeholder: '전표번호' },
+  { key: 'iteminfo', label: '품목정보', placeholder: '품목코드 또는 품목명' },
 ];
 
 export default function OutboundSearchPage() {
@@ -86,43 +101,44 @@ export default function OutboundSearchPage() {
   const [exporting, setExporting] = useState(false);
   const [filterOpen, setFilterOpen] = useState(true);
   const [columnWidths, setColumnWidths] = useState({});
+  const tableWidth = TABLE_COLUMNS.reduce((sum, column) => sum + (columnWidths[column.key] ?? column.width), 0);
   const requestIdRef = useRef(0);
-  const resizingColumnRef = useRef(null);
 
-  const startColumnResize = (event, key, minWidth) => {
+  const resizeColumn = (event, column) => {
     event.preventDefault();
     event.stopPropagation();
-    resizingColumnRef.current = {
-      key,
-      minWidth,
-      startX: event.clientX,
-      startWidth: event.currentTarget.parentElement.getBoundingClientRect().width,
+    const startX = event.clientX;
+    const startWidth = columnWidths[column.key] ?? column.width;
+    const table = event.currentTarget.closest('table');
+    const header = event.currentTarget.parentElement;
+    let nextWidth = startWidth;
+    const move = (pointerEvent) => {
+      nextWidth = Math.max(column.minWidth, Math.min(1600, startWidth + pointerEvent.clientX - startX));
+      if (header) header.style.width = `${nextWidth}px`;
+      if (table) {
+        table.style.width = `${tableWidth + nextWidth - startWidth}px`;
+        table.style.minWidth = table.style.width;
+      }
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    const finish = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      setColumnWidths((current) => ({ ...current, [column.key]: nextWidth }));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
   };
 
-  const moveColumnResize = (event) => {
-    const resizing = resizingColumnRef.current;
-    if (!resizing) return;
-    const width = Math.max(resizing.minWidth, resizing.startWidth + event.clientX - resizing.startX);
-    setColumnWidths((current) => ({ ...current, [resizing.key]: width }));
-  };
-
-  const endColumnResize = () => {
-    resizingColumnRef.current = null;
-  };
-
-  const renderHeader = (label, key, defaultWidth, minWidth = 80) => (
-    <Table.Th key={key} style={{ width: columnWidths[key] || defaultWidth }}>
-      {label}
+  const renderHeader = (column) => (
+    <Table.Th key={column.key} style={{ width: columnWidths[column.key] ?? column.width, position: 'relative' }}>
+      <span>{column.label}</span>
       <span
         className={classes.columnResizeHandle}
         role="separator"
-        aria-label={`${label} 열 너비 조절`}
-        onPointerDown={(event) => startColumnResize(event, key, minWidth)}
-        onPointerMove={moveColumnResize}
-        onPointerUp={endColumnResize}
-        onPointerCancel={endColumnResize}
+        aria-label={`${column.label} 열 너비 조절`}
+        onPointerDown={(event) => resizeColumn(event, column)}
       />
     </Table.Th>
   );
@@ -213,7 +229,6 @@ export default function OutboundSearchPage() {
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>EXCEL</Button>
         <Button className={`${classes.ribbonTool} ${classes.ribbonSave}`} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} onClick={() => window.print()}>인쇄</Button>
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closeActivePage}>닫기</Button>
       </Group>,
@@ -266,45 +281,31 @@ export default function OutboundSearchPage() {
           {items.length ? (
             <TableVirtuoso
               data={items}
-              style={{ height: '100%', width: '100%' }}
+              style={{ height: '100%', width: '100%', '--outbound-search-table-width': `${tableWidth}px` }}
               components={virtuosoComponents}
               computeItemKey={(_index, item) => `${item.receiptno}:${item.lineno}`}
               defaultItemHeight={40}
               increaseViewportBy={{ top: 160, bottom: 320 }}
-              fixedHeaderContent={() => (
-                <Table.Tr>
-                  <Table.Th>No.</Table.Th>
-                  <Table.Th>출고일자</Table.Th>
-                  {renderHeader('출고전표번호', 'receiptno', 175, 130)}
-                  {renderHeader('거래처코드', 'customcode', 115, 90)}
-                  {renderHeader('거래처명', 'customname', 170, 120)}
-                  <Table.Th>품목코드</Table.Th>
-                  <Table.Th>품목명</Table.Th>
-                  <Table.Th>규격</Table.Th>
-                  <Table.Th>수량</Table.Th>
-                  <Table.Th>수량단위</Table.Th>
-                  <Table.Th>창고코드</Table.Th>
-                  <Table.Th>창고명</Table.Th>
-                  <Table.Th>출고중량</Table.Th>
-                  <Table.Th>단가기준</Table.Th>
-                  <Table.Th>판매단가</Table.Th>
-                  <Table.Th>출고금액</Table.Th>
-                  <Table.Th>비고</Table.Th>
-                  {renderHeader('상세 등록일자', 'created_at', 210, 150)}
-                  {renderHeader('상세 수정일자', 'updated_at', 210, 150)}
-                </Table.Tr>
-              )}
+              fixedHeaderContent={() => <Table.Tr>{TABLE_COLUMNS.map(renderHeader)}</Table.Tr>}
               itemContent={(index, item) => (
                 <>
                   <Table.Td ta="center">{(page - 1) * pageSize + index + 1}</Table.Td>
                   <Table.Td>{displayDate(item.receptdate)}</Table.Td><Table.Td>{item.receiptno}</Table.Td>
-                  <Table.Td>{item.customcode}</Table.Td><Table.Td>{item.customname}</Table.Td>
-                  <Table.Td>{item.itemcode}</Table.Td><Table.Td>{item.itemname}</Table.Td><Table.Td>{item.size}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.qty)}</Table.Td><Table.Td>{item.qtyunit}</Table.Td>
-                  <Table.Td>{item.warehousecode}</Table.Td><Table.Td>{item.warehousecodename}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.weight)}</Table.Td><Table.Td>{item.unit}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.unitprice, 2)}</Table.Td><Table.Td ta="right">{displayNumber(item.unitamt, 2)}</Table.Td>
-                  <Table.Td>{item.description}</Table.Td>
+                  <Table.Td>{item.customname}</Table.Td><Table.Td>{item.warehousecodename}</Table.Td>
+                  <Table.Td>{item.productname}</Table.Td><Table.Td>{item.itemname}</Table.Td>
+                  <Table.Td>{item.materialname}</Table.Td><Table.Td>{item.surfacename}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.myrtle)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.thickness)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.width)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.length)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.qty)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.weight)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.unitprice, 2)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.supplyamt, 2)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.vat, 2)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.unitamt, 2)}</Table.Td>
+                  <Table.Td>{item.qtyunit}</Table.Td><Table.Td>{item.unit}</Table.Td>
+                  <Table.Td>{item.manager}</Table.Td><Table.Td>{item.description}</Table.Td>
                   <Table.Td>{displayDateTime(item.created_at)}</Table.Td>
                   <Table.Td>{displayDateTime(item.updated_at)}</Table.Td>
                 </>
@@ -340,7 +341,7 @@ export default function OutboundSearchPage() {
             </Stack>
           </Box>
           {FILTERS.map(({ key, label, placeholder }) => (
-            <TextInput key={key} label={label} placeholder={`${placeholder} 검색`} value={filterInputs[key]}
+            <TextInput key={key} label={label} placeholder={placeholder} value={filterInputs[key]}
               onChange={(event) => setFilterInputs((current) => ({ ...current, [key]: event.currentTarget.value }))}
               onKeyDown={handleFilterKeyDown} />
           ))}

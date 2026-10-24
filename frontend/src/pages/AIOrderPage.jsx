@@ -931,7 +931,7 @@ export default function AIOrderPage() {
   });
 
   return <Box className={`${sharedClasses.pageShell} ${classes.page} ${classes.batchPage}`}>
-    <ErpBreadcrumb parent="가공관리" current="주문서 인식" />
+    <ErpBreadcrumb parent="가공관리" current="AI 가공솔루션" />
 
     <Paper className={`${sharedClasses.panel} ${classes.uploadPanel}`} withBorder>
       <Group justify="space-between" align="center" wrap="wrap" gap="md">

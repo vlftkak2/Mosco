@@ -137,12 +137,12 @@
   color: #354052;
   font-size: 11px;
   font-weight: 700;
-  padding: 9px 8px;
+  padding: 6px 6px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.statusTable tbody td { max-width: 260px; overflow: hidden; padding: 9px 8px; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.statusTable tbody td { max-width: 260px; overflow: hidden; padding: 6px 6px; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .columnResizeHandle {
   position: absolute;
   z-index: 4;
@@ -155,23 +155,23 @@
 }
 .columnResizeHandle:hover,
 .columnResizeHandle:active { background: #64748b38; }
-.statusTable th:nth-child(1) { width: 55px; }
-.statusTable th:nth-child(2) { width: 105px; }
-.statusTable th:nth-child(3) { width: 175px; }
-.statusTable th:nth-child(4) { width: 115px; }
-.statusTable th:nth-child(5) { width: 170px; }
-.statusTable th:nth-child(6) { width: 120px; }
-.statusTable th:nth-child(7) { width: 180px; }
-.statusTable th:nth-child(8) { width: 120px; }
-.statusTable th:nth-child(9) { width: 90px; }
-.statusTable th:nth-child(10) { width: 100px; }
-.statusTable th:nth-child(11) { width: 110px; }
-.statusTable th:nth-child(12) { width: 140px; }
-.statusTable th:nth-child(13) { width: 115px; }
-.statusTable th:nth-child(14) { width: 100px; }
-.statusTable th:nth-child(15) { width: 120px; }
-.statusTable th:nth-child(16) { width: 120px; }
-.statusTable th:nth-child(17) { width: 200px; }
+.statusTable th:nth-child(1) { width: 45px; }
+.statusTable th:nth-child(2) { width: 100px; }
+.statusTable th:nth-child(3) { width: 140px; }
+.statusTable th:nth-child(4) { width: 95px; }
+.statusTable th:nth-child(5) { width: 125px; }
+.statusTable th:nth-child(6) { width: 100px; }
+.statusTable th:nth-child(7) { width: 120px; }
+.statusTable th:nth-child(8) { width: 95px; }
+.statusTable th:nth-child(9) { width: 70px; }
+.statusTable th:nth-child(10) { width: 75px; }
+.statusTable th:nth-child(11) { width: 90px; }
+.statusTable th:nth-child(12) { width: 110px; }
+.statusTable th:nth-child(13) { width: 80px; }
+.statusTable th:nth-child(14) { width: 75px; }
+.statusTable th:nth-child(15) { width: 90px; }
+.statusTable th:nth-child(16) { width: 100px; }
+.statusTable th:nth-child(17) { width: 120px; }
 .emptyState {
   display: flex;
   width: 100%;
@@ -207,4 +207,4 @@
 }
 
 .statusTable th:nth-child(18),
-.statusTable th:nth-child(19) { width: 210px; }
+.statusTable th:nth-child(19) { width: 145px; }

@@ -13,6 +13,9 @@ def _search_conditions(
     customname: str,
     itemcode: str,
     itemname: str,
+    customer: str = "",
+    warehouse: str = "",
+    iteminfo: str = "",
 ):
     where = ["h.companyid = %s"]
     params: list = [companyid]
@@ -28,6 +31,21 @@ def _search_conditions(
         if normalized:
             where.append(f"{column} ILIKE %s")
             params.append(f"%{normalized}%")
+
+    if customer.strip():
+        pattern = f"%{customer.strip()}%"
+        where.append("(h.customcode ILIKE %s OR h.customname ILIKE %s)")
+        params.extend((pattern, pattern))
+
+    if warehouse.strip():
+        pattern = f"%{warehouse.strip()}%"
+        where.append("(d.warehousecode ILIKE %s OR d.warehousecodename ILIKE %s)")
+        params.extend((pattern, pattern))
+
+    if iteminfo.strip():
+        pattern = f"%{iteminfo.strip()}%"
+        where.append("(d.itemcode ILIKE %s OR d.itemname ILIKE %s)")
+        params.extend((pattern, pattern))
 
     if date_from:
         where.append("h.receptdate >= %s")
@@ -50,9 +68,13 @@ def list_outbound_details(
     customname: str = "",
     itemcode: str = "",
     itemname: str = "",
+    customer: str = "",
+    warehouse: str = "",
+    iteminfo: str = "",
 ):
     where_sql, params = _search_conditions(
         companyid, date_from, date_to, receiptno, customcode, customname, itemcode, itemname,
+        customer, warehouse, iteminfo,
     )
     with outbound_register_module._connect() as connection, connection.cursor() as cursor:
         cursor.execute(
@@ -72,10 +94,13 @@ def list_outbound_details(
 
         cursor.execute(
             f"""
-            SELECT h.receiptno, h.receptdate, h.customcode, h.customname,
-                   d.lineno, d.itemcode, d.itemname, d.size,
-                   d.qty, d.qtyunit, d.warehousecode, d.warehousecodename,
-                   d.weight, d.unit, d.unitprice, d.unitamt, d.description,
+            SELECT h.receiptno, h.receptdate AS receptdate,
+                   h.customname AS customname,
+                   d.lineno, d.warehousecodename, d.productname, d.itemname,
+                   d.materialname, d.surfacename, d.myrtle,
+                   d.thickness, d.width, d.length, d.qty, d.weight,
+                   d.unitprice, d.supplyamt, d.vat, d.unitamt, d.qtyunit, d.unit,
+                   d.manager, d.description,
                    d.created_at, d.updated_at
             FROM Outbound01t AS h
             JOIN Outbound02t AS d
@@ -114,19 +139,25 @@ def write_outbound_details_excel(
     customname: str = "",
     itemcode: str = "",
     itemname: str = "",
+    customer: str = "",
+    warehouse: str = "",
+    iteminfo: str = "",
 ):
     where_sql, params = _search_conditions(
         companyid, date_from, date_to, receiptno, customcode, customname, itemcode, itemname,
+        customer, warehouse, iteminfo,
     )
     headers = [
-        "No.", "출고일자", "출고전표번호", "거래처코드", "거래처명", "품목코드", "품목명", "규격",
-        "수량", "수량단위", "창고코드", "창고명", "출고중량", "단가기준", "판매단가", "출고금액", "비고", "상세 등록일자", "상세 수정일자",
+        "No.", "출고일자", "출고전표", "거래처", "창고", "제품번호", "품명", "강종", "표면",
+        "도금량(g/㎡)", "두께", "폭", "길이", "출고수량", "출고중량", "판매단가", "공급가", "부가세",
+        "합계금액", "수량단위", "단가기준", "담당자", "비고", "상세 등록일자", "상세 수정일자",
     ]
     query = f"""
-        SELECT h.receptdate, h.receiptno, h.customcode, h.customname,
-               d.itemcode, d.itemname, d.size, d.qty, d.qtyunit,
-               d.warehousecode, d.warehousecodename, d.weight, d.unit,
-               d.unitprice, d.unitamt, d.description, d.created_at, d.updated_at
+        SELECT h.receptdate AS receptdate, h.receiptno, h.customname,
+               d.warehousecodename, d.productname, d.itemname, d.materialname, d.surfacename,
+               d.myrtle, d.thickness, d.width, d.length, d.qty, d.weight,
+               d.unitprice, d.supplyamt, d.vat, d.unitamt, d.qtyunit, d.unit,
+               d.manager, d.description, d.created_at, d.updated_at
         FROM Outbound01t AS h
         JOIN Outbound02t AS d
           ON d.companyid = h.companyid
@@ -157,21 +188,16 @@ def write_outbound_details_excel(
     worksheet.autofilter(0, 0, 0, len(headers) - 1)
     worksheet.set_column("A:A", 8)
     worksheet.set_column("B:B", 13, date_format)
-    worksheet.set_column("C:C", 24)
-    worksheet.set_column("D:D", 16)
-    worksheet.set_column("E:E", 24)
-    worksheet.set_column("F:F", 18)
-    worksheet.set_column("G:G", 28)
-    worksheet.set_column("H:H", 18)
-    worksheet.set_column("I:I", 13, integer_format)
-    worksheet.set_column("J:J", 15)
-    worksheet.set_column("K:K", 16)
-    worksheet.set_column("L:L", 20)
-    worksheet.set_column("M:M", 15, integer_format)
-    worksheet.set_column("N:N", 15)
-    worksheet.set_column("O:P", 16, integer_format)
-    worksheet.set_column("Q:Q", 30)
-    worksheet.set_column("R:S", 22, datetime_format)
+    worksheet.set_column("C:D", 20)
+    worksheet.set_column("E:F", 18)
+    worksheet.set_column("G:I", 20)
+    worksheet.set_column("J:M", 14, number_format)
+    worksheet.set_column("N:O", 14, number_format)
+    worksheet.set_column("P:S", 16, money_format)
+    worksheet.set_column("T:U", 14)
+    worksheet.set_column("V:V", 18)
+    worksheet.set_column("W:W", 30)
+    worksheet.set_column("X:Y", 22, datetime_format)
 
     row_number = 1
     try:
@@ -187,11 +213,11 @@ def write_outbound_details_excel(
                                 continue
                             if column_index == 1 and isinstance(value, date):
                                 worksheet.write_datetime(row_number, column_index, value, date_format)
-                            elif column_index in (17, 18):
+                            elif column_index in (23, 24):
                                 worksheet.write_datetime(row_number, column_index, value.replace(tzinfo=None), datetime_format)
-                            elif column_index in (8, 12, 14, 15):
+                            elif column_index in (9, 10, 11, 12, 13, 14, 15, 16, 17, 18):
                                 numeric_value = float(value)
-                                format_for_value = number_format if column_index in (8, 12) else money_format
+                                format_for_value = number_format if column_index in (9, 10, 11, 12, 13, 14) else money_format
                                 if numeric_value.is_integer():
                                     worksheet.write_number(row_number, column_index, int(numeric_value), integer_format)
                                 else:

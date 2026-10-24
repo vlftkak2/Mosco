@@ -24,6 +24,7 @@
   align-items: stretch;
   overflow: hidden;
 }
+.workspaceWithFilter { grid-template-columns: minmax(0, 1fr) 218px; column-gap: 11px; }
 .editorPanel {
   display: flex !important;
   width: 100%;
@@ -51,7 +52,6 @@
   font-size: 11px;
   white-space: nowrap;
 }
-.filterToolbar { min-width: 0; flex: 0 0 auto; padding: 8px 12px; background: #fff; }
 .searchGroup { min-width: 0; flex: 1 1 480px; }
 .dateFilter { flex: 0 0 165px; }
 .stockSearch { min-width: 180px; width: min(340px, 100%); flex: 1 1 220px; }
@@ -61,7 +61,6 @@
   font-size: 12px;
 }
 .dateFilter :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #526079; font-size: 12px; font-weight: 600; }
-.filterToolbar :global(.mantine-Button-root) { height: 33px; min-height: 33px; padding-inline: 11px; font-size: 11px; }
 .listActions { min-width: 0; flex: 0 1 auto; align-self: flex-end; }
 .detailToolbar { min-height: 42px; flex: 0 0 auto; padding: 9px 13px; background: #fff; }
 .sectionTitle { color: #252a32 !important; font-size: 14px !important; font-weight: 700 !important; line-height: 1.25; }
@@ -75,17 +74,22 @@
   font-weight: 400;
 }
 .tableViewport { height: 0; min-height: 0; flex: 1 1 auto; overflow: hidden; }
-.tableViewport :global([data-virtuoso-scroller]) {
-  overflow-x: auto !important;
-  overflow-y: auto !important;
+.emptyTableState { display: flex; width: 100%; height: 100%; min-height: 0; flex-direction: column; overflow: auto; }
+.emptyTableMessage { display: flex; min-height: 0; flex: 1 1 auto; align-items: center; justify-content: center; color: #7c899b; font-size: 13px; text-align: center; }
+.tableViewport :global([data-virtuoso-scroller]),
+.emptyTableState {
+  overflow-x: auto;
+  overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: #aab6c4 #f1f4f7;
 }
-.tableViewport :global([data-virtuoso-scroller])::-webkit-scrollbar { width: 12px; height: 12px; }
-.tableViewport :global([data-virtuoso-scroller])::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
-.tableViewport :global([data-virtuoso-scroller])::-webkit-scrollbar-track { background: #f1f4f7; }
+.tableViewport :global([data-virtuoso-scroller])::-webkit-scrollbar,
+.emptyTableState::-webkit-scrollbar { width: 12px; height: 12px; }
+.tableViewport :global([data-virtuoso-scroller])::-webkit-scrollbar-thumb,
+.emptyTableState::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
+.tableViewport :global([data-virtuoso-scroller])::-webkit-scrollbar-track,
+.emptyTableState::-webkit-scrollbar-track { background: #f1f4f7; }
 .table { table-layout: fixed; }
 .table :global(tbody td),
 .table :global(tbody input),
@@ -106,7 +110,6 @@
 @container (max-width: 700px) {
   .codeHeader { align-items: stretch; }
   .headerActions { width: 100%; justify-content: flex-end; }
-  .filterToolbar { align-items: stretch; }
   .searchGroup, .listActions { width: 100%; }
   .listActions { justify-content: flex-end; }
   .footerNotice { flex-basis: 100%; }
@@ -115,7 +118,7 @@
 
 @media (max-width: 760px) {
   .page { height: auto; min-height: calc(100dvh - 90px); flex: 0 0 auto; overflow: visible; }
-  .workspace { height: auto; min-height: 0; flex: 0 0 auto; overflow: visible; }
+  .workspace, .workspaceWithFilter { height: auto; min-height: 0; flex: 0 0 auto; overflow: visible; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(640px, auto) auto; }
   .editorPanel { height: 640px; min-height: 640px; max-height: 640px; }
   .headerActions { width: 100%; justify-content: flex-start; }
   .searchGroup { align-items: flex-end; }

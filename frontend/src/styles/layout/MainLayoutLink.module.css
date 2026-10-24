@@ -136,6 +136,13 @@
   color: #fff !important;
 }
 
+.subLinkDisabled,
+.subLinkDisabled:hover {
+  background: transparent !important;
+  color: #8b95a3 !important;
+  cursor: not-allowed !important;
+}
+
 .subIcon {
   display: flex;
   align-items: center;

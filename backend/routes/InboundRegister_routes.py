@@ -22,7 +22,7 @@ def get_receipts(
     user: dict = Depends(security_module.get_current_user),
 ):
     if date_from and date_to and date_from > date_to:
-        raise HTTPException(status_code=422, detail="\uC2DC\uC791\uC77C\uC740 \uC885\uB8CC\uC77C\uBCF4\uB2E4 \uB4A4\uC5D0 \uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.")
+        raise HTTPException(status_code=422, detail="시작일은 종료일보다는 뒤에 올 수 없습니다.")
     try:
         return {"success": True, **inbound_module.list_receipts(
             user["companyid"], page, page_size, q, date_from, date_to,
@@ -76,7 +76,7 @@ def update_receipt_managers(
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
-        raise HTTPException(status_code=500, detail="\ub2f4\ub2f9\uc790 \uc218\uc815 \uc911 \uc624\ub958\uac00 \ubc1c\uc0dd\ud588\uc2b5\ub2c8\ub2e4.") from error
+        raise HTTPException(status_code=500, detail="담당자 수정 중 오류가 발생했습니다.") from error
 
 
 @router.delete("/receipts/{receiptno}")
