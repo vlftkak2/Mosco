@@ -37,6 +37,13 @@ const STOCK_PAGE_OPTIONS = [
 ];
 const GRID_FIELDS = ['standdate', 'customname', 'warehousecode', 'productname', 'itemname', 'materialcode', 'surfacecode', 'myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat', 'unitamt', 'unit', 'qtyunit', 'description'];
 const GRID_COLUMN_WIDTHS = { select: 44, number: 58, standdate: 118, customname: 160, itemcode: 135, itemname: 170, productname: 125, materialcode: 105, surfacecode: 100, myrtle: 110, thickness: 90, width: 90, length: 90, qty: 100, qtyunit: 100, warehousecode: 130, weight: 110, unit: 100, unitprice: 115, supplyamt: 120, vat: 100, unitamt: 120, description: 160 };
+const STOCK_GRID_COLUMNS = [
+  ['select', ''], ['number', 'No.'], ['standdate', '\uAE30\uCD08\uC77C\uC790 *'], ['customname', '\uAC70\uB798\uCC98'], ['warehousecode', '\uCC3D\uACE0 *'],
+  ['productname', '\uC81C\uD488\uBC88\uD638'], ['itemname', '\uD488\uBA85 *'], ['materialcode', '\uAC15\uC885 *'], ['surfacecode', '\uD45C\uBA74'], ['myrtle', '\uB3C4\uAE08\uB7C9(g/m\u00B2)'],
+  ['thickness', '\uB450\uAED8'], ['width', '\uD3ED'], ['length', '\uAE38\uC774'], ['qty', '\uAE30\uCD08\uC218\uB7C9 *'], ['weight', '\uAE30\uCD08\uC911\uB7C9 *'],
+  ['unitprice', '\uAE30\uCD08\uB2E8\uAC00'], ['supplyamt', '\uACF5\uAE09\uAC00'], ['vat', '\uBD80\uAC00\uC138'], ['unitamt', '\uD569\uACC4\uAE08\uC561'],
+  ['unit', '\uB2E8\uAC00\uAE30\uC900'], ['qtyunit', '\uC218\uB7C9\uB2E8\uC704 *'], ['description', '\uBE44\uACE0'],
+];
 const MASTER_FIELDS = new Set(['qtyunit', 'warehousecode', 'unit', 'materialcode', 'surfacecode']);
 const PRICE_FIELDS = new Set(['unit', 'unitprice']);
 const EDITABLE_PRICE_FIELDS = new Set(['unit', 'unitprice']);
@@ -261,7 +268,7 @@ function ItemNameAutocompleteCell({ row, disabled, registerCellInput, onChange, 
 
   useEffect(() => {
     if (!editing || disabled || !query) {
-      setItems([]);
+      setItems((current) => current.length ? [] : current);
       return undefined;
     }
     const controller = new AbortController();
@@ -455,7 +462,7 @@ function CustomerNameAutocompleteCell({ row, disabled, registerCellInput, onChan
 
   useEffect(() => {
     if (!editing || disabled || !query) {
-      setCustomers([]);
+      setCustomers((current) => current.length ? [] : current);
       return undefined;
     }
     const controller = new AbortController();
@@ -592,15 +599,16 @@ function CustomerNameAutocompleteCell({ row, disabled, registerCellInput, onChan
 
 function MasterNameAutocompleteCell({ row, field, options, disabled, registerCellInput, onChange, onFindMaster, onFocus, onPaste }) {
   const nameField = field === 'warehousecode' ? 'warehousecodename' : field === 'materialcode' ? 'materialname' : 'surfacename';
-  const getDisplayValue = () => options.find((option) => option.code === row[field])?.name || row[nameField] || row[field] || '';
+  const displayValue = options.find((option) => option.code === row[field])?.name || row[nameField] || row[field] || '';
+  const getDisplayValue = () => displayValue;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(getDisplayValue());
   const [activeIndex, setActiveIndex] = useState(-1);
   const pickerOpenRef = useRef(false);
   const query = String(draft || '').trim().toLocaleLowerCase();
-  const matches = useMemo(() => query
+  const matches = useMemo(() => editing && !disabled && query
     ? options.filter((option) => `${option.name || ''} ${option.code || ''}`.toLocaleLowerCase().includes(query)).slice(0, 8)
-    : [], [options, query]);
+    : [], [options, query, editing, disabled]);
   const opened = editing && !disabled && matches.length > 0;
 
   const choose = (option) => {
@@ -791,13 +799,15 @@ export default function StockStandPage() {
   const loadingMoreRef = useRef(false);
   const hasMoreRowsRef = useRef(false);
   const nextCursorRef = useRef(0);
-  const hasNewRows = rows.some((row) => !row.lineno && hasRowInput(row));
-  const changedPriceRows = rows.filter((row) => {
-    if (!row.lineno) return false;
-    const original = originalRowsRef.current.get(row.id);
-    return original && [...EDITABLE_PRICE_FIELDS].some((field) => String(row[field] ?? '') !== String(original[field] ?? ''));
-  });
-  const hasChanges = hasNewRows || changedPriceRows.length > 0;
+  const { hasNewRows, changedPriceRows, hasChanges } = useMemo(() => {
+    const hasNew = rows.some((row) => !row.lineno && hasRowInput(row));
+    const changedPrices = rows.filter((row) => {
+      if (!row.lineno) return false;
+      const original = originalRowsRef.current.get(row.id);
+      return original && [...EDITABLE_PRICE_FIELDS].some((field) => String(row[field] ?? '') !== String(original[field] ?? ''));
+    });
+    return { hasNewRows: hasNew, changedPriceRows: changedPrices, hasChanges: hasNew || changedPrices.length > 0 };
+  }, [rows]);
   const displayRowCount = hasSavedStock ? totalRows : rows.length;
   const visibleRows = hasSavedStock ? rows : rows.slice((page - 1) * pageSize, page * pageSize);
   const pageCount = Math.max(1, Math.ceil(displayRowCount / pageSize));
@@ -862,7 +872,8 @@ export default function StockStandPage() {
       setHasSavedStock(Boolean(data.has_stock_rows));
       setHasTransactions(Boolean(data.has_transactions));
       setHasStockMovements(Boolean(data.has_stock_movements));
-      if (data.has_transactions && !movementNoticeShownRef.current) {
+      const shouldShowMovementNotice = Boolean(data.has_transactions && !data.has_stock_rows);
+      if (shouldShowMovementNotice && !movementNoticeShownRef.current) {
         notifications.show({
           title: '입출고 수불 내역이 있습니다',
           message: '입고 또는 출고 내역이 있는 회사는 기초재고를 신규 등록하거나 전체 삭제할 수 없습니다.',
@@ -870,7 +881,7 @@ export default function StockStandPage() {
           autoClose: 7000,
         });
       }
-      movementNoticeShownRef.current = Boolean(data.has_transactions);
+      movementNoticeShownRef.current = shouldShowMovementNotice;
       return true;
     } catch (error) {
       notifications.show({ title: '기초재고 조회 실패', message: errorText(error), color: 'red' });
@@ -1679,18 +1690,15 @@ export default function StockStandPage() {
     setSelectedIds(checked ? rows.filter((row) => !row.lineno).map((row) => row.id) : []);
     selectionAnchorRef.current = '';
   };
-  const columns = [
-    ['select', ''], ['number', 'No.'], ['standdate', '\uAE30\uCD08\uC77C\uC790 *'], ['customname', '\uAC70\uB798\uCC98'], ['warehousecode', '\uCC3D\uACE0 *'],
-    ['productname', '\uC81C\uD488\uBC88\uD638'], ['itemname', '\uD488\uBA85 *'], ['materialcode', '\uAC15\uC885 *'], ['surfacecode', '\uD45C\uBA74'], ['myrtle', '\uB3C4\uAE08\uB7C9(g/m\u00B2)'],
-    ['thickness', '\uB450\uAED8'], ['width', '\uD3ED'], ['length', '\uAE38\uC774'], ['qty', '\uAE30\uCD08\uC218\uB7C9 *'], ['weight', '\uAE30\uCD08\uC911\uB7C9 *'],
-    ['unitprice', '\uAE30\uCD08\uB2E8\uAC00'], ['supplyamt', '\uACF5\uAE09\uAC00'], ['vat', '\uBD80\uAC00\uC138'], ['unitamt', '\uD569\uACC4\uAE08\uC561'],
-    ['unit', '\uB2E8\uAC00\uAE30\uC900'], ['qtyunit', '\uC218\uB7C9\uB2E8\uC704 *'], ['description', '\uBE44\uACE0'],
-  ];
-  const columnOrder = ['select', 'number', 'standdate', 'customname', 'warehousecode', 'productname', 'itemname', 'materialcode', 'surfacecode', 'myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat', 'unitamt', 'unit', 'qtyunit', 'description'];
-  columns.sort(([left], [right]) => columnOrder.indexOf(left) - columnOrder.indexOf(right));
-  const headerColumns = columns.map(([key, label]) => {
+  const columns = STOCK_GRID_COLUMNS;
+  const autoColumnWidths = useMemo(() => Object.fromEntries(STOCK_GRID_COLUMNS.map(([key, label]) => {
     const minWidth = key === 'select' ? 42 : key === 'number' ? 48 : 70;
     const width = fitColumnWidth(label, rows.map((row) => row[key]), GRID_COLUMN_WIDTHS[key], minWidth);
+    return [key, width];
+  })), [rows]);
+  const headerColumns = STOCK_GRID_COLUMNS.map(([key, label]) => {
+    const minWidth = key === 'select' ? 42 : key === 'number' ? 48 : 70;
+    const width = autoColumnWidths[key];
     return {
       key,
       label: key === 'select'
@@ -1714,7 +1722,6 @@ export default function StockStandPage() {
       const editableSavedPrice = saved && EDITABLE_PRICE_FIELDS.has(key);
       const masterKey = MASTER_FIELDS.has(key);
       const masterOptions = masters[MASTER_KIND[key]] || [];
-      const amounts = calculateAmounts(row, masters.price);
       const displayed = key === 'qtyunit' || key === 'unit'
         ? masterOptions.find((option) => option.code === row[key])?.name || row[key] || ''
         : key === 'warehousecode' ? row.warehousecodename || row.warehousecode || ''
@@ -1722,6 +1729,9 @@ export default function StockStandPage() {
             : key === 'surfacecode' ? masterOptions.find((option) => option.code === row.surfacecode)?.name || row.surfacename || row.surfacecode || ''
               : ['supplyamt', 'vat', 'unitamt'].includes(key) ? formatAmount(amounts[key])
                 : ['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice'].includes(key) ? numberText(row[key]) : row[key] ?? '';
+      if (saved && !PRICE_FIELDS.has(key)) return <Table.Td key={key} className={outboundClasses.savedCell}>
+        <span className={`${classes.savedValue} ${['supplyamt', 'vat', 'unitamt'].includes(key) ? classes.savedAmountValue : ''}`} title={String(displayed)}>{displayed}</span>
+      </Table.Td>;
       const readOnly = key === 'unitamt';
       const disabled = saving || (saved && !PRICE_FIELDS.has(key));
       const pasted = (event) => {
@@ -1867,6 +1877,7 @@ export default function StockStandPage() {
         />
       </Table.Td>;
     };
+    const amounts = calculateAmounts(row, masters.price);
 
     return <>
       <Table.Td className={codeClasses.checkCol}><input type="checkbox" checked={isSelected} disabled={saving || saved || hasSavedStock} onChange={(event) => toggleRowSelection(row.id, event.nativeEvent.shiftKey)} /></Table.Td>
@@ -1913,20 +1924,26 @@ export default function StockStandPage() {
       <Group className={`${sharedClasses.toolbar} ${codeClasses.toolbar} ${classes.detailToolbar}`} justify="space-between" wrap="wrap" gap={6}>
         {selectedIds.length > 1 && <Text size="xs" c="red" fw={600}>마스터 값 변경 시 {selectedIds.length}개 행에 일괄 적용됩니다.</Text>}
       </Group>
-      <Box className={`${codeClasses.tableWrap} ${classes.tableViewport}`} style={{ '--code-table-min-width': `${Math.max(1730, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
-        {loading ? <Box className={classes.loading}><Loader color="red" /></Box> : visibleRows.length ? (
+      <Box className={`${codeClasses.tableWrap} ${classes.tableViewport} ${hasSavedStock ? classes.savedTableViewport : ''}`} style={{ '--code-table-min-width': `${Math.max(1730, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
+        {loading ? <Box className={classes.loading}><Loader color="red" /></Box> : visibleRows.length ? (hasSavedStock ? (
+          <Table className={`${sharedClasses.table} ${codeClasses.codeTable} ${classes.table}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
+            style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
+            <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
+            <Table.Tbody>{visibleRows.map((row, index) => <Table.Tr key={row.id}>{itemContent(index, row)}</Table.Tr>)}</Table.Tbody>
+          </Table>
+        ) : (
           <TableVirtuoso
             ref={virtuosoRef}
             data={visibleRows}
             style={{ height: '100%' }}
             components={stockVirtuosoComponents}
             computeItemKey={(_index, row) => row.id}
-            defaultItemHeight={42}
-            increaseViewportBy={{ top: 160, bottom: 320 }}
+            defaultItemHeight={34}
+            increaseViewportBy={{ top: 160, bottom: 240 }}
             fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>}
             itemContent={itemContent}
           />
-        ) : (
+        )) : (
           <Box className={classes.emptyTableState}>
             <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders
               style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>

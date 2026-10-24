@@ -956,7 +956,7 @@ export default function AIOrderPage() {
       {documents.length > 0 && <Group gap="xs" mt="sm">{Object.entries(statusCounts).map(([label, value]) => <Badge key={label} variant="light" color={value.color}>{label} {value.count}</Badge>)}<Text size="xs" c="dimmed">동시 분석 최대 {USER_CONCURRENCY}건, 나머지는 대기합니다.</Text></Group>}
     </Paper>
 
-    <Paper className={`${sharedClasses.panel} ${classes.batchListPanel}`} withBorder>
+    {documents.length > 0 && <Paper className={`${sharedClasses.panel} ${classes.batchListPanel}`} withBorder>
       <Group justify="space-between" className={classes.listHeader}>
         <Group gap="xs"><Text fw={700}>발주서 목록</Text><Badge variant="light" color="gray">{documents.length}건</Badge></Group>
         <Text size="xs" c="dimmed">{documents.length > 5 ? '목록을 스크롤해 전체 파일을 확인하세요.' : '파일을 선택해 원본과 분석 결과를 확인하세요.'}</Text>
@@ -984,7 +984,7 @@ export default function AIOrderPage() {
           })}</Table.Tbody>
         </Table>
       </ScrollArea>}
-    </Paper>
+    </Paper>}
 
     <Box className={classes.comparisonArea}>{selectedDoc ? <OrderDocumentWorkspace key={selectedDoc.id} doc={selectedDoc} updateDocument={updateDocument} onConfirm={requestOrderConfirmation} confirming={confirmingId === selectedDoc.id} /> : <Paper withBorder className={classes.noSelection}>
       <Box className={classes.emptyState}>

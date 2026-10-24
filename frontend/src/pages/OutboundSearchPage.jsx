@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack,
@@ -9,7 +9,6 @@ import {
   IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus,
   IconSearch, IconTrash, IconX,
 } from '@tabler/icons-react';
-import { TableVirtuoso } from 'react-virtuoso';
 import { PageRibbonContext } from '../components/layout/MainLayout';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
 import classes from '../styles/pages/InboundSearch.module.css';
@@ -51,19 +50,6 @@ const makeDefaultFilters = () => {
 };
 
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
-const HorizontalScroller = forwardRef(function HorizontalScroller({ style, ...props }, ref) {
-  return <div {...props} ref={ref} className={classes.inboundSearchScroller} style={{ ...style, overflowX: 'auto' }} />;
-});
-const virtuosoComponents = {
-  Scroller: HorizontalScroller,
-  Table: ({ style, ...props }) => (
-    <Table {...props} className={classes.statusTable} withTableBorder withColumnBorders highlightOnHover
-      style={{ ...style, width: 'var(--outbound-search-table-width)', minWidth: 'var(--outbound-search-table-width)', tableLayout: 'fixed' }} />
-  ),
-  TableHead: Table.Thead,
-  TableBody: Table.Tbody,
-  TableRow: Table.Tr,
-};
 const displayDate = (value) => value ? String(value).slice(0, 10) : '';
 const displayDateTime = (value) => {
   if (!value) return '';
@@ -110,20 +96,34 @@ export default function OutboundSearchPage() {
     const startX = event.clientX;
     const startWidth = columnWidths[column.key] ?? column.width;
     const table = event.currentTarget.closest('table');
-    const header = event.currentTarget.parentElement;
+    const col = [...(table?.querySelectorAll('col[data-column-key]') || [])]
+      .find((element) => element.dataset.columnKey === column.key);
+    const baseTableWidth = tableWidth;
     let nextWidth = startWidth;
+    let animationFrame = 0;
+    const applyWidth = () => {
+      const nextTableWidth = baseTableWidth + nextWidth - startWidth;
+      if (col) col.style.width = `${nextWidth}px`;
+      if (table) {
+        table.style.width = `${nextTableWidth}px`;
+        table.style.minWidth = `${nextTableWidth}px`;
+      }
+    };
     const move = (pointerEvent) => {
       nextWidth = Math.max(column.minWidth, Math.min(1600, startWidth + pointerEvent.clientX - startX));
-      if (header) header.style.width = `${nextWidth}px`;
-      if (table) {
-        table.style.width = `${tableWidth + nextWidth - startWidth}px`;
-        table.style.minWidth = table.style.width;
+      if (!animationFrame) {
+        animationFrame = window.requestAnimationFrame(() => {
+          animationFrame = 0;
+          applyWidth();
+        });
       }
     };
     const finish = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', finish);
       window.removeEventListener('pointercancel', finish);
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      applyWidth();
       setColumnWidths((current) => ({ ...current, [column.key]: nextWidth }));
     };
     window.addEventListener('pointermove', move);
@@ -132,7 +132,7 @@ export default function OutboundSearchPage() {
   };
 
   const renderHeader = (column) => (
-    <Table.Th key={column.key} style={{ width: columnWidths[column.key] ?? column.width, position: 'relative' }}>
+    <Table.Th key={column.key} style={{ width: columnWidths[column.key] ?? column.width, position: 'sticky', top: 0, zIndex: 3 }}>
       <span>{column.label}</span>
       <span
         className={classes.columnResizeHandle}
@@ -279,16 +279,12 @@ export default function OutboundSearchPage() {
         <Box className={classes.tableWrap}>
           {loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}
           {items.length ? (
-            <TableVirtuoso
-              data={items}
-              style={{ height: '100%', width: '100%', '--outbound-search-table-width': `${tableWidth}px` }}
-              components={virtuosoComponents}
-              computeItemKey={(_index, item) => `${item.receiptno}:${item.lineno}`}
-              defaultItemHeight={40}
-              increaseViewportBy={{ top: 160, bottom: 320 }}
-              fixedHeaderContent={() => <Table.Tr>{TABLE_COLUMNS.map(renderHeader)}</Table.Tr>}
-              itemContent={(index, item) => (
-                <>
+            <Box className={classes.inboundSearchScroller} style={{ height: '100%', width: '100%' }}>
+              <Table className={classes.statusTable} withTableBorder withColumnBorders highlightOnHover
+                style={{ width: tableWidth, minWidth: tableWidth, tableLayout: 'fixed' }}>
+                <colgroup>{TABLE_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${columnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
+                <Table.Thead><Table.Tr>{TABLE_COLUMNS.map(renderHeader)}</Table.Tr></Table.Thead>
+                <Table.Tbody>{items.map((item, index) => <Table.Tr key={`${item.receiptno}:${item.lineno}`}>
                   <Table.Td ta="center">{(page - 1) * pageSize + index + 1}</Table.Td>
                   <Table.Td>{displayDate(item.receptdate)}</Table.Td><Table.Td>{item.receiptno}</Table.Td>
                   <Table.Td>{item.customname}</Table.Td><Table.Td>{item.warehousecodename}</Table.Td>
@@ -308,9 +304,9 @@ export default function OutboundSearchPage() {
                   <Table.Td>{item.manager}</Table.Td><Table.Td>{item.description}</Table.Td>
                   <Table.Td>{displayDateTime(item.created_at)}</Table.Td>
                   <Table.Td>{displayDateTime(item.updated_at)}</Table.Td>
-                </>
-              )}
-            />
+                </Table.Tr>)}</Table.Tbody>
+              </Table>
+            </Box>
           ) : !loading && <Box className={classes.emptyState}>표시할 출고 상세 내역이 없습니다.</Box>}
         </Box>
 

@@ -432,7 +432,14 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
     <Table.Td className={`${codeClasses.rowNumber} ${classes.rowNumberCell} ${saved ? classes.savedCell : ''}`}>{index + 1}</Table.Td>
     {DETAIL_FIELDS.map(({ key, label }) => (
       <Table.Td key={key} className={[saved && !(key === 'manager' && managerEditable) && classes.savedCell, key === 'manager' && managerEditable && inboundClasses.managerEditableCell].filter(Boolean).join(' ')}>
-        {key === 'manager' ? (
+        {saved && key !== 'manager' ? (
+          <span className={classes.savedCellText} title={String(displayValue(key))}>
+            {key === 'supplyamt' ? formatAmount(amountOf(row, unitOptions.price))
+              : key === 'vat' ? formatAmount(vatAmountOf(row, unitOptions.price))
+                : key === 'unitamt' ? formatAmount(totalAmountOf(row, unitOptions.price))
+                  : displayValue(key)}
+          </span>
+        ) : key === 'manager' ? (
           <ManagerInput key={`${row.id}:${row.manager || ''}`} row={row} editable={managerEditable} label={label} onChange={onChange} onPaste={pasteHandler(key)} registerCellInput={registerCellInput} onFocusCell={onFocusCell} />
         ) : key === 'customcode' ? (
           <Group gap={2} wrap="nowrap">
@@ -484,8 +491,8 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
   </>;
 });
 
-const VirtualRow = ({ item, className, ...props }) => (
-  <Table.Tr {...props} className={[className, item?.is_new && codeClasses.newRow, item?.is_new && classes.newRow, item?.is_selected && classes.selectedRow].filter(Boolean).join(' ')} />
+const VirtualRow = ({ item, context, className, ...props }) => (
+  <Table.Tr {...props} className={[className, item?.is_new && codeClasses.newRow, item?.is_new && classes.newRow, context?.selectedSet?.has(item?.id) && classes.selectedRow].filter(Boolean).join(' ')} />
 );
 const virtuosoComponents = {
   Table: ({ style, ...props }) => <Table {...props} className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0} style={{ ...style, width: '100%', tableLayout: 'fixed' }} />,
@@ -526,6 +533,7 @@ export default function OutboundRegisterPage() {
   const [masterPickerTarget, setMasterPickerTarget] = useState(null);
   const [unitOptions, setUnitOptions] = useState({ price: [], quantity: [], warehouse: [] });
   const virtuosoRef = useRef(null);
+  const detailScrollerRef = useRef(null);
   const initialReceiptLoadRef = useRef(false);
   const codeInputsRef = useRef(new Map());
   const cellInputsRef = useRef(new Map());
@@ -540,10 +548,19 @@ export default function OutboundRegisterPage() {
   const receiptHorizontalScrollRef = useRef(null);
   const locked = isReceiptConfirmed(subulyn);
   const readOnly = Boolean(selectedReceiptno) || locked;
-  const hasManagerChanges = Boolean(selectedReceiptno) && rows.some((row) => row.manager_dirty);
-  const hasPendingChanges = documentDirty || rows.some((row) => row.is_new || row.is_dirty);
+  const hasManagerChanges = useMemo(() => Boolean(selectedReceiptno) && rows.some((row) => row.manager_dirty), [selectedReceiptno, rows]);
+  const hasPendingChanges = useMemo(() => documentDirty || rows.some((row) => row.is_new || row.is_dirty), [documentDirty, rows]);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const virtualRows = useMemo(() => rows.map((row) => ({ ...row, is_selected: selectedSet.has(row.id) })), [rows, selectedSet]);
+  const virtuosoContext = useMemo(() => ({ selectedSet }), [selectedSet]);
+  const detailTotals = useMemo(() => rows.reduce((totals, row) => {
+    const amount = Number(amountOf(row, unitOptions.price)) || 0;
+    const vat = Number(vatAmountOf(row, unitOptions.price)) || 0;
+    totals.weight += Number(cleanNumericInput(row.weight)) || 0;
+    totals.amount += amount;
+    totals.vat += vat;
+    totals.total += amount + vat;
+    return totals;
+  }, { weight: 0, amount: 0, vat: 0, total: 0 }), [rows, unitOptions.price]);
   const receiptAutoWidths = useMemo(() => Object.fromEntries(RECEIPT_COLUMNS.map((column) => {
     const values = receipts.map((receipt) => receipt[column.key]);
     if (column.key === 'total_weight') {
@@ -983,7 +1000,10 @@ export default function OutboundRegisterPage() {
     setDocumentDirty(true);
     setStockPickerOpen(false);
     selectionAnchorRef.current = '';
-    requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: rows.length + addedRows.length - 1, align: 'end', behavior: 'auto' }));
+    requestAnimationFrame(() => {
+      virtuosoRef.current?.scrollToIndex({ index: rows.length + addedRows.length - 1, align: 'end', behavior: 'auto' });
+      if (detailScrollerRef.current) detailScrollerRef.current.scrollTop = detailScrollerRef.current.scrollHeight;
+    });
   }, [rows.length, unitOptions.price]);
 
   const toggleSelection = useCallback((id, shiftKey = false) => {
@@ -1348,7 +1368,7 @@ export default function OutboundRegisterPage() {
   ), [selectedSet, saving, readOnly, selectedReceiptno, locked, unitOptions, toggleSelection, changeDetail, pasteRange, registerCodeInput, registerCellInput, openMasterPicker, openCustomerPicker, setActiveCell]);
 
   const headerColumns = [
-    { key: 'select', width: 44, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="상세 전체 선택" checked={rows.length > 0 && rows.every((row) => selectedSet.has(row.id))} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
+    { key: 'select', width: 44, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="상세 전체 선택" checked={rows.length > 0 && selectedIds.length === rows.length} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
     { key: 'number', width: 58, minWidth: 48, className: codeClasses.numberCol, label: 'No.' },
     ...DETAIL_FIELDS.map(({ key, label, width, required }) => ({ key, width, minWidth: 70, label: <>{label}{required && <span className={codeClasses.required}> *</span>}</> })),
   ];
@@ -1468,9 +1488,15 @@ export default function OutboundRegisterPage() {
             </Group>
           </Group>
 
-          <Box className={`${codeClasses.tableWrap} ${!detailLoading && !rows.length ? inboundClasses.emptyDetailWrap : ''}`} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
+          <Box ref={detailScrollerRef} className={`${codeClasses.tableWrap} ${(rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? classes.savedDetailScroller : ''} ${!detailLoading && !rows.length ? inboundClasses.emptyDetailWrap : ''}`} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
             {detailLoading ? <Box className={classes.receiptLoading}><Loader size="sm" color="red" /></Box> : rows.length ? (
-              <TableVirtuoso ref={virtuosoRef} data={virtualRows} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} defaultItemHeight={42} increaseViewportBy={{ top: 160, bottom: 320 }} fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>} itemContent={rowContent} />
+              (rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? <>
+                <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
+                  style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
+                  <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
+                  <Table.Tbody>{rows.map((row, index) => <Table.Tr key={row.id} className={selectedSet.has(row.id) ? classes.selectedRow : ''}>{rowContent(index, row)}</Table.Tr>)}</Table.Tbody>
+                </Table>
+              </> : <TableVirtuoso ref={virtuosoRef} data={rows} context={virtuosoContext} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} increaseViewportBy={{ top: 84, bottom: 84 }} fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>} itemContent={rowContent} />
             ) : (
               <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
                 style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
@@ -1485,11 +1511,11 @@ export default function OutboundRegisterPage() {
           </Box>
           <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="flex-end" wrap="wrap">
             <Group gap={16} wrap="wrap" justify="flex-end">
-              <Text size="xs" fw={700}>합계 중량 {rows.reduce((sum, row) => sum + (Number(cleanNumericInput(row.weight)) || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 3 })} kg</Text>
+              <Text size="xs" fw={700}>합계 중량 {detailTotals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 })} kg</Text>
               <Text size="xs" fw={700}>
-                공급가 {formatWon(rows.reduce((sum, row) => sum + (Number(amountOf(row, unitOptions.price)) || 0), 0).toFixed(2))}
-                {' · '}부가세 {formatWon(rows.reduce((sum, row) => sum + (Number(vatAmountOf(row, unitOptions.price)) || 0), 0).toFixed(2))}
-                {' · '}합계 {formatWon(rows.reduce((sum, row) => sum + (Number(amountOf(row, unitOptions.price)) || 0) + (Number(vatAmountOf(row, unitOptions.price)) || 0), 0).toFixed(2))}
+                공급가 {formatWon(detailTotals.amount.toFixed(2))}
+                {' · '}부가세 {formatWon(detailTotals.vat.toFixed(2))}
+                {' · '}합계 {formatWon(detailTotals.total.toFixed(2))}
               </Text>
             </Group>
           </Group>

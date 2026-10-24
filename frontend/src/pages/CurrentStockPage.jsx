@@ -16,7 +16,7 @@ const createDefaultFilters = () => {
   const month = now.getMonth();
   const pad = (value) => String(value).padStart(2, '0');
   return {
-    sourcetype: '', customname: '', item_search: '', warehouse_search: '',
+    sourcetype: '', customname: '', item_search: '', product_search: '', warehouse_search: '',
     date_from: `${year}-${pad(month + 1)}-01`,
     date_to: `${year}-${pad(month + 1)}-${pad(new Date(year, month + 1, 0).getDate())}`,
   };
@@ -93,6 +93,7 @@ export default function CurrentStockPage() {
         </Box>
         <TextInput label="거래처명" placeholder="거래처명 검색" value={inputs.customname} onChange={(event) => setInputs((current) => ({ ...current, customname: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && search()} />
         <TextInput label="품목" placeholder="품목코드 또는 품목명" value={inputs.item_search} onChange={(event) => setInputs((current) => ({ ...current, item_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && search()} />
+        <TextInput label="제품번호" placeholder="제품번호 검색" value={inputs.product_search} onChange={(event) => setInputs((current) => ({ ...current, product_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && search()} />
         <TextInput label="창고" placeholder="창고코드 또는 창고명" value={inputs.warehouse_search} onChange={(event) => setInputs((current) => ({ ...current, warehouse_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && search()} />
         <Select label="잔량 0 표시" data={[{ value: 'N', label: '제외' }, { value: 'Y', label: '포함' }]} value={includeZero ? 'Y' : 'N'} onChange={(value) => { setIncludeZero(value === 'Y'); setPage(1); }} />
       </Stack>
@@ -125,7 +126,6 @@ export default function CurrentStockPage() {
           { key: 'weight', label: '현재중량', width: 90, minWidth: 78, render: (item) => numberText(item.weight) },
           { key: 'unit', label: '단가기준', width: 75, minWidth: 65, render: (item) => item.unit || '' },
           { key: 'unitprice', label: '매입단가', width: 90, minWidth: 78, render: (item) => numberText(item.unitprice) },
-          { key: 'warehousecode', label: '창고코드', width: 90, minWidth: 78, render: (item) => item.warehousecode },
           { key: 'warehousecodename', label: '창고명', width: 110, minWidth: 95, render: (item) => item.warehousecodename },
           { key: 'created_at', label: '등록일자', width: 145, minWidth: 130, render: (item) => timestampText(item.created_at) },
           { key: 'updated_at', label: '수정일자', width: 145, minWidth: 130, render: (item) => timestampText(item.updated_at) },
