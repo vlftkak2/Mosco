@@ -382,6 +382,16 @@ def update_stand_prices(companyid: str, items: list[dict]):
                 companyid, item["lineno"],
             ) for item in items],
         )
+        if current_stock_module._uses_source_lines(cursor):
+            for item in items:
+                cursor.execute(
+                    """UPDATE CurrentStock01t
+                       SET unit = NULLIF(%s, ''), unitprice = %s, updated_at = CURRENT_TIMESTAMP
+                       WHERE companyid = %s AND sourcetype = 'OPENING' AND sourceline = %s""",
+                    (item["unit"], item["unitprice"], companyid, item["lineno"]),
+                )
+                if cursor.rowcount != 1:
+                    raise ValueError(f"기초재고 현재고 원천 라인을 찾을 수 없습니다: {item['lineno']}")
     return len(items)
 
 

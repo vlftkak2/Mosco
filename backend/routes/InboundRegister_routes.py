@@ -13,8 +13,10 @@ def get_receipts(
     page_size: int = Query(default=50, ge=1, le=200),
     q: str = Query(default="", max_length=150),
     receiptno: str = Query(default="", max_length=100),
+    customer: str = Query(default="", max_length=100),
     customcode: str = Query(default="", max_length=50),
     customname: str = Query(default="", max_length=100),
+    warehouse: str = Query(default="", max_length=100),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
     user: dict = Depends(security_module.get_current_user),
@@ -24,7 +26,7 @@ def get_receipts(
     try:
         return {"success": True, **inbound_module.list_receipts(
             user["companyid"], page, page_size, q, date_from, date_to,
-            receiptno=receiptno, customcode=customcode, customname=customname,
+            receiptno=receiptno, customer=customer, customcode=customcode, customname=customname, warehouse=warehouse,
         )}
     except Exception as error:
         raise HTTPException(status_code=500, detail="입고 목록을 조회하지 못했습니다.") from error
@@ -58,6 +60,23 @@ def save_receipt(
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
         raise HTTPException(status_code=500, detail="입고 저장 중 오류가 발생했습니다.") from error
+
+
+@router.patch("/receipts/{receiptno}/manager")
+def update_receipt_managers(
+    receiptno: str,
+    data: inbound_module.InboundManagerUpdateRequest,
+    user: dict = Depends(security_module.get_current_user),
+):
+    try:
+        updated_count = inbound_module.update_receipt_managers(
+            user["companyid"], receiptno, [item.model_dump() for item in data.items],
+        )
+        return {"success": True, "updated_count": updated_count}
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=500, detail="\ub2f4\ub2f9\uc790 \uc218\uc815 \uc911 \uc624\ub958\uac00 \ubc1c\uc0dd\ud588\uc2b5\ub2c8\ub2e4.") from error
 
 
 @router.delete("/receipts/{receiptno}")

@@ -57,7 +57,8 @@ def list_outbound_details(
     with outbound_register_module._connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             f"""
-            SELECT COUNT(*)
+            SELECT COUNT(DISTINCT h.receiptno), COUNT(*),
+                   COALESCE(SUM(d.qty), 0), COALESCE(SUM(d.weight), 0), COALESCE(SUM(d.unitamt), 0)
             FROM Outbound01t AS h
             JOIN Outbound02t AS d
               ON d.companyid = h.companyid
@@ -66,7 +67,8 @@ def list_outbound_details(
             """,
             params,
         )
-        total = cursor.fetchone()[0]
+        receipt_count, detail_count, total_qty, total_weight, total_amount = cursor.fetchone()
+        total = detail_count
 
         cursor.execute(
             f"""
@@ -87,7 +89,19 @@ def list_outbound_details(
         )
         rows = [outbound_register_module._row_dict(cursor, row) for row in cursor.fetchall()]
 
-    return {"items": rows, "total": total, "page": page, "page_size": page_size}
+    return {
+        "items": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "summary": {
+            "receipt_count": receipt_count,
+            "detail_count": detail_count,
+            "total_qty": total_qty,
+            "total_weight": total_weight,
+            "total_amount": total_amount,
+        },
+    }
 
 
 def write_outbound_details_excel(
@@ -106,7 +120,7 @@ def write_outbound_details_excel(
     )
     headers = [
         "No.", "출고일자", "출고전표번호", "거래처코드", "거래처명", "품목코드", "품목명", "규격",
-        "수량", "수량단위", "창고코드", "창고명", "출고중량", "단가기준", "판매단가", "금액", "비고", "상세 등록일자", "상세 수정일자",
+        "수량", "수량단위", "창고코드", "창고명", "출고중량", "단가기준", "판매단가", "출고금액", "비고", "상세 등록일자", "상세 수정일자",
     ]
     query = f"""
         SELECT h.receptdate, h.receiptno, h.customcode, h.customname,

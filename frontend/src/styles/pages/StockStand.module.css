@@ -1,14 +1,28 @@
-.page { min-width: 0; max-width: 100%; box-sizing: border-box; gap: 14px; }
+.page {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
 .workspace {
   display: grid;
   width: 100%;
   min-width: 0;
-  height: max(540px, calc(100vh - 285px));
-  min-height: 540px;
-  flex: 0 0 auto;
+  height: 0;
+  min-height: 0;
+  flex: 1 1 0;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
+  overflow: hidden;
 }
 .editorPanel {
   display: flex !important;
@@ -22,17 +36,44 @@
   container-type: inline-size;
   box-shadow: 0 4px 16px #26364e09;
 }
-.codeHeader { min-width: 0; align-items: center; }
+.codeHeader {
+  min-width: 0;
+  min-height: 42px;
+  align-items: center;
+  padding: 5px 13px;
+  background: #fff;
+}
 .headerActions { min-width: 0; justify-content: flex-end; }
-.headerActions :global(.mantine-Button-root) { white-space: nowrap; }
-.filterToolbar { min-width: 0; flex: 0 0 auto; }
+.headerActions :global(.mantine-Button-root) {
+  height: 32px;
+  min-height: 32px;
+  padding-inline: 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.filterToolbar { min-width: 0; flex: 0 0 auto; padding: 8px 12px; background: #fff; }
 .searchGroup { min-width: 0; flex: 1 1 480px; }
 .dateFilter { flex: 0 0 165px; }
 .stockSearch { min-width: 180px; width: min(340px, 100%); flex: 1 1 220px; }
-.stockSearch :global(.mantine-Input-input), .dateFilter :global(.mantine-Input-input) { min-height: 40px; font-size: 14px; }
-.dateFilter :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #475569; font-size: 12px; font-weight: 650; }
+.stockSearch :global(.mantine-Input-input), .dateFilter :global(.mantine-Input-input) {
+  height: 33px;
+  min-height: 33px;
+  font-size: 12px;
+}
+.dateFilter :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #526079; font-size: 12px; font-weight: 600; }
+.filterToolbar :global(.mantine-Button-root) { height: 33px; min-height: 33px; padding-inline: 11px; font-size: 11px; }
 .listActions { min-width: 0; flex: 0 1 auto; align-self: flex-end; }
-.detailToolbar { flex: 0 0 auto; }
+.detailToolbar { min-height: 42px; flex: 0 0 auto; padding: 9px 13px; background: #fff; }
+.sectionTitle { color: #252a32 !important; font-size: 14px !important; font-weight: 700 !important; line-height: 1.25; }
+.editorPanel :global(.mantine-Badge-root) {
+  min-height: 20px;
+  padding: 3px 7px;
+  border-radius: 12px;
+  background: #eef2f7;
+  color: #738098;
+  font-size: 11px;
+  font-weight: 400;
+}
 .tableViewport { height: 0; min-height: 0; flex: 1 1 auto; overflow: hidden; }
 .tableViewport :global([data-virtuoso-scroller]) {
   overflow-x: auto !important;
@@ -46,6 +87,9 @@
 .tableViewport :global([data-virtuoso-scroller])::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
 .tableViewport :global([data-virtuoso-scroller])::-webkit-scrollbar-track { background: #f1f4f7; }
 .table { table-layout: fixed; }
+.table :global(tbody td),
+.table :global(tbody input),
+.table :global(tbody select) { font-size: 11px; }
 .newRow > td { background: #fffbf4 !important; }
 .newRowNumber { background: #fffbf4 !important; }
 .table td input, .table td select { width: 100%; min-width: 0; }
@@ -54,7 +98,7 @@
 .savedEditableCell:focus-within { background: #fffaf0 !important; }
 .savedEditableCell:focus-within :global(input) { background: #fffaf0 !important; }
 .footer { flex: 0 0 auto; padding: 9px 14px; border-top: 1px solid #e5e9ef; }
-.stockFooter { position: static; z-index: auto; width: 100%; min-width: 0; flex: 0 0 auto; align-self: stretch; gap: 8px 16px; margin-top: auto; background: #fff; }
+.stockFooter { position: static; z-index: auto; width: 100%; min-width: 0; min-height: 38px; flex: 0 0 auto; align-self: stretch; gap: 8px 16px; margin-top: auto; padding: 5px 12px; background: #fff; }
 .paginationBar { min-width: 0; margin-left: auto; }
 .footerNotice { flex: 1 1 520px; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
 .loading { display: grid; height: 100%; min-height: 300px; place-items: center; }
@@ -70,7 +114,8 @@
 }
 
 @media (max-width: 760px) {
-  .workspace { height: auto; min-height: 0; }
+  .page { height: auto; min-height: calc(100dvh - 90px); flex: 0 0 auto; overflow: visible; }
+  .workspace { height: auto; min-height: 0; flex: 0 0 auto; overflow: visible; }
   .editorPanel { height: 640px; min-height: 640px; max-height: 640px; }
   .headerActions { width: 100%; justify-content: flex-start; }
   .searchGroup { align-items: flex-end; }

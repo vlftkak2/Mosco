@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   ActionIcon,
@@ -10,25 +10,28 @@ import {
   Modal,
   Pagination,
   Paper,
+  Popover,
   ScrollArea,
   Select,
   Stack,
   Table,
   Text,
   TextInput,
-  Title,
   Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconDeviceFloppy, IconDownload, IconPlus, IconSearch, IconTrash, IconUpload } from '@tabler/icons-react';
+import { IconDownload, IconSearch, IconTrash, IconUpload, IconX } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
-import * as XLSX from 'xlsx-js-style';
+import * as XLSX from 'xlsx';
 import { applyExcelHeaderStyle } from '../utils/excelHeaderStyle';
+import ErpBreadcrumb from '../components/common/ErpBreadcrumb';
+import ErpRibbon from '../components/common/ErpRibbon';
+import { PageRibbonContext } from '../components/layout/MainLayout';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
 import classes from '../styles/pages/ItemMaster.module.css';
+import inboundClasses from '../styles/pages/InboundRegister.module.css';
 import outboundClasses from '../styles/pages/OutboundRegister.module.css';
 import codeClasses from '../styles/pages/CodeMasterPage.module.css';
-import dashboardClasses from '../styles/pages/HomePage.module.css';
 
 const authHeaders = () => ({
   Authorization: `Bearer ${localStorage.getItem('access_token') || ''}`,
@@ -42,33 +45,72 @@ const FIELDS = [
   { key: 'description', label: '설명', width: 200 },
 ];
 const EDITABLE_FIELDS = FIELDS.map(({ key }) => key);
+const ITEM_FIELD_LABELS = Object.fromEntries(FIELDS.map(({ key, label }) => [key, label]));
 const EMPTY_ITEM = {
   itemcode: '', itemname: '', itemtypecode: '', use_yn: 'Y', description: '',
 };
 
-const errorMessage = (error) => {
+const saveFailureNotice = (error, changed, rows, filteredRows, source = 'table') => {
   const detail = error.response?.data?.detail;
-  if (Array.isArray(detail)) return detail.map((item) => item.msg || String(item)).join(', ');
-  return detail || error.response?.data?.message || error.message || '품목 요청에 실패했습니다.';
-};
+  const rowNumber = (row) => {
+    const visibleIndex = filteredRows.findIndex((candidate) => candidate.id === row?.id);
+    const index = visibleIndex >= 0 ? visibleIndex : rows.findIndex((candidate) => candidate.id === row?.id);
+    return index >= 0 ? index + 1 : null;
+  };
 
-const saveErrorMessage = (error, rows) => {
-  const detail = error.response?.data?.detail;
-  if (Array.isArray(detail)) {
-    const requiredFieldErrors = detail.filter((item) => item.type === 'string_too_short');
-    if (requiredFieldErrors.length) {
-      return requiredFieldErrors.map((item) => {
-        const field = item.loc?.at(-1);
-        const itemIndex = item.loc?.findIndex((part) => part === 'items') ?? -1;
-        const rowIndex = itemIndex >= 0 ? Number(item.loc[itemIndex + 1]) : -1;
-        const fieldName = field === 'itemcode' ? '품목코드' : field === 'itemname' ? '품목명' : '';
-        return fieldName && Number.isInteger(rowIndex) && rowIndex >= 0
-          ? `${rowIndex + 1}행 ${fieldName}을 입력해 주세요.`
-          : fieldName ? `${fieldName}을 입력해 주세요.` : '';
-      }).filter(Boolean).join(' ');
-    }
+  if (Array.isArray(detail) && detail.length) {
+    const messages = detail.slice(0, 5).map((issue) => {
+      const location = Array.isArray(issue.loc) ? issue.loc : [];
+      const itemsIndex = location.indexOf('items');
+      const batchIndex = itemsIndex >= 0 ? Number(location[itemsIndex + 1]) : -1;
+      const row = Number.isInteger(batchIndex) && batchIndex >= 0 ? changed[batchIndex] : null;
+      const number = source === 'excel' && row ? batchIndex + 2 : rowNumber(row);
+      const rowPrefix = number ? (source === 'excel' ? '엑셀 ' : '') + number + '행 ' : '';
+      const field = location.at(-1);
+      const rawReason = String(issue.msg || '서버 검증 실패').replace(/^Value error,\s*/i, '');
+      if (field && ITEM_FIELD_LABELS[field]) return rowPrefix + ITEM_FIELD_LABELS[field] + ' (' + field + '): ' + rawReason;
+      if (field && field !== 'items' && field !== 'body') {
+        return rowPrefix + '전송 필드 "' + field + '"를 서버가 인식하지 못했습니다. 키 매핑을 확인해 주세요. (' + rawReason + ')';
+      }
+      return rowPrefix + rawReason;
+    });
+    return {
+      title: '입력 데이터 검증 실패',
+      message: messages.join(' / ') + (detail.length > 5 ? ' 외 ' + (detail.length - 5) + '건' : ''),
+      color: 'orange',
+    };
   }
-  return errorMessage(error) || `저장 중 문제가 발생했습니다. 입력 내용을 확인해 주세요. (${rows.length}행)`;
+
+  if (typeof detail === 'string' && detail.trim()) {
+    if (/중복.*품목코드|이미 등록된 품목코드/i.test(detail)) {
+      const conflict = changed.find((item) => item.itemcode && detail.includes(String(item.itemcode).trim()));
+      const conflictIndex = conflict ? changed.indexOf(conflict) : -1;
+      const fileRow = source === 'excel' && conflictIndex >= 0 ? ' 엑셀 ' + (conflictIndex + 2) + '행' : '';
+      return { title: '품목코드 중복', message: detail + fileRow + ' 입력 행과 기존 품목의 코드를 확인해 주세요.', color: 'orange' };
+    }
+    if (/형태구분/.test(detail)) {
+      const conflict = changed.find((item) => item.itemcode && detail.includes(String(item.itemcode).trim()));
+      const conflictIndex = conflict ? changed.indexOf(conflict) : -1;
+      const fileRow = source === 'excel' && conflictIndex >= 0 ? ' 엑셀 ' + (conflictIndex + 2) + '행' : '';
+      return { title: '형태구분 확인 필요', message: detail + fileRow + ' 코드마스터의 SHAPE 그룹에서 코드와 사용 상태를 확인해 주세요.', color: 'orange' };
+    }
+    if (error.response?.status >= 500) {
+      return { title: '서버 저장 오류', message: detail + ' 서버 로그와 데이터베이스 제약 조건을 확인해 주세요.', color: 'red' };
+    }
+    return { title: '저장 실패', message: detail, color: 'orange' };
+  }
+
+  if (error.response?.status === 401 || error.response?.status === 403) {
+    return { title: '저장 권한 확인 필요', message: '로그인 상태와 품목 저장 권한을 확인해 주세요.', color: 'red' };
+  }
+  if (!error.response) {
+    return { title: '서버 연결 실패', message: '저장 API에 연결하지 못했습니다. 백엔드 실행 상태와 네트워크를 확인해 주세요.', color: 'red' };
+  }
+  return {
+    title: '저장 실패 (HTTP ' + (error.response.status || '오류') + ')',
+    message: '서버 응답에 상세 사유가 없습니다. 전송 필드 키 매핑과 백엔드 로그를 확인해 주세요.',
+    color: 'red',
+  };
 };
 
 const newRow = () => ({
@@ -109,6 +151,16 @@ const ItemCells = memo(function ItemCells({ item, index, selected, disabled, sha
   const shapeDisplay = item.itemtypecode ? (selectedShape?.name || item.itemtypecodenm || item.itemtypecode) : '';
   const [shapeCodeDraft, setShapeCodeDraft] = useState(item.itemtypecode || '');
   const [isEditingShape, setIsEditingShape] = useState(false);
+  const shapeMatches = shapeCodeDraft.trim()
+    ? shapeOptions.filter((option) => [option.code, option.name]
+      .some((value) => normalizeShapeInput(value).includes(normalizeShapeInput(shapeCodeDraft)))).slice(0, 8)
+    : [];
+
+  const chooseShape = (option) => {
+    setShapeCodeDraft(option.name || option.code);
+    setIsEditingShape(false);
+    onChange(item.id, 'itemtypecode', option.code);
+  };
 
   const handlePaste = (field) => (event) => {
     const text = event.clipboardData.getData('text/plain');
@@ -136,40 +188,67 @@ const ItemCells = memo(function ItemCells({ item, index, selected, disabled, sha
       {FIELDS.map(({ key, label }) => (
         <Table.Td key={key}>
           {key === 'itemtypecode' ? (
-            <input
-              ref={(element) => registerCellInput(item.id, key, element)}
-              className={`${codeClasses.cellInput} ${outboundClasses.itemCodePickerInput} ${classes.shapePickerInput}`}
-              aria-label={label}
-              data-row-id={item.id}
-              data-field={key}
-              value={isEditingShape ? shapeCodeDraft : shapeDisplay}
-              placeholder=""
-              title="형태구분 코드 직접 입력 또는 더블클릭하여 선택"
-              disabled={disabled}
-              onFocus={(event) => {
-                setShapeCodeDraft(shapeDisplay);
-                setIsEditingShape(true);
-                onFocusCell(item.id, key);
-                event.currentTarget.select();
-              }}
-              onBlur={() => {
-                if (!isEditingShape) return;
-                const code = shapeCodeDraft === shapeDisplay
-                  ? (item.itemtypecode || '')
-                  : resolveShapeCode(shapeCodeDraft, shapeOptions);
-                setIsEditingShape(false);
-                if (code !== (item.itemtypecode || '')) onChange(item.id, key, code);
-              }}
-              onChange={(event) => setShapeCodeDraft(event.currentTarget.value)}
-              onPaste={handlePaste(key)}
-              onKeyDown={(event) => {
-                if (event.key === 'F2' || event.key === ' ') {
-                  event.preventDefault();
-                  if (!disabled) onFindShape(item.id);
-                } else onCellKeyDown(event);
-              }}
-              onDoubleClick={() => { if (!disabled) onFindShape(item.id); }}
-            />
+            <Popover opened={isEditingShape && shapeMatches.length > 0} position="bottom-start" withinPortal width="target" shadow="none" offset={0} zIndex={500}>
+              <Popover.Target>
+                <div className={classes.shapeInputTarget}>
+                  <input
+                    ref={(element) => registerCellInput(item.id, key, element)}
+                    className={`${codeClasses.cellInput} ${outboundClasses.itemCodePickerInput} ${classes.shapePickerInput}`}
+                    aria-label={label}
+                    aria-autocomplete="list"
+                    aria-expanded={isEditingShape && shapeMatches.length > 0}
+                    data-row-id={item.id}
+                    data-field={key}
+                    value={isEditingShape ? shapeCodeDraft : shapeDisplay}
+                    placeholder=""
+                    title="형태구분 코드 또는 명칭 검색"
+                    disabled={disabled}
+                    onFocus={(event) => {
+                      setShapeCodeDraft(shapeDisplay);
+                      setIsEditingShape(true);
+                      onFocusCell(item.id, key);
+                      event.currentTarget.select();
+                    }}
+                    onBlur={() => {
+                      if (!isEditingShape) return;
+                      const code = shapeCodeDraft === shapeDisplay
+                        ? (item.itemtypecode || '')
+                        : resolveShapeCode(shapeCodeDraft, shapeOptions);
+                      setIsEditingShape(false);
+                      if (code !== (item.itemtypecode || '')) onChange(item.id, key, code);
+                    }}
+                    onChange={(event) => setShapeCodeDraft(event.currentTarget.value)}
+                    onPaste={handlePaste(key)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'F2' || event.key === ' ') {
+                        event.preventDefault();
+                        if (!disabled) onFindShape(item.id);
+                      } else if (event.key === 'Enter' && shapeMatches.length > 0) {
+                        event.preventDefault();
+                        chooseShape(shapeMatches[0]);
+                      } else onCellKeyDown(event);
+                    }}
+                    onDoubleClick={() => { if (!disabled) onFindShape(item.id); }}
+                  />
+                </div>
+              </Popover.Target>
+              <Popover.Dropdown className={classes.shapeSuggestions} role="listbox" aria-label="형태구분 검색 결과">
+                {shapeMatches.map((option) => (
+                  <button
+                    key={option.code}
+                    type="button"
+                    className={classes.shapeSuggestion}
+                    role="option"
+                    aria-label={`${option.code} ${option.name}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => chooseShape(option)}
+                  >
+                    <span>{option.name}</span>
+                    <small>{option.code}</small>
+                  </button>
+                ))}
+              </Popover.Dropdown>
+            </Popover>
           ) : key === 'use_yn' ? (
             <select ref={(element) => registerCellInput(item.id, key, element)} className={codeClasses.cellSelect} aria-label={label} data-row-id={item.id} data-field={key} value={item.use_yn || 'Y'} disabled={disabled} onFocus={() => onFocusCell(item.id, key)} onKeyDown={onCellKeyDown} onPaste={handlePaste(key)} onChange={(event) => onChange(item.id, key, event.currentTarget.value)}>
               <option value="Y">사용중</option>
@@ -236,15 +315,15 @@ const ShapePickerModal = memo(function ShapePickerModal({ opened, onClose, optio
           autoFocus
         />
         <ScrollArea h={360} type="auto" scrollbarSize={6}>
-          <Table className={`${codeClasses.codeTable} ${outboundClasses.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
+          <Table className={inboundClasses.pickerTable} highlightOnHover withTableBorder withColumnBorders>
             <Table.Thead><Table.Tr><Table.Th>코드</Table.Th><Table.Th>코드명</Table.Th></Table.Tr></Table.Thead>
             <Table.Tbody>
               {visibleOptions.map((option) => (
-                <Table.Tr key={option.code} className={outboundClasses.customerResultRow} onClick={() => onSelect(option)}>
+                <Table.Tr key={option.code} className={inboundClasses.customerResultRow} onClick={() => onSelect(option)}>
                   <Table.Td>{option.code}</Table.Td><Table.Td>{option.name}</Table.Td>
                 </Table.Tr>
               ))}
-              {!visibleOptions.length && <Table.Tr><Table.Td colSpan={2} className={outboundClasses.customerEmpty}>{loading ? '형태구분을 불러오는 중입니다.' : '조회된 사용중 코드가 없습니다.'}</Table.Td></Table.Tr>}
+              {!visibleOptions.length && <Table.Tr><Table.Td colSpan={2} className={inboundClasses.customerEmpty}>{loading ? '형태구분을 불러오는 중입니다.' : '조회된 사용중 코드가 없습니다.'}</Table.Td></Table.Tr>}
             </Table.Tbody>
           </Table>
         </ScrollArea>
@@ -268,16 +347,21 @@ const virtuosoComponents = {
   TableHead: Table.Thead,
   TableBody: Table.Tbody,
   TableRow: VirtualRow,
-  EmptyPlaceholder: ({ context }) => (
-    <Table.Tr>
-      <Table.Td colSpan={context.columnCount} className={codeClasses.emptyPlaceholder}>
-        {context.emptyMessage}
-      </Table.Td>
-    </Table.Tr>
+  EmptyPlaceholder: ({ context = {} }) => (
+    <Table.Tbody>
+      <Table.Tr className={classes.itemEmptyRow}>
+        <Table.Td colSpan={Math.max(1, Number(context.columnCount) || 1)} className={`${codeClasses.emptyPlaceholder} ${classes.itemEmptyPlaceholder}`}>
+          {context.emptyMessage || '등록된 품목이 없습니다.'}
+        </Table.Td>
+      </Table.Tr>
+    </Table.Tbody>
   ),
 };
 
 export default function ItemMaster() {
+  const pageLayout = useContext(PageRibbonContext);
+  const registerPageRibbon = pageLayout?.registerPageRibbon;
+  const closeActivePage = pageLayout?.closeActivePage;
   const [rows, setRows] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
   const [queryInput, setQueryInput] = useState('');
@@ -285,10 +369,11 @@ export default function ItemMaster() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleteRequest, setDeleteRequest] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(true);
   const [columnWidths, setColumnWidths] = useState({});
-  const [deleteRequest, setDeleteRequest] = useState(null);
   const [shapeOptions, setShapeOptions] = useState([]);
   const [shapeLoading, setShapeLoading] = useState(false);
   const [shapePickerTarget, setShapePickerTarget] = useState('');
@@ -331,8 +416,8 @@ export default function ItemMaster() {
       setRows((data.items || []).map((item) => ({ ...item, id: `item:${item.itemcode}`, is_new: false, is_dirty: false })));
       setSelectedIds([]);
       selectionAnchorRef.current = '';
-    } catch (error) {
-      notifications.show({ title: '품목 목록 조회 실패', message: errorMessage(error), color: 'red' });
+    } catch {
+      notifications.show({ title: '품목 목록 조회 실패', message: '품목 목록을 불러오지 못했습니다.', color: 'red' });
     } finally {
       setLoading(false);
     }
@@ -346,8 +431,8 @@ export default function ItemMaster() {
       setShapeOptions((shapeGroup?.rows || [])
         .filter((row) => row.use)
         .map((row) => ({ code: row.code, name: row.name, property: row.properties?.[0] || '' })));
-    } catch (error) {
-      notifications.show({ title: '형태구분 조회 실패', message: errorMessage(error), color: 'red' });
+    } catch {
+      notifications.show({ title: '형태구분 조회 실패', message: '형태구분 목록을 불러오지 못했습니다.', color: 'red' });
       setShapeOptions([]);
     } finally {
       setShapeLoading(false);
@@ -580,6 +665,32 @@ export default function ItemMaster() {
       });
       return;
     }
+    const duplicatePairs = new Set();
+    const duplicateRows = [];
+    for (const row of changed) {
+      const itemcode = String(row.itemcode || '').trim();
+      if (!itemcode) continue;
+      const conflicts = rows.filter((candidate) => candidate.id !== row.id && String(candidate.itemcode || '').trim() === itemcode);
+      for (const conflict of conflicts) {
+        const pairKey = [String(row.id), String(conflict.id)].sort().join('|');
+        if (duplicatePairs.has(pairKey)) continue;
+        duplicatePairs.add(pairKey);
+        const rowIndex = filteredRows.findIndex((candidate) => candidate.id === row.id);
+        const conflictIndex = filteredRows.findIndex((candidate) => candidate.id === conflict.id);
+        const rowLabel = (rowIndex >= 0 ? rowIndex : rows.findIndex((candidate) => candidate.id === row.id)) + 1;
+        const conflictLabel = (conflictIndex >= 0 ? conflictIndex : rows.findIndex((candidate) => candidate.id === conflict.id)) + 1;
+        duplicateRows.push(rowLabel + '행 품목코드 "' + itemcode + '"가 ' + conflictLabel + '행과 중복됩니다.');
+      }
+    }
+    if (duplicateRows.length) {
+      notifications.show({
+        title: '품목코드 중복',
+        message: duplicateRows.slice(0, 5).join(' / ') + (duplicateRows.length > 5 ? ' 외 ' + (duplicateRows.length - 5) + '건' : ''),
+        color: 'orange',
+        autoClose: 9000,
+      });
+      return;
+    }
     setSaving(true);
     try {
       const items = changed.map(({ id, is_dirty, ...item }) => item);
@@ -587,22 +698,14 @@ export default function ItemMaster() {
       notifications.show({ title: '저장 완료', message: `${changed.length.toLocaleString()}개 품목을 저장했습니다.`, color: 'teal' });
       await loadItems();
     } catch (error) {
-      notifications.show({ title: '저장할 내용을 확인해 주세요', message: saveErrorMessage(error, changed), color: 'orange', autoClose: 8000 });
+      notifications.show({ ...saveFailureNotice(error, changed, rows, filteredRows), autoClose: 10000 });
     } finally {
       setSaving(false);
     }
   }, [rows, filteredRows, loadItems]);
 
-  const requestDeleteSelected = useCallback(() => {
-    const selected = filteredRows.filter((row) => selectedIds.includes(row.id));
-    if (selected.length) setDeleteRequest({ rows: selected });
-  }, [filteredRows, selectedIds]);
-
-  const requestDeleteOne = useCallback((row) => setDeleteRequest({ rows: [row] }), []);
-
-  const confirmDelete = useCallback(async () => {
-    const selected = deleteRequest?.rows || [];
-    if (!selected.length) return;
+  const deleteRows = useCallback(async (selected) => {
+    if (!selected.length || saving) return false;
     const selectedRowIds = new Set(selected.map((row) => row.id));
     const savedCodes = selected.filter((row) => !row.is_new).map((row) => row.itemcode);
     setSaving(true);
@@ -613,19 +716,57 @@ export default function ItemMaster() {
       setRows((current) => current.filter((row) => !selectedRowIds.has(row.id)));
       setSelectedIds([]);
       notifications.show({ title: '삭제 완료', message: `${selected.length.toLocaleString()}개 품목을 삭제했습니다.`, color: 'teal' });
-      setDeleteRequest(null);
-    } catch (error) {
-      notifications.show({ title: '삭제 실패', message: errorMessage(error), color: 'red' });
+      return true;
+    } catch {
+      notifications.show({ title: '삭제 실패', message: '품목 삭제 중 오류가 발생했습니다.', color: 'red' });
+      return false;
     } finally {
       setSaving(false);
     }
-  }, [deleteRequest]);
+  }, [saving]);
+
+  const requestDeleteRows = useCallback((selected) => {
+    if (!selected.length || saving) return;
+    const unsavedRows = selected.filter((row) => row.is_new);
+    const savedRows = selected.filter((row) => !row.is_new);
+    if (savedRows.length) setDeleteRequest(savedRows);
+    if (unsavedRows.length) void deleteRows(unsavedRows);
+  }, [saving, deleteRows]);
+
+  const deleteSelectedRows = useCallback(() => {
+    const selected = filteredRows.filter((row) => selectedIds.includes(row.id));
+    if (selected.length) void deleteRows(selected);
+  }, [filteredRows, selectedIds, deleteRows]);
+
+  const deleteOneRow = useCallback((row) => { requestDeleteRows([row]); }, [requestDeleteRows]);
+
+  const confirmDelete = useCallback(async () => {
+    if (!deleteRequest?.length || saving) return;
+    const deleted = await deleteRows(deleteRequest);
+    if (deleted) setDeleteRequest(null);
+  }, [deleteRequest, saving, deleteRows]);
 
   const applySearch = useCallback(() => {
     setQuery(queryInput.trim());
     setSelectedIds([]);
     selectionAnchorRef.current = '';
   }, [queryInput]);
+
+  const copySelectedRow = useCallback(() => {
+    if (selectedIds.length !== 1) return;
+    const source = filteredRows.find((row) => row.id === selectedIds[0]);
+    if (!source) return;
+    const copy = {
+      ...newRow(),
+      itemname: source.itemname || '',
+      itemtypecode: source.itemtypecode || '',
+      use_yn: source.use_yn || 'Y',
+      description: source.description || '',
+    };
+    pendingFocusIdRef.current = copy.id;
+    setRows((current) => [...current, copy]);
+    setSelectedIds([copy.id]);
+  }, [selectedIds, filteredRows]);
 
   const downloadTemplate = useCallback(() => {
     const headers = FIELDS.map(({ label }) => label);
@@ -655,24 +796,60 @@ export default function ItemMaster() {
       XLSX.utils.book_append_sheet(workbook, sheet, '품목목록');
       const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
       XLSX.writeFile(workbook, `품목목록_${date}.xlsx`);
-    } catch (error) {
-      notifications.show({ title: '엑셀 다운로드 실패', message: errorMessage(error), color: 'red' });
+    } catch {
+      notifications.show({ title: '엑셀 다운로드 실패', message: '엑셀 파일을 생성하지 못했습니다.', color: 'red' });
     } finally {
       setExporting(false);
     }
   }, [filteredRows, shapeOptions]);
+
+  useEffect(() => {
+    if (!registerPageRibbon) return undefined;
+    registerPageRibbon(
+      <ErpRibbon
+        onSearch={applySearch}
+        onAdd={addRow}
+        onCopy={copySelectedRow}
+        onExcel={exportExcel}
+        onSave={saveRows}
+        onDelete={deleteSelectedRows}
+        showPrint={false}
+        onClose={closeActivePage}
+        useSaveColor={false}
+        disabled={{ search: loading, add: loading || saving || uploading, copy: selectedIds.length !== 1 || saving || uploading, excel: loading || exporting, save: loading || uploading || saving, delete: !selectedIds.length || saving || uploading }}
+        loading={{ excel: exporting, save: saving }}
+      />,
+    );
+    return () => registerPageRibbon(null);
+  }, [registerPageRibbon, closeActivePage, applySearch, addRow, copySelectedRow, exportExcel, saveRows, deleteSelectedRows, loading, saving, uploading, exporting, selectedIds.length]);
 
   const uploadExcel = useCallback(async (event) => {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = '';
     if (!file) return;
     if (!requireNoPendingChanges()) return;
+    let imported = [];
     setUploading(true);
     try {
       const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       if (!sheet) throw new Error('엑셀 첫 번째 시트를 확인해 주세요.');
-      const imported = XLSX.utils.sheet_to_json(sheet, { defval: '' }).map(normalizeImportedRow)
+      const headerCells = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false })[0] || [];
+      const normalizeHeader = (value) => String(value ?? '').trim().toLowerCase().replace(/[\s_]/g, '');
+      const normalizedHeaders = new Set(headerCells.map(normalizeHeader));
+      const requiredHeaderAliases = {
+        itemcode: ['itemcode', '품목코드'],
+        itemname: ['itemname', '품목명'],
+        itemtypecode: ['itemtypecode', '형태구분'],
+        use_yn: ['useyn', '사용여부'],
+      };
+      const unmappedHeaders = Object.entries(requiredHeaderAliases)
+        .filter(([, aliases]) => !aliases.some((alias) => normalizedHeaders.has(normalizeHeader(alias))))
+        .map(([field]) => ITEM_FIELD_LABELS[field] + ' (' + field + ')');
+      if (unmappedHeaders.length) {
+        throw new Error('엑셀 1행 헤더/열 매핑 오류: ' + unmappedHeaders.join(', ') + ' 열 이름을 샘플양식과 맞춰 주세요.');
+      }
+      imported = XLSX.utils.sheet_to_json(sheet, { defval: '' }).map(normalizeImportedRow)
         .filter((item) => item.itemcode || item.itemname);
       if (!imported.length) throw new Error('등록할 데이터가 없습니다.');
       if (imported.length > 10000) throw new Error('한 번에 최대 10,000행까지 등록할 수 있습니다.');
@@ -701,7 +878,7 @@ export default function ItemMaster() {
         else if (!['Y', 'N'].includes(item.use_yn)) errors.push('사용여부는 Y/N 입력');
         return errors.length ? [`${index + 2}행 ${errors.join(', ')}`] : [];
       });
-      if (invalid.length) throw new Error(invalid.slice(0, 5).join(' / '));
+      if (invalid.length) throw new Error('필수값 누락 또는 값 형식 오류: ' + invalid.slice(0, 5).join(' / '));
 
       const firstCodeRows = new Map();
       const duplicateCodes = [];
@@ -733,11 +910,22 @@ export default function ItemMaster() {
       await loadItems();
       notifications.show({ title: '일괄 등록 완료', message: `${imported.length.toLocaleString()}개 품목을 등록했습니다.`, color: 'teal' });
     } catch (error) {
-      notifications.show({ title: '일괄 등록 중단', message: errorMessage(error), color: 'red', autoClose: 9000 });
+      const notice = error.response
+        ? saveFailureNotice(error, imported, rows, filteredRows, 'excel')
+        : {
+            title: /중복.*품목코드|이미 등록된 품목코드/i.test(error.message || '') ? '품목코드 중복'
+              : /형태구분/.test(error.message || '') ? '형태구분 확인 필요'
+                : /헤더|열 매핑/.test(error.message || '') ? '엑셀 열 매핑 오류'
+                  : /누락|형식 오류/.test(error.message || '') ? '엑셀 데이터 검증 실패'
+                    : '엑셀 업로드 실패',
+            message: error.message || '엑셀 일괄등록을 완료하지 못했습니다.',
+            color: 'red',
+          };
+      notifications.show({ ...notice, autoClose: 10000 });
     } finally {
       setUploading(false);
     }
-  }, [requireNoPendingChanges, loadItems, rows, shapeOptions]);
+  }, [requireNoPendingChanges, loadItems, rows, filteredRows, shapeOptions]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const rowContent = useCallback((index, item) => (
@@ -755,9 +943,9 @@ export default function ItemMaster() {
       registerCellInput={registerCellInput}
       onFocusCell={setActiveCell}
       onCellKeyDown={handleTableKeyDown}
-      onDelete={requestDeleteOne}
+      onDelete={deleteOneRow}
     />
-  ), [selectedSet, saving, uploading, shapeOptions, toggleSelection, changeCell, pasteRange, openShapePicker, registerCodeInput, registerCellInput, setActiveCell, handleTableKeyDown, requestDeleteOne]);
+  ), [selectedSet, saving, uploading, shapeOptions, toggleSelection, changeCell, pasteRange, openShapePicker, registerCodeInput, registerCellInput, setActiveCell, handleTableKeyDown, deleteOneRow]);
   const headerColumns = [
     { key: 'select', width: 46, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="현재 목록 전체 선택" checked={filteredRows.length > 0 && filteredRows.every((row) => selectedSet.has(row.id))} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
     { key: 'number', width: 62, minWidth: 48, className: codeClasses.numberCol, label: 'No.' },
@@ -768,7 +956,7 @@ export default function ItemMaster() {
   const renderResizableHeader = (column) => {
     const width = columnWidths[column.key] ?? column.width;
     return (
-      <Table.Th key={column.key} className={[codeClasses.resizableHeader, column.className].filter(Boolean).join(' ')} style={{ width }}>
+      <Table.Th key={column.key} className={[codeClasses.resizableHeader, classes.itemTableHeader, column.className].filter(Boolean).join(' ')} style={{ width }}>
         {column.label}
         <span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeColumn(event, column.key, column.width, column.minWidth, tableWidth)} role="separator" aria-label={`${column.key} 열 너비 조절`} />
       </Table.Th>
@@ -777,69 +965,29 @@ export default function ItemMaster() {
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-      <Paper className={dashboardClasses.dashboardHeader}>
-        <Box className={dashboardClasses.headerCopy}>
-          <Text className={sharedClasses.breadcrumb}>시스템 관리 <span>›</span> 기준정보 관리</Text>
-          <Title order={1} className={dashboardClasses.pageTitle}>품목코드 <span>관리</span></Title>
-          <Text className={dashboardClasses.pageSubtitle}>회사별 품목코드와 품목명, 형태구분 및 사용 여부를 관리합니다.</Text>
-          <Group className={dashboardClasses.sampleNotice} gap={8}>
-            <span className={dashboardClasses.statusDot} />
-            <Text size="xs">System Active</Text>
-          </Group>
-        </Box>
-      </Paper>
+      <ErpBreadcrumb parent="기본정보관리" current="품목코드" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
 
       <Box className={classes.workspace}>
       <Paper className={`${sharedClasses.panel} ${codeClasses.codePanel}`} withBorder>
         <Group className={codeClasses.codeHeader} justify="space-between" align="flex-start" wrap="wrap" gap="sm">
           <Box>
-            <Group gap={9} align="center"><Text className={codeClasses.codeTitle} fw={800}>품목 등록</Text><Badge color="red" variant="light">{rows.length}개</Badge></Group>
+            <Group gap={9} align="center"><Text className={classes.itemTitle}>품목 등록</Text><Badge className={classes.itemCount}>{rows.length}개</Badge></Group>
             <Text size="xs" c="dimmed" mt={5}>회사별 품목코드, 품목명, 형태구분 및 사용 여부를 관리합니다.</Text>
           </Box>
-          <Group gap={7} align="flex-end" wrap="wrap">
-            <Select
-              className={codeClasses.statusFilter}
-              label="사용 여부"
-              aria-label="사용 여부 필터"
-              value={statusFilter === 'Y' ? '사용중' : statusFilter === 'N' ? '사용중지' : '전체'}
-              onChange={(value) => { setStatusFilter(value === '사용중' ? 'Y' : value === '사용중지' ? 'N' : 'all'); setSelectedIds([]); selectionAnchorRef.current = ''; }}
-              data={['전체', '사용중', '사용중지']}
-              w={126}
-              size="sm"
-              allowDeselect={false}
-              disabled={loading}
-            />
+          <Group gap={7} align="center" wrap="wrap">
             <Button variant="default" size="sm" leftSection={<IconDownload size={15} />} onClick={downloadTemplate}>샘플양식</Button>
-            <Button variant="light" size="sm" leftSection={<IconDownload size={15} />} onClick={exportExcel} loading={exporting} disabled={loading}>엑셀 다운로드</Button>
-            <Button color="red" size="sm" leftSection={<IconPlus size={15} />} onClick={addRow} disabled={loading || saving || uploading}>행 추가</Button>
-            <Button color="red" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={saveRows} loading={saving} disabled={loading || uploading}>저장</Button>
-          </Group>
-        </Group>
-
-        <Group className={`${sharedClasses.toolbar} ${codeClasses.toolbar}`} justify="space-between" wrap="wrap" gap={6}>
-          <Group className={codeClasses.searchGroup} gap={6} wrap="nowrap">
-            <TextInput
-              className={codeClasses.codeSearch}
-              placeholder="품목코드 또는 품목명 검색"
-              aria-label="품목코드 또는 품목명 검색"
-              leftSection={<IconSearch size={15} />}
-              value={queryInput}
-              onChange={(event) => setQueryInput(event.currentTarget.value)}
-              onKeyDown={(event) => { if (event.key === 'Enter') applySearch(); }}
-              size="sm"
-              disabled={loading}
-            />
-            <Button size="sm" leftSection={<IconSearch size={15} />} onClick={applySearch} disabled={loading}>조회</Button>
-          </Group>
-          <Group gap={7} wrap="nowrap">
-            {selectedIds.length > 0 && <Text size="xs" c="dimmed">{selectedIds.length}개 선택</Text>}
-            <Button variant="subtle" color="red" size="xs" leftSection={<IconTrash size={14} />} disabled={!selectedIds.length || saving || uploading} onClick={requestDeleteSelected}>선택 삭제</Button>
-            <Button size="xs" variant="light" leftSection={<IconUpload size={14} />} onClick={() => uploadRef.current?.click()} disabled={loading || saving} loading={uploading}>엑셀 일괄등록</Button>
+            <Button size="sm" variant="light" leftSection={<IconUpload size={15} />} onClick={() => uploadRef.current?.click()} disabled={loading || saving} loading={uploading}>엑셀 일괄등록</Button>
             <input ref={uploadRef} type="file" accept=".xlsx,.xls" onChange={uploadExcel} hidden />
           </Group>
         </Group>
 
-        <Box className={codeClasses.tableWrap} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }}>
+        {selectedIds.length > 0 && (
+          <Group className={`${sharedClasses.toolbar} ${codeClasses.toolbar}`} justify="flex-start" wrap="wrap" gap={6}>
+            <Text size="xs" c="dimmed">{selectedIds.length}개 선택</Text>
+          </Group>
+        )}
+
+        <Box className={`${codeClasses.tableWrap} ${filteredRows.length === 0 ? classes.emptyItemTable : ''}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }}>
           {loading ? <Box className={classes.loading}><Loader color="red" size="sm" /></Box> : (
             <TableVirtuoso
               ref={virtuosoRef}
@@ -864,17 +1012,30 @@ export default function ItemMaster() {
           <Text size="xs" c="dimmed">조회 {filteredRows.length}개 · 엑셀 셀 범위를 복사해 표에 붙여넣은 뒤 저장할 수 있습니다.</Text>
         </Group>
       </Paper>
+      {filterOpen && <Paper component="aside" className={classes.filterSidebar} withBorder>
+        <Group className={classes.filterHeader} justify="space-between" align="center">
+          <Text fw={700}>조회조건</Text>
+          <ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon>
+        </Group>
+        <Stack gap="sm" className={classes.filterFields}>
+          <TextInput label="품목정보" placeholder="품목코드 또는 품목명" value={queryInput} onChange={(event) => setQueryInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') applySearch(); }} />
+          <Select label="사용 여부" value={statusFilter === 'Y' ? '사용중' : statusFilter === 'N' ? '사용중지' : '전체'}
+            onChange={(value) => { setStatusFilter(value === '사용중' ? 'Y' : value === '사용중지' ? 'N' : 'all'); setSelectedIds([]); selectionAnchorRef.current = ''; }}
+            data={['전체', '사용중', '사용중지']} allowDeselect={false} disabled={loading} />
+        </Stack>
+      </Paper>}
       </Box>
 
-      <Modal opened={Boolean(deleteRequest)} onClose={() => !saving && setDeleteRequest(null)} title="품목 삭제" centered size="sm">
-        <Stack gap="md">
-          <Text size="sm" c="dimmed">선택한 {deleteRequest?.rows.length || 0}개 품목을 삭제합니다. 삭제한 품목은 복구할 수 없습니다.</Text>
+      <Modal opened={Boolean(deleteRequest?.length)} onClose={() => !saving && setDeleteRequest(null)} title="품목 삭제" centered size="xs" padding="sm">
+        <Stack gap="sm">
+          <Text size="sm" c="dimmed">선택한 {deleteRequest?.length || 0}개 저장된 품목을 삭제합니다. 삭제한 품목은 복구할 수 없습니다.</Text>
           <Group justify="flex-end">
             <Button variant="default" onClick={() => setDeleteRequest(null)} disabled={saving}>취소</Button>
             <Button color="red" leftSection={<IconTrash size={15} />} onClick={confirmDelete} loading={saving}>삭제</Button>
           </Group>
         </Stack>
       </Modal>
+
       <ShapePickerModal
         key={shapePickerTarget || 'closed'}
         opened={Boolean(shapePickerTarget)}

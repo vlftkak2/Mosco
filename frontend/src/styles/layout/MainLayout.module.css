@@ -37,45 +37,47 @@
 }
 
 .appHeader {
+  display: flex !important;
+  height: 49px !important;
+  align-items: stretch !important;
   border-bottom: 1px solid #e6e9ef !important;
   background: #fff !important;
-  box-shadow: 0 2px 8px rgba(31, 43, 61, 0.04) !important;
+  box-shadow: none !important;
 }
 
 .navBar {
-  border-right: 1px solid #1a2638 !important;
-  background: #0b1423 !important;
-  color: #d7e0ed;
+  border-right: 1px solid #202d40 !important;
+  background: #202d40 !important;
+  color: #d5dce6;
 }
 
 .headerBrand {
   display: flex;
-  width: auto;
-  height: 68px;
-  flex: 0 0 auto;
+  width: 204px;
+  height: 49px;
+  flex: 0 0 204px;
   align-items: center;
-  gap: 8px;
-  margin-left: -16px;
-  padding: 0 16px;
-  background: transparent;
+  gap: 9px;
+  padding: 0 12px;
+  background: #202d40;
 }
 
 .logoMark {
   display: flex;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-radius: 4px;
-  background: #d32f2f;
+  border-radius: 5px;
+  background: #f0444c;
 }
 
 .logoMark img {
   display: block;
-  width: 25px;
-  height: 25px;
+  width: 22px;
+  height: 22px;
   object-fit: contain;
 }
 
@@ -87,8 +89,8 @@
 }
 
 .brandName {
-  color: #070000 !important;
-  font-size: 15px !important;
+  color: #fff !important;
+  font-size: 14px !important;
   font-weight: 900 !important;
   letter-spacing: 0.04em;
   line-height: 1 !important;
@@ -100,6 +102,44 @@
   font-weight: 500 !important;
   line-height: 1 !important;
 }
+
+.headerActions {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 0 8px;
+  background: #fff;
+}
+
+.headerActions::-webkit-scrollbar { display: none; }
+
+.headerUser {
+  min-width: max-content;
+  align-items: center;
+  padding: 0 11px 0 8px;
+  background: #fff;
+  color: #273345;
+}
+
+.userIdentity {
+  cursor: pointer;
+  white-space: nowrap;
+}
+.userIdentity :global(.mantine-Text-root) { color: #273345; font-size: 13px !important; font-weight: 600; }
+
+.logoutButton {
+  min-height: 32px;
+  padding: 0 0 0 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #536174;
+  font-size: 12px;
+}
+.logoutButton:hover { background: transparent; color: #f0444c; }
 
 .logoContainer {
   display: flex;
@@ -121,13 +161,13 @@
 
 /* 사이드바 링크 컨테이너 */
 .linksContainer {
-  padding: 12px 10px !important;
+  padding: 14px 10px 22px !important;
 }
 
 .navFooter {
   flex: 0 0 auto;
   padding: 0 12px 10px;
-  background: #0b1423;
+  background: #202d40;
 }
 
 /* 하단 푸터 영역 */
@@ -140,9 +180,149 @@
 
 /* 메인 콘텐츠 흰색 박스 */
 .contentCard {
-  background-color: #f1f3f5 !important;
+  background-color: #f7f8fa !important;
   border-radius: 8px !important;
   padding: 20px !important;
-  min-height: calc(100vh - 108px) !important; /* 헤더 높이 등을 고려하여 조정 */
+  min-height: calc(100vh - 144px) !important;
   box-shadow: none !important;
+}
+
+.appMain { background-color: #f7f8fa !important; }
+
+.pageTabs {
+  display: flex;
+  height: 34px;
+  min-height: 34px;
+  align-items: end;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 4px 11px 0;
+  margin: 0 -16px 12px;
+  border-bottom: 1px solid #d3dce8;
+  background: #f0f2f5;
+  scrollbar-width: thin;
+}
+
+.pageTab {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 230px;
+  height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 0 10px;
+  border: 1px solid #ccd5e1;
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+  background: #dde5ee;
+  color: #69778a;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pageTab:focus-visible,
+.pageTabClose:focus-visible {
+  outline: 2px solid #2876b8;
+  outline-offset: -2px;
+}
+
+.pageTabActive {
+  background: #fff;
+  color: #d92d32;
+  font-weight: 700;
+}
+
+.pageTabClose {
+  display: grid;
+  width: 20px;
+  height: 22px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #9ba5b5;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pageTabClose:hover {
+  color: #d92d32;
+}
+
+/* Inbound workspace uses the remaining viewport height as a fixed ERP canvas. */
+.appShellInbound {
+  height: 100dvh !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  --app-shell-navbar-width: 204px;
+}
+
+.appShellInbound .headerBrand { width: 204px; flex-basis: 204px; }
+
+.appMainInbound {
+  display: flex;
+  height: calc(100dvh - 49px);
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.appMainInbound .pageTabs {
+  height: 34px;
+  min-height: 34px;
+  flex: 0 0 34px;
+  padding-left: 19px;
+  margin-bottom: 0;
+  border-bottom-color: #dce2e9;
+}
+
+.appMainInbound .pageTab { height: 30px; font-size: 12px; }
+
+.inboundContentCard {
+  display: flex;
+  height: 0;
+  min-height: 0 !important;
+  flex: 1 1 0;
+  overflow: hidden;
+  padding: 12px 15px 10px !important;
+  background: #f6f7f9 !important;
+}
+
+.appMainDashboard {
+  display: flex;
+  height: calc(100dvh - 49px);
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.dashboardContentCard {
+  display: flex;
+  height: 0;
+  min-height: 0 !important;
+  flex: 1 1 0;
+  overflow: hidden;
+  padding: 12px 15px !important;
+  border-radius: 0 !important;
+  background: #f7f8fa !important;
+}
+
+@media (max-width: 760px) {
+  .headerBrand { width: 48px; flex-basis: 48px; justify-content: center; padding: 0 4px; }
+  .headerBrand .logoMark { display: none; }
+  .brandCopy { display: none; }
+  .headerActions { padding: 0 4px; }
+  .headerUser { gap: 5px; padding: 0 6px; }
+  .userIdentity :global(.mantine-Avatar-root) { display: none; }
+  .logoutButton { padding-right: 7px; padding-left: 7px; }
+  .logoutButton :global(.mantine-Button-label) { display: none; }
 }

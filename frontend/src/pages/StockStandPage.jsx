@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import * as XLSX from 'xlsx-js-style';
+import * as XLSX from 'xlsx';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper,
-  ScrollArea, Select, Stack, Table, Text, TextInput, Title, Tooltip,
+  ScrollArea, Select, Stack, Table, Text, TextInput, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconDeviceFloppy, IconDownload, IconPlus, IconSearch, IconTrash, IconUpload } from '@tabler/icons-react';
+import { IconDownload, IconSearch, IconTrash, IconUpload } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
-import dashboardClasses from '../styles/pages/HomePage.module.css';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
 import codeClasses from '../styles/pages/CodeMasterPage.module.css';
 import outboundClasses from '../styles/pages/OutboundRegister.module.css';
 import classes from '../styles/pages/StockStand.module.css';
 import { applyExcelHeaderStyle } from '../utils/excelHeaderStyle';
+import useErpPageRibbon from '../components/common/useErpPageRibbon';
+import ErpBreadcrumb from '../components/common/ErpBreadcrumb';
 
 const STOCK_EXCEL_COLUMNS = [
   ['itemcode', '품목코드'], ['itemname', '품목명'], ['size', '규격'], ['qty', '기초수량'],
@@ -991,46 +992,50 @@ export default function StockStandPage() {
     </>;
   };
 
+  const deleteFromRibbon = () => {
+    if (loading || saving || uploading) return;
+    if (selectedIds.length && !hasSavedStock) {
+      setSelectedDeleteOpen(true);
+    } else if (hasSavedStock) {
+      requestDeleteAll();
+    } else {
+      notifications.show({ title: '삭제할 행 선택', message: '삭제할 신규 행을 선택해 주세요.', color: 'orange' });
+    }
+  };
+
+  useErpPageRibbon({
+    onSearch: runSearch,
+    onAdd: addRow,
+    onSave: save,
+    onDelete: deleteFromRibbon,
+    onExcel: exportRows,
+    showPrint: false,
+    useSaveColor: false,
+  });
+
   return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-    <Paper className={dashboardClasses.dashboardHeader}>
-      <Box className={dashboardClasses.headerCopy}>
-        <Text className={sharedClasses.breadcrumb}>기초재고 관리 <span>›</span> 기준정보 관리</Text>
-        <Title order={1} className={dashboardClasses.pageTitle}>기초재고 <span>등록</span></Title>
-        <Text className={dashboardClasses.pageSubtitle}>기준일자별 기초재고를 등록합니다.</Text>
-        <Group className={dashboardClasses.sampleNotice} gap={8}><span className={dashboardClasses.statusDot} /><Text size="xs">System Active</Text></Group>
-      </Box>
-    </Paper>
+    <ErpBreadcrumb parent="재고관리" current="기초재고등록" />
 
     <Box className={classes.workspace}>
     <Paper className={`${sharedClasses.panel} ${codeClasses.codePanel} ${classes.editorPanel}`} withBorder>
       <Group className={`${sharedClasses.panelHeader} ${codeClasses.codeHeader} ${classes.codeHeader}`} justify="space-between" align="flex-start" wrap="wrap" gap="sm">
-        <Box>
-          <Group gap={9} align="center"><Text className={codeClasses.codeTitle} fw={800}>기초재고 등록</Text><Badge color="red" variant="light">{displayRowCount.toLocaleString()}행</Badge></Group>
-
-        </Box>
+        <Group gap={8} align="center"><Text className={classes.sectionTitle} fw={700}>기초재고등록</Text><Badge color="gray" variant="light">{displayRowCount.toLocaleString()}행</Badge></Group>
         <Group className={classes.headerActions} gap={7} align="center" wrap="wrap">
-          <Button variant="default" size="sm" leftSection={<IconDownload size={15} />} onClick={downloadTemplate} disabled={loading || uploading}>샘플양식</Button>
-          <Button variant="light" size="sm" leftSection={<IconDownload size={15} />} onClick={exportRows} loading={exporting} disabled={loading || uploading}>엑셀 다운로드</Button>
-          <Button color="red" size="sm" leftSection={<IconTrash size={15} />} disabled={!hasSavedStock || saving || uploading || loading} onClick={requestDeleteAll} title={hasTransactions || hasStockMovements ? '입고 또는 출고 수불 이력이 있어 전체 삭제할 수 없습니다.' : '회사 기초재고 전체 삭제'}>전체 삭제</Button>
-          <Button color="red" size="sm" leftSection={<IconDeviceFloppy size={15} />} loading={saving} disabled={loading || uploading || !hasChanges} onClick={save}>저장</Button>
+          <Button variant="default" size="xs" leftSection={<IconDownload size={15} />} onClick={downloadTemplate} disabled={loading || uploading}>샘플양식</Button>
+          <Button variant="light" size="xs" leftSection={<IconDownload size={15} />} onClick={exportRows} loading={exporting} disabled={loading || uploading}>엑셀 다운로드</Button>
+          <Button variant="light" size="xs" leftSection={<IconUpload size={15} />} onClick={() => uploadInputRef.current?.click()} loading={uploading} disabled={saving || loading || hasSavedStock || hasTransactions}>엑셀 일괄등록</Button>
+          <input ref={uploadInputRef} type="file" accept=".xlsx,.xls" onChange={uploadExcel} hidden />
         </Group>
       </Group>
       <Group className={`${sharedClasses.toolbar} ${codeClasses.toolbar} ${classes.filterToolbar}`} justify="space-between" wrap="wrap" gap={8}>
         <Group className={classes.searchGroup} gap={6} wrap="wrap" align="end">
-          <TextInput className={classes.dateFilter} type="date" label="기준일자" value={standdate} onChange={(event) => setStanddate(event.currentTarget.value)} size="sm" />
-          <TextInput className={classes.stockSearch} placeholder="품목코드 또는 품목명 검색" aria-label="품목 검색" leftSection={<IconSearch size={15} />} value={searchInput} onChange={(event) => setSearchInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} size="sm" />
-          <Button size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
-        </Group>
-        <Group className={classes.listActions} gap={7} wrap="wrap" justify="flex-end" align="flex-end">
-          {selectedIds.length > 0 && <Text size="xs" c="dimmed">{selectedIds.length}개 선택</Text>}
-          <Button variant="subtle" color="red" size="xs" leftSection={<IconTrash size={14} />} disabled={!selectedIds.length || hasSavedStock || saving || uploading || loading} onClick={() => setSelectedDeleteOpen(true)}>선택 삭제</Button>
-          <Button color="red" size="xs" leftSection={<IconPlus size={14} />} onClick={addRow} disabled={saving || uploading || loading || hasSavedStock || hasTransactions}>행 추가</Button>
-          <Button size="xs" variant="light" leftSection={<IconUpload size={14} />} onClick={() => uploadInputRef.current?.click()} loading={uploading} disabled={saving || loading || hasSavedStock || hasTransactions}>엑셀 일괄등록</Button>
-          <input ref={uploadInputRef} type="file" accept=".xlsx,.xls" onChange={uploadExcel} hidden />
+          <TextInput className={classes.dateFilter} type="date" label="기준일자" value={standdate} onChange={(event) => setStanddate(event.currentTarget.value)} size="xs" />
+          <TextInput className={classes.stockSearch} placeholder="품목코드 또는 품목명 검색" aria-label="품목 검색" leftSection={<IconSearch size={15} />} value={searchInput} onChange={(event) => setSearchInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} size="xs" />
+          <Button size="xs" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
         </Group>
       </Group>
       <Group className={`${sharedClasses.toolbar} ${codeClasses.toolbar} ${classes.detailToolbar}`} justify="space-between" wrap="wrap" gap={6}>
-        <Group gap={8}><Text fw={700} c="dark">기초재고 상세</Text><Badge color="gray" variant="light">{displayRowCount.toLocaleString()}행</Badge></Group>
+        <Group gap={8}><Text className={classes.sectionTitle} fw={700}>기초재고 상세</Text><Badge color="gray" variant="light">{displayRowCount.toLocaleString()}행</Badge></Group>
         {selectedIds.length > 1 && <Text size="xs" c="red" fw={600}>마스터 값 변경 시 {selectedIds.length}개 행에 일괄 적용됩니다.</Text>}
       </Group>
       <Box className={`${codeClasses.tableWrap} ${classes.tableViewport}`} style={{ '--code-table-min-width': `${Math.max(1730, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>

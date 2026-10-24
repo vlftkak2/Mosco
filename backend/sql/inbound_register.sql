@@ -6,12 +6,13 @@ CREATE TABLE IF NOT EXISTS Inbound01t (
     receptdate DATE NOT NULL,
     customcode VARCHAR(50) NOT NULL,
     customname VARCHAR(100),
-    description VARCHAR(500),
     subulyn VARCHAR(10) DEFAULT 'N',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ,
     PRIMARY KEY (companyid, receiptno)
 );
+
+ALTER TABLE Inbound01t DROP COLUMN IF EXISTS description;
 
 -- Detail lines are stored under the same company and receipt key.
 CREATE TABLE IF NOT EXISTS Inbound02t (
@@ -19,9 +20,13 @@ CREATE TABLE IF NOT EXISTS Inbound02t (
     companyname VARCHAR(50) NOT NULL,
     receiptno VARCHAR(100) NOT NULL,
     lineno INTEGER NOT NULL,
+    customcode VARCHAR(50),
+    customname VARCHAR(100),
     itemcode VARCHAR(100) NOT NULL,
     itemname VARCHAR(150) NOT NULL,
-    size VARCHAR(100),
+    thickness NUMERIC(15,3),
+    width NUMERIC(15,3),
+    length NUMERIC(15,3),
     qty NUMERIC(15,3) CHECK (qty > 0), -- 수량(선택 입력)
     qtyunit VARCHAR(20) NOT NULL, -- 수량단위 코드
     warehousecode VARCHAR(50),
@@ -29,6 +34,8 @@ CREATE TABLE IF NOT EXISTS Inbound02t (
     weight NUMERIC(15,3) NOT NULL CHECK (weight > 0), -- 입고중량
     unit VARCHAR(20) NOT NULL, -- 단가기준 코드(KG/TON)
     unitprice NUMERIC(15,2) NOT NULL CHECK (unitprice > 0), -- 매입단가
+    supplyamt NUMERIC(15,2),
+    vat NUMERIC(15,2),
     unitamt NUMERIC(15,2),
     description VARCHAR(500),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -40,8 +47,38 @@ CREATE TABLE IF NOT EXISTS Inbound02t (
 ALTER TABLE Inbound02t
     ADD COLUMN IF NOT EXISTS qty NUMERIC(15,3),
     ADD COLUMN IF NOT EXISTS qtyunit VARCHAR(20),
+    ADD COLUMN IF NOT EXISTS customcode VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS customname VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS thickness NUMERIC(15,3),
+    ADD COLUMN IF NOT EXISTS width NUMERIC(15,3),
+    ADD COLUMN IF NOT EXISTS length NUMERIC(15,3),
+    ADD COLUMN IF NOT EXISTS productname VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS supplyamt NUMERIC(15,2),
+    ADD COLUMN IF NOT EXISTS vat NUMERIC(15,2),
     ADD COLUMN IF NOT EXISTS warehousecode VARCHAR(50),
-    ADD COLUMN IF NOT EXISTS warehousecodename VARCHAR(50);
+    ADD COLUMN IF NOT EXISTS warehousecodename VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS materialcode VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS materialname VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS surfacecode VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS surfacename VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS myrtle NUMERIC(15,3),
+    ADD COLUMN IF NOT EXISTS manager VARCHAR(100);
+
+-- Fill line-level customer values from the receipt header for legacy rows.
+UPDATE Inbound02t AS detail
+   SET customcode = COALESCE(NULLIF(detail.customcode, ''), header.customcode),
+       customname = COALESCE(detail.customname, header.customname, '')
+  FROM Inbound01t AS header
+ WHERE header.companyid = detail.companyid
+   AND header.receiptno = detail.receiptno
+   AND (detail.customcode IS NULL OR detail.customcode = '' OR detail.customname IS NULL);
+
+ALTER TABLE Inbound02t
+    ALTER COLUMN customcode SET NOT NULL,
+    ALTER COLUMN customname SET NOT NULL;
+
+DROP INDEX IF EXISTS ix_inbound02t_company_date;
+ALTER TABLE Inbound02t DROP COLUMN IF EXISTS receptdate;
 
 -- Ensure zero or negative purchase prices cannot be added to existing installations.
 ALTER TABLE Inbound02t
@@ -93,3 +130,9 @@ CREATE INDEX IF NOT EXISTS ix_inbound02t_itemcode_trgm
 
 CREATE INDEX IF NOT EXISTS ix_inbound02t_itemname_trgm
     ON Inbound02t USING GIN (itemname gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS ix_inbound02t_customcode_trgm
+    ON Inbound02t USING GIN (customcode gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS ix_inbound02t_customname_trgm
+    ON Inbound02t USING GIN (customname gin_trgm_ops);

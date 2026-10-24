@@ -17,10 +17,13 @@ def export_inbound_details(
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
     receiptno: str = Query(default="", max_length=100),
+    customer: str = Query(default="", max_length=150),
+    warehouse: str = Query(default="", max_length=100),
     customcode: str = Query(default="", max_length=50),
     customname: str = Query(default="", max_length=100),
     itemcode: str = Query(default="", max_length=100),
     itemname: str = Query(default="", max_length=150),
+    iteminfo: str = Query(default="", max_length=150),
     user: dict = Depends(security_module.get_current_user),
 ):
     if date_from and date_to and date_from > date_to:
@@ -34,10 +37,13 @@ def export_inbound_details(
             date_from=date_from,
             date_to=date_to,
             receiptno=receiptno,
+            customer=customer,
+            warehouse=warehouse,
             customcode=customcode,
             customname=customname,
             itemcode=itemcode,
             itemname=itemname,
+            iteminfo=iteminfo,
         )
     except Exception as error:
         os.unlink(temp_file.name)
@@ -59,10 +65,13 @@ def get_inbound_details(
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
     receiptno: str = Query(default="", max_length=100),
+    customer: str = Query(default="", max_length=150),
+    warehouse: str = Query(default="", max_length=100),
     customcode: str = Query(default="", max_length=50),
     customname: str = Query(default="", max_length=100),
     itemcode: str = Query(default="", max_length=100),
     itemname: str = Query(default="", max_length=150),
+    iteminfo: str = Query(default="", max_length=150),
     user: dict = Depends(security_module.get_current_user),
 ):
     if date_from and date_to and date_from > date_to:
@@ -75,10 +84,13 @@ def get_inbound_details(
                 date_from=date_from,
                 date_to=date_to,
                 receiptno=receiptno,
+                customer=customer,
+                warehouse=warehouse,
                 customcode=customcode,
                 customname=customname,
                 itemcode=itemcode,
                 itemname=itemname,
+                iteminfo=iteminfo,
             ),
         }
     except Exception as error:

@@ -1,21 +1,22 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper, Popover, Select,
-  ScrollArea, Stack, Table, Text, TextInput, Title, Tooltip,
+  ScrollArea, Stack, Table, Text, TextInput, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconChevronDown, IconDeviceFloppy, IconFileSpreadsheet, IconPlus,
-  IconSearch, IconTrash,
+  IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus,
+  IconFilter, IconSearch, IconTrash, IconX,
 } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
-import * as XLSX from 'xlsx-js-style';
+import * as XLSX from 'xlsx';
 import { applyExcelHeaderStyle } from '../utils/excelHeaderStyle';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
 import codeClasses from '../styles/pages/CodeMasterPage.module.css';
-import dashboardClasses from '../styles/pages/HomePage.module.css';
 import classes from '../styles/pages/InboundRegister.module.css';
+import itemMasterClasses from '../styles/pages/ItemMaster.module.css';
+import { PageRibbonContext } from '../components/layout/MainLayout';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' },
@@ -30,8 +31,10 @@ const createDefaultReceiptFilters = () => {
   const pad = (value) => String(value).padStart(2, '0');
   return {
     receiptno: '',
+    customer: '',
     customcode: '',
     customname: '',
+    warehouse: '',
     date_from: `${year}-${pad(month + 1)}-01`,
     date_to: `${year}-${pad(month + 1)}-${pad(new Date(year, month + 1, 0).getDate())}`,
   };
@@ -41,32 +44,66 @@ const localDate = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
-const EMPTY_HEADER = { receiptno: '', receptdate: localDate(), customcode: '', customname: '', description: '' };
+const isValidDateInput = (value) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '').trim());
+  if (!match) return false;
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+  const date = new Date(0);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(year, month - 1, day);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+};
+const EMPTY_HEADER = { receiptno: '', receptdate: localDate(), customcode: '', customname: '' };
 const DETAIL_FIELDS = [
-  { key: 'itemcode', label: '품목코드', width: 150, required: true },
-  { key: 'itemname', label: '품목명', width: 190, required: true },
-  { key: 'size', label: '규격', width: 140 },
-  { key: 'qty', label: '수량', width: 100, required: true },
-  { key: 'qtyunit', label: '수량단위', width: 110, required: true },
-  { key: 'warehousecode', label: '창고코드', width: 125, required: true },
-  { key: 'warehousecodename', label: '창고명', width: 150 },
-  { key: 'weight', label: '입고중량', width: 120, required: true },
-  { key: 'unit', label: '단가기준', width: 110, required: true },
-  { key: 'unitprice', label: '매입단가', width: 120, required: true },
-  { key: 'unitamt', label: '금액', width: 130 },
-  { key: 'description', label: '비고', width: 190 },
+  { key: 'receptdate', label: '입고일자', width: 120, minWidth: 112, required: true },
+  { key: 'customname', label: '매입처', width: 180, minWidth: 110, required: true },
+  { key: 'warehousecodename', label: '창고', width: 135, minWidth: 100, required: true },
+  { key: 'productname', label: '제품번호', width: 135, minWidth: 100 },
+  { key: 'itemname', label: '품명', width: 180, minWidth: 100, required: true },
+  { key: 'materialname', label: '강종', width: 120, minWidth: 90 },
+  { key: 'surfacename', label: '표면', width: 120, minWidth: 90 },
+  { key: 'myrtle', label: '도금량(g/㎡)', width: 135, minWidth: 120 },
+  { key: 'thickness', label: '두께', width: 75, minWidth: 65 },
+  { key: 'width', label: '폭', width: 75, minWidth: 65 },
+  { key: 'length', label: '길이', width: 75, minWidth: 65 },
+  { key: 'qty', label: '수량', width: 90, minWidth: 75, required: true },
+  { key: 'weight', label: '중량', width: 100, minWidth: 80, required: true },
+  { key: 'unitprice', label: '매입단가', width: 105, minWidth: 90, required: true },
+  { key: 'supplyamt', label: '공급가', width: 110, minWidth: 85 },
+  { key: 'vat', label: '부가세', width: 95, minWidth: 75 },
+  { key: 'unitamt', label: '합계금액', width: 115, minWidth: 100 },
+  { key: 'qtyunit', label: '수량단위', width: 95, minWidth: 85, required: true },
+  { key: 'unit', label: '단가기준', width: 95, minWidth: 85, required: true },
+  { key: 'manager', label: '담당자', width: 110, minWidth: 90 },
+  { key: 'description', label: '비고', width: 160, minWidth: 100 },
 ];
 const RECEIPT_COLUMNS = [
-  { key: 'receiptno', label: '입고전표번호', width: 190, minWidth: 140 },
-  { key: 'customcode', label: '거래처코드', width: 150, minWidth: 100 },
-  { key: 'customname', label: '거래처명', width: 250, minWidth: 140 },
-  { key: 'receptdate', label: '입고일자', width: 150, minWidth: 110 },
-  { key: 'line_count', label: '상세 건수', width: 120, minWidth: 90, align: 'right' },
-  { key: 'total_amount', label: '합계 금액', width: 160, minWidth: 110, align: 'right' },
+  { key: 'receptdate', label: '입고일자', width: 118, minWidth: 112 },
+  { key: 'customname', label: '매입처', width: 190, minWidth: 110 },
+  { key: 'warehousecodename', label: '창고', width: 145, minWidth: 100 },
+  { key: 'line_count', label: '상세건수', width: 90, minWidth: 80, align: 'right' },
+  { key: 'total_qty', label: '수량', width: 95, minWidth: 75, align: 'right' },
+  { key: 'total_weight', label: '중량', width: 100, minWidth: 80, align: 'right' },
+  { key: 'supply_amount', label: '공급가', width: 120, minWidth: 90, align: 'right' },
+  { key: 'vat_amount', label: '부가세', width: 105, minWidth: 75, align: 'right' },
+  { key: 'total_amount', label: '합계금액', width: 125, minWidth: 105, align: 'right' },
+  { key: 'qtyunit', label: '수량단위', width: 95, minWidth: 85 },
+  { key: 'unit', label: '단가기준', width: 95, minWidth: 85 },
+  { key: 'receiptno', label: '입고전표', width: 190, minWidth: 150 },
+  { key: 'description', label: '비고', width: 160, minWidth: 100 },
 ];
+const fitColumnWidth = (label, values, baseWidth, minWidth, maxWidth = 420) => {
+  const measure = (value) => Array.from(String(value ?? '')).reduce((width, character) => width + (character.charCodeAt(0) > 255 ? 14 : 7), 0) + 30;
+  const contentWidth = Math.max(measure(label), ...values.map(measure));
+  return Math.max(minWidth, Math.min(maxWidth, Math.max(baseWidth, contentWidth)));
+};
 const NAVIGABLE_FIELDS = DETAIL_FIELDS.map(({ key }) => key);
 const EDITABLE_FIELDS = DETAIL_FIELDS.map(({ key }) => key);
-const EMPTY_DETAIL = { itemcode: '', itemname: '', size: '', qty: '', qtyunit: 'EA', warehousecode: '', warehousecodename: '', weight: '', unit: '', unitprice: '', unitamt: '', description: '' };
+const EMPTY_DETAIL = { receptdate: localDate(), customcode: '', customname: '', itemcode: '', itemname: '', productname: '', materialcode: '', materialname: '', surfacecode: '', surfacename: '', myrtle: '', thickness: '', width: '', length: '', qty: '', qtyunit: 'EA', warehousecode: '', warehousecodename: '', weight: '', unit: 'KG', unitprice: '', supplyamt: '', vat: '', unitamt: '', manager: '', description: '' };
 const masterPasteErrorKey = (rowId, field) => `${rowId}:${field}`;
 
 const errorMessage = (error) => {
@@ -77,20 +114,49 @@ const errorMessage = (error) => {
 const makeDetail = (source = EMPTY_DETAIL, lineNo = null) => ({
   ...EMPTY_DETAIL,
   ...source,
+  receptdate: source.receptdate || localDate(),
+  supplyamt_manual: source.supplyamt_manual ?? (String(source.supplyamt ?? '').trim() !== ''),
+  vat_manual: source.vat_manual ?? (String(source.vat ?? '').trim() !== ''),
   id: source.id || `line-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   lineno: lineNo,
   is_new: lineNo == null,
   is_dirty: false,
 });
 const amountOf = (row, priceUnits = []) => {
-  if (!String(row.weight ?? '').trim() || !String(row.unitprice ?? '').trim()) return '';
-  const weight = Number(row.weight);
+  if (row.supplyamt_manual) {
+    const entered = Number(row.supplyamt || 0);
+    return Number.isFinite(entered) ? entered.toFixed(2) : '0.00';
+  }
+  if (!String(row.unitprice ?? '').trim()) return '';
   const price = Number(row.unitprice);
-  if (!Number.isFinite(weight) || !Number.isFinite(price)) return '';
-  const unitName = priceUnits.find((option) => option.code === row.unit)?.name || '';
-  const unitToken = `${row.unit || ''} ${unitName}`.toLocaleUpperCase();
-  const quantity = /TON|톤/.test(unitToken) ? weight / 1000 : weight;
-  return (quantity * price).toFixed(2);
+  if (!Number.isFinite(price)) return '';
+  const priceUnit = priceUnits.find((option) => option.code === row.unit);
+  const unitToken = `${row.unit || ''} ${priceUnit?.name || ''}`.trim().toLocaleUpperCase();
+  let basis;
+  if (unitToken.includes('수량') || /QTY|(^|[\s_-])(EA|PCS|COUNT)([\s_-]|$)/.test(unitToken)) {
+    basis = Number(cleanNumericInput(row.qty));
+  } else if (unitToken.includes('길이') || unitToken.includes('LENGTH') || /(^|[\s_-])(M|METER)([\s_-]|$)/.test(unitToken)) {
+    basis = Number(cleanNumericInput(row.length));
+  } else {
+    const weight = Number(cleanNumericInput(row.weight));
+    basis = /TON|톤/.test(unitToken) ? weight / 1000 : weight;
+  }
+  return Number.isFinite(basis) ? (basis * price).toFixed(2) : '';
+}
+const vatOf = (row, priceUnits = []) => {
+  if (row.vat_manual) {
+    const entered = Number(row.vat || 0);
+    return Number.isFinite(entered) ? entered.toFixed(2) : '0.00';
+  }
+  const supplyValue = amountOf(row, priceUnits);
+  if (supplyValue === '') return '';
+  const supply = Number(supplyValue);
+  return Number.isFinite(supply) ? (Math.round((supply * 0.1 + Number.EPSILON) * 100) / 100).toFixed(2) : '';
+};
+const totalAmountOf = (row, priceUnits = []) => {
+  const supply = Number(amountOf(row, priceUnits));
+  const vat = Number(vatOf(row, priceUnits));
+  return Number.isFinite(supply) && Number.isFinite(vat) ? (supply + vat).toFixed(2) : '';
 };
 const formatAmount = (value) => {
   const amount = Number(value);
@@ -101,7 +167,8 @@ const formatAmount = (value) => {
     maximumFractionDigits: 2,
   });
 };
-const NUMERIC_FIELDS = new Set(['qty', 'weight', 'unitprice']);
+const formatWon = (value) => `${formatAmount(value)}\uC6D0`;
+const NUMERIC_FIELDS = new Set(['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat']);
 const cleanNumericInput = (value) => String(value ?? '').replace(/,/g, '').replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
 const formatNumericInput = (value) => {
   const raw = cleanNumericInput(value);
@@ -182,7 +249,7 @@ const CustomerPickerModal = memo(function CustomerPickerModal({ opened, onClose,
         <Button color="red" size="sm" leftSection={<IconSearch size={15} />} onClick={searchCustomers}>조회</Button>
       </Group>
       <Box className={classes.pickerResults}>
-        {loading && <Loader className={classes.pickerLoader} size="xs" color="red" aria-label="조회 중" />}
+        {loading && <Loader className={classes.pickerLoader} size="xs" color="gray" aria-label="조회 중" />}
         <ScrollArea h={420} type="auto" scrollbarSize={6}>
           <Table className={`${codeClasses.codeTable} ${classes.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
             <Table.Thead><Table.Tr><Table.Th className={classes.customerCodeColumn}>거래처코드</Table.Th><Table.Th className={classes.customerNameColumn}>거래처명</Table.Th><Table.Th className={classes.customerBusinessColumn}>사업자번호</Table.Th></Table.Tr></Table.Thead>
@@ -204,25 +271,23 @@ const CustomerPickerModal = memo(function CustomerPickerModal({ opened, onClose,
 
 const ItemPickerModal = memo(function ItemPickerModal({ opened, onClose, onSelect }) {
   const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const requestIdRef = useRef(0);
 
-  const load = useCallback(async (nextPage, nextSearch) => {
+  const loadItems = useCallback(async (nextPage, query) => {
     const requestId = ++requestIdRef.current;
     setLoading(true);
     try {
       const { data } = await axios.get('/api/item-master/items/picker', {
-        ...authConfig(), params: { q: nextSearch, page: nextPage, page_size: 20 },
+        ...authConfig(), params: { q: query, page: nextPage, page_size: 20 },
       });
       if (requestId !== requestIdRef.current) return;
       setItems(data.items || []);
       setTotal(data.total || 0);
       setPage(nextPage);
-      setSearch(nextSearch);
     } catch (error) {
       if (requestId === requestIdRef.current) notifications.show({ title: '품목 조회 실패', message: errorMessage(error), color: 'red' });
     } finally {
@@ -231,43 +296,44 @@ const ItemPickerModal = memo(function ItemPickerModal({ opened, onClose, onSelec
   }, []);
 
   useEffect(() => {
-    if (!opened) return;
-    setSearchInput('');
-    setItems([]);
-    setTotal(0);
-    void load(1, '');
-  }, [opened, load]);
+    if (opened) {
+      setSearchInput('');
+      void loadItems(1, '');
+    } else {
+      requestIdRef.current += 1;
+    }
+  }, [opened, loadItems]);
 
-  const searchItems = useCallback(() => { void load(1, searchInput.trim()); }, [load, searchInput]);
-  const changePage = useCallback((nextPage) => { void load(nextPage, search); }, [load, search]);
-  const invalidatePending = useCallback(() => { requestIdRef.current += 1; onClose(); }, [onClose]);
+  const close = () => { requestIdRef.current += 1; onClose(); };
+  const search = () => { void loadItems(1, searchInput.trim()); };
 
-  return <Modal opened={opened} onClose={invalidatePending} title={<PickerModalTitle title="품목 선택" />} classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader, title: classes.receiptFinderModalTitle, close: classes.receiptFinderModalClose }} centered size={900}>
+  return <Modal opened={opened} onClose={close} title={<PickerModalTitle title="품목 선택" />}
+    classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader, title: classes.receiptFinderModalTitle, close: classes.receiptFinderModalClose }}
+    centered size={700}>
     <Stack gap="sm" pt={10}>
       <Group gap={7} wrap="nowrap">
-        <TextInput className={classes.customerSearchInput} placeholder="품목코드, 품목명 또는 형태구분 검색" value={searchInput}
-          onChange={(event) => setSearchInput(event.currentTarget.value)}
-          onKeyDown={(event) => { if (event.key === 'Enter') searchItems(); }}
-          leftSection={<IconSearch size={15} />} size="sm" autoFocus />
-        <Button color="red" size="sm" leftSection={<IconSearch size={15} />} onClick={searchItems}>조회</Button>
+        <TextInput className={classes.customerSearchInput} placeholder="품목코드, 품목명 또는 형태구분 검색"
+          value={searchInput} onChange={(event) => setSearchInput(event.currentTarget.value)}
+          onKeyDown={(event) => { if (event.key === 'Enter') search(); }} />
+        <Button color="red" size="sm" leftSection={<IconSearch size={15} />} onClick={search} loading={loading}>조회</Button>
       </Group>
       <Box className={classes.pickerResults}>
-        {loading && <Loader className={classes.pickerLoader} size="xs" color="red" aria-label="조회 중" />}
-        <ScrollArea h={420} type="auto" scrollbarSize={6}>
+        {loading && <Loader className={classes.pickerLoader} size="xs" color="gray" aria-label="조회 중" />}
+        <ScrollArea h={260} type="auto" scrollbarSize={6}>
           <Table className={`${codeClasses.codeTable} ${classes.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
-            <Table.Thead><Table.Tr><Table.Th className={classes.customerCodeColumn}>품목코드</Table.Th><Table.Th className={classes.customerNameColumn}>품목명</Table.Th><Table.Th className={classes.customerBusinessColumn}>형태구분</Table.Th></Table.Tr></Table.Thead>
+            <Table.Thead><Table.Tr><Table.Th>품목코드</Table.Th><Table.Th>품목명</Table.Th><Table.Th>형태구분</Table.Th></Table.Tr></Table.Thead>
             <Table.Tbody>
-              {items.map((item) => (
-                <Table.Tr key={item.itemcode} className={classes.customerResultRow} onClick={() => onSelect(item)}>
-                  <Table.Td>{item.itemcode}</Table.Td><Table.Td>{item.itemname}</Table.Td><Table.Td>{item.itemtypecode || ''}</Table.Td>
-                </Table.Tr>
-              ))}
-              {!items.length && <Table.Tr><Table.Td colSpan={3} className={classes.customerEmpty}>{loading ? '조회 중입니다.' : '조회된 사용중 품목이 없습니다.'}</Table.Td></Table.Tr>}
+              {items.map((item) => <Table.Tr key={item.itemcode} className={classes.customerResultRow} onClick={() => onSelect(item)}>
+                <Table.Td>{item.itemcode}</Table.Td><Table.Td>{item.itemname}</Table.Td><Table.Td>{item.itemtypecodenm || item.itemtypecode || ''}</Table.Td>
+              </Table.Tr>)}
+              {!items.length && <Table.Tr><Table.Td colSpan={3} className={classes.customerEmpty}>{loading ? '조회 중입니다.' : '조회된 품목이 없습니다.'}</Table.Td></Table.Tr>}
             </Table.Tbody>
           </Table>
         </ScrollArea>
       </Box>
-      <Group justify="space-between"><Text size="xs" c="dimmed">총 {total.toLocaleString()}개 품목</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / 20))} value={page} onChange={changePage} withEdges color="red" disabled={loading} /></Group>
+      <Group justify="space-between"><Text size="xs" c="dimmed">총 {total.toLocaleString()}개 품목</Text>
+        <Pagination size="sm" total={Math.max(1, Math.ceil(total / 20))} value={page} onChange={(nextPage) => { void loadItems(nextPage, searchInput.trim()); }} withEdges color="red" disabled={loading} />
+      </Group>
     </Stack>
   </Modal>;
 });
@@ -309,7 +375,12 @@ const MasterOptionPickerModal = memo(function MasterOptionPickerModal({ opened, 
 const resolveMasterCode = (field, value, unitOptions) => {
   const text = String(value ?? '').trim().toLocaleLowerCase();
   if (!text) return '';
-  const options = field === 'unit' ? unitOptions.price : field === 'qtyunit' ? unitOptions.quantity : unitOptions.warehouse;
+  const masterField = field === 'warehousecode' || field === 'warehousecodename' ? 'warehouse' : field;
+  const options = masterField === 'unit' ? unitOptions.price
+    : masterField === 'qtyunit' ? unitOptions.quantity
+      : masterField === 'warehouse' ? unitOptions.warehouse
+        : masterField === 'material' ? unitOptions.material
+          : masterField === 'surface' ? unitOptions.surface : [];
   return options.find((option) => (
     String(option.code ?? '').trim().toLocaleLowerCase() === text
     || String(option.name ?? '').trim().toLocaleLowerCase() === text
@@ -317,20 +388,463 @@ const resolveMasterCode = (field, value, unitOptions) => {
   ))?.code || '';
 };
 
-const DetailCells = memo(function DetailCells({ row, index, selected, disabled, saved, unitOptions, onSelect, onChange, onPaste, registerCodeInput, registerCellInput, onFindItem, onFindMaster, onFocusCell, onDelete }) {
-  const [quantityDropdownOpen, setQuantityDropdownOpen] = useState(false);
-  const [quantityOptionIndex, setQuantityOptionIndex] = useState(-1);
-  const quantityInputRef = useRef(null);
-  const quantityOptions = unitOptions.quantity;
+const ItemNameAutocompleteCell = memo(function ItemNameAutocompleteCell({ row, disabled, onChange, onPaste, onSelectItem, onFindItem, onFocusCell, registerCellInput }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(row.itemname || '');
+  const [items, setItems] = useState([]);
+  const [itemsQuery, setItemsQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const commitRequestRef = useRef(0);
+  const pickerOpenRef = useRef(false);
+  const query = String(draft || '').trim();
+  const isOpen = isEditing && !disabled && itemsQuery === query && items.length > 0;
+
+  useEffect(() => {
+    if (!isEditing || disabled || !query) return undefined;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const { data } = await axios.get('/api/item-master/items/suggest', {
+          ...authConfig(), params: { q: query }, signal: controller.signal,
+        });
+        if (!controller.signal.aborted) {
+          setItems(data.items || []);
+          setItemsQuery(query);
+        }
+      } catch { /* the shape-style suggestion list stays closed on lookup failure */ }
+    }, 220);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [isEditing, disabled, query]);
+
+  const chooseItem = (item) => {
+    onSelectItem(row.id, item);
+    setDraft(item.itemname || '');
+    setIsEditing(false);
+    setActiveIndex(-1);
+  };
+
+  const openPicker = () => {
+    pickerOpenRef.current = true;
+    setIsEditing(false);
+    onFindItem(row.id);
+  };
+
+  const commitExactMatch = async () => {
+    const requestId = ++commitRequestRef.current;
+    const normalized = query.toLocaleLowerCase();
+    if (!normalized) {
+      onChange(row.id, 'itemname', '');
+      setIsEditing(false);
+      return;
+    }
+    setIsEditing(false);
+    let candidates = items;
+    if (!candidates.some((item) => [item.itemname, item.itemcode].some((value) => String(value || '').trim().toLocaleLowerCase() === normalized))) {
+      try {
+        const { data } = await axios.get('/api/item-master/items/suggest', { ...authConfig(), params: { q: query } });
+        candidates = data.items || [];
+      } catch { /* keep the current item if lookup fails */ }
+    }
+    if (requestId !== commitRequestRef.current) return;
+    const exact = candidates.filter((item) => [item.itemname, item.itemcode]
+      .some((value) => String(value || '').trim().toLocaleLowerCase() === normalized));
+    if (exact.length === 1) chooseItem(exact[0]);
+    else {
+      onChange(row.id, 'itemname', query);
+      setIsEditing(false);
+    }
+  };
+
+  return <Popover opened={isOpen} onChange={(nextOpened) => { if (!nextOpened) setIsEditing(false); }} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500}>
+    <Popover.Target>
+      <div className={classes.itemNameSearchTarget}>
+        <input
+          ref={(element) => registerCellInput(row.id, 'itemname', element)}
+          className={`${codeClasses.cellInput} ${classes.itemCodePickerInput} ${classes.itemNameSearchInput}`}
+          aria-label="품명"
+          aria-haspopup="listbox"
+          aria-expanded={isOpen}
+          aria-controls={isOpen ? `item-suggestions-${row.id}` : undefined}
+          data-row-id={row.id}
+          data-field="itemname"
+          value={isEditing ? draft : row.itemname || ''}
+          maxLength={150}
+          placeholder=""
+          disabled={disabled}
+          onFocus={(event) => {
+            commitRequestRef.current += 1;
+            pickerOpenRef.current = false;
+            onFocusCell(row.id, 'itemname');
+            setDraft(row.itemname || '');
+            setIsEditing(true);
+            event.currentTarget.select();
+          }}
+          onBlur={() => { if (!pickerOpenRef.current) void commitExactMatch(); }}
+          onChange={(event) => { setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); }}
+          onPaste={onPaste}
+          onKeyDown={(event) => {
+            if (event.key === 'F2' || event.key === ' ') {
+              event.preventDefault(); event.stopPropagation();
+              if (!disabled) openPicker();
+            } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+              event.preventDefault(); event.stopPropagation();
+              setIsEditing(true);
+              if (items.length) setActiveIndex((current) => event.key === 'ArrowDown'
+                ? (current + 1) % items.length : (current - 1 + items.length) % items.length);
+            } else if (event.key === 'Enter' && isEditing) {
+              event.preventDefault(); event.stopPropagation();
+              const chosen = items[activeIndex >= 0 ? activeIndex : 0];
+              if (chosen) chooseItem(chosen);
+            } else if (event.key === 'Escape') {
+              event.preventDefault(); event.stopPropagation(); setDraft(row.itemname || ''); setIsEditing(false); setActiveIndex(-1);
+            }
+          }}
+          onDoubleClick={() => { if (!disabled) openPicker(); }}
+        />
+      </div>
+    </Popover.Target>
+    <Popover.Dropdown className={itemMasterClasses.shapeSuggestions}>
+      <div id={`item-suggestions-${row.id}`} role="listbox" aria-label="품목 검색 결과">
+        {items.map((item, index) => <button key={item.itemcode} type="button" role="option" aria-selected={index === activeIndex}
+          className={itemMasterClasses.shapeSuggestion}
+          style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          onMouseDown={(event) => event.preventDefault()}
+          onMouseEnter={() => setActiveIndex(index)}
+          onClick={() => chooseItem(item)}>
+          <span>{item.itemname}</span>
+        </button>)}
+      </div>
+    </Popover.Dropdown>
+  </Popover>;
+});
+
+const CustomerNameAutocompleteCell = memo(function CustomerNameAutocompleteCell({ row, disabled, onChange, onPaste, onSelectCustomer, onFindCustomer, onFocusCell, registerCellInput }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(row.customname || '');
+  const [customers, setCustomers] = useState([]);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const requestIdRef = useRef(0);
+  const pickerOpenRef = useRef(false);
+  const query = String(draft || '').trim();
+  const isOpen = isEditing && !disabled && query.length > 0 && customers.length > 0;
+
+  useEffect(() => {
+    if (!isEditing || disabled || !query) return undefined;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const { data } = await axios.get('/api/list', {
+          ...authConfig(),
+          params: { search_keyword: query, status: 'Y', page: 1, page_size: 8, include_total: false },
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted) setCustomers(data.data || []);
+      } catch { /* keep the customer suggestion list closed on lookup failure */ }
+    }, 220);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [isEditing, disabled, query]);
+
+  const chooseCustomer = (customer) => {
+    requestIdRef.current += 1;
+    onSelectCustomer(row.id, customer);
+    setDraft(customer.customername || '');
+    setIsEditing(false);
+    setActiveIndex(-1);
+  };
+
+  const commitExactMatch = async () => {
+    const requestId = ++requestIdRef.current;
+    const normalized = query.toLocaleLowerCase();
+    if (!normalized) {
+      onChange(row.id, 'customname', '');
+      setIsEditing(false);
+      return;
+    }
+    let candidates = customers;
+    if (!candidates.some((customer) => [customer.customername, customer.customercode]
+      .some((value) => String(value || '').trim().toLocaleLowerCase() === normalized))) {
+      try {
+        const { data } = await axios.get('/api/list', {
+          ...authConfig(),
+          params: { search_keyword: query, status: 'Y', page: 1, page_size: 8, include_total: false },
+        });
+        candidates = data.data || [];
+      } catch { /* retain the entered text if lookup fails */ }
+    }
+    if (requestId !== requestIdRef.current) return;
+    const exact = candidates.filter((customer) => [customer.customername, customer.customercode]
+      .some((value) => String(value || '').trim().toLocaleLowerCase() === normalized));
+    if (exact.length === 1) chooseCustomer(exact[0]);
+    else {
+      onChange(row.id, 'customname', query);
+      setIsEditing(false);
+    }
+  };
+
+  const openPicker = () => {
+    pickerOpenRef.current = true;
+    setIsEditing(false);
+    onFindCustomer(row.id);
+  };
+
+  return <Popover opened={isOpen} onChange={(opened) => { if (!opened) setIsEditing(false); }} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500}>
+    <Popover.Target>
+      <div className={classes.itemNameSearchTarget}>
+        <input
+          ref={(element) => registerCellInput(row.id, 'customname', element)}
+          className={`${codeClasses.cellInput} ${classes.itemCodePickerInput} ${classes.itemNameSearchInput}`}
+          aria-label="거래처명"
+          aria-haspopup="listbox"
+          aria-expanded={isOpen}
+          aria-controls={isOpen ? `customer-suggestions-${row.id}` : undefined}
+          data-row-id={row.id}
+          data-field="customname"
+          value={isEditing ? draft : row.customname || ''}
+          maxLength={100}
+          placeholder=""
+          disabled={disabled}
+          onFocus={(event) => {
+            requestIdRef.current += 1;
+            pickerOpenRef.current = false;
+            onFocusCell(row.id, 'customname');
+            setDraft(row.customname || '');
+            setIsEditing(true);
+            event.currentTarget.select();
+          }}
+          onBlur={() => { if (!pickerOpenRef.current) void commitExactMatch(); }}
+          onChange={(event) => { setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); onChange(row.id, 'customname', event.currentTarget.value); }}
+          onPaste={onPaste}
+          onKeyDown={(event) => {
+            if (event.key === 'F2' || event.key === ' ') {
+              event.preventDefault(); event.stopPropagation();
+              if (!disabled) openPicker();
+            } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+              if (!customers.length) return;
+              event.preventDefault(); event.stopPropagation(); setIsEditing(true);
+              setActiveIndex((current) => event.key === 'ArrowDown'
+                ? (current + 1) % customers.length : (current - 1 + customers.length) % customers.length);
+            } else if (event.key === 'Enter' && isEditing) {
+              event.preventDefault(); event.stopPropagation();
+              const customer = customers[activeIndex >= 0 ? activeIndex : 0];
+              if (customer) chooseCustomer(customer);
+            } else if (event.key === 'Escape') {
+              event.preventDefault(); event.stopPropagation(); setDraft(row.customname || ''); setIsEditing(false); setActiveIndex(-1);
+            }
+          }}
+          onDoubleClick={() => { if (!disabled) openPicker(); }}
+        />
+      </div>
+    </Popover.Target>
+    <Popover.Dropdown className={itemMasterClasses.shapeSuggestions}>
+      <div id={`customer-suggestions-${row.id}`} role="listbox" aria-label="거래처 검색 결과">
+        {customers.map((customer, index) => <button key={customer.customercode} type="button" role="option" aria-selected={index === activeIndex}
+          className={itemMasterClasses.shapeSuggestion}
+          style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          onMouseDown={(event) => event.preventDefault()}
+          onMouseEnter={() => setActiveIndex(index)}
+          onClick={() => chooseCustomer(customer)}>
+          <span>{customer.customername}</span>
+        </button>)}
+      </div>
+    </Popover.Dropdown>
+  </Popover>;
+});
+
+const WarehouseNameAutocompleteCell = memo(function WarehouseNameAutocompleteCell({ row, options, disabled, onChange, onSelectWarehouse, onPaste, onFindMaster, onFocusCell, registerCellInput }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(row.warehousecodename || '');
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const pickerOpenRef = useRef(false);
+  const query = String(draft || '').trim().toLocaleLowerCase();
+  const matches = useMemo(() => query
+    ? options.filter((option) => `${option.name || ''} ${option.code || ''}`.toLocaleLowerCase().includes(query)).slice(0, 8)
+    : [], [options, query]);
+  const isOpen = isEditing && !disabled && matches.length > 0;
+
+  const choose = (option) => {
+    onSelectWarehouse(row.id, option);
+    setDraft(option.name || '');
+    setIsEditing(false);
+    setActiveIndex(-1);
+  };
+  const commit = () => {
+    const text = String(draft || '').trim();
+    if (!text) {
+      onChange(row.id, 'warehousecodename', '');
+      setIsEditing(false);
+      return;
+    }
+    const exact = options.filter((option) => [option.name, option.code]
+      .some((value) => String(value || '').trim().toLocaleLowerCase() === text.toLocaleLowerCase()));
+    if (exact.length === 1) choose(exact[0]);
+    else {
+      onChange(row.id, 'warehousecodename', text);
+      setIsEditing(false);
+    }
+  };
+  const openPicker = () => {
+    pickerOpenRef.current = true;
+    setIsEditing(false);
+    onFindMaster(row.id, 'warehousecodename');
+  };
+
+  return <Popover opened={isOpen} onChange={(opened) => { if (!opened) setIsEditing(false); }} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500}>
+    <Popover.Target>
+      <div className={classes.itemNameSearchTarget}>
+        <input
+          ref={(element) => registerCellInput(row.id, 'warehousecodename', element)}
+          className={`${codeClasses.cellInput} ${classes.itemCodePickerInput} ${classes.itemNameSearchInput}`}
+          aria-label="창고명" aria-haspopup="listbox" aria-expanded={isOpen}
+          data-row-id={row.id} data-field="warehousecodename"
+          value={isEditing ? draft : row.warehousecodename || ''} maxLength={50}
+          disabled={disabled}
+          onFocus={(event) => {
+            pickerOpenRef.current = false;
+            onFocusCell(row.id, 'warehousecodename');
+            setDraft(row.warehousecodename || '');
+            setIsEditing(true);
+            event.currentTarget.select();
+          }}
+          onBlur={() => { if (!pickerOpenRef.current) commit(); }}
+          onChange={(event) => { setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); }}
+          onPaste={onPaste}
+          onKeyDown={(event) => {
+            if (event.key === 'F2' || event.key === ' ') {
+              event.preventDefault(); event.stopPropagation();
+              if (!disabled) openPicker();
+            } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+              if (!matches.length) return;
+              event.preventDefault(); event.stopPropagation(); setIsEditing(true);
+              setActiveIndex((current) => event.key === 'ArrowDown'
+                ? (current + 1) % matches.length : (current - 1 + matches.length) % matches.length);
+            } else if (event.key === 'Enter' && isEditing) {
+              event.preventDefault(); event.stopPropagation();
+              const option = matches[activeIndex >= 0 ? activeIndex : 0];
+              if (option) choose(option);
+            } else if (event.key === 'Escape') {
+              event.preventDefault(); event.stopPropagation(); setDraft(row.warehousecodename || ''); setIsEditing(false); setActiveIndex(-1);
+            }
+          }}
+          onDoubleClick={() => { if (!disabled) openPicker(); }}
+        />
+      </div>
+    </Popover.Target>
+    <Popover.Dropdown className={itemMasterClasses.shapeSuggestions}>
+      <div role="listbox" aria-label="창고명 검색 결과">
+        {matches.map((option, index) => <button key={option.code} type="button" role="option" aria-selected={index === activeIndex}
+          className={itemMasterClasses.shapeSuggestion}
+          style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(option)}>
+          <span>{option.name}</span>
+        </button>)}
+      </div>
+    </Popover.Dropdown>
+  </Popover>;
+});
+
+const GeneralCodeNameAutocompleteCell = memo(function GeneralCodeNameAutocompleteCell({ row, field, options, disabled, onChange, onSelectMaster, onPaste, onFindMaster, onFocusCell, registerCellInput }) {
+  const nameKey = field === 'material' ? 'materialname' : 'surfacename';
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(row[nameKey] || '');
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const pickerOpenRef = useRef(false);
+  const query = String(draft || '').trim().toLocaleLowerCase();
+  const matches = useMemo(() => query
+    ? options.filter((option) => `${option.name || ''} ${option.code || ''}`.toLocaleLowerCase().includes(query)).slice(0, 8)
+    : [], [options, query]);
+  const isOpen = isEditing && !disabled && matches.length > 0;
+  const choose = (option) => {
+    onSelectMaster(row.id, field, option);
+    setDraft(option.name || '');
+    setIsEditing(false);
+    setActiveIndex(-1);
+  };
+  const commit = () => {
+    const text = String(draft || '').trim();
+    if (!text) {
+      onChange(row.id, nameKey, '');
+      setIsEditing(false);
+      return;
+    }
+    const exact = options.filter((option) => [option.name, option.code]
+      .some((value) => String(value || '').trim().toLocaleLowerCase() === text.toLocaleLowerCase()));
+    if (exact.length === 1) choose(exact[0]);
+    else {
+      onChange(row.id, nameKey, text);
+      setIsEditing(false);
+    }
+  };
+  const openPicker = () => {
+    pickerOpenRef.current = true;
+    setIsEditing(false);
+    onFindMaster(row.id, field);
+  };
+
+  return <Popover opened={isOpen} onChange={(opened) => { if (!opened) setIsEditing(false); }} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500}>
+    <Popover.Target>
+      <div className={classes.itemNameSearchTarget}>
+        <input
+          ref={(element) => registerCellInput(row.id, nameKey, element)}
+          className={`${codeClasses.cellInput} ${classes.itemCodePickerInput} ${classes.itemNameSearchInput}`}
+          aria-label={field === 'material' ? '강종' : '표면'} aria-haspopup="listbox" aria-expanded={isOpen}
+          data-row-id={row.id} data-field={nameKey}
+          value={isEditing ? draft : row[nameKey] || ''} maxLength={100}
+          disabled={disabled}
+          onFocus={(event) => {
+            pickerOpenRef.current = false;
+            onFocusCell(row.id, nameKey);
+            setDraft(row[nameKey] || '');
+            setIsEditing(true);
+            event.currentTarget.select();
+          }}
+          onBlur={() => { if (!pickerOpenRef.current) commit(); }}
+          onChange={(event) => { setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); }}
+          onPaste={onPaste}
+          onKeyDown={(event) => {
+            if (event.key === 'F2' || event.key === ' ') {
+              event.preventDefault(); event.stopPropagation();
+              if (!disabled) openPicker();
+            } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+              if (!matches.length) return;
+              event.preventDefault(); event.stopPropagation(); setIsEditing(true);
+              setActiveIndex((current) => event.key === 'ArrowDown'
+                ? (current + 1) % matches.length : (current - 1 + matches.length) % matches.length);
+            } else if (event.key === 'Enter' && isEditing) {
+              event.preventDefault(); event.stopPropagation();
+              const option = matches[activeIndex >= 0 ? activeIndex : 0];
+              if (option) choose(option);
+            } else if (event.key === 'Escape') {
+              event.preventDefault(); event.stopPropagation(); setDraft(row[nameKey] || ''); setIsEditing(false); setActiveIndex(-1);
+            }
+          }}
+          onDoubleClick={() => { if (!disabled) openPicker(); }}
+        />
+      </div>
+    </Popover.Target>
+    <Popover.Dropdown className={itemMasterClasses.shapeSuggestions}>
+      <div role="listbox" aria-label={`${field === 'material' ? '강종' : '표면'} 검색 결과`}>
+        {matches.map((option, index) => <button key={option.code} type="button" role="option" aria-selected={index === activeIndex}
+          className={itemMasterClasses.shapeSuggestion}
+          style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(option)}>
+          <span>{option.name}</span><small>{option.code}</small>
+        </button>)}
+      </div>
+    </Popover.Dropdown>
+  </Popover>;
+});
+
+const DetailCells = memo(function DetailCells({ row, index, selected, disabled, managerEditable, saved, unitOptions, onSelect, onChange, onPaste, registerCellInput, onSelectItem, onSelectCustomer, onSelectWarehouse, onSelectGeneralMaster, onFindItem, onFindCustomer, onFindMaster, onFocusCell }) {
   const displayValue = (key) => {
-    if (key === 'qtyunit') return unitOptions.quantity.find((option) => option.code === row.qtyunit)?.name || row.qtyunit || '';
-    if (key === 'unit') return unitOptions.price.find((option) => option.code === row.unit)?.name || row.unit || '';
+    if (key === 'qtyunit') return unitOptions.quantity.find((option) => option.code === resolveMasterCode('qtyunit', row.qtyunit, unitOptions))?.name || row.qtyunit || '';
+    if (key === 'unit') return unitOptions.price.find((option) => option.code === resolveMasterCode('unit', row.unit || 'KG', unitOptions))?.name || row.unit || 'KG';
+    if (key === 'unitamt') return formatNumericInput(totalAmountOf(row, unitOptions.price));
     if (NUMERIC_FIELDS.has(key)) return formatNumericInput(row[key]);
     return row[key] ?? '';
   };
   const pasteHandler = (field) => (event) => {
     const text = event.clipboardData.getData('text/plain');
-    if (field === 'unit' || field === 'qtyunit' || field === 'warehousecode' || field === 'warehousecodename') {
+    if (field === 'unit' || field === 'qtyunit' || field === 'warehousecode' || field === 'warehousecodename' || field === 'customname') {
       event.preventDefault();
       onPaste(row.id, field, text);
       return;
@@ -341,99 +855,110 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
     }
   };
   return <>
-    <Table.Td className={`${codeClasses.checkCol} ${saved ? classes.savedCell : ''}`}>
+    <Table.Td className={`${codeClasses.checkCol} ${saved ? classes.savedCell : ''}`} style={{ width: 42, minWidth: 42, padding: '0 3px' }}>
       <input type="checkbox" aria-label={`${row.itemcode || '입고 상세'} 선택`} checked={selected} disabled={disabled} onChange={(event) => onSelect(row.id, event.nativeEvent.shiftKey)} />
     </Table.Td>
-    <Table.Td className={`${codeClasses.rowNumber} ${saved ? classes.savedCell : ''}`}>{index + 1}</Table.Td>
+    <Table.Td className={`${codeClasses.rowNumber} ${saved ? classes.savedCell : ''}`} style={{ width: 58, minWidth: 58 }}>{index + 1}</Table.Td>
     {DETAIL_FIELDS.map(({ key, label }) => (
-      <Table.Td key={key} className={saved ? classes.savedCell : ''}>
-        {key === 'unitamt' ? (
-          <input className={`${codeClasses.cellInput} ${classes.amountInput}`} aria-label={label} value={formatAmount(amountOf(row, unitOptions.price))} readOnly />
-        ) : key === 'qtyunit' ? (
-          <Popover opened={quantityDropdownOpen && !disabled} onChange={setQuantityDropdownOpen} position="bottom-start" width={170} withinPortal shadow="md">
-            <Popover.Target>
-              <div className={classes.quantityUnitControl}>
-                <input
-                  ref={(element) => { quantityInputRef.current = element; registerCellInput(row.id, key, element); }}
-                  className={`${codeClasses.cellInput} ${classes.quantityUnitInput}`}
-                  aria-label={label}
-                  aria-haspopup="listbox"
-                  aria-expanded={quantityDropdownOpen && !disabled}
-                  data-row-id={row.id}
-                  data-field={key}
-                  value={displayValue(key)}
-                  disabled={disabled}
-                  onFocus={() => { onFocusCell(row.id, key); if (!disabled) setQuantityDropdownOpen(true); }}
-                  onBlur={() => setQuantityDropdownOpen(false)}
-                  onChange={(event) => { onChange(row.id, key, event.currentTarget.value); setQuantityOptionIndex(-1); setQuantityDropdownOpen(true); }}
-                  onPaste={pasteHandler(key)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setQuantityDropdownOpen(true);
-                      setQuantityOptionIndex((current) => event.key === 'ArrowDown'
-                        ? (current + 1) % Math.max(quantityOptions.length, 1)
-                        : (current - 1 + Math.max(quantityOptions.length, 1)) % Math.max(quantityOptions.length, 1));
-                    } else if (event.key === 'Enter' && quantityDropdownOpen && quantityOptionIndex >= 0 && quantityOptions[quantityOptionIndex]) {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onChange(row.id, key, quantityOptions[quantityOptionIndex].code);
-                      setQuantityDropdownOpen(false);
-                      setQuantityOptionIndex(-1);
-                    } else if (event.key === 'Escape') {
-                      event.stopPropagation();
-                      setQuantityDropdownOpen(false);
-                      setQuantityOptionIndex(-1);
-                    }
-                  }}
-                />
-                <button type="button" className={classes.quantityUnitToggle} aria-label="수량단위 목록 열기" disabled={disabled}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => { quantityInputRef.current?.focus(); setQuantityOptionIndex(-1); setQuantityDropdownOpen(true); }}>
-                  <IconChevronDown size={14} />
-                </button>
-              </div>
-            </Popover.Target>
-            <Popover.Dropdown className={classes.quantityUnitDropdown} role="listbox" aria-label="수량단위 선택">
-              {quantityOptions.map((option, optionIndex) => (
-                <button key={option.code} type="button" role="option" aria-selected={resolveMasterCode(key, row.qtyunit, unitOptions) === option.code}
-                  className={`${classes.quantityUnitOption} ${quantityOptionIndex === optionIndex ? classes.quantityUnitOptionActive : ''}`}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => { onChange(row.id, key, option.code); setQuantityDropdownOpen(false); setQuantityOptionIndex(-1); }}>
-                  <span>{option.name || option.code}</span><span className={classes.quantityUnitCode}>{option.code}</span>
-                </button>
-              ))}
-              {!quantityOptions.length && <Text size="xs" c="dimmed" p="xs">등록된 수량단위가 없습니다.</Text>}
-            </Popover.Dropdown>
-          </Popover>
-        ) : (
+      <Table.Td key={key} className={[
+        saved ? classes.savedCell : '',
+        key === 'manager' && managerEditable ? classes.managerEditableCell : '',
+      ].filter(Boolean).join(' ')}>
+        {key === 'receptdate' ? (
           <input
-            ref={(element) => {
-              if (key === 'itemcode') registerCodeInput(row.id, element);
-              registerCellInput(row.id, key, element);
-            }}
-            className={`${codeClasses.cellInput} ${key === 'itemname' || key === 'warehousecodename' ? classes.autoFilledInput : ''} ${key === 'itemcode' || key === 'unit' || key === 'warehousecode' ? classes.itemCodePickerInput : ''}`}
+            ref={(element) => registerCellInput(row.id, key, element)}
+            className={codeClasses.cellInput}
             aria-label={label}
-            title={['itemcode', 'unit', 'warehousecode'].includes(key) ? `${label} - 더블클릭하여 마스터에서 선택` : undefined}
             data-row-id={row.id}
             data-field={key}
-            inputMode={key === 'qty' || key === 'weight' || key === 'unitprice' ? 'decimal' : undefined}
+            type="text"
+            inputMode="numeric"
+            maxLength={10}
+            placeholder="YYYY-MM-DD"
+            value={row.receptdate || ''}
+            disabled={disabled}
+            onFocus={() => onFocusCell(row.id, key)}
+            onChange={(event) => onChange(row.id, key, event.currentTarget.value)}
+            onPaste={pasteHandler(key)}
+          />
+        ) : key === 'customname' ? (
+          <CustomerNameAutocompleteCell row={row} disabled={disabled} onChange={onChange} onPaste={pasteHandler(key)}
+            onSelectCustomer={onSelectCustomer} onFindCustomer={onFindCustomer} onFocusCell={onFocusCell} registerCellInput={registerCellInput} />
+        ) : key === 'supplyamt' || key === 'vat' ? (
+          <input
+            ref={(element) => registerCellInput(row.id, key, element)}
+            className={`${codeClasses.cellInput} ${classes.amountInput}`}
+            aria-label={label}
+            data-row-id={row.id}
+            data-field={key}
+            inputMode="decimal"
+            value={formatNumericInput(row[`${key}_manual`] ? row[key] : (key === 'vat' ? vatOf({ ...row, vat_manual: false }, unitOptions.price) : amountOf({ ...row, supplyamt_manual: false }, unitOptions.price)))}
+            disabled={disabled}
+            onFocus={() => onFocusCell(row.id, key)}
+            onPaste={pasteHandler(key)}
+            onChange={(event) => onChange(row.id, key, cleanNumericInput(event.currentTarget.value))}
+          />
+        ) : key === 'unitamt' ? (
+          <input
+            ref={(element) => registerCellInput(row.id, key, element)}
+            className={`${codeClasses.cellInput} ${classes.amountInput}`}
+            aria-label={label}
+            data-row-id={row.id}
+            data-field={key}
+            value={displayValue(key)}
+            readOnly
+            onFocus={() => onFocusCell(row.id, key)}
+          />
+        ) : key === 'itemname' ? (
+          <ItemNameAutocompleteCell row={row} disabled={disabled} onChange={onChange} onPaste={pasteHandler(key)}
+            onSelectItem={onSelectItem} onFindItem={onFindItem} onFocusCell={onFocusCell} registerCellInput={registerCellInput} />
+        ) : key === 'warehousecodename' ? (
+          <WarehouseNameAutocompleteCell row={row} options={unitOptions.warehouse} disabled={disabled} onChange={onChange}
+            onSelectWarehouse={onSelectWarehouse} onPaste={pasteHandler(key)} onFindMaster={onFindMaster}
+            onFocusCell={onFocusCell} registerCellInput={registerCellInput} />
+        ) : key === 'materialname' || key === 'surfacename' ? (
+          <GeneralCodeNameAutocompleteCell row={row} field={key === 'materialname' ? 'material' : 'surface'}
+            options={key === 'materialname' ? unitOptions.material : unitOptions.surface} disabled={disabled} onChange={onChange}
+            onSelectMaster={onSelectGeneralMaster} onPaste={pasteHandler(key)} onFindMaster={onFindMaster}
+            onFocusCell={onFocusCell} registerCellInput={registerCellInput} />
+        ) : key === 'unit' || key === 'qtyunit' ? (
+          <select
+            ref={(element) => registerCellInput(row.id, key, element)}
+            className={`${codeClasses.cellSelect} ${classes.priceUnitSelect}`}
+            aria-label={label}
+            data-row-id={row.id}
+            data-field={key}
+            value={resolveMasterCode(key, row[key] || (key === 'unit' ? 'KG' : 'EA'), unitOptions) || row[key] || (key === 'unit' ? 'KG' : 'EA')}
+            disabled={disabled}
+            onFocus={() => onFocusCell(row.id, key)}
+            onPaste={pasteHandler(key)}
+            onChange={(event) => onChange(row.id, key, event.currentTarget.value)}
+          >
+            {row[key] && !resolveMasterCode(key, row[key], unitOptions) && <option value={row[key]}>{row[key]}</option>}
+            {(key === 'unit' ? unitOptions.price : unitOptions.quantity)
+              .map((option) => <option key={option.code} value={option.code}>{option.name || option.code}</option>)}
+          </select>
+        ) : (
+          <input
+            ref={(element) => registerCellInput(row.id, key, element)}
+            className={`${codeClasses.cellInput} ${key === 'itemname' || key === 'warehousecodename' ? classes.autoFilledInput : ''} ${key === 'warehousecode' ? classes.itemCodePickerInput : ''}`}
+            aria-label={label}
+            title={key === 'warehousecode' ? `${label} - 더블클릭하여 마스터에서 선택` : undefined}
+            data-row-id={row.id}
+            data-field={key}
+            inputMode={NUMERIC_FIELDS.has(key) ? 'decimal' : undefined}
             value={displayValue(key)}
             placeholder={row.is_new && (key === 'itemcode' || key === 'itemname') ? label : ''}
             readOnly={key === 'itemname' || key === 'warehousecodename'}
-            disabled={disabled}
+            disabled={disabled && !(key === 'manager' && managerEditable)}
             onFocus={() => onFocusCell(row.id, key)}
-            onDoubleClick={key === 'itemcode' ? () => onFindItem(row.id) : ['unit', 'warehousecode'].includes(key) ? () => onFindMaster(row.id, key) : undefined}
+            onDoubleClick={key === 'warehousecode' ? () => onFindMaster(row.id, key) : undefined}
             onPaste={pasteHandler(key)}
             onChange={(event) => onChange(row.id, key, NUMERIC_FIELDS.has(key) ? cleanNumericInput(event.currentTarget.value) : event.currentTarget.value)}
           />
         )}
       </Table.Td>
     ))}
-    <Table.Td className={`${codeClasses.actionCol} ${saved ? classes.savedCell : ''}`}>
-      <Tooltip label="상세 행 삭제"><ActionIcon variant="subtle" color="red" aria-label="상세 행 삭제" disabled={disabled} onClick={() => onDelete(row.id)}><IconTrash size={16} /></ActionIcon></Tooltip>
-    </Table.Td>
   </>;
 });
 
@@ -448,12 +973,16 @@ const virtuosoComponents = {
 };
 
 export default function InboundRegisterPage() {
+  const pageLayout = useContext(PageRibbonContext);
+  const registerPageRibbon = pageLayout?.registerPageRibbon;
+  const closeActivePage = pageLayout?.closeActivePage;
   const [receipts, setReceipts] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
   const [filterInputs, setFilterInputs] = useState(createDefaultReceiptFilters);
   const [filters, setFilters] = useState(createDefaultReceiptFilters);
+  const [filterOpen, setFilterOpen] = useState(true);
   const [header, setHeader] = useState(EMPTY_HEADER);
   const [receiptMetadata, setReceiptMetadata] = useState({ companyid: '', companyname: '', created_at: '', updated_at: '' });
   const [rows, setRows] = useState([]);
@@ -466,28 +995,37 @@ export default function InboundRegisterPage() {
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [detailDeleteOpen, setDetailDeleteOpen] = useState(false);
-  const [bulkEditOpen, setBulkEditOpen] = useState(false);
-  const [bulkValues, setBulkValues] = useState({ qtyunit: '', warehousecode: '', unit: '' });
   const [columnWidths, setColumnWidths] = useState({});
   const [receiptColumnWidths, setReceiptColumnWidths] = useState({});
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
-  const [itemPickerTargetId, setItemPickerTargetId] = useState('');
+  const [customerPickerTarget, setCustomerPickerTarget] = useState(null);
+  const [itemPickerTarget, setItemPickerTarget] = useState(null);
   const [masterPickerTarget, setMasterPickerTarget] = useState(null);
-  const [unitOptions, setUnitOptions] = useState({ price: [], quantity: [], warehouse: [] });
+  const [unitOptions, setUnitOptions] = useState({ price: [], quantity: [], warehouse: [], material: [], surface: [] });
   const virtuosoRef = useRef(null);
-  const codeInputsRef = useRef(new Map());
+  const receiptTableRef = useRef(null);
+  const receiptSubtotalRef = useRef(null);
   const cellInputsRef = useRef(new Map());
   const codeLookupTimersRef = useRef(new Map());
   const masterPasteErrorsRef = useRef(new Map());
   const activeCellRef = useRef(null);
   const pendingCellFocusRef = useRef(null);
   const pendingFocusIdRef = useRef('');
+  const pendingFocusFieldRef = useRef('');
   const selectionAnchorRef = useRef('');
   const locked = isReceiptConfirmed(subulyn);
   const readOnly = Boolean(selectedReceiptno) || locked;
+  const hasManagerChanges = Boolean(selectedReceiptno) && rows.some((row) => row.manager_dirty);
   const hasPendingChanges = documentDirty || rows.some((row) => row.is_new || row.is_dirty);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const receiptAutoWidths = useMemo(() => Object.fromEntries(RECEIPT_COLUMNS.map((column) => {
+    const values = receipts.map((receipt) => {
+      if (column.key === 'customname') return receipt.customname || '';
+      if (column.key === 'warehousecodename') return receipt.warehousecodename || '';
+      return receipt[column.key];
+    });
+    return [column.key, fitColumnWidth(column.label, values, column.width, column.minWidth)];
+  })), [receipts]);
 
   const resizeColumn = useCallback((event, key, defaultWidth, minWidth, tableWidth) => {
     event.preventDefault();
@@ -516,26 +1054,48 @@ export default function InboundRegisterPage() {
     event.preventDefault();
     event.stopPropagation();
     const startX = event.clientX;
-    const startWidth = receiptColumnWidths[key] ?? defaultWidth;
-    const tableWidth = RECEIPT_COLUMNS.reduce((sum, column) => sum + (receiptColumnWidths[column.key] ?? column.width), 0);
-    const root = event.currentTarget.closest(`.${classes.topReceiptTable}`);
-    const th = event.currentTarget.parentElement;
+    const startWidth = receiptColumnWidths[key] ?? receiptAutoWidths[key] ?? defaultWidth;
+    const tableWidth = RECEIPT_COLUMNS.reduce((sum, column) => sum + (receiptColumnWidths[column.key] ?? receiptAutoWidths[column.key] ?? column.width), 0);
     let nextWidth = startWidth;
+    let animationFrame = 0;
+    const applyWidth = () => {
+      const nextTableWidth = tableWidth + nextWidth - startWidth;
+      const tables = [
+        receiptTableRef.current?.querySelector('table'),
+        receiptSubtotalRef.current?.querySelector('table'),
+      ].filter(Boolean);
+      tables.forEach((table) => {
+        const column = [...table.querySelectorAll('col[data-column-key]')]
+          .find((element) => element.dataset.columnKey === key);
+        if (column) column.style.width = `${nextWidth}px`;
+        table.style.width = `${nextTableWidth}px`;
+        table.style.minWidth = `${nextTableWidth}px`;
+      });
+      const scrollbarContent = receiptTableRef.current?.parentElement
+        ?.querySelector(`.${classes.topReceiptHorizontalContent}`);
+      if (scrollbarContent) scrollbarContent.style.width = `${nextTableWidth}px`;
+    };
     const move = (pointerEvent) => {
       nextWidth = Math.max(minWidth, Math.min(1600, startWidth + pointerEvent.clientX - startX));
-      if (th) th.style.width = `${nextWidth}px`;
-      root?.style.setProperty('--receipt-table-min-width', `${Math.max(1450, tableWidth + nextWidth - startWidth)}px`);
+      if (!animationFrame) {
+        animationFrame = window.requestAnimationFrame(() => {
+          animationFrame = 0;
+          applyWidth();
+        });
+      }
     };
     const finish = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', finish);
       window.removeEventListener('pointercancel', finish);
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      applyWidth();
       setReceiptColumnWidths((current) => ({ ...current, [key]: nextWidth }));
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', finish);
     window.addEventListener('pointercancel', finish);
-  }, [receiptColumnWidths]);
+  }, [receiptColumnWidths, receiptAutoWidths]);
 
   const loadReceipts = useCallback(async (nextPage = page, nextFilters = filters, nextPageSize = pageSize) => {
     setLoading(true);
@@ -546,8 +1106,10 @@ export default function InboundRegisterPage() {
           page_size: nextPageSize,
           q: nextFilters.q || undefined,
           receiptno: nextFilters.receiptno || undefined,
+          customer: nextFilters.customer || undefined,
           customcode: nextFilters.customcode || undefined,
           customname: nextFilters.customname || undefined,
+          warehouse: nextFilters.warehouse || undefined,
           date_from: nextFilters.date_from || undefined,
           date_to: nextFilters.date_to || undefined,
         },
@@ -581,14 +1143,19 @@ export default function InboundRegisterPage() {
       totalCount = data.total || 0;
       pageNumber += 1;
     } while (items.length < totalCount && pageNumber <= 100);
-    return items.filter((item) => item.use).map((item) => ({ code: item.code, name: item.name }));
+    const uniqueOptions = new Map();
+    items.filter((item) => item.use).forEach((item) => {
+      const code = String(item.code || '').trim();
+      if (code) uniqueOptions.set(code.toLocaleUpperCase(), { code, name: item.name || code });
+    });
+    return [...uniqueOptions.values()];
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([loadUnitOptions('PRICE_UNIT'), loadUnitOptions('QTY'), loadUnitOptions('WAREHOUSE')])
-      .then(([price, quantity, warehouse]) => {
-        if (!cancelled) setUnitOptions({ price, quantity, warehouse });
+    Promise.all([loadUnitOptions('PRICE_UNIT'), loadUnitOptions('QTY'), loadUnitOptions('WAREHOUSE'), loadUnitOptions('MATERIAL'), loadUnitOptions('SURFACE')])
+      .then(([price, quantity, warehouse, material, surface]) => {
+        if (!cancelled) setUnitOptions({ price, quantity, warehouse, material, surface });
       })
       .catch((error) => {
         if (!cancelled) notifications.show({ title: '단위 코드 조회 실패', message: errorMessage(error), color: 'red' });
@@ -596,18 +1163,35 @@ export default function InboundRegisterPage() {
     return () => { cancelled = true; };
   }, [loadUnitOptions]);
 
-  const openCustomerPicker = useCallback(() => {
-    if (!readOnly && !saving) setCustomerPickerOpen(true);
+  const openCustomerPicker = useCallback((rowId) => {
+    if (!readOnly && !saving) {
+      setCustomerPickerTarget(rowId);
+      setCustomerPickerOpen(true);
+    }
   }, [readOnly, saving]);
 
   const selectCustomer = useCallback((customer) => {
-    setHeader((current) => ({
-      ...current,
-      customcode: customer.customercode || '',
-      customname: customer.customername || '',
-    }));
+    if (customerPickerTarget) {
+      setRows((current) => current.map((row) => row.id === customerPickerTarget
+        ? { ...row, customcode: customer.customercode || '', customname: customer.customername || '', is_dirty: !row.is_new }
+        : row));
+    } else {
+      setHeader((current) => ({
+        ...current,
+        customcode: customer.customercode || '',
+        customname: customer.customername || '',
+      }));
+    }
     setDocumentDirty(true);
     setCustomerPickerOpen(false);
+    setCustomerPickerTarget(null);
+  }, [customerPickerTarget]);
+
+  const selectCustomerForRow = useCallback((rowId, customer) => {
+    setRows((current) => current.map((row) => row.id === rowId
+      ? { ...row, customcode: customer.customercode || '', customname: customer.customername || '', is_dirty: !row.is_new }
+      : row));
+    setDocumentDirty(true);
   }, []);
 
   const selectItem = useCallback((rowId, item) => {
@@ -615,8 +1199,16 @@ export default function InboundRegisterPage() {
       ? { ...row, itemcode: item.itemcode || '', itemname: item.itemname || '', is_dirty: !row.is_new }
       : row));
     setDocumentDirty(true);
-    setItemPickerTargetId('');
   }, []);
+
+  const openItemPicker = useCallback((rowId) => {
+    if (!readOnly && !saving) setItemPickerTarget(rowId);
+  }, [readOnly, saving]);
+
+  const selectItemFromPicker = useCallback((item) => {
+    if (itemPickerTarget) selectItem(itemPickerTarget, item);
+    setItemPickerTarget(null);
+  }, [itemPickerTarget, selectItem]);
 
   const lookupItemNames = useCallback(async (itemcodes) => {
     const codes = [...new Set(itemcodes.map((code) => String(code || '').trim()).filter(Boolean))];
@@ -639,7 +1231,6 @@ export default function InboundRegisterPage() {
         receptdate: String(receipt.receptdate || '').slice(0, 10),
         customcode: receipt.customcode || '',
         customname: receipt.customname || '',
-        description: receipt.description || '',
       });
       setReceiptMetadata({
         companyid: receipt.companyid || '',
@@ -665,7 +1256,7 @@ export default function InboundRegisterPage() {
   const createReceipt = useCallback(() => {
     if (hasPendingChanges) {
       notifications.show({ title: '저장되지 않은 변경사항', message: '현재 입고 내용을 먼저 저장해 주세요.', color: 'orange' });
-      return;
+      return false;
     }
     setHeader({ ...EMPTY_HEADER, receptdate: localDate() });
     setReceiptMetadata({ companyid: '', companyname: '', created_at: '', updated_at: '' });
@@ -675,23 +1266,19 @@ export default function InboundRegisterPage() {
     setDocumentDirty(false);
     setSelectedIds([]);
     selectionAnchorRef.current = '';
+    return true;
   }, [hasPendingChanges]);
 
   useEffect(() => {
     if (!pendingFocusIdRef.current) return;
     const id = pendingFocusIdRef.current;
+    const field = pendingFocusFieldRef.current || 'itemname';
     const rowIndex = rows.findIndex((row) => row.id === id);
     if (rowIndex >= 0) requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: rowIndex, align: 'end', behavior: 'auto' }));
-    const input = codeInputsRef.current.get(id);
-    if (input) { input.focus(); pendingFocusIdRef.current = ''; }
+    cellInputsRef.current.get(`${id}:${field}`)?.focus();
+    pendingFocusIdRef.current = '';
+    pendingFocusFieldRef.current = '';
   }, [rows]);
-
-  const registerCodeInput = useCallback((id, element) => {
-    if (element) {
-      codeInputsRef.current.set(id, element);
-      if (pendingFocusIdRef.current === id) { element.focus(); pendingFocusIdRef.current = ''; }
-    } else codeInputsRef.current.delete(id);
-  }, []);
 
   const registerCellInput = useCallback((id, field, element) => {
     const key = `${id}:${field}`;
@@ -704,32 +1291,72 @@ export default function InboundRegisterPage() {
     } else cellInputsRef.current.delete(key);
   }, []);
 
-  const changeHeader = useCallback((key, value) => {
-    setHeader((current) => ({ ...current, [key]: value }));
-    setDocumentDirty(true);
-  }, []);
   const changeDetail = useCallback((id, key, value) => {
-    const bulkField = key === 'unit' || key === 'qtyunit' || key === 'warehousecode';
-    const applyToSelected = bulkField && selectedIds.length > 1 && selectedSet.has(id);
-    const shouldUpdate = (row) => row.id === id || (applyToSelected && selectedSet.has(row.id));
-
-    if (key === 'unit' || key === 'qtyunit') {
-      if (applyToSelected) selectedIds.forEach((rowId) => masterPasteErrorsRef.current.delete(masterPasteErrorKey(rowId, key)));
-      else masterPasteErrorsRef.current.delete(masterPasteErrorKey(id, key));
-      const normalizedValue = resolveMasterCode(key, value, unitOptions) || value;
-      setRows((current) => current.map((row) => shouldUpdate(row)
-        ? { ...row, [key]: normalizedValue, is_dirty: !row.is_new }
+    if (key === 'manager' && selectedReceiptno) {
+      setRows((current) => current.map((row) => row.id === id
+        ? { ...row, manager: value, manager_dirty: true }
         : row));
       setDocumentDirty(true);
       return;
     }
-    if (key === 'warehousecode') {
-      if (applyToSelected) selectedIds.forEach((rowId) => masterPasteErrorsRef.current.delete(masterPasteErrorKey(rowId, 'warehouse')));
-      else masterPasteErrorsRef.current.delete(masterPasteErrorKey(id, 'warehouse'));
-      const normalizedValue = resolveMasterCode('warehouse', value, unitOptions) || value;
+    if (key === 'itemname') {
+      setRows((current) => current.map((row) => row.id === id
+        ? { ...row, itemcode: '', itemname: value, is_dirty: !row.is_new }
+        : row));
+      setDocumentDirty(true);
+      return;
+    }
+    if (key === 'customname') {
+      setRows((current) => current.map((row) => row.id === id
+        ? { ...row, customcode: '', customname: value, is_dirty: !row.is_new }
+        : row));
+      setDocumentDirty(true);
+      return;
+    }
+    if (key === 'unit' || key === 'qtyunit') {
+      masterPasteErrorsRef.current.delete(masterPasteErrorKey(id, key));
+      const normalizedValue = resolveMasterCode(key, value, unitOptions) || value;
+      setRows((current) => current.map((row) => row.id === id
+        ? key === 'unit'
+          ? { ...row, unit: normalizedValue, supplyamt: '', vat: '', supplyamt_manual: false, vat_manual: false, is_dirty: !row.is_new }
+          : { ...row, [key]: normalizedValue, is_dirty: !row.is_new }
+        : row));
+      setDocumentDirty(true);
+      return;
+    }
+    if (key === 'warehousecodename') {
+      masterPasteErrorsRef.current.delete(masterPasteErrorKey(id, 'warehouse'));
+      const normalizedValue = resolveMasterCode('warehouse', value, unitOptions);
       const option = unitOptions.warehouse.find((item) => item.code === normalizedValue);
-      setRows((current) => current.map((row) => shouldUpdate(row)
-        ? { ...row, warehousecode: normalizedValue, warehousecodename: option?.name || '', is_dirty: !row.is_new }
+      setRows((current) => current.map((row) => row.id === id
+        ? { ...row, warehousecode: option?.code || '', warehousecodename: option?.name || String(value || ''), is_dirty: !row.is_new }
+        : row));
+      setDocumentDirty(true);
+      return;
+    }
+    if (key === 'materialname' || key === 'surfacename') {
+      const field = key === 'materialname' ? 'material' : 'surface';
+      const codeKey = field === 'material' ? 'materialcode' : 'surfacecode';
+      const nameKey = key;
+      const code = resolveMasterCode(field, value, unitOptions);
+      const options = field === 'material' ? unitOptions.material : unitOptions.surface;
+      const option = options.find((item) => item.code === code);
+      setRows((current) => current.map((row) => row.id === id
+        ? { ...row, [codeKey]: option?.code || '', [nameKey]: option?.name || String(value || ''), is_dirty: !row.is_new }
+        : row));
+      setDocumentDirty(true);
+      return;
+    }
+    if (key === 'supplyamt' || key === 'vat') {
+      setRows((current) => current.map((row) => row.id === id
+        ? { ...row, [key]: value, [`${key}_manual`]: true, is_dirty: !row.is_new }
+        : row));
+      setDocumentDirty(true);
+      return;
+    }
+    if (key === 'unitprice') {
+      setRows((current) => current.map((row) => row.id === id
+        ? { ...row, unitprice: value, supplyamt: '', vat: '', supplyamt_manual: false, vat_manual: false, is_dirty: !row.is_new }
         : row));
       setDocumentDirty(true);
       return;
@@ -763,7 +1390,7 @@ export default function InboundRegisterPage() {
       }
     }, 220);
     codeLookupTimersRef.current.set(id, timer);
-  }, [lookupItemNames, unitOptions, selectedIds, selectedSet]);
+  }, [lookupItemNames, unitOptions, selectedReceiptno]);
 
   const setActiveCell = useCallback((id, field) => {
     activeCellRef.current = { id, field };
@@ -773,7 +1400,7 @@ export default function InboundRegisterPage() {
     const activeCell = activeCellRef.current;
     if (!activeCell || readOnly || saving || !selectedIds.length) return;
     const field = activeCell.field;
-    if (field === 'itemname' || field === 'warehousecodename' || field === 'unitamt') return;
+    if (field === 'itemname' || field === 'warehousecodename' || field === 'unitamt' || field === 'unit') return;
     const sourceIndex = rows.findIndex((row) => row.id === activeCell.id);
     if (sourceIndex < 0) return;
     const sourceValue = rows[sourceIndex][field] ?? '';
@@ -873,26 +1500,55 @@ export default function InboundRegisterPage() {
 
   const selectMasterOption = useCallback((option) => {
     if (!masterPickerTarget) return;
-    changeDetail(masterPickerTarget.id, masterPickerTarget.field, option.code);
+    if (masterPickerTarget.field === 'material' || masterPickerTarget.field === 'surface') {
+      const field = masterPickerTarget.field;
+      const codeKey = field === 'material' ? 'materialcode' : 'surfacecode';
+      const nameKey = field === 'material' ? 'materialname' : 'surfacename';
+      setRows((current) => current.map((row) => row.id === masterPickerTarget.id
+        ? { ...row, [codeKey]: option.code || '', [nameKey]: option.name || '', is_dirty: !row.is_new }
+        : row));
+      setDocumentDirty(true);
+    } else changeDetail(masterPickerTarget.id, masterPickerTarget.field, option.code);
     setMasterPickerTarget(null);
   }, [masterPickerTarget, changeDetail]);
 
+  const selectWarehouse = useCallback((id, option) => {
+    setRows((current) => current.map((row) => row.id === id
+      ? { ...row, warehousecode: option.code || '', warehousecodename: option.name || '', is_dirty: !row.is_new }
+      : row));
+    masterPasteErrorsRef.current.delete(masterPasteErrorKey(id, 'warehouse'));
+    setDocumentDirty(true);
+  }, []);
+
+  const selectGeneralMaster = useCallback((id, field, option) => {
+    const codeKey = field === 'material' ? 'materialcode' : 'surfacecode';
+    const nameKey = field === 'material' ? 'materialname' : 'surfacename';
+    setRows((current) => current.map((row) => row.id === id
+      ? { ...row, [codeKey]: option.code || '', [nameKey]: option.name || '', is_dirty: !row.is_new }
+      : row));
+    setDocumentDirty(true);
+  }, []);
+
   const openMasterPicker = useCallback((id, field) => {
-    if (!readOnly && !saving) setMasterPickerTarget({ id, field });
+    if (field !== 'unit' && !readOnly && !saving) setMasterPickerTarget({ id, field });
   }, [readOnly, saving]);
 
   const addDetail = useCallback(() => {
-    if (readOnly) return;
+    if (saving) return;
+    const startingNewReceipt = Boolean(selectedReceiptno);
+    if (startingNewReceipt && !createReceipt()) return;
+    if (readOnly && !startingNewReceipt) return;
     const row = makeDetail();
     pendingFocusIdRef.current = row.id;
-    setRows((current) => [...current, row]);
+    pendingFocusFieldRef.current = 'receptdate';
+    pendingCellFocusRef.current = { key: `${row.id}:receptdate` };
+    setRows((current) => startingNewReceipt ? [row] : [...current, row]);
     setDocumentDirty(true);
     selectionAnchorRef.current = '';
     requestAnimationFrame(() => {
       virtuosoRef.current?.scrollToIndex({ index: rows.length, align: 'end', behavior: 'auto' });
-      codeInputsRef.current.get(row.id)?.focus();
     });
-  }, [readOnly, rows.length]);
+  }, [saving, selectedReceiptno, createReceipt, readOnly, rows.length]);
 
   const toggleSelection = useCallback((id, shiftKey = false) => {
     setSelectedIds((current) => {
@@ -911,38 +1567,6 @@ export default function InboundRegisterPage() {
     selectionAnchorRef.current = '';
   }, [rows]);
 
-  const applyBulkMasterChanges = useCallback(() => {
-    const hasChanges = Object.values(bulkValues).some(Boolean);
-    if (selectedIds.length < 2 || !hasChanges) return;
-    const warehouse = unitOptions.warehouse.find((item) => item.code === bulkValues.warehousecode);
-    selectedIds.forEach((id) => {
-      if (bulkValues.unit) masterPasteErrorsRef.current.delete(masterPasteErrorKey(id, 'unit'));
-      if (bulkValues.qtyunit) masterPasteErrorsRef.current.delete(masterPasteErrorKey(id, 'qtyunit'));
-      if (bulkValues.warehousecode) masterPasteErrorsRef.current.delete(masterPasteErrorKey(id, 'warehouse'));
-    });
-    setRows((current) => current.map((row) => {
-      if (!selectedSet.has(row.id)) return row;
-      const updated = {
-        ...row,
-        ...(bulkValues.unit ? { unit: bulkValues.unit } : {}),
-        ...(bulkValues.qtyunit ? { qtyunit: bulkValues.qtyunit } : {}),
-        ...(bulkValues.warehousecode ? {
-          warehousecode: bulkValues.warehousecode,
-          warehousecodename: warehouse?.name || '',
-        } : {}),
-      };
-      return { ...updated, is_dirty: !updated.is_new };
-    }));
-    setDocumentDirty(true);
-    setBulkEditOpen(false);
-    setBulkValues({ qtyunit: '', warehousecode: '', unit: '' });
-    notifications.show({
-      title: '선택 행 일괄 변경 완료',
-      message: `${selectedIds.length.toLocaleString()}개 행에 선택한 변경 값을 적용했습니다.`,
-      color: 'teal',
-    });
-  }, [bulkValues, selectedIds, selectedSet, unitOptions.warehouse]);
-
   const pasteRange = useCallback((startId, startField, pastedText) => {
     const matrix = pastedText.replace(/\r/g, '').split('\n').filter((line, index, all) => line || index < all.length - 1).map((line) => line.split('\t'));
     const startIndex = rows.findIndex((row) => row.id === startId);
@@ -955,6 +1579,7 @@ export default function InboundRegisterPage() {
     const next = [...rows];
     const append = [];
     const codeLookups = [];
+    const itemNameLookups = [];
     matrix.forEach((line, offset) => {
         const target = next[startIndex + offset] ? { ...next[startIndex + offset] } : makeDetail();
         line.forEach((value, columnOffset) => {
@@ -966,7 +1591,32 @@ export default function InboundRegisterPage() {
             const previousTimer = codeLookupTimersRef.current.get(target.id);
             if (previousTimer) clearTimeout(previousTimer);
             codeLookupTimersRef.current.delete(target.id);
-          } else if (key === 'unit' || key === 'qtyunit' || key === 'warehousecode' || key === 'warehousecodename') {
+          } else if (key === 'itemname') {
+            const itemname = String(value || '').trim();
+            target.itemcode = '';
+            target.itemname = itemname;
+            if (itemname) itemNameLookups.push({ id: target.id, itemname });
+          } else if (key === 'unit') {
+            const code = resolveMasterCode('unit', value, unitOptions);
+            const rawValue = String(value ?? '').trim();
+            target.unit = rawValue && !code ? '' : (code || rawValue);
+            target.supplyamt = '';
+            target.vat = '';
+            target.supplyamt_manual = false;
+            target.vat_manual = false;
+            if (rawValue && !code) masterPasteErrorsRef.current.set(masterPasteErrorKey(target.id, 'unit'), rawValue);
+            else masterPasteErrorsRef.current.delete(masterPasteErrorKey(target.id, 'unit'));
+          } else if (key === 'materialname' || key === 'surfacename') {
+            const masterField = key === 'materialname' ? 'material' : 'surface';
+            const code = resolveMasterCode(masterField, value, unitOptions);
+            const rawValue = String(value ?? '').trim();
+            const option = (masterField === 'material' ? unitOptions.material : unitOptions.surface).find((item) => item.code === code);
+            const codeKey = masterField === 'material' ? 'materialcode' : 'surfacecode';
+            target[codeKey] = option?.code || '';
+            target[key] = option?.name || rawValue;
+            if (rawValue && !option) masterPasteErrorsRef.current.set(masterPasteErrorKey(target.id, masterField), rawValue);
+            else masterPasteErrorsRef.current.delete(masterPasteErrorKey(target.id, masterField));
+          } else if (key === 'qtyunit' || key === 'warehousecode' || key === 'warehousecodename') {
             const masterField = key === 'warehousecode' || key === 'warehousecodename' ? 'warehouse' : key;
             const errorField = masterField === 'warehouse' ? 'warehouse' : key;
             const code = resolveMasterCode(masterField, value, unitOptions);
@@ -988,7 +1638,16 @@ export default function InboundRegisterPage() {
               target[key] = code;
               masterPasteErrorsRef.current.delete(masterPasteErrorKey(target.id, errorField));
             }
-          } else if (key && key !== 'itemname' && key !== 'unitamt') target[key] = NUMERIC_FIELDS.has(key) ? cleanNumericInput(value) : value;
+          } else if (key && key !== 'unitamt') {
+            target[key] = NUMERIC_FIELDS.has(key) ? cleanNumericInput(value) : value;
+            if (key === 'supplyamt' || key === 'vat') target[`${key}_manual`] = true;
+            if (key === 'unitprice') {
+              target.supplyamt = '';
+              target.vat = '';
+              target.supplyamt_manual = false;
+              target.vat_manual = false;
+            }
+          }
         });
         target.is_dirty = !target.is_new;
         if (next[startIndex + offset]) next[startIndex + offset] = target;
@@ -1009,17 +1668,27 @@ export default function InboundRegisterPage() {
         }));
       }).catch(() => {});
     }
+    if (itemNameLookups.length) {
+      const uniqueNames = [...new Set(itemNameLookups.map(({ itemname }) => itemname.toLocaleLowerCase()))];
+      Promise.all(uniqueNames.map(async (normalizedName) => {
+        const itemname = itemNameLookups.find((entry) => entry.itemname.toLocaleLowerCase() === normalizedName)?.itemname || '';
+        try {
+          const { data } = await axios.get('/api/item-master/items/suggest', { ...authConfig(), params: { q: itemname } });
+          const matches = (data.items || []).filter((item) => String(item.itemname || '').trim().toLocaleLowerCase() === normalizedName);
+          return [normalizedName, matches.length === 1 ? matches[0] : null];
+        } catch { return [normalizedName, null]; }
+      })).then((resolved) => {
+        const itemsByName = new Map(resolved);
+        const lookupsById = new Map(itemNameLookups.map((entry) => [entry.id, entry]));
+        setRows((current) => current.map((row) => {
+          const requested = lookupsById.get(row.id);
+          const item = requested && itemsByName.get(requested.itemname.toLocaleLowerCase());
+          if (!item || String(row.itemname || '').trim() !== requested.itemname || row.itemcode) return row;
+          return { ...row, itemcode: item.itemcode || '', itemname: item.itemname || requested.itemname, is_dirty: !row.is_new };
+        }));
+      });
+    }
   }, [rows, readOnly, lookupItemNames, unitOptions]);
-
-  const deleteDetail = useCallback((id) => {
-    setRows((current) => current.filter((row) => row.id !== id));
-    setSelectedIds((current) => current.filter((value) => value !== id));
-    setDocumentDirty(true);
-  }, []);
-  const requestDeleteSelectedDetails = useCallback(() => {
-    if (!selectedIds.length || readOnly) return;
-    setDetailDeleteOpen(true);
-  }, [selectedIds.length, readOnly]);
 
   const deleteSelectedDetails = useCallback(() => {
     if (!selectedIds.length || readOnly) return;
@@ -1029,7 +1698,6 @@ export default function InboundRegisterPage() {
     setSelectedIds([]);
     selectionAnchorRef.current = '';
     setDocumentDirty(true);
-    setDetailDeleteOpen(false);
     notifications.show({
       title: '상세 행 삭제 완료',
       message: `선택한 ${deleteCount.toLocaleString()}개 행을 입력 목록에서 제거했습니다. 저장해야 반영됩니다.`,
@@ -1038,10 +1706,18 @@ export default function InboundRegisterPage() {
   }, [selectedIds, readOnly]);
 
   const validateDocument = useCallback(() => {
+    const invalidDates = rows.flatMap((row, index) => isValidDateInput(row.receptdate) ? [] : [`${index + 1}행`]);
+    if (invalidDates.length) {
+      notifications.show({
+        title: '입고일자 형식 확인',
+        message: `${invalidDates.slice(0, 5).join(', ')}: 날짜를 YYYY-MM-DD 형식으로 입력해 주세요. 예: 2026-10-23`,
+        color: 'orange',
+        autoClose: 8000,
+      });
+      return false;
+    }
     const missing = [];
     if (selectedReceiptno && !header.receiptno.trim()) missing.push('입고전표번호');
-    if (!header.receptdate) missing.push('입고일자');
-    if (!header.customcode.trim()) missing.push('거래처코드');
     if (!rows.length) missing.push('상세 품목');
     if (missing.length) {
       notifications.show({ title: '필수 항목을 입력해 주세요', message: missing.join(', '), color: 'orange' });
@@ -1049,9 +1725,9 @@ export default function InboundRegisterPage() {
     }
     const failures = rows.flatMap((row, index) => {
       const errors = [];
-      if (!String(row.itemcode || '').trim()) errors.push('품목코드');
+      if (!String(row.customcode || '').trim() && !String(row.customname || '').trim()) errors.push('거래처');
+      if (!String(row.itemcode || '').trim()) errors.push('품목명 자동완성에서 품목을 선택해 주세요');
       if (!String(row.itemname || '').trim()) errors.push('품목명');
-      if (!String(row.unit || '').trim()) errors.push('단가기준');
       if (!String(row.qtyunit || '').trim()) errors.push('수량단위');
       const qtyText = String(row.qty ?? '').trim();
       const qty = Number(qtyText);
@@ -1074,7 +1750,7 @@ export default function InboundRegisterPage() {
     const errors = [];
     sourceRows.forEach((row, index) => {
       const checks = [
-        { field: 'unit', label: '단가단위', required: true, errorKey: 'unit' },
+        { field: 'unit', label: '단가기준', required: true, errorKey: 'unit' },
         { field: 'qtyunit', label: '수량단위', required: true, errorKey: 'qtyunit' },
         { field: 'warehousecode', label: '창고', required: true, errorKey: 'warehouse' },
       ];
@@ -1084,6 +1760,16 @@ export default function InboundRegisterPage() {
         const invalidValue = pastedValue || value;
         const invalid = pastedValue || (required && !value) || (value && !resolveMasterCode(field, value, unitOptions));
         if (invalid) errors.push(`${index + 1}행 ${label}: ${invalidValue || '미입력'}`);
+      });
+      [
+        { code: row.materialcode, name: row.materialname, field: 'material', label: '강종' },
+        { code: row.surfacecode, name: row.surfacename, field: 'surface', label: '표면' },
+      ].forEach(({ code, name, field, label }) => {
+        const value = String(code || name || '').trim();
+        const pastedValue = masterPasteErrorsRef.current.get(masterPasteErrorKey(row.id, field));
+        if (pastedValue || (value && !resolveMasterCode(field, value, unitOptions))) {
+          errors.push(`${index + 1}행 ${label}: ${pastedValue || value}`);
+        }
       });
     });
     if (errors.length) {
@@ -1101,8 +1787,33 @@ export default function InboundRegisterPage() {
   }, [unitOptions]);
 
   const saveDocument = useCallback(async () => {
+    if (selectedReceiptno && hasManagerChanges && !locked) {
+      const managerItems = rows
+        .filter((row) => row.manager_dirty)
+        .map((row) => ({ lineno: row.lineno, manager: String(row.manager || '').trim() }));
+      setSaving(true);
+      try {
+        const { data } = await axios.patch(
+          '/api/inbound-register/receipts/' + encodeURIComponent(selectedReceiptno) + '/manager',
+          { items: managerItems },
+          authConfig(),
+        );
+        await openReceipt(selectedReceiptno, true);
+        notifications.show({
+          title: '\ub2f4\ub2f9\uc790 \uc218\uc815 \uc644\ub8cc',
+          message: data.updated_count + ' \ud589\uc758 \ub2f4\ub2f9\uc790\ub97c \uc785\uace0\uc0c1\uc138\u00b7\ud604\uc7ac\uace0\u00b7\uc218\ubd88\ud604\ud669\uc5d0 \ubc18\uc601\ud588\uc2b5\ub2c8\ub2e4.',
+          color: 'teal',
+        });
+        return true;
+      } catch (error) {
+        notifications.show({ title: '\ub2f4\ub2f9\uc790 \uc218\uc815 \uc2e4\ud328', message: errorMessage(error), color: 'red', autoClose: 9000 });
+        return false;
+      } finally {
+        setSaving(false);
+      }
+    }
     if (selectedReceiptno) {
-      notifications.show({ title: '저장된 전표', message: '저장된 전표는 수정할 수 없습니다. 신규 전표를 만들어 입력해 주세요.', color: 'orange' });
+      notifications.show({ title: '저장된 전표', message: '저장된 전표는 수정할 수 없습니다. 상단 헤더의 추가를 눌러 새 전표를 시작해 주세요.', color: 'orange' });
       return false;
     }
     const sourceHeader = header;
@@ -1113,14 +1824,28 @@ export default function InboundRegisterPage() {
     try {
       const payload = {
         ...sourceHeader,
+        receptdate: sourceRows[0]?.receptdate || sourceHeader.receptdate,
+        customcode: sourceRows[0]?.customcode || sourceHeader.customcode,
+        customname: sourceRows[0]?.customname || sourceHeader.customname,
         is_new: !selectedReceiptno,
         items: sourceRows.map((row) => ({
+          receptdate: row.receptdate,
+          customcode: String(row.customcode || '').trim(),
+          customname: String(row.customname || '').trim(),
           itemcode: String(row.itemcode || '').trim(), itemname: String(row.itemname || '').trim(),
-          size: String(row.size || '').trim(), unit: resolveMasterCode('unit', row.unit, unitOptions) || String(row.unit || '').trim(),
-          qty: String(row.qty ?? '').trim(), qtyunit: resolveMasterCode('qtyunit', row.qtyunit, unitOptions) || String(row.qtyunit || '').trim(),
+          productname: String(row.productname || '').trim(),
+          materialcode: String(row.materialcode || '').trim(), materialname: String(row.materialname || '').trim(),
+          surfacecode: String(row.surfacecode || '').trim(), surfacename: String(row.surfacename || '').trim(),
+          myrtle: String(row.myrtle ?? '').trim(),
+          thickness: String(row.thickness ?? '').trim(), width: String(row.width ?? '').trim(), length: String(row.length ?? '').trim(),
+          unit: unitOptions.price.find((option) => option.code === resolveMasterCode('unit', row.unit || 'KG', unitOptions))?.name || String(row.unit || 'KG').trim(),
+          qty: String(row.qty ?? '').trim(), qtyunit: unitOptions.quantity.find((option) => option.code === resolveMasterCode('qtyunit', row.qtyunit, unitOptions))?.name || String(row.qtyunit || '').trim(),
           warehousecode: resolveMasterCode('warehouse', row.warehousecode || row.warehousecodename, unitOptions) || String(row.warehousecode || '').trim(),
           warehousecodename: String(row.warehousecodename || '').trim(),
           weight: String(row.weight || '').trim(), unitprice: String(row.unitprice || '').trim(),
+          supplyamt: row.supplyamt_manual ? String(row.supplyamt || '0').trim() : '',
+          vat: row.vat_manual ? String(row.vat || '0').trim() : '',
+          manager: String(row.manager || '').trim(),
           description: String(row.description || '').trim(),
         })),
       };
@@ -1128,7 +1853,7 @@ export default function InboundRegisterPage() {
       masterPasteErrorsRef.current.clear();
       notifications.show({
         title: '입고 저장 완료',
-        message: `${data.receiptno} 전표의 상세 ${data.saved_count}건을 저장했습니다.`,
+        message: `${data.saved_count}건을 입고일자·거래처·창고 기준 ${data.group_count || 1}개 전표로 나누어 저장했습니다.`,
         color: 'teal',
       });
       const defaultFilters = createDefaultReceiptFilters();
@@ -1143,7 +1868,7 @@ export default function InboundRegisterPage() {
     } finally {
       setSaving(false);
     }
-  }, [selectedReceiptno, header, rows, unitOptions, validateDetailMasters, validateDocument, loadReceipts, openReceipt]);
+  }, [selectedReceiptno, hasManagerChanges, locked, rows, openReceipt, header, unitOptions, validateDetailMasters, validateDocument, loadReceipts]);
 
   const exportDocument = useCallback(() => {
     if (!header.receiptno || !rows.length) {
@@ -1154,29 +1879,23 @@ export default function InboundRegisterPage() {
     try {
       const workbook = XLSX.utils.book_new();
       const exportFields = [
-        ['회사코드', () => receiptMetadata.companyid],
-        ['회사명', () => receiptMetadata.companyname],
-        ['입고전표번호', () => header.receiptno],
-        ['입고일자', () => header.receptdate],
-        ['거래처코드', () => header.customcode],
-        ['거래처명', () => header.customname],
-        ['전표 비고', () => header.description],
-        ['수불확정여부', () => subulyn],
-        ['전표 등록일자', () => receiptMetadata.created_at],
-        ['전표 수정일자', () => receiptMetadata.updated_at],
-        ['순번', (row) => row.lineno],
+        ['No.', (_, index) => index + 1],
         ...DETAIL_FIELDS.map(({ key, label }) => [
-          `상세 ${label}`,
-          (row) => key === 'unitamt'
+          label,
+          (row) => key === 'supplyamt'
             ? amountOf(row, unitOptions.price)
+            : key === 'vat'
+              ? vatOf(row, unitOptions.price)
+              : key === 'unitamt'
+                ? totalAmountOf(row, unitOptions.price)
             : row[key] ?? '',
         ]),
-        ['상세 등록일자', (row) => formatExcelDateTime(row.created_at)],
-        ['상세 수정일자', (row) => formatExcelDateTime(row.updated_at)],
+        ['등록일자', (row) => formatExcelDateTime(row.created_at)],
+        ['수정일자', (row) => formatExcelDateTime(row.updated_at)],
       ];
       const worksheet = XLSX.utils.aoa_to_sheet([
         exportFields.map(([label]) => label),
-        ...rows.map((row) => exportFields.map(([, getValue]) => getValue(row))),
+        ...rows.map((row, index) => exportFields.map(([, getValue]) => getValue(row, index))),
       ]);
       applyExcelHeaderStyle(worksheet, exportFields.length);
       worksheet['!cols'] = exportFields.map(([label]) => ({ wch: Math.min(28, Math.max(14, String(label).length + 4)) }));
@@ -1192,7 +1911,7 @@ export default function InboundRegisterPage() {
       };
       XLSX.writeFile(workbook, `입고전표_${safeFilePart(header.customname || header.customcode)}_${safeFilePart(header.receptdate)}_${safeFilePart(header.receiptno)}.xlsx`);
     } finally { setExporting(false); }
-  }, [header, receiptMetadata, rows, subulyn, unitOptions.price]);
+  }, [header, rows, unitOptions.price]);
 
   const runSearch = useCallback(() => {
     const nextFilters = Object.fromEntries(Object.entries(filterInputs).map(([key, value]) => [key, String(value || '').trim()]));
@@ -1204,6 +1923,59 @@ export default function InboundRegisterPage() {
     setPage(1);
     loadReceipts(1, nextFilters);
   }, [filterInputs, loadReceipts]);
+
+  const copySelectedDetails = useCallback(() => {
+    if (readOnly || saving) return;
+    if (selectedIds.length !== 1) {
+    notifications.show({ title: '복사할 행 선택', message: '복사할 상세 행을 한 개만 선택해 주세요.', color: 'orange' });
+      return;
+    }
+    const source = rows.find((row) => row.id === selectedIds[0]);
+    if (!source) return;
+    const sourceValues = Object.fromEntries(Object.entries(source)
+      .filter(([key]) => !['id', 'lineno', 'is_new', 'is_dirty'].includes(key)));
+    const copy = makeDetail(sourceValues);
+    pendingFocusIdRef.current = copy.id;
+    pendingCellFocusRef.current = { key: `${copy.id}:itemname` };
+    setRows((current) => [...current, copy]);
+    setSelectedIds([copy.id]);
+    setDocumentDirty(true);
+    notifications.show({ title: '상세 행 복사 완료', message: '선택한 행을 그대로 복사해 상세에 추가했습니다.', color: 'teal' });
+  }, [readOnly, saving, rows, selectedIds]);
+
+  const requestToolbarDelete = useCallback(() => {
+    if (selectedIds.length && !readOnly) {
+      deleteSelectedDetails();
+      return;
+    }
+    if (!selectedReceiptno) {
+      notifications.show({ title: '삭제할 항목 없음', message: '입고전표를 선택하거나 상세 행을 선택해 주세요.', color: 'orange' });
+      return;
+    }
+    if (hasPendingChanges) {
+      notifications.show({ title: '저장되지 않은 변경사항', message: '삭제 전에 현재 변경사항을 먼저 정리해 주세요.', color: 'orange' });
+      return;
+    }
+    setDeleteOpen(true);
+  }, [selectedIds.length, readOnly, deleteSelectedDetails, selectedReceiptno, hasPendingChanges]);
+
+  useEffect(() => {
+    if (!registerPageRibbon) return undefined;
+    registerPageRibbon(
+      <Group className={classes.commandRibbon} justify="flex-start" wrap="nowrap" gap={2}>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
+        <span className={classes.ribbonSeparator} />
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={addDetail} disabled={saving}>추가</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} onClick={copySelectedDetails} disabled={readOnly || saving || selectedIds.length !== 1}>복사</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportDocument} loading={exporting} disabled={!selectedReceiptno || loading || detailLoading || !rows.length}>EXCEL</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={() => saveDocument()} loading={saving} disabled={selectedReceiptno ? (locked || detailLoading || !hasManagerChanges) : (readOnly || detailLoading)}>저장</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={requestToolbarDelete} disabled={saving || locked || (!selectedReceiptno && (!selectedIds.length || readOnly))}>삭제</Button>
+        <span className={classes.ribbonSeparator} />
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closeActivePage}>닫기</Button>
+      </Group>,
+    );
+    return () => registerPageRibbon(null);
+  }, [registerPageRibbon, closeActivePage, runSearch, loading, addDetail, copySelectedDetails, readOnly, saving, selectedIds.length, exportDocument, exporting, selectedReceiptno, rows.length, detailLoading, saveDocument, requestToolbarDelete, locked, hasManagerChanges]);
 
   const requestDeleteReceipt = useCallback(async () => {
     if (!selectedReceiptno || locked) return;
@@ -1222,78 +1994,120 @@ export default function InboundRegisterPage() {
   }, [selectedReceiptno, locked, loadReceipts, page, filters]);
 
   const rowContent = useCallback((index, row) => (
-    <DetailCells row={row} index={index} selected={selectedSet.has(row.id)} disabled={saving || readOnly} saved={readOnly} unitOptions={unitOptions}
+    <DetailCells row={row} index={index} selected={selectedSet.has(row.id)} disabled={saving || readOnly}
+      managerEditable={Boolean(selectedReceiptno) && !locked && !saving} saved={readOnly} unitOptions={unitOptions}
       onSelect={toggleSelection} onChange={changeDetail} onPaste={pasteRange}
-      registerCodeInput={registerCodeInput} registerCellInput={registerCellInput} onFindItem={setItemPickerTargetId}
-      onFindMaster={openMasterPicker} onFocusCell={setActiveCell} onDelete={deleteDetail} />
-  ), [selectedSet, saving, readOnly, unitOptions, toggleSelection, changeDetail, pasteRange, registerCodeInput, registerCellInput, openMasterPicker, setActiveCell, deleteDetail]);
+      registerCellInput={registerCellInput} onSelectItem={selectItem} onSelectCustomer={selectCustomerForRow} onSelectWarehouse={selectWarehouse} onSelectGeneralMaster={selectGeneralMaster} onFindItem={openItemPicker}
+      onFindCustomer={openCustomerPicker} onFindMaster={openMasterPicker} onFocusCell={setActiveCell} />
+  ), [selectedSet, saving, readOnly, selectedReceiptno, locked, unitOptions, toggleSelection, changeDetail, pasteRange, registerCellInput, selectItem, selectCustomerForRow, selectWarehouse, selectGeneralMaster, openItemPicker, openCustomerPicker, openMasterPicker, setActiveCell]);
 
   const headerColumns = [
-    { key: 'select', width: 44, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="상세 전체 선택" checked={rows.length > 0 && rows.every((row) => selectedSet.has(row.id))} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
-    { key: 'number', width: 58, minWidth: 48, className: codeClasses.numberCol, label: 'No.' },
-    ...DETAIL_FIELDS.map(({ key, label, width, required }) => ({ key, width, minWidth: 70, label: <>{label}{required && <span className={codeClasses.required}> *</span>}</> })),
-    { key: 'action', width: 58, minWidth: 48, className: codeClasses.actionCol, label: '관리' },
+    { key: 'select', width: 42, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="\uc0c1\uc138 \uc804\uccb4 \uc120\ud0dd" checked={rows.length > 0 && rows.every((row) => selectedSet.has(row.id))} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
+    { key: 'number', width: 58, minWidth: 58, className: codeClasses.numberCol, label: 'No.' },
+    ...DETAIL_FIELDS.map(({ key, label, width, minWidth, required }) => {
+      const fittedWidth = fitColumnWidth(label, rows.map((row) => row[key]), width, minWidth || width);
+      return { key, width: fittedWidth, minWidth: minWidth || width, label: <>{label}{required && <span className={codeClasses.required}> *</span>}</> };
+    }),
   ];
   const tableWidth = headerColumns.reduce((sum, column) => sum + (columnWidths[column.key] ?? column.width), 0);
+  const detailSubtotals = rows.reduce((totals, row) => {
+    totals.qty += Number(cleanNumericInput(row.qty)) || 0;
+    totals.weight += Number(cleanNumericInput(row.weight)) || 0;
+    totals.amount += Number(amountOf(row, unitOptions.price)) || 0;
+    totals.vat += Number(vatOf(row, unitOptions.price)) || 0;
+    totals.total += Number(totalAmountOf(row, unitOptions.price)) || 0;
+    return totals;
+  }, { qty: 0, weight: 0, amount: 0, vat: 0, total: 0 });
   const renderHeader = (column) => (
     <Table.Th key={column.key} className={[codeClasses.resizableHeader, column.className].filter(Boolean).join(' ')} style={{ width: columnWidths[column.key] ?? column.width }}>
-      {column.label}<span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeColumn(event, column.key, column.width, column.minWidth, tableWidth)} role="separator" aria-label={`${column.key} 열 너비 조절`} />
+      <span style={{ whiteSpace: 'nowrap' }}>{column.label}</span><span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeColumn(event, column.key, column.width, column.minWidth, tableWidth)} role="separator" aria-label={`${column.key} 열 너비 조절`} />
     </Table.Th>
   );
-  const receiptTableWidth = RECEIPT_COLUMNS.reduce((sum, column) => sum + (receiptColumnWidths[column.key] ?? column.width), 0);
+  const receiptTableWidth = RECEIPT_COLUMNS.reduce((sum, column) => sum + (receiptColumnWidths[column.key] ?? receiptAutoWidths[column.key] ?? column.width), 0);
+  const receiptSubtotals = receipts.reduce((totals, receipt) => {
+    for (const key of ['line_count', 'total_qty', 'total_weight', 'supply_amount', 'vat_amount', 'total_amount']) {
+      totals[key] += Number(receipt[key]) || 0;
+    }
+    return totals;
+  }, { line_count: 0, total_qty: 0, total_weight: 0, supply_amount: 0, vat_amount: 0, total_amount: 0 });
+  const syncReceiptScroll = (left) => {
+    for (const element of [receiptTableRef.current, receiptSubtotalRef.current]) {
+      if (element && Math.abs(element.scrollLeft - left) > 0.5) element.scrollLeft = left;
+    }
+  };
   const renderReceiptHeader = (column) => (
-    <Table.Th key={column.key} className={codeClasses.resizableHeader} ta={column.align} style={{ width: receiptColumnWidths[column.key] ?? column.width }}>
-      {column.label}<span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeReceiptColumn(event, column.key, column.width, column.minWidth)} role="separator" aria-label={`${column.label} 열 너비 조절`} />
+    <Table.Th key={column.key} className={codeClasses.resizableHeader} ta={column.align} style={{ width: receiptColumnWidths[column.key] ?? receiptAutoWidths[column.key] ?? column.width }}>
+      <span style={{ whiteSpace: 'nowrap' }}>{column.label}</span><span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeReceiptColumn(event, column.key, column.width, column.minWidth)} role="separator" aria-label={`${column.label} 열 너비 조절`} />
     </Table.Th>
   );
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-      <Paper className={dashboardClasses.dashboardHeader}>
-        <Box className={dashboardClasses.headerCopy}>
-          <Text className={sharedClasses.breadcrumb}>매입 관리 <span>›</span> 입고등록</Text>
-          <Title order={1} className={dashboardClasses.pageTitle}>입고 전표 <span>등록</span></Title>
-          <Text className={dashboardClasses.pageSubtitle}>회사별 거래처와 품목을 확인해 입고전표와 상세 내역을 등록합니다.</Text>
-          <Group className={dashboardClasses.sampleNotice} gap={8}><span className={dashboardClasses.statusDot} /><Text size="xs">System Active</Text></Group>
-        </Box>
-      </Paper>
+      <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
+        <Group className={classes.breadcrumbTrail} gap={7}>
+          <Text component="span" className={classes.breadcrumbParent}>구매관리</Text>
+          <Text component="span" className={classes.breadcrumbChevron}>›</Text>
+          <Text component="span" className={classes.breadcrumbCurrent}>입고등록</Text>
+        </Group>
+        {!filterOpen && (
+          <Button className={classes.receiptFilterToggle} variant="subtle" size="xs"
+            leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>
+            조회조건
+          </Button>
+        )}
+      </Box>
 
-      <Paper className={`${sharedClasses.panel} ${classes.topReceiptFilterPanel}`} withBorder>
-        <Box className={classes.topReceiptFilters}>
-          <TextInput label="입고전표번호" placeholder="전표번호 입력" value={filterInputs.receiptno} onChange={(event) => setFilterInputs((current) => ({ ...current, receiptno: event.currentTarget.value }))} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
-          <TextInput label="거래처코드" placeholder="거래처코드 입력" value={filterInputs.customcode} onChange={(event) => setFilterInputs((current) => ({ ...current, customcode: event.currentTarget.value }))} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
-          <TextInput label="거래처명" placeholder="거래처명 입력" value={filterInputs.customname} onChange={(event) => setFilterInputs((current) => ({ ...current, customname: event.currentTarget.value }))} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
-          <TextInput type="date" label="입고 시작일" value={filterInputs.date_from} onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
-          <TextInput type="date" label="입고 종료일" value={filterInputs.date_to} onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
-          <Group gap={6} className={classes.topReceiptActions}>
-            <Button color="red" size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
-          </Group>
-        </Box>
-      </Paper>
+      <Box className={`${classes.inboundWorkspace} ${!filterOpen ? classes.inboundWorkspaceExpanded : ''}`}>
+        <Box className={classes.inboundPrimaryColumn}>
 
       <Paper className={`${sharedClasses.panel} ${classes.topReceiptPanel}`} withBorder>
         <Group className={classes.topReceiptToolbar} justify="space-between" wrap="wrap">
-          <Group gap={8}><Text fw={700}>입고전표 현황</Text><Badge color="gray" variant="light">{total.toLocaleString()}건</Badge></Group>
-          <Group gap={8} wrap="wrap" justify="flex-end">
-            {selectedReceiptno && <Button variant="light" color="red" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportDocument} loading={exporting} disabled={loading || detailLoading || !rows.length}>상세 다운로드</Button>}
-            <Button color="red" size="sm" leftSection={<IconPlus size={15} />} onClick={createReceipt} disabled={saving}>신규 전표</Button>
-            {selectedReceiptno && <Button variant="outline" color="red" size="sm" leftSection={<IconTrash size={15} />} onClick={() => { if (hasPendingChanges) { notifications.show({ title: '저장되지 않은 변경사항', message: '삭제 전에 현재 변경사항을 먼저 정리해 주세요.', color: 'orange' }); return; } setDeleteOpen(true); }} disabled={locked || saving}>전표 삭제</Button>}
-          </Group>
+          <Group gap={8}><Text className={classes.sectionTitle} fw={700}>입고 기본</Text><Badge color="gray" variant="light">{total.toLocaleString()}건</Badge></Group>
         </Group>
-        <Box className={classes.topReceiptTable}>
-          <Table className={classes.receiptFinderTable} stickyHeader highlightOnHover withTableBorder withColumnBorders style={{ width: 'max-content', minWidth: `max(100%, 1450px, ${receiptTableWidth}px)`, tableLayout: 'fixed' }}>
+        <Box ref={receiptTableRef} className={classes.topReceiptTable}>
+          <Table className={classes.receiptFinderTable} stickyHeader highlightOnHover withTableBorder withColumnBorders style={{ width: `${receiptTableWidth}px`, minWidth: `${receiptTableWidth}px`, tableLayout: 'fixed' }}>
+            <colgroup>{RECEIPT_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${receiptColumnWidths[column.key] ?? receiptAutoWidths[column.key] ?? column.width}px` }} />)}</colgroup>
             <Table.Thead><Table.Tr>{RECEIPT_COLUMNS.map(renderReceiptHeader)}</Table.Tr></Table.Thead>
             <Table.Tbody>
               {receipts.map((receipt) => <Table.Tr key={receipt.receiptno} className={`${classes.receiptFinderRow} ${selectedReceiptno === receipt.receiptno ? classes.receiptFinderRowActive : ''}`} onClick={() => { void openReceipt(receipt.receiptno, true); }}>
-                <Table.Td>{receipt.receiptno}</Table.Td><Table.Td>{receipt.customcode}</Table.Td><Table.Td>{receipt.customname || receipt.customcode}</Table.Td><Table.Td>{String(receipt.receptdate || '').slice(0, 10)}</Table.Td><Table.Td ta="right">{Number(receipt.line_count || 0).toLocaleString()}</Table.Td><Table.Td ta="right" className={classes.receiptFinderAmount}>{formatAmount(String(receipt.total_amount ?? 0))}</Table.Td>
+                <Table.Td>{String(receipt.receptdate || '').slice(0, 10)}</Table.Td>
+                 <Table.Td>{receipt.customname || ''}</Table.Td>
+                <Table.Td>{receipt.warehousecodename || ''}</Table.Td>
+                <Table.Td ta="right">{Number(receipt.line_count || 0).toLocaleString()}</Table.Td>
+                <Table.Td ta="right">{Number(receipt.total_qty || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Table.Td>
+                <Table.Td ta="right">{Number(receipt.total_weight || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Table.Td>
+                <Table.Td ta="right">{formatAmount(String(receipt.supply_amount ?? 0))}</Table.Td>
+                <Table.Td ta="right">{formatAmount(String(receipt.vat_amount ?? 0))}</Table.Td>
+                <Table.Td ta="right" className={classes.receiptFinderAmount}>{formatAmount(String(receipt.total_amount ?? 0))}</Table.Td>
+                 <Table.Td>{receipt.qtyunit || ''}</Table.Td>
+                 <Table.Td>{receipt.unit || ''}</Table.Td>
+                <Table.Td>{receipt.receiptno}</Table.Td>
+                <Table.Td>{receipt.description || ''}</Table.Td>
               </Table.Tr>)}
-              {!receipts.length && <Table.Tr><Table.Td colSpan={6} className={classes.topReceiptEmpty}>{loading ? '조회 중입니다.' : '검색된 입고전표가 없습니다.'}</Table.Td></Table.Tr>}
             </Table.Tbody>
           </Table>
+          {!receipts.length && <Box className={classes.topReceiptEmptyMessage}>{loading ? '조회 중입니다.' : '검색된 입고전표가 없습니다.'}</Box>}
+        </Box>
+        <Box className={classes.topReceiptBottom}>
+          {!!receipts.length && <Box ref={receiptSubtotalRef} className={classes.topReceiptSubtotalViewport}>
+            <Table className={`${classes.receiptFinderTable} ${classes.receiptSubtotalTable}`} withTableBorder withColumnBorders
+              style={{ width: `${receiptTableWidth}px`, minWidth: `${receiptTableWidth}px`, tableLayout: 'fixed' }}>
+              <colgroup>{RECEIPT_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${receiptColumnWidths[column.key] ?? receiptAutoWidths[column.key] ?? column.width}px` }} />)}</colgroup>
+              <Table.Tbody><Table.Tr>
+                {RECEIPT_COLUMNS.map((column, index) => <Table.Td key={column.key} className={`${classes.topReceiptSubtotalCell} ${column.align === 'right' ? classes.topReceiptSubtotalNumber : ''}`} ta={column.align}>
+                {index === 0 ? '소계' : column.key === 'line_count' ? receiptSubtotals.line_count.toLocaleString()
+                  : column.key === 'total_qty' || column.key === 'total_weight' ? receiptSubtotals[column.key].toLocaleString(undefined, { maximumFractionDigits: 3 })
+                    : ['supply_amount', 'vat_amount', 'total_amount'].includes(column.key) ? formatWon(String(receiptSubtotals[column.key])) : ''}
+                </Table.Td>)}
+              </Table.Tr></Table.Tbody>
+            </Table>
+          </Box>}
+          <Box className={classes.topReceiptHorizontalScroll} onScroll={(event) => syncReceiptScroll(event.currentTarget.scrollLeft)} aria-label="입고 기본 가로 스크롤">
+            <Box className={classes.topReceiptHorizontalContent} style={{ width: `${receiptTableWidth}px` }} />
+          </Box>
         </Box>
         <Group className={classes.topReceiptPagination} justify="space-between">
-          <Group gap="xs">
-            <Text size="xs" c="dimmed">총 {total.toLocaleString()}건</Text>
+          <Group className={classes.topReceiptPageSize} gap="xs">
             <Select aria-label="페이지당 표시 건수" data={PAGE_SIZE_OPTIONS} value={String(pageSize)} w={100} size="xs"
               onChange={(value) => { if (value) { const nextPageSize = Number(value); setPageSize(nextPageSize); void loadReceipts(1, filters, nextPageSize); } }} />
           </Group>
@@ -1303,106 +2117,85 @@ export default function InboundRegisterPage() {
 
       <Box className={classes.workspace}>
         <Paper className={`${sharedClasses.panel} ${codeClasses.codePanel} ${classes.editorPanel}`} withBorder>
-          <Group className={codeClasses.codeHeader} justify="space-between" align="flex-start" wrap="wrap" gap="sm">
-            <Box>
-              <Group gap={9} align="center"><Text className={codeClasses.codeTitle} fw={800}>{selectedReceiptno || '신규 입고전표'}</Text><Badge color={locked ? 'green' : readOnly ? 'gray' : 'red'} variant="light">{locked ? '수불 확정' : readOnly ? '저장됨 · 읽기 전용' : hasPendingChanges ? '작성 중' : '신규 작성'}</Badge></Group>
-              <Text size="xs" c="dimmed" mt={5}>{selectedReceiptno ? '저장된 자동 발급 전표번호' : '저장 시 자동 발급 · IN + 오늘 날짜(YYYYMMDD) + 5자리 순번'}</Text>
-            </Box>
-            <Group gap={7} wrap="wrap" justify="flex-end">
-              {!selectedReceiptno && (
-              <Button color="red" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={() => saveDocument()} loading={saving} disabled={readOnly || detailLoading}>저장</Button>
-              )}
+          <Group className={codeClasses.codeHeader} justify="space-between" align="center" wrap="wrap" gap="sm">
+            <Group gap={9} align="center">
+              <Text className={classes.sectionTitle} fw={700}>입고 상세</Text>
+              <Badge color="gray" variant="light">{rows.length.toLocaleString()}행</Badge>
+              {selectedReceiptno && <Badge color="gray" variant="light">{selectedReceiptno}</Badge>}
+            </Group>
+            <Group gap={8} align="center">
+              {selectedReceiptno && <Badge color={locked ? 'green' : 'gray'} variant="light">{locked ? '\uC218\uBD88 \uD655\uC815' : '\uC800\uC7A5\uB428 \u00B7 \uB2F4\uB2F9\uC790 \uC218\uC815 \uAC00\uB2A5'}</Badge>}
+              {selectedIds.length > 0 && <Badge color="gray" variant="light">{selectedIds.length}개 선택</Badge>}
             </Group>
           </Group>
 
-          <Box className={classes.headerForm}>
-            <TextInput label="입고일자" type="date" value={header.receptdate} onChange={(event) => changeHeader('receptdate', event.currentTarget.value)} size="sm" disabled={readOnly || saving} required />
-            <TextInput label="거래처코드" value={header.customcode} placeholder="거래처 찾기" size="sm" readOnly disabled={readOnly || saving} required
-              rightSection={<ActionIcon variant="subtle" color="red" aria-label="거래처 찾기" onClick={openCustomerPicker} disabled={readOnly || saving}><IconSearch size={16} /></ActionIcon>}
-              rightSectionPointerEvents="all" />
-            <TextInput label="거래처명" value={header.customname} placeholder="거래처 선택 시 자동 입력" size="sm" disabled />
-            <TextInput className={classes.headerDescription} label="비고" value={header.description} onChange={(event) => changeHeader('description', event.currentTarget.value)} placeholder="비고" size="sm" disabled={readOnly || saving} />
-          </Box>
-
-          <Group className={`${sharedClasses.toolbar} ${codeClasses.toolbar}`} justify="space-between" wrap="wrap" gap={6}>
-            <Group gap={8}><Text fw={700} c="dark">입고 상세</Text><Badge color="gray" variant="light">{rows.length}행</Badge></Group>
-            {selectedIds.length > 1 && !readOnly && <Text size="xs" c="red" fw={600}>{`드롭박스 변경 시 선택한 ${selectedIds.length}행에 일괄 적용됩니다.`}</Text>}
-            <Group gap={7} wrap="nowrap">
-              {selectedIds.length > 0 && <Text size="xs" c="dimmed">{selectedIds.length}개 선택</Text>}
-              {selectedIds.length > 1 && !readOnly && (
-                <Button
-                  variant="light"
-                  color="red"
-                  size="xs"
-                  onClick={() => {
-                    setBulkValues({ qtyunit: '', warehousecode: '', unit: '' });
-                    setBulkEditOpen(true);
-                  }}
-                >
-                  {'일괄 변경'}
-                </Button>
-              )}
-
-              <Button variant="subtle" color="red" size="xs" leftSection={<IconTrash size={14} />} disabled={!selectedIds.length || readOnly || saving} onClick={requestDeleteSelectedDetails}>선택 삭제</Button>
-              <Button color="red" size="xs" leftSection={<IconPlus size={14} />} onClick={addDetail} disabled={readOnly || saving}>행 추가</Button>
-            </Group>
-          </Group>
-
-          <Box className={codeClasses.tableWrap} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
+          <Box className={`${codeClasses.tableWrap} ${!detailLoading && !rows.length ? classes.emptyDetailWrap : ''}`} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
             {detailLoading ? <Box className={classes.receiptLoading}><Loader size="sm" color="red" /></Box> : rows.length ? (
-              <TableVirtuoso ref={virtuosoRef} data={rows} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} defaultItemHeight={42} increaseViewportBy={{ top: 160, bottom: 320 }} fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>} itemContent={rowContent} />
+              <TableVirtuoso ref={virtuosoRef} data={rows} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} defaultItemHeight={42} increaseViewportBy={{ top: 160, bottom: 320 }} fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>} fixedFooterContent={() => <Table.Tr className={classes.detailSubtotalRow}>
+                {headerColumns.map((column) => <Table.Td key={column.key} className={column.className}>
+                  {column.key === 'number' ? '소계'
+                    : column.key === 'qty' ? detailSubtotals.qty.toLocaleString(undefined, { maximumFractionDigits: 3 })
+                      : column.key === 'weight' ? detailSubtotals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 })
+                      : column.key === 'supplyamt' ? formatAmount(detailSubtotals.amount.toFixed(2))
+                        : column.key === 'vat' ? formatAmount(detailSubtotals.vat.toFixed(2))
+                          : column.key === 'unitamt' ? formatAmount(detailSubtotals.total.toFixed(2))
+                            : column.key === 'description' ? `합계 ${formatAmount(String(detailSubtotals.total))}` : ''}
+                </Table.Td>)}
+              </Table.Tr>} itemContent={rowContent} />
             ) : (
               <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
                 style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
                 <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
-                <Table.Tbody><Table.Tr><Table.Td colSpan={headerColumns.length} style={{ height: 340, color: '#7c899b', textAlign: 'center', verticalAlign: 'middle' }}>
-                  {selectedReceiptno ? '입고 상세가 없습니다.' : '신규 전표를 만들거나 행 추가를 눌러 품목을 등록하세요.'}
-                </Table.Td></Table.Tr></Table.Tbody>
               </Table>
+            )}
+            {!detailLoading && !rows.length && (
+              <Box className={classes.emptyDetailMessage}>
+                {selectedReceiptno ? '입고 상세가 없습니다.' : '상단 헤더의 추가를 눌러 품목을 등록하세요.'}
+              </Box>
             )}
           </Box>
           <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="space-between" wrap="wrap">
-            <Text size="xs" c="dimmed">금액 계산: KG = 중량 × 단가, TON = (중량 ÷ 1,000) × 단가 (중량은 kg 기준). 엑셀 셀 범위를 붙여넣고 저장할 수 있습니다.</Text>
+            <Text size="xs" c="dimmed">엑셀 셀 범위를 붙여넣고 저장할 수 있습니다.</Text>
             <Group gap={16}>
               <Text size="xs" fw={700}>합계 중량 {rows.reduce((sum, row) => { const weight = Number(cleanNumericInput(row.weight)); return Number.isFinite(weight) ? sum + weight : sum; }, 0).toLocaleString(undefined, { maximumFractionDigits: 3 })} kg</Text>
-              <Text size="xs" fw={700}>합계 금액 {formatAmount(rows.reduce((sum, row) => sum + (Number(amountOf(row, unitOptions.price)) || 0), 0).toFixed(2))}</Text>
+              <Text size="xs" fw={700}>공급가 {formatWon(rows.reduce((sum, row) => sum + (Number(amountOf(row, unitOptions.price)) || 0), 0).toFixed(2))} · 부가세 {formatWon(rows.reduce((sum, row) => sum + (Number(vatOf(row, unitOptions.price)) || 0), 0).toFixed(2))} · 합계 {formatWon(rows.reduce((sum, row) => sum + (Number(amountOf(row, unitOptions.price)) || 0) + (Number(vatOf(row, unitOptions.price)) || 0), 0).toFixed(2))}</Text>
             </Group>
           </Group>
         </Paper>
       </Box>
+        </Box>
 
-      <Modal opened={bulkEditOpen} onClose={() => setBulkEditOpen(false)} title={<PickerModalTitle title="선택 행 일괄 변경" />} classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader, title: classes.receiptFinderModalTitle, close: classes.receiptFinderModalClose }} centered size="md">
-        <Stack gap="md" pt={10}>
-          <Box className={classes.modalHint}>비워 둔 항목은 변경하지 않습니다.</Box>
-          <Stack gap="sm">
+        {filterOpen && <Paper component="aside" className={classes.receiptFilterSidebar} withBorder>
+            <Group className={classes.receiptFilterHeader} justify="space-between" align="center">
+              <Text fw={700}>조회조건</Text>
+              <ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}>
+                <IconX size={16} />
+              </ActionIcon>
+            </Group>
+          <Stack gap="sm" className={classes.receiptFilterFields}>
             <Box>
-              <Text size="xs" fw={700} mb={4}>{'수량단위'}</Text>
-              <select className={codeClasses.cellSelect} value={bulkValues.qtyunit} onChange={(event) => setBulkValues((current) => ({ ...current, qtyunit: event.currentTarget.value }))}>
-                <option value="">{'변경 안 함'}</option>
-                {unitOptions.quantity.map((option) => <option key={option.code} value={option.code}>{option.name}</option>)}
-              </select>
+              <Text size="xs" fw={700} mb={5}>입고기간</Text>
+              <Stack gap={6}>
+                <TextInput type="date" aria-label="입고기간 시작일" value={filterInputs.date_from}
+                  onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))}
+                  onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+                <TextInput type="date" aria-label="입고기간 종료일" value={filterInputs.date_to}
+                  onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))}
+                  onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+              </Stack>
             </Box>
-            <Box>
-              <Text size="xs" fw={700} mb={4}>{'창고명'}</Text>
-              <select className={codeClasses.cellSelect} value={bulkValues.warehousecode} onChange={(event) => setBulkValues((current) => ({ ...current, warehousecode: event.currentTarget.value }))}>
-                <option value="">{'변경 안 함'}</option>
-                {unitOptions.warehouse.map((option) => <option key={option.code} value={option.code}>{option.name}</option>)}
-              </select>
-            </Box>
-            <Box>
-              <Text size="xs" fw={700} mb={4}>{'단가기준'}</Text>
-              <select className={codeClasses.cellSelect} value={bulkValues.unit} onChange={(event) => setBulkValues((current) => ({ ...current, unit: event.currentTarget.value }))}>
-                <option value="">{'변경 안 함'}</option>
-                {unitOptions.price.map((option) => <option key={option.code} value={option.code}>{option.name}</option>)}
-              </select>
-            </Box>
-          </Stack>
-          <Group justify="flex-end" gap={8}>
-            <Button variant="default" onClick={() => setBulkEditOpen(false)}>{'취소'}</Button>
-            <Button color="red" onClick={applyBulkMasterChanges} disabled={!Object.values(bulkValues).some(Boolean)}>{'선택 행에 적용'}</Button>
-          </Group>
-        </Stack>
-      </Modal>
+            <TextInput label="거래처" placeholder="거래처코드 또는 거래처명" value={filterInputs.customer}
+              onChange={(event) => setFilterInputs((current) => ({ ...current, customer: event.currentTarget.value }))}
+              onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+            <TextInput label="창고" placeholder="창고코드 또는 창고명" value={filterInputs.warehouse}
+              onChange={(event) => setFilterInputs((current) => ({ ...current, warehouse: event.currentTarget.value }))}
+              onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+            <TextInput label="입고전표번호" placeholder="전표번호" value={filterInputs.receiptno}
+              onChange={(event) => setFilterInputs((current) => ({ ...current, receiptno: event.currentTarget.value }))}
+              onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+            </Stack>
+        </Paper>}
+      </Box>
 
       <Modal opened={deleteOpen} onClose={() => !saving && setDeleteOpen(false)} title="입고전표 삭제" centered size="sm">
         <Stack gap="md">
@@ -1411,24 +2204,14 @@ export default function InboundRegisterPage() {
         </Stack>
       </Modal>
 
-      <Modal opened={detailDeleteOpen} onClose={() => setDetailDeleteOpen(false)} title="상세 행 삭제" centered size="sm">
-        <Stack gap="md">
-          <Text size="sm" c="dimmed">선택한 {selectedIds.length.toLocaleString()}개 상세 행을 입력 목록에서 제거합니다. 삭제 후 저장해야 입고전표에 반영됩니다.</Text>
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setDetailDeleteOpen(false)}>취소</Button>
-            <Button color="red" leftSection={<IconTrash size={15} />} onClick={deleteSelectedDetails}>삭제</Button>
-          </Group>
-        </Stack>
-      </Modal>
-
-      <CustomerPickerModal opened={customerPickerOpen} onClose={() => setCustomerPickerOpen(false)} onSelect={selectCustomer} />
-      <ItemPickerModal opened={Boolean(itemPickerTargetId)} onClose={() => setItemPickerTargetId('')} onSelect={(item) => selectItem(itemPickerTargetId, item)} />
+      <CustomerPickerModal opened={customerPickerOpen} onClose={() => { setCustomerPickerOpen(false); setCustomerPickerTarget(null); }} onSelect={selectCustomer} />
+      <ItemPickerModal opened={itemPickerTarget !== null} onClose={() => setItemPickerTarget(null)} onSelect={selectItemFromPicker} />
       <MasterOptionPickerModal
         key={masterPickerTarget ? `${masterPickerTarget.id}:${masterPickerTarget.field}` : 'closed'}
         opened={Boolean(masterPickerTarget)}
         onClose={() => setMasterPickerTarget(null)}
-        title={masterPickerTarget?.field === 'qtyunit' ? '수량단위 선택' : masterPickerTarget?.field === 'unit' ? '단가기준 선택' : '창고 선택'}
-        options={masterPickerTarget?.field === 'qtyunit' ? unitOptions.quantity : masterPickerTarget?.field === 'unit' ? unitOptions.price : unitOptions.warehouse}
+        title={masterPickerTarget?.field === 'qtyunit' ? '수량단위 선택' : masterPickerTarget?.field === 'unit' ? '단가기준 선택' : masterPickerTarget?.field === 'material' ? '강종 선택' : masterPickerTarget?.field === 'surface' ? '표면 선택' : '창고 선택'}
+        options={masterPickerTarget?.field === 'qtyunit' ? unitOptions.quantity : masterPickerTarget?.field === 'unit' ? unitOptions.price : masterPickerTarget?.field === 'material' ? unitOptions.material : masterPickerTarget?.field === 'surface' ? unitOptions.surface : unitOptions.warehouse}
         onSelect={selectMasterOption}
       />
     </Box>

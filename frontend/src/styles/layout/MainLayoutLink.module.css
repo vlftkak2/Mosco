@@ -3,27 +3,33 @@
   display: block !important;
   box-sizing: border-box;
   width: 100% !important;
-  min-height: 42px !important;
-  margin: 3px 0 !important;
-  padding: 9px 12px !important;
+  min-height: 43px !important;
+  margin: 2px 0 !important;
+  padding: 0 13px !important;
   border: 1px solid transparent !important;
-  border-radius: 7px !important;
+  border-radius: 5px !important;
   background: transparent !important;
-  color: #d7e0ed !important;
+  color: #d5dce6 !important;
   cursor: pointer !important;
   text-align: left;
   transition: background 140ms ease, color 140ms ease;
 }
 
 .control:hover {
-  background: #172338 !important;
+  background: #2b3b52 !important;
   color: #fff !important;
 }
 
 .controlActive,
 .controlOpen.controlActive {
-  border-color: #d92f32 !important;
-  background: #172338 !important;
+  border-color: transparent !important;
+  background: #f0444c !important;
+  color: #fff !important;
+}
+
+.controlParent.controlActive,
+.controlParent.controlOpen.controlActive {
+  background: transparent !important;
   color: #fff !important;
 }
 
@@ -31,12 +37,13 @@
   display: flex !important;
   min-width: 0;
   align-items: center;
+  gap: 11px;
 }
 
 .icon {
   display: flex !important;
-  width: 19px;
-  flex: 0 0 19px;
+  width: 18px;
+  flex: 0 0 18px;
   align-items: center;
   justify-content: center;
   color: #91a0b5;
@@ -47,30 +54,30 @@
 
 .label {
   overflow: hidden;
-  margin-left: 10px !important;
+  margin-left: 0 !important;
   color: inherit;
   font-size: 13px !important;
-  font-weight: 600 !important;
+  font-weight: 400 !important;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .chevron {
+  display: inline-flex;
   margin-left: 8px;
-  color: #91a0b5;
-  font-size: 10px;
+  color: #8490a0;
   transition: transform 180ms ease;
 }
 
-.chevronOpened { transform: rotate(180deg); }
+.chevronOpened { transform: rotate(90deg); }
 .controlActive .chevron { color: #fff; }
 
 .subLinkContainer {
-  margin: 2px 0 6px 9px !important;
-  padding: 4px 5px !important;
-  border-left: 1px solid #263449 !important;
-  border-radius: 0 7px 7px 0;
-  background: #101c2e;
+  margin: 2px 0 6px !important;
+  padding: 3px 0 7px !important;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent;
 }
 
 .subGroupControl {
@@ -81,7 +88,7 @@
   justify-content: space-between;
   padding: 7px 9px 7px 14px !important;
   border-radius: 5px;
-  color: #d7e0ed !important;
+  color: #d5dce6 !important;
   font-size: 13px !important;
   font-weight: 400;
   text-align: left;
@@ -94,23 +101,23 @@
 }
 
 .subGroupControl:hover {
-  background: #1a2940;
+  background: #2b3b52;
   color: #fff !important;
 }
 
 .subGroupChildren {
-  margin: 2px 0 4px 12px;
-  padding-left: 5px;
-  border-left: 1px solid #314158;
+  margin: 2px 0 4px;
+  padding-left: 0;
+  border-left: 0;
 }
 
 .subLink {
   display: flex !important;
-  min-height: 34px;
+  min-height: 36px;
   align-items: center;
-  padding: 7px 9px 7px 14px !important;
+  padding: 9px 7px 9px 40px !important;
   border-radius: 5px;
-  color: #c5d0df !important;
+  color: #d5dce6 !important;
   cursor: pointer !important;
   font-size: 13px !important;
   font-weight: 400 !important;
@@ -120,12 +127,12 @@
 }
 
 .subLink:hover {
-  background: #1a2940;
+  background: #2b3b52;
   color: #fff !important;
 }
 
 .subLinkActive {
-  background: #d92f32 !important;
+  background: #f0444c !important;
   color: #fff !important;
 }
 

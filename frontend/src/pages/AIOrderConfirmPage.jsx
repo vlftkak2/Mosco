@@ -5,6 +5,8 @@ import { Badge, Box, Button, Group, Loader, Modal, Pagination, Paper, ScrollArea
 import { notifications } from '@mantine/notifications';
 import { IconRefresh, IconTrash } from '@tabler/icons-react';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
+import useErpPageRibbon from '../components/common/useErpPageRibbon';
+import ErpBreadcrumb from '../components/common/ErpBreadcrumb';
 import dashboardClasses from '../styles/pages/HomePage.module.css';
 import classes from '../styles/pages/AIOrderConfirm.module.css';
 
@@ -206,13 +208,14 @@ export default function AIOrderConfirmPage() {
     } finally { setCancelling(false); }
   };
 
+  useErpPageRibbon({
+    onSearch: () => submitSearch({ preventDefault() {} }),
+    onDelete: () => selectedId && list.items.some((row) => row.orderid === selectedId) && setCancelTarget(selectedId),
+    onPrint: () => window.print(),
+  });
+
   return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-    <Paper className={dashboardClasses.dashboardHeader}><Box className={dashboardClasses.headerCopy}>
-      <Text className={sharedClasses.breadcrumb}>가공관리 <span>›</span> AI 가공솔루션 <span>›</span> 주문서 확정</Text>
-      <Title order={1} className={`${dashboardClasses.pageTitle} ${classes.pageTitle}`}>AI <span>주문서 확정</span></Title>
-      <Text className={dashboardClasses.pageSubtitle}>확정된 발주서를 조회하고 품목별 현재 재고와 가공 검토 후보를 확인합니다.</Text>
-      <Group className={dashboardClasses.sampleNotice} gap={8}><span className={dashboardClasses.statusDot} /><Text size="xs">확정 주문 조회 · 재고 후보 검토</Text></Group>
-    </Box></Paper>
+    <ErpBreadcrumb parent="가공관리" current="주문서 확정" />
 
     <Paper withBorder className={`${sharedClasses.panel} ${classes.searchPanel}`}>
       <Box component="form" onSubmit={submitSearch}>

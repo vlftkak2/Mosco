@@ -185,7 +185,7 @@ def stock_candidates(companyid, orderid, lineno):
     with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         # Both the stock and master join are explicitly tenant scoped.
         cur.execute("""
-            SELECT s.itemcode, s.itemname, s.size, s.qty, s.qtyunit, s.weight,
+            SELECT s.itemcode, s.itemname, s.thickness, s.width, s.length, s.qty, s.qtyunit, s.weight,
                    s.warehousecode, s.warehousecodename, m.itemname AS master_itemname,
                    m.itemtypecode
             FROM currentstock01t s LEFT JOIN itemcode01t m
@@ -199,7 +199,8 @@ def stock_candidates(companyid, orderid, lineno):
         name = str(row["master_itemname"] or row["itemname"] or "")
         if not material_name or not re.search(rf"(?<![A-Z0-9]){re.escape(material_name)}(?![A-Z0-9])", name.upper()):
             continue
-        thick, width, length = dimensions(row["size"])
+        thick, width, length = row["thickness"], row["width"], row["length"]
+        row["size"] = " × ".join(format(value.normalize(), "f") for value in (thick, width, length) if value is not None)
         source_form = form_of(row["itemtypecode"]) or form_of(name)
         if order_thick is None or thick is None:
             category, reason = "규격 확인 필요", "품목명 일치 · 재고 규격 확인 필요"

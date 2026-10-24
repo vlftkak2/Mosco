@@ -40,27 +40,24 @@ def _connect():
 
 
 class OutboundDetailInput(BaseModel):
-    itemcode: str = Field(min_length=1, max_length=100)
-    itemname: str = Field(min_length=1, max_length=150)
-    size: str = Field(default="", max_length=100)
+    stocksourcetype: str = Field(min_length=1, max_length=20)
+    stocksourceno: str = Field(min_length=1, max_length=100)
+    stocksourceline: int = Field(gt=0)
     qty: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
-    qtyunit: str = Field(min_length=1, max_length=20)
-    warehousecode: str = Field(min_length=1, max_length=50)
-    warehousecodename: str = Field(min_length=1, max_length=50)
     weight: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
     unit: str = Field(min_length=1, max_length=20)
     unitprice: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
     description: str = Field(default="", max_length=500)
 
-    @field_validator("itemcode", "itemname", "size", "qtyunit", "warehousecode", "warehousecodename", "unit", "description")
+    @field_validator("stocksourcetype", "stocksourceno", "unit", "description")
     @classmethod
     def strip_text(cls, value: str) -> str:
         return value.strip()
 
     @model_validator(mode="after")
-    def require_item_fields(self):
-        if not self.itemcode or not self.itemname or not self.unit or not self.qtyunit or not self.warehousecode:
-            raise ValueError("상세의 품목코드, 품목명, 수량, 수량단위, 창고, 단가기준은 필수입니다.")
+    def require_source_fields(self):
+        if self.stocksourcetype not in {"OPENING", "INBOUND"} or not self.stocksourceno:
+            raise ValueError("출고 원천 재고 구분과 전표번호를 확인해 주세요.")
         return self
 
 
@@ -107,6 +104,7 @@ def list_receipts(
     receiptno: str = "",
     customcode: str = "",
     customname: str = "",
+    warehouse: str = "",
 ):
     search = query.strip()
     where = "h.companyid = %s"
@@ -125,6 +123,12 @@ def list_receipts(
     if date_to:
         where += " AND h.receptdate <= %s"
         params.append(date_to)
+    if warehouse.strip():
+        where += " AND EXISTS (SELECT 1 FROM Outbound02t AS wd " \
+                 "WHERE wd.companyid = h.companyid AND wd.receiptno = h.receiptno " \
+                 "AND (wd.warehousecode ILIKE %s OR wd.warehousecodename ILIKE %s))"
+        warehouse_pattern = f"%{warehouse.strip()}%"
+        params.extend((warehouse_pattern, warehouse_pattern))
     if search:
         where += " AND (h.receiptno ILIKE %s OR h.customcode ILIKE %s OR h.customname ILIKE %s)"
         pattern = f"%{search}%"
@@ -138,13 +142,19 @@ def list_receipts(
             SELECT h.receiptno, h.receptdate, h.customcode, h.customname,
                    h.description, h.subulyn, h.created_at,
                    COUNT(d.lineno)::integer AS line_count,
+                   STRING_AGG(DISTINCT NULLIF(d.warehousecode, ''), ', ') AS warehousecode,
+                   STRING_AGG(DISTINCT NULLIF(d.warehousecodename, ''), ', ') AS warehousecodename,
+                   COALESCE(SUM(d.qty), 0)::numeric(15, 3) AS total_qty,
+                   COALESCE(SUM(d.weight), 0)::numeric(15, 3) AS total_weight,
+                   COALESCE(SUM(d.supplyamt), 0)::numeric(15, 2) AS supply_amount,
+                   COALESCE(SUM(d.vat), 0)::numeric(15, 2) AS vat_amount,
                    COALESCE(SUM(d.unitamt), 0)::numeric(15, 2) AS total_amount
             FROM Outbound01t AS h
             LEFT JOIN Outbound02t AS d
               ON d.companyid = h.companyid AND d.receiptno = h.receiptno
             WHERE {where}
             GROUP BY h.companyid, h.receiptno
-            ORDER BY h.receptdate ASC, h.receiptno ASC
+            ORDER BY h.receptdate DESC, h.receiptno DESC
             LIMIT %s OFFSET %s
             """,
             (*params, page_size, (page - 1) * page_size),
@@ -167,9 +177,10 @@ def get_receipt(companyid: str, receiptno: str):
             return None
         header = _row_dict(cursor, header_row)
         cursor.execute(
-            """SELECT companyid, companyname, receiptno, lineno, itemcode, itemname, size,
-                      qty, qtyunit, warehousecode, warehousecodename,
-                      weight, unit, unitprice, unitamt, description,
+            """SELECT companyid, companyname, receiptno, lineno, stocksourcetype, stocksourceno, stocksourceline,
+                      itemcode, itemname, productname, surfacecode, surfacename, materialcode, materialname,
+                      myrtle, thickness, width, length, qty, qtyunit, warehousecode, warehousecodename,
+                      weight, unit, unitprice, supplyamt, vat, unitamt, description, manager,
                       created_at, updated_at
                FROM Outbound02t
                WHERE companyid = %s AND receiptno = %s
@@ -200,9 +211,102 @@ def _next_receiptno(cursor, companyid: str) -> str:
     return f"{prefix}{next_sequence:05d}"
 
 
+def list_available_stock(
+    companyid: str,
+    page: int = 1,
+    page_size: int = 50,
+    item_search: str = "",
+    warehouse_search: str = "",
+    customname: str = "",
+    date_from: date | None = None,
+    date_to: date | None = None,
+    sourcetype: str = "",
+    receiptno: str = "",
+):
+    where = ["stock.companyid = %s"]
+    params: list = [companyid]
+    if item_search.strip():
+        pattern = f"%{item_search.strip()}%"
+        where.append("(stock.itemcode ILIKE %s OR stock.itemname ILIKE %s OR stock.productname ILIKE %s)")
+        params.extend((pattern, pattern, pattern))
+    if warehouse_search.strip():
+        pattern = f"%{warehouse_search.strip()}%"
+        where.append("(stock.warehousecode ILIKE %s OR stock.warehousecodename ILIKE %s)")
+        params.extend((pattern, pattern))
+    if customname.strip():
+        where.append("stock.customname ILIKE %s")
+        params.append(f"%{customname.strip()}%")
+    if date_from:
+        where.append("stock.receiptdate >= %s")
+        params.append(date_from)
+    if date_to:
+        where.append("stock.receiptdate <= %s")
+        params.append(date_to)
+    if sourcetype.strip():
+        where.append("stock.sourcetype = %s")
+        params.append(sourcetype.strip().upper())
+    where_sql = " AND ".join(where)
+    own_receipt = receiptno.strip()
+
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            f"""WITH own_allocation AS (
+                    SELECT stocksourcetype, stocksourceno, stocksourceline,
+                           SUM(qty) AS qty, SUM(weight) AS weight
+                    FROM Outbound02t
+                    WHERE companyid = %s AND receiptno = %s
+                    GROUP BY stocksourcetype, stocksourceno, stocksourceline
+                )
+                SELECT COUNT(*)
+                FROM CurrentStock01t AS stock
+                LEFT JOIN own_allocation AS own
+                  ON own.stocksourcetype = stock.sourcetype
+                 AND own.stocksourceno = stock.sourceno
+                 AND own.stocksourceline = stock.sourceline
+                WHERE {where_sql}
+                  AND (stock.qty + COALESCE(own.qty, 0) > 0
+                       OR stock.weight + COALESCE(own.weight, 0) > 0)""",
+            (companyid, own_receipt, *params),
+        )
+        total = cursor.fetchone()[0]
+        cursor.execute(
+            f"""WITH own_allocation AS (
+                    SELECT stocksourcetype, stocksourceno, stocksourceline,
+                           SUM(qty) AS qty, SUM(weight) AS weight
+                    FROM Outbound02t
+                    WHERE companyid = %s AND receiptno = %s
+                    GROUP BY stocksourcetype, stocksourceno, stocksourceline
+                )
+                SELECT stock.sourcetype, stock.sourceno, stock.sourceline, stock.receiptdate,
+                       stock.customcode, stock.customname, stock.itemcode, stock.itemname,
+                       stock.productname, stock.materialcode, stock.materialname,
+                       stock.surfacecode, stock.surfacename, stock.myrtle, stock.manager,
+                       stock.thickness, stock.width, stock.length,
+                       stock.qty + COALESCE(own.qty, 0) AS available_qty,
+                       stock.qtyunit, COALESCE(qty_code.code_name, stock.qtyunit) AS qtyunit_name,
+                       stock.weight + COALESCE(own.weight, 0) AS available_weight,
+                       stock.unit, stock.unitprice, stock.warehousecode, stock.warehousecodename
+                FROM CurrentStock01t AS stock
+                LEFT JOIN own_allocation AS own
+                  ON own.stocksourcetype = stock.sourcetype
+                 AND own.stocksourceno = stock.sourceno
+                 AND own.stocksourceline = stock.sourceline
+                LEFT JOIN CodeMaster01t AS qty_code
+                  ON qty_code.companyid = stock.companyid
+                 AND qty_code.groupcode = 'QTY'
+                 AND qty_code.code = stock.qtyunit
+                WHERE {where_sql}
+                  AND (stock.qty + COALESCE(own.qty, 0) > 0
+                       OR stock.weight + COALESCE(own.weight, 0) > 0)
+                ORDER BY stock.receiptdate, stock.sourcetype, stock.sourceno, stock.sourceline
+                LIMIT %s OFFSET %s""",
+            (companyid, own_receipt, *params, page_size, (page - 1) * page_size),
+        )
+        items = [_row_dict(cursor, row) for row in cursor.fetchall()]
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
 def save_receipt(companyid: str, companyname: str, payload: dict):
-    if not payload.get("is_new"):
-        raise ValueError("저장된 출고전표는 수정할 수 없습니다. 신규 전표로 등록해 주세요.")
     receiptno = (payload.get("receiptno") or "").strip()
     customcode = payload["customcode"].strip()
     items = payload["items"]
@@ -229,54 +333,22 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                     (f"outbound:{companyid}:{receiptno}",),
                 )
 
-            item_codes = list(dict.fromkeys(item["itemcode"].strip() for item in items))
             cursor.execute(
                 """SELECT groupcode, code, code_name FROM CodeMaster01t
                    WHERE companyid = %s AND groupcode = ANY(%s)
                      AND UPPER(BTRIM(use_yn)) = 'Y'""",
-                (companyid, ["PRICE_UNIT", "QTY", "WAREHOUSE"]),
+                (companyid, ["PRICE_UNIT"]),
             )
-            active_units = {groupcode: set() for groupcode in ("PRICE_UNIT", "QTY", "WAREHOUSE")}
             price_unit_names = {}
-            warehouse_names = {}
             for groupcode, code, code_name in cursor.fetchall():
-                active_units[groupcode].add(code)
-                if groupcode == "PRICE_UNIT":
-                    price_unit_names[code] = code_name or ""
-                elif groupcode == "WAREHOUSE":
-                    warehouse_names[code] = code_name or ""
-            unit_errors = []
-            for index, item in enumerate(items, start=1):
-                price_unit = item["unit"].strip()
-                quantity_unit = item["qtyunit"].strip()
-                if price_unit not in active_units["PRICE_UNIT"]:
-                    unit_errors.append(f"{index}행 단가기준 미등록 또는 사용중지({price_unit})")
-                if quantity_unit not in active_units["QTY"]:
-                    unit_errors.append(f"{index}행 수량단위 미등록 또는 사용중지({quantity_unit})")
-                warehouse_code = (item.get("warehousecode") or "").strip()
-                if warehouse_code and warehouse_code not in active_units["WAREHOUSE"]:
-                    unit_errors.append(f"{index}행 창고코드가 일반코드 마스터에 없거나 사용중지 상태입니다. ({warehouse_code})")
-                elif warehouse_code and len(warehouse_names.get(warehouse_code, "")) > 50:
-                    unit_errors.append(f"{index}행 창고명이 저장 가능 길이(50자)를 초과합니다. ({warehouse_code})")
+                price_unit_names[code] = code_name or ""
+            unit_errors = [
+                f"{index}행 판매 단가기준 미등록 또는 사용중지({item['unit'].strip()})"
+                for index, item in enumerate(items, start=1)
+                if item["unit"].strip() not in price_unit_names
+            ]
             if unit_errors:
-                raise ValueError("단위 코드를 확인해 주세요: " + " / ".join(unit_errors[:5]))
-
-            cursor.execute(
-                "SELECT itemcode, itemname FROM ItemCode01t WHERE companyid = %s AND UPPER(BTRIM(use_yn)) = 'Y' AND itemcode = ANY(%s)",
-                (companyid, item_codes),
-            )
-            master_items = {code: name for code, name in cursor.fetchall()}
-            item_errors = []
-            for index, item in enumerate(items, start=1):
-                code = item["itemcode"].strip()
-                name = item["itemname"].strip()
-                master_name = master_items.get(code)
-                if master_name is None:
-                    item_errors.append(f"{index}행 사용중 상태의 품목코드가 아니거나 미등록({code})")
-                elif master_name != name:
-                    item_errors.append(f"{index}행 품목코드·품목명 불일치({code}: {master_name})")
-            if item_errors:
-                raise ValueError("품목 정합성을 확인해 주세요: " + " / ".join(item_errors[:5]))
+                raise ValueError("단가 기준을 확인해 주세요: " + " / ".join(unit_errors[:5]))
 
             cursor.execute(
                 "SELECT COALESCE(subulyn, 'N') FROM Outbound01t WHERE companyid = %s AND receiptno = %s FOR UPDATE",
@@ -291,6 +363,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                 raise ValueError("수정할 출고전표가 없습니다. 목록을 새로고침해 주세요.")
 
             if existing:
+                current_stock_module.reverse_document(cursor, companyid, "OUT", receiptno)
                 cursor.execute(
                     """UPDATE Outbound01t
                        SET receptdate = %s, customcode = %s, customname = %s,
@@ -313,39 +386,82 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                      customer_name, payload.get("description") or None),
                 )
 
+            source_cache = {}
+            demands = {}
+            for index, item in enumerate(items, start=1):
+                source_key = (
+                    item["stocksourcetype"].strip().upper(),
+                    item["stocksourceno"].strip(),
+                    int(item["stocksourceline"]),
+                )
+                if source_key[0] not in {"OPENING", "INBOUND"}:
+                    raise ValueError(f"{index}행 원천 재고 구분이 올바르지 않습니다.")
+                if source_key not in source_cache:
+                    cursor.execute(
+                        """SELECT sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
+                                  itemcode, itemname, productname, materialcode, materialname,
+                                  surfacecode, surfacename, myrtle, manager, thickness, width, length,
+                                  qty, qtyunit, weight, unit, unitprice, warehousecode, warehousecodename
+                           FROM CurrentStock01t
+                           WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
+                           FOR UPDATE""",
+                        (companyid, *source_key),
+                    )
+                    source_row = cursor.fetchone()
+                    if not source_row:
+                        raise ValueError(f"{index}행 선택한 원천 재고를 현재 회사에서 찾을 수 없습니다.")
+                    source_cache[source_key] = _row_dict(cursor, source_row)
+                stock = source_cache[source_key]
+                demand = demands.setdefault(source_key, {"qty": Decimal("0"), "weight": Decimal("0"), "stock": stock})
+                demand["qty"] += Decimal(str(item["qty"]))
+                demand["weight"] += Decimal(str(item["weight"]))
+
+            for source_key, demand in demands.items():
+                stock = demand["stock"]
+                if demand["qty"] > Decimal(str(stock["qty"])) or demand["weight"] > Decimal(str(stock["weight"])):
+                    raise ValueError(
+                        f"원천 재고 {source_key[1]}/{source_key[2]} 잔량을 초과했습니다. "
+                        f"수량 {stock['qty']}, 중량 {stock['weight']} 안에서 출고해 주세요."
+                    )
+
             detail_values = []
+            stock_lines = []
             for line_no, item in enumerate(items, start=1):
+                source_key = (item["stocksourcetype"].strip().upper(), item["stocksourceno"].strip(), int(item["stocksourceline"]))
+                stock = source_cache[source_key]
+                unit = item["unit"].strip()
+                qty = Decimal(str(item["qty"]))
                 weight = Decimal(str(item["weight"]))
                 unitprice = Decimal(str(item["unitprice"]))
-                qty = Decimal(str(item["qty"])) if item.get("qty") is not None else None
-                unitamt = _calculate_unit_amount(
-                    weight, unitprice, item["unit"], price_unit_names.get(item["unit"], ""),
-                )
+                supplyamt = _calculate_unit_amount(weight, unitprice, unit, price_unit_names[unit])
+                vat = (supplyamt * Decimal("0.10")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                unitamt = supplyamt + vat
                 detail_values.append((
-                    companyid, companyname, receiptno, line_no,
-                    item["itemcode"].strip(), item["itemname"].strip(),
-                    item.get("size", "").strip() or None, qty, item["qtyunit"].strip(),
-                    (item.get("warehousecode") or "").strip() or None,
-                    warehouse_names.get((item.get("warehousecode") or "").strip()) or None,
-                    weight, item["unit"].strip(), unitprice, unitamt,
-                    item.get("description", "").strip() or None,
+                    companyid, companyname, receiptno, line_no, *source_key,
+                    stock["itemcode"], stock["itemname"], stock["productname"],
+                    stock["surfacecode"], stock["surfacename"], stock["materialcode"] or "",
+                    stock["materialname"] or "", stock["myrtle"], stock["thickness"], stock["width"], stock["length"],
+                    qty, stock["qtyunit"], weight, unit, unitprice, supplyamt, vat, unitamt,
+                    stock["warehousecode"], stock["warehousecodename"], item.get("description", "").strip() or None,
+                    stock["manager"],
                 ))
+                stock_lines.append({
+                    "stocksourcetype": source_key[0], "stocksourceno": source_key[1], "stocksourceline": source_key[2],
+                    "lineno": line_no, "itemcode": stock["itemcode"], "itemname": stock["itemname"],
+                    "thickness": stock["thickness"], "width": stock["width"], "length": stock["length"],
+                    "qty": qty, "qtyunit": stock["qtyunit"], "weight": weight,
+                    "warehousecode": stock["warehousecode"], "warehousecodename": stock["warehousecodename"],
+                })
             cursor.executemany(
                 """INSERT INTO Outbound02t
-                   (companyid, companyname, receiptno, lineno, itemcode, itemname,
-                    size, qty, qtyunit, warehousecode, warehousecodename,
-                    weight, unit, unitprice, unitamt, description)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   (companyid, companyname, receiptno, lineno, stocksourcetype, stocksourceno, stocksourceline,
+                    itemcode, itemname, productname, surfacecode, surfacename, materialcode, materialname, myrtle,
+                    thickness, width, length, qty, qtyunit, weight, unit, unitprice, supplyamt, vat, unitamt,
+                    warehousecode, warehousecodename, description, manager)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 detail_values,
             )
-            stock_lines = [{
-                **item,
-                "lineno": line_no,
-                "itemname": master_items[item["itemcode"].strip()],
-                "size": item.get("size", "").strip(),
-                "warehousecode": item["warehousecode"].strip(),
-                "warehousecodename": warehouse_names[item["warehousecode"].strip()],
-            } for line_no, item in enumerate(items, start=1)]
             current_stock_module.record_document(
                 cursor, companyid, companyname, payload["receptdate"], "OUT", receiptno, stock_lines,
                 customcode=customcode, customname=customer_name,

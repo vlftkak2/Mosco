@@ -1,23 +1,27 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper,
-  ScrollArea, Stack, Table, Text, TextInput, Title, Tooltip,
+  ScrollArea, Stack, Table, Text, TextInput, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconDeviceFloppy, IconFileSpreadsheet, IconPlus,
-  IconSearch, IconTrash,
+  IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus,
+  IconPrinter, IconSearch, IconTrash, IconX,
 } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
-import * as XLSX from 'xlsx-js-style';
+import * as XLSX from 'xlsx';
 import { applyExcelHeaderStyle } from '../utils/excelHeaderStyle';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
 import codeClasses from '../styles/pages/CodeMasterPage.module.css';
-import dashboardClasses from '../styles/pages/HomePage.module.css';
 import classes from '../styles/pages/OutboundRegister.module.css';
+import inboundClasses from '../styles/pages/InboundRegister.module.css';
+import { PageRibbonContext } from '../components/layout/MainLayout';
 
-const PAGE_SIZE = 40;
+const PAGE_SIZE_OPTIONS = [
+  { value: '15', label: '15개씩' }, { value: '50', label: '50개씩' },
+  { value: '100', label: '100개씩' }, { value: '200', label: '200개씩' },
+];
 const createDefaultReceiptFilters = () => {
   const today = new Date();
   const year = today.getFullYear();
@@ -25,8 +29,10 @@ const createDefaultReceiptFilters = () => {
   const pad = (value) => String(value).padStart(2, '0');
   return {
     receiptno: '',
+    customer: '',
     customcode: '',
     customname: '',
+    warehouse: '',
     date_from: `${year}-${pad(month + 1)}-01`,
     date_to: `${year}-${pad(month + 1)}-${pad(new Date(year, month + 1, 0).getDate())}`,
   };
@@ -40,7 +46,9 @@ const EMPTY_HEADER = { receiptno: '', receptdate: localDate(), customcode: '', c
 const DETAIL_FIELDS = [
   { key: 'itemcode', label: '품목코드', width: 150, required: true },
   { key: 'itemname', label: '품목명', width: 190, required: true },
-  { key: 'size', label: '규격', width: 140 },
+  { key: 'thickness', label: '두께', width: 90 },
+  { key: 'width', label: '폭', width: 90 },
+  { key: 'length', label: '길이', width: 90 },
   { key: 'qty', label: '수량', width: 100, required: true },
   { key: 'qtyunit', label: '수량단위', width: 110, required: true },
   { key: 'warehousecode', label: '창고코드', width: 125, required: true },
@@ -50,13 +58,28 @@ const DETAIL_FIELDS = [
   { key: 'weight', label: '출고중량', width: 120, required: true },
   { key: 'unit', label: '단가기준', width: 110, required: true },
   { key: 'unitprice', label: '판매단가', width: 120, required: true },
-  { key: 'unitamt', label: '금액', width: 130 },
+  { key: 'unitamt', label: '출고금액', width: 130 },
   { key: 'description', label: '비고', width: 190 },
+];
+const RECEIPT_COLUMNS = [
+  { key: 'receptdate', label: '출고일자', width: 120, minWidth: 100 },
+  { key: 'customcode', label: '거래처코드', width: 130, minWidth: 110 },
+  { key: 'customname', label: '거래처명', width: 220, minWidth: 150 },
+  { key: 'warehousecode', label: '창고코드', width: 130, minWidth: 100 },
+  { key: 'warehousecodename', label: '창고명', width: 160, minWidth: 120 },
+  { key: 'line_count', label: '상세건수', width: 95, minWidth: 80, align: 'right' },
+  { key: 'total_qty', label: '수량', width: 110, minWidth: 90, align: 'right' },
+  { key: 'total_weight', label: '중량', width: 120, minWidth: 100, align: 'right' },
+  { key: 'supply_amount', label: '공급가', width: 145, minWidth: 120, align: 'right' },
+  { key: 'vat_amount', label: '부가세', width: 125, minWidth: 100, align: 'right' },
+  { key: 'total_amount', label: '합계금액', width: 150, minWidth: 120, align: 'right' },
+  { key: 'receiptno', label: '출고전표', width: 190, minWidth: 150 },
+  { key: 'description', label: '비고', width: 200, minWidth: 140 },
 ];
 const READ_ONLY_DETAIL_FIELDS = new Set(['itemname', 'warehousecodename', 'current_qty', 'current_weight', 'unitamt']);
 const NAVIGABLE_FIELDS = DETAIL_FIELDS.map(({ key }) => key).filter((key) => !READ_ONLY_DETAIL_FIELDS.has(key));
 const EDITABLE_FIELDS = NAVIGABLE_FIELDS;
-const EMPTY_DETAIL = { itemcode: '', itemname: '', size: '', qty: '', qtyunit: 'EA', warehousecode: '', warehousecodename: '', current_qty: '0', current_weight: '0', weight: '', unit: '', unitprice: '', unitamt: '', description: '' };
+const EMPTY_DETAIL = { itemcode: '', itemname: '', thickness: '', width: '', length: '', qty: '', qtyunit: 'EA', warehousecode: '', warehousecodename: '', current_qty: '0', current_weight: '0', weight: '', unit: '', unitprice: '', unitamt: '', description: '' };
 const masterPasteErrorKey = (rowId, field) => `${rowId}:${field}`;
 
 const errorMessage = (error) => {
@@ -91,7 +114,7 @@ const formatAmount = (value) => {
     maximumFractionDigits: 2,
   });
 };
-const NUMERIC_FIELDS = new Set(['qty', 'weight', 'unitprice']);
+const NUMERIC_FIELDS = new Set(['thickness', 'width', 'length', 'qty', 'weight', 'unitprice']);
 const cleanNumericInput = (value) => String(value ?? '').replace(/,/g, '').replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
 const formatNumericInput = (value) => {
   const raw = cleanNumericInput(value);
@@ -347,7 +370,7 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
             title={['itemcode', 'unit', 'qtyunit', 'warehousecode'].includes(key) ? `${label} - 더블클릭하여 마스터에서 선택` : undefined}
             data-row-id={row.id}
             data-field={key}
-            inputMode={key === 'qty' || key === 'weight' || key === 'unitprice' ? 'decimal' : undefined}
+            inputMode={NUMERIC_FIELDS.has(key) ? 'decimal' : undefined}
             value={displayValue(key)}
             placeholder={row.is_new && (key === 'itemcode' || key === 'itemname') ? label : ''}
             readOnly={READ_ONLY_DETAIL_FIELDS.has(key)}
@@ -377,9 +400,13 @@ const virtuosoComponents = {
 };
 
 export default function OutboundRegisterPage() {
+  const pageLayout = useContext(PageRibbonContext);
+  const registerPageRibbon = pageLayout?.registerPageRibbon;
+  const closeActivePage = pageLayout?.closeActivePage;
   const [receipts, setReceipts] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
   const [filterInputs, setFilterInputs] = useState(createDefaultReceiptFilters);
   const [filters, setFilters] = useState(createDefaultReceiptFilters);
   const [header, setHeader] = useState(EMPTY_HEADER);
@@ -394,6 +421,7 @@ export default function OutboundRegisterPage() {
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [receiptFinderOpen, setReceiptFinderOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(true);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [detailDeleteOpen, setDetailDeleteOpen] = useState(false);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -412,8 +440,11 @@ export default function OutboundRegisterPage() {
   const pendingCellFocusRef = useRef(null);
   const pendingFocusIdRef = useRef('');
   const selectionAnchorRef = useRef('');
+  const originalStockRef = useRef(new Map());
+  const receiptTableRef = useRef(null);
+  const receiptSubtotalRef = useRef(null);
   const locked = isReceiptConfirmed(subulyn);
-  const readOnly = Boolean(selectedReceiptno) || locked;
+  const readOnly = locked;
   const hasPendingChanges = documentDirty || rows.some((row) => row.is_new || row.is_dirty);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
@@ -440,17 +471,18 @@ export default function OutboundRegisterPage() {
     window.addEventListener('pointercancel', finish);
   }, [columnWidths]);
 
-  const loadReceipts = useCallback(async (nextPage = page, nextFilters = filters) => {
+  const loadReceipts = useCallback(async (nextPage = page, nextFilters = filters, nextPageSize = pageSize) => {
     setLoading(true);
     try {
       const { data } = await axios.get('/api/outbound-register/receipts', {
         ...authConfig(), params: {
           page: nextPage,
-          page_size: PAGE_SIZE,
-          q: nextFilters.q || undefined,
+          page_size: nextPageSize,
+          q: nextFilters.customer || nextFilters.q || undefined,
           receiptno: nextFilters.receiptno || undefined,
           customcode: nextFilters.customcode || undefined,
           customname: nextFilters.customname || undefined,
+          warehouse: nextFilters.warehouse || undefined,
           date_from: nextFilters.date_from || undefined,
           date_to: nextFilters.date_to || undefined,
         },
@@ -463,7 +495,9 @@ export default function OutboundRegisterPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, filters]);
+  }, [page, pageSize, filters]);
+
+  useEffect(() => { void loadReceipts(1, createDefaultReceiptFilters()); }, []);
 
   const loadUnitOptions = useCallback(async (groupcode) => {
     const items = [];
@@ -493,7 +527,7 @@ export default function OutboundRegisterPage() {
   }, [loadUnitOptions]);
 
   const stockLookupKey = useMemo(() => rows.map((row) => [
-    String(row.itemcode || '').trim(), String(row.size || '').trim(),
+    String(row.itemcode || '').trim(), String(row.thickness || '').trim(), String(row.width || '').trim(), String(row.length || '').trim(),
     resolveMasterCode('warehouse', row.warehousecode || row.warehousecodename, unitOptions) || String(row.warehousecode || '').trim(),
     resolveMasterCode('qtyunit', row.qtyunit, unitOptions) || String(row.qtyunit || '').trim(),
   ].join('\u001f')).join('\u001e'), [rows, unitOptions]);
@@ -512,7 +546,7 @@ export default function OutboundRegisterPage() {
     axios.post('/api/current-stock/lookup', {
       items: candidates.map(({ row, warehousecode, qtyunit }) => ({
         itemcode: String(row.itemcode).trim(),
-        size: String(row.size || '').trim(),
+        thickness: row.thickness || null, width: row.width || null, length: row.length || null,
         warehousecode,
         qtyunit,
       })),
@@ -575,6 +609,16 @@ export default function OutboundRegisterPage() {
     try {
       const { data } = await axios.get(`/api/outbound-register/receipts/${encodeURIComponent(receiptno)}`, authConfig());
       const receipt = data.receipt;
+      const loadedRows = (receipt.items || []).map((item) => makeDetail(item, item.lineno));
+      const originalStock = new Map();
+      loadedRows.forEach((row) => {
+        const warehousecode = resolveMasterCode('warehouse', row.warehousecode || row.warehousecodename, unitOptions) || row.warehousecode;
+        const qtyunit = resolveMasterCode('qtyunit', row.qtyunit, unitOptions) || row.qtyunit;
+        const key = [row.itemcode, row.thickness || 0, row.width || 0, row.length || 0, warehousecode, qtyunit].map((value) => String(value || '').trim()).join('\u001f');
+        const previous = originalStock.get(key) || { qty: 0, weight: 0 };
+        originalStock.set(key, { qty: previous.qty + Number(row.qty || 0), weight: previous.weight + Number(row.weight || 0) });
+      });
+      originalStockRef.current = originalStock;
       setHeader({
         receiptno: receipt.receiptno || '',
         receptdate: String(receipt.receptdate || '').slice(0, 10),
@@ -588,7 +632,7 @@ export default function OutboundRegisterPage() {
         created_at: receipt.created_at || '',
         updated_at: receipt.updated_at || '',
       });
-      setRows((receipt.items || []).map((item) => makeDetail(item, item.lineno)));
+      setRows(loadedRows);
       setSelectedReceiptno(receipt.receiptno);
       setSubulyn(receipt.subulyn || 'N');
       setDocumentDirty(false);
@@ -601,7 +645,7 @@ export default function OutboundRegisterPage() {
     } finally {
       setDetailLoading(false);
     }
-  }, [hasPendingChanges]);
+  }, [hasPendingChanges, unitOptions]);
 
   const createReceipt = useCallback(() => {
     if (hasPendingChanges) {
@@ -611,6 +655,7 @@ export default function OutboundRegisterPage() {
     setHeader({ ...EMPTY_HEADER, receptdate: localDate() });
     setReceiptMetadata({ companyid: '', companyname: '', created_at: '', updated_at: '' });
     setRows([]);
+    originalStockRef.current = new Map();
     setSelectedReceiptno('');
     setSubulyn('N');
     setDocumentDirty(false);
@@ -999,6 +1044,7 @@ export default function OutboundRegisterPage() {
       if (!qtyText || !Number.isFinite(qty) || qty <= 0) errors.push('수량(0 초과)');
       if (!String(row.warehousecode || '').trim()) errors.push('창고코드');
       const weight = Number(row.weight);
+      if (!String(row.weight || '').trim() || !Number.isFinite(weight) || weight <= 0) errors.push('출고중량(0 초과)');
       const unitprice = Number(row.unitprice);
       if (!String(row.unitprice || '').trim() || !Number.isFinite(unitprice) || unitprice < 0) errors.push('판매단가(0 이상)');
       return errors.length ? [`${index + 1}행 ${errors.join(', ')}`] : [];
@@ -1007,16 +1053,21 @@ export default function OutboundRegisterPage() {
     rows.forEach((row) => {
       const warehousecode = resolveMasterCode('warehouse', row.warehousecode || row.warehousecodename, unitOptions) || row.warehousecode;
       const qtyunit = resolveMasterCode('qtyunit', row.qtyunit, unitOptions) || row.qtyunit;
-      const key = [row.itemcode, row.size || '', warehousecode, qtyunit].map((value) => String(value || '').trim()).join('\u001f');
+      const key = [row.itemcode, row.thickness || 0, row.width || 0, row.length || 0, warehousecode, qtyunit].map((value) => String(value || '').trim()).join('\u001f');
       if (!row.itemcode || !warehousecode || !qtyunit || !Number.isFinite(Number(row.qty))) return;
-      const entry = requestedByStock.get(key) || { requested: 0, available: Number(row.current_qty || 0), row };
-      entry.requested += Number(row.qty);
-      entry.available = Number(row.current_qty || 0);
+      const original = originalStockRef.current.get(key) || { qty: 0, weight: 0 };
+      const availableQty = Number(row.current_qty || 0) + original.qty;
+      const availableWeight = Number(row.current_weight || 0) + original.weight;
+      const entry = requestedByStock.get(key) || { requestedQty: 0, requestedWeight: 0, availableQty, availableWeight, row };
+      entry.requestedQty += Number(row.qty);
+      entry.requestedWeight += Number(row.weight);
+      entry.availableQty = availableQty;
+      entry.availableWeight = availableWeight;
       requestedByStock.set(key, entry);
     });
-    requestedByStock.forEach(({ requested, available, row }) => {
-      if (requested > available) {
-        failures.push(`${row.itemcode} / ${row.warehousecodename || row.warehousecode}: 현재고: ${formatNumericInput(available)}, 출고수량: ${formatNumericInput(requested)}`);
+    requestedByStock.forEach(({ requestedQty, requestedWeight, availableQty, availableWeight, row }) => {
+      if (requestedQty > availableQty || requestedWeight > availableWeight) {
+        failures.push(`${row.itemcode} / ${row.warehousecodename || row.warehousecode}: 현재고 ${formatNumericInput(availableQty)}개 · ${formatNumericInput(availableWeight)}중량, 출고 요청 ${formatNumericInput(requestedQty)}개 · ${formatNumericInput(requestedWeight)}중량`);
       }
     });
     if (failures.length) {
@@ -1057,8 +1108,8 @@ export default function OutboundRegisterPage() {
   }, [unitOptions]);
 
   const saveDocument = useCallback(async () => {
-    if (selectedReceiptno) {
-      notifications.show({ title: '저장된 전표', message: '저장된 전표는 수정할 수 없습니다. 신규 전표를 만들어 입력해 주세요.', color: 'orange' });
+    if (locked) {
+      notifications.show({ title: '수불 확정 전표', message: '수불 확정된 출고전표는 수정할 수 없습니다.', color: 'orange' });
       return false;
     }
     const sourceHeader = header;
@@ -1072,7 +1123,8 @@ export default function OutboundRegisterPage() {
         is_new: !selectedReceiptno,
         items: sourceRows.map((row) => ({
           itemcode: String(row.itemcode || '').trim(), itemname: String(row.itemname || '').trim(),
-          size: String(row.size || '').trim(), unit: resolveMasterCode('unit', row.unit, unitOptions) || String(row.unit || '').trim(),
+          thickness: String(row.thickness ?? '').trim(), width: String(row.width ?? '').trim(), length: String(row.length ?? '').trim(),
+          unit: resolveMasterCode('unit', row.unit, unitOptions) || String(row.unit || '').trim(),
           qty: String(row.qty ?? '').trim(), qtyunit: resolveMasterCode('qtyunit', row.qtyunit, unitOptions) || String(row.qtyunit || '').trim(),
           warehousecode: resolveMasterCode('warehouse', row.warehousecode || row.warehousecodename, unitOptions) || String(row.warehousecode || '').trim(),
           warehousecodename: String(row.warehousecodename || '').trim(),
@@ -1099,7 +1151,7 @@ export default function OutboundRegisterPage() {
     } finally {
       setSaving(false);
     }
-  }, [selectedReceiptno, header, rows, unitOptions, validateDetailMasters, validateDocument, loadReceipts, openReceipt]);
+  }, [locked, selectedReceiptno, header, rows, unitOptions, validateDetailMasters, validateDocument, loadReceipts, openReceipt]);
 
   const exportDocument = useCallback(() => {
     if (!header.receiptno || !rows.length) {
@@ -1159,8 +1211,60 @@ export default function OutboundRegisterPage() {
     setFilters(nextFilters);
     setPage(1);
     loadReceipts(1, nextFilters);
-    setReceiptFinderOpen(true);
   }, [filterInputs, loadReceipts]);
+
+  const handleToolbarAdd = useCallback(() => {
+    addDetail();
+  }, [addDetail]);
+
+  const copySelectedDetails = useCallback(() => {
+    if (readOnly || saving || selectedIds.length !== 1) return;
+    const source = rows.find((row) => row.id === selectedIds[0]);
+    if (!source) return;
+    const copy = makeDetail(Object.fromEntries(
+      Object.keys(EMPTY_DETAIL).map((key) => [key, source[key] ?? EMPTY_DETAIL[key]]),
+    ));
+    pendingFocusIdRef.current = copy.id;
+    setRows((current) => [...current, copy]);
+    setSelectedIds([copy.id]);
+    setDocumentDirty(true);
+    notifications.show({ title: '상세 행 복사 완료', message: '선택한 행을 그대로 복사해 상세에 추가했습니다.', color: 'teal' });
+  }, [readOnly, saving, selectedIds, rows]);
+
+  const requestToolbarDelete = useCallback(() => {
+    if (selectedIds.length && !readOnly) {
+      requestDeleteSelectedDetails();
+      return;
+    }
+    if (!selectedReceiptno) {
+      notifications.show({ title: '삭제할 항목 없음', message: '출고전표를 선택하거나 상세 행을 선택해 주세요.', color: 'orange' });
+      return;
+    }
+    if (hasPendingChanges) {
+      notifications.show({ title: '저장되지 않은 변경사항', message: '삭제 전에 현재 변경사항을 먼저 정리해 주세요.', color: 'orange' });
+      return;
+    }
+    setDeleteOpen(true);
+  }, [selectedIds.length, readOnly, requestDeleteSelectedDetails, selectedReceiptno, hasPendingChanges]);
+
+  useEffect(() => {
+    if (!registerPageRibbon) return undefined;
+    registerPageRibbon(
+      <Group className={inboundClasses.commandRibbon} justify="flex-start" wrap="nowrap" gap={2}>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
+        <span className={inboundClasses.ribbonSeparator} />
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={handleToolbarAdd} disabled={saving || locked}>추가</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} onClick={copySelectedDetails} disabled={readOnly || saving || selectedIds.length !== 1}>복사</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportDocument} loading={exporting} disabled={!selectedReceiptno || loading || detailLoading || !rows.length}>EXCEL</Button>
+        <Button className={`${inboundClasses.ribbonTool} ${inboundClasses.ribbonSave}`} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={() => saveDocument()} loading={saving} disabled={readOnly || detailLoading}>저장</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={requestToolbarDelete} disabled={saving || locked || (!selectedReceiptno && (!selectedIds.length || readOnly))}>삭제</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} onClick={() => window.print()}>인쇄</Button>
+        <span className={inboundClasses.ribbonSeparator} />
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closeActivePage}>닫기</Button>
+      </Group>,
+    );
+    return () => registerPageRibbon(null);
+  }, [registerPageRibbon, closeActivePage, runSearch, loading, handleToolbarAdd, copySelectedDetails, readOnly, saving, selectedIds.length, exportDocument, exporting, selectedReceiptno, rows.length, detailLoading, saveDocument, requestToolbarDelete, locked]);
 
   const openReceiptFinder = useCallback(() => {
     setReceiptFinderOpen(true);
@@ -1177,7 +1281,7 @@ export default function OutboundRegisterPage() {
       setDeleteOpen(false);
       setHeader({ ...EMPTY_HEADER, receptdate: localDate() });
       setReceiptMetadata({ companyid: '', companyname: '', created_at: '', updated_at: '' });
-      setRows([]); setSelectedReceiptno(''); setSubulyn('N'); setDocumentDirty(false);
+      setRows([]); originalStockRef.current = new Map(); setSelectedReceiptno(''); setSubulyn('N'); setDocumentDirty(false);
       await loadReceipts(page, filters);
     } catch (error) {
       notifications.show({ title: '출고 삭제 실패', message: errorMessage(error), color: 'red' });
@@ -1185,11 +1289,11 @@ export default function OutboundRegisterPage() {
   }, [selectedReceiptno, locked, loadReceipts, page, filters]);
 
   const rowContent = useCallback((index, row) => (
-    <DetailCells row={row} index={index} selected={selectedSet.has(row.id)} disabled={saving || readOnly} saved={readOnly} unitOptions={unitOptions}
+    <DetailCells row={row} index={index} selected={selectedSet.has(row.id)} disabled={saving || readOnly} saved={locked} unitOptions={unitOptions}
       onSelect={toggleSelection} onChange={changeDetail} onPaste={pasteRange}
       registerCodeInput={registerCodeInput} registerCellInput={registerCellInput} onFindItem={setItemPickerTargetId}
       onFindMaster={openMasterPicker} onFocusCell={setActiveCell} onDelete={deleteDetail} />
-  ), [selectedSet, saving, readOnly, unitOptions, toggleSelection, changeDetail, pasteRange, registerCodeInput, registerCellInput, openMasterPicker, setActiveCell, deleteDetail]);
+  ), [selectedSet, saving, readOnly, locked, unitOptions, toggleSelection, changeDetail, pasteRange, registerCodeInput, registerCellInput, openMasterPicker, setActiveCell, deleteDetail]);
 
   const headerColumns = [
     { key: 'select', width: 44, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="상세 전체 선택" checked={rows.length > 0 && rows.every((row) => selectedSet.has(row.id))} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
@@ -1198,6 +1302,21 @@ export default function OutboundRegisterPage() {
     { key: 'action', width: 58, minWidth: 48, className: codeClasses.actionCol, label: '관리' },
   ];
   const tableWidth = headerColumns.reduce((sum, column) => sum + (columnWidths[column.key] ?? column.width), 0);
+  const receiptTableWidth = RECEIPT_COLUMNS.reduce((sum, column) => sum + column.width, 0);
+  const receiptTotals = receipts.reduce((totals, receipt) => {
+    for (const key of ['line_count', 'total_qty', 'total_weight', 'supply_amount', 'vat_amount', 'total_amount']) {
+      totals[key] += Number(receipt[key] || 0);
+    }
+    return totals;
+  }, { line_count: 0, total_qty: 0, total_weight: 0, supply_amount: 0, vat_amount: 0, total_amount: 0 });
+  const syncReceiptScroll = (left, source) => {
+    for (const element of [receiptTableRef.current, receiptSubtotalRef.current]) {
+      if (element && element !== source && element.scrollLeft !== left) element.scrollLeft = left;
+    }
+  };
+  const renderReceiptHeader = (column) => (
+    <Table.Th key={column.key} ta={column.align} style={{ width: `${column.width}px`, minWidth: `${column.width}px` }}>{column.label}</Table.Th>
+  );
   const renderHeader = (column) => (
     <Table.Th key={column.key} className={[codeClasses.resizableHeader, column.className].filter(Boolean).join(' ')} style={{ width: columnWidths[column.key] ?? column.width }}>
       {column.label}<span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeColumn(event, column.key, column.width, column.minWidth, tableWidth)} role="separator" aria-label={`${column.key} 열 너비 조절`} />
@@ -1206,63 +1325,87 @@ export default function OutboundRegisterPage() {
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-      <Paper className={dashboardClasses.dashboardHeader}>
-        <Box className={dashboardClasses.headerCopy}>
-          <Text className={sharedClasses.breadcrumb}>출고 관리 <span>›</span> 출고 관리</Text>
-          <Title order={1} className={dashboardClasses.pageTitle}>출고 등록 <span>관리</span></Title>
-          <Text className={dashboardClasses.pageSubtitle}>회사별 거래처와 품목을 확인해 출고전표와 상세 내역을 등록합니다.</Text>
-          <Group className={dashboardClasses.sampleNotice} gap={8}><span className={dashboardClasses.statusDot} /><Text size="xs">System Active</Text></Group>
-        </Box>
-      </Paper>
-
-      <Paper className={`${sharedClasses.panel} ${classes.receiptLookupPanel}`} withBorder>
-        <Group justify="space-between" align="center" wrap="wrap" gap="md">
-          <Group gap="sm" wrap="nowrap">
-            <Box className={classes.receiptLookupIcon}><IconSearch size={18} /></Box>
-            <Box>
-              <Text fw={700} size="sm">{selectedReceiptno ? '조회 중인 전표' : '출고전표 조회'}</Text>
-              <Text size="xs" c="dimmed" mt={3}>
-                {selectedReceiptno
-                  ? `${header.customname || header.customcode} · ${selectedReceiptno}`
-                  : '전표번호 또는 거래처명으로 기존 전표를 찾아볼 수 있습니다.'}
-              </Text>
-            </Box>
-          </Group>
-          <Group gap={8} wrap="nowrap">
-            {selectedReceiptno && (
-              <Button
-                variant="light"
-                color="red"
-                leftSection={<IconFileSpreadsheet size={15} />}
-                onClick={exportDocument}
-                loading={exporting}
-                disabled={loading || detailLoading || !rows.length}
-              >
-                {'엑셀 다운로드'}
-              </Button>
-            )}
-            <Button variant="light" color="red" leftSection={<IconSearch size={15} />} onClick={openReceiptFinder}>
-              {'전표 찾기'}
-            </Button>
-          </Group>
+      <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
+        <Group className={inboundClasses.breadcrumbTrail} gap={7}>
+          <Text component="span" className={inboundClasses.breadcrumbParent}>출고관리</Text>
+          <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
+          <Text component="span" className={inboundClasses.breadcrumbCurrent}>출고등록</Text>
         </Group>
-      </Paper>
+        {!filterOpen && (
+          <Button className={inboundClasses.receiptFilterToggle} variant="subtle" size="xs"
+            leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>
+            조회조건
+          </Button>
+        )}
+      </Box>
+
+      <Box className={`${inboundClasses.inboundWorkspace} ${classes.outboundWorkspace}`}>
+        <Box className={`${inboundClasses.inboundPrimaryColumn} ${classes.outboundPrimaryColumn}`}>
+          <Paper className={`${sharedClasses.panel} ${classes.outboundReceiptPanel}`} withBorder>
+            <Group className={classes.outboundReceiptToolbar} justify="space-between">
+              <Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>출고 기본</Text><Badge color="gray" variant="light">{total.toLocaleString()}건</Badge></Group>
+              <Group gap={4}>
+                <Button className={classes.outboundFinderButton} variant="subtle" size="xs" leftSection={<IconPlus size={14} />} onClick={createReceipt} disabled={hasPendingChanges || saving}>신규 전표</Button>
+                <Button className={classes.outboundFinderButton} variant="subtle" size="xs" leftSection={<IconSearch size={14} />} onClick={openReceiptFinder}>전표 찾기</Button>
+              </Group>
+            </Group>
+            <Box ref={receiptTableRef} className={classes.outboundReceiptTableWrap} onScroll={(event) => syncReceiptScroll(event.currentTarget.scrollLeft, event.currentTarget)}>
+              <Table className={classes.outboundReceiptTable} stickyHeader highlightOnHover withTableBorder withColumnBorders
+                style={{ width: `${receiptTableWidth}px`, minWidth: `${receiptTableWidth}px`, tableLayout: 'fixed' }}>
+                <Table.Thead><Table.Tr>{RECEIPT_COLUMNS.map(renderReceiptHeader)}</Table.Tr></Table.Thead>
+                <Table.Tbody>
+                  {receipts.map((receipt) => <Table.Tr key={receipt.receiptno}
+                    className={`${classes.receiptFinderRow} ${selectedReceiptno === receipt.receiptno ? classes.receiptFinderRowActive : ''}`}
+                    onClick={() => { void openReceipt(receipt.receiptno, true); }}>
+                    <Table.Td>{String(receipt.receptdate || '').slice(0, 10)}</Table.Td>
+                    <Table.Td>{receipt.customcode}</Table.Td>
+                    <Table.Td>{receipt.customname || receipt.customcode}</Table.Td>
+                    <Table.Td>{receipt.warehousecode || ''}</Table.Td>
+                    <Table.Td>{receipt.warehousecodename || ''}</Table.Td>
+                    <Table.Td ta="right">{Number(receipt.line_count || 0).toLocaleString()}</Table.Td>
+                    <Table.Td ta="right">{Number(receipt.total_qty || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Table.Td>
+                    <Table.Td ta="right">{Number(receipt.total_weight || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Table.Td>
+                    <Table.Td ta="right">{formatAmount(String(receipt.supply_amount ?? 0))}</Table.Td>
+                    <Table.Td ta="right">{formatAmount(String(receipt.vat_amount ?? 0))}</Table.Td>
+                    <Table.Td ta="right" className={classes.receiptFinderAmount}>{formatAmount(String(receipt.total_amount ?? 0))}</Table.Td>
+                    <Table.Td>{receipt.receiptno}</Table.Td>
+                    <Table.Td>{receipt.description || ''}</Table.Td>
+                  </Table.Tr>)}
+                </Table.Tbody>
+              </Table>
+              {!receipts.length && <Box className={classes.outboundReceiptEmpty}>{loading ? '조회 중입니다.' : '검색된 출고전표가 없습니다.'}</Box>}
+            </Box>
+            {!!receipts.length && <Box ref={receiptSubtotalRef} className={classes.outboundReceiptSubtotalViewport} onScroll={(event) => syncReceiptScroll(event.currentTarget.scrollLeft, event.currentTarget)}>
+              <Table className={`${classes.outboundReceiptTable} ${classes.outboundReceiptSubtotalTable}`} withTableBorder withColumnBorders
+                style={{ width: `${receiptTableWidth}px`, minWidth: `${receiptTableWidth}px`, tableLayout: 'fixed' }}>
+                <colgroup>{RECEIPT_COLUMNS.map((column) => <col key={column.key} style={{ width: `${column.width}px` }} />)}</colgroup>
+                <Table.Tbody><Table.Tr className={classes.outboundReceiptSubtotal}>
+                  {RECEIPT_COLUMNS.map((column, index) => <Table.Td key={column.key} ta={column.align}>
+                    {index === 0 ? '소계' : column.key === 'line_count' ? receiptTotals.line_count.toLocaleString()
+                      : column.key === 'total_qty' || column.key === 'total_weight' ? receiptTotals[column.key].toLocaleString(undefined, { maximumFractionDigits: 3 })
+                        : ['supply_amount', 'vat_amount', 'total_amount'].includes(column.key) ? formatAmount(String(receiptTotals[column.key])) : ''}
+                  </Table.Td>)}
+                </Table.Tr></Table.Tbody>
+              </Table>
+            </Box>}
+            <Group className={classes.outboundReceiptPagination} justify="space-between">
+              <Select aria-label="페이지당 표시 건수" data={PAGE_SIZE_OPTIONS} value={String(pageSize)} w={100} size="xs"
+                onChange={(value) => { if (value) { const nextPageSize = Number(value); setPageSize(nextPageSize); void loadReceipts(1, filters, nextPageSize); } }} />
+              <Pagination size="sm" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={(value) => loadReceipts(value, filters)} withEdges color="red" disabled={loading || !total} />
+            </Group>
+          </Paper>
 
       <Box className={classes.workspace}>
         <Paper className={`${sharedClasses.panel} ${codeClasses.codePanel} ${classes.editorPanel}`} withBorder>
-          <Group className={codeClasses.codeHeader} justify="space-between" align="flex-start" wrap="wrap" gap="sm">
-            <Box>
-              <Group gap={9} align="center"><Text className={codeClasses.codeTitle} fw={800}>{selectedReceiptno || '신규 출고전표'}</Text><Badge color={locked ? 'green' : readOnly ? 'gray' : 'red'} variant="light">{locked ? '수불 확정' : readOnly ? '저장됨 · 읽기 전용' : hasPendingChanges ? '작성 중' : '신규 작성'}</Badge></Group>
-              <Text size="xs" c="dimmed" mt={5}>{selectedReceiptno ? '저장된 자동 발급 전표번호' : '저장 시 자동 발급 · OUT + 오늘 날짜(YYYYMMDD) + 5자리 순번'}</Text>
-            </Box>
-            <Group gap={7} wrap="wrap" justify="flex-end">
-              <Button color="red" size="sm" leftSection={<IconPlus size={15} />} onClick={createReceipt} disabled={saving}>신규 전표</Button>
-              {!selectedReceiptno && (
-              <Button color="red" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={() => saveDocument()} loading={saving} disabled={readOnly || detailLoading}>저장</Button>
-              )}
-              {selectedReceiptno && (
-              <Button color="red" size="sm" leftSection={<IconTrash size={15} />} onClick={() => { if (hasPendingChanges) { notifications.show({ title: '저장되지 않은 변경사항', message: '삭제 전에 현재 변경사항을 먼저 정리해 주세요.', color: 'orange' }); return; } setDeleteOpen(true); }} disabled={!selectedReceiptno || locked || saving}>전표 삭제</Button>
-              )}
+          <Group className={codeClasses.codeHeader} justify="space-between" align="center" wrap="wrap" gap="sm">
+            <Group gap={9} align="center">
+              <Text className={inboundClasses.sectionTitle} fw={700}>출고 상세</Text>
+              <Badge color="gray" variant="light">{rows.length.toLocaleString()}행</Badge>
+              {selectedReceiptno && <Badge color="gray" variant="light">{selectedReceiptno}</Badge>}
+            </Group>
+            <Group gap={8} align="center">
+              {selectedReceiptno && <Badge color={locked ? 'green' : 'gray'} variant="light">{locked ? '수불 확정' : '저장됨 · 수정 가능'}</Badge>}
+              {selectedIds.length > 0 && <Badge color="gray" variant="light">{selectedIds.length}개 선택</Badge>}
             </Group>
           </Group>
 
@@ -1275,40 +1418,58 @@ export default function OutboundRegisterPage() {
             <TextInput className={classes.headerDescription} label="비고" value={header.description} onChange={(event) => changeHeader('description', event.currentTarget.value)} placeholder="비고" size="sm" disabled={readOnly || saving} />
           </Box>
 
-          <Group className={`${sharedClasses.toolbar} ${codeClasses.toolbar}`} justify="space-between" wrap="wrap" gap={6}>
-            <Group gap={8}><Text fw={700} c="dark">출고 상세</Text><Badge color="gray" variant="light">{rows.length}행</Badge></Group>
-            {selectedIds.length > 1 && !readOnly && <Text size="xs" c="red" fw={600}>{`드롭박스 변경 시 선택한 ${selectedIds.length}행에 일괄 적용됩니다.`}</Text>}
-            <Group gap={7} wrap="nowrap">
-              {selectedIds.length > 0 && <Text size="xs" c="dimmed">{selectedIds.length}개 선택</Text>}
-              {selectedIds.length > 1 && !readOnly && (
-                <Button
-                  variant="light"
-                  color="red"
-                  size="xs"
-                  onClick={() => {
-                    setBulkValues({ qtyunit: '', warehousecode: '', unit: '' });
-                    setBulkEditOpen(true);
-                  }}
-                >
-                  {'일괄 변경'}
-                </Button>
-              )}
-
-              <Button variant="subtle" color="red" size="xs" leftSection={<IconTrash size={14} />} disabled={!selectedIds.length || readOnly || saving} onClick={requestDeleteSelectedDetails}>선택 삭제</Button>
-              <Button color="red" size="xs" leftSection={<IconPlus size={14} />} onClick={addDetail} disabled={readOnly || saving}>행 추가</Button>
-            </Group>
-          </Group>
+          {selectedIds.length > 1 && !readOnly && <Group className={`${sharedClasses.toolbar} ${codeClasses.toolbar}`} justify="flex-end" gap={7}>
+            <Text size="xs" c="red" fw={600}>{`드롭박스 변경 시 선택한 ${selectedIds.length}행에 일괄 적용됩니다.`}</Text>
+            <Button variant="light" color="red" size="xs" onClick={() => {
+              setBulkValues({ qtyunit: '', warehousecode: '', unit: '' });
+              setBulkEditOpen(true);
+            }}>일괄 변경</Button>
+          </Group>}
 
           <Box className={codeClasses.tableWrap} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
             {detailLoading ? <Box className={classes.receiptLoading}><Loader size="sm" color="red" /></Box> : rows.length ? (
               <TableVirtuoso ref={virtuosoRef} data={rows} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} defaultItemHeight={42} increaseViewportBy={{ top: 160, bottom: 320 }} fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>} itemContent={rowContent} />
-            ) : <Box className={codeClasses.emptyState}>{selectedReceiptno ? '출고 상세가 없습니다.' : '신규 전표를 만들거나 왼쪽 목록에서 출고전표를 선택해 주세요.'}</Box>}
+            ) : <Box className={codeClasses.emptyState}>{selectedReceiptno ? '출고 상세가 없습니다.' : '상단 헤더의 추가를 눌러 품목을 등록하세요.'}</Box>}
           </Box>
           <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="space-between" wrap="wrap">
             <Text size="xs" c="dimmed">금액 계산: KG = 중량 × 단가, TON = (중량 ÷ 1,000) × 단가 (중량은 kg 기준). 엑셀 셀 범위를 붙여넣고 저장할 수 있습니다.</Text>
-            <Text size="xs" fw={700}>합계 {formatAmount(rows.reduce((sum, row) => sum + (Number(amountOf(row, unitOptions.price)) || 0), 0).toFixed(2))}</Text>
+            <Group gap="md" wrap="wrap">
+              <Text size="xs" fw={600}>수량 소계 {rows.reduce((sum, row) => sum + (Number(cleanNumericInput(row.qty)) || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Text>
+              <Text size="xs" fw={600}>중량 소계 {rows.reduce((sum, row) => sum + (Number(cleanNumericInput(row.weight)) || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Text>
+              <Text size="xs" fw={700}>출고금액 소계 {formatAmount(rows.reduce((sum, row) => sum + (Number(amountOf(row, unitOptions.price)) || 0), 0).toFixed(2))}</Text>
+            </Group>
           </Group>
         </Paper>
+      </Box>
+        </Box>
+        {filterOpen && <Paper component="aside" className={`${inboundClasses.receiptFilterSidebar} ${classes.outboundFilterSidebar}`} withBorder>
+          <Group className={inboundClasses.receiptFilterHeader} justify="space-between" align="center">
+            <Text fw={700}>조회조건</Text>
+            <ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon>
+          </Group>
+          <Stack gap="sm" className={inboundClasses.receiptFilterFields}>
+            <Box>
+              <Text size="xs" fw={700} mb={5}>출고기간</Text>
+              <Stack gap={6}>
+                <TextInput type="date" aria-label="출고기간 시작일" value={filterInputs.date_from}
+                  onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))}
+                  onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+                <TextInput type="date" aria-label="출고기간 종료일" value={filterInputs.date_to}
+                  onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))}
+                  onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+              </Stack>
+            </Box>
+            <TextInput label="거래처" placeholder="거래처코드 또는 거래처명" value={filterInputs.customer}
+              onChange={(event) => setFilterInputs((current) => ({ ...current, customer: event.currentTarget.value }))}
+              onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+            <TextInput label="출고전표번호" placeholder="전표번호" value={filterInputs.receiptno}
+              onChange={(event) => setFilterInputs((current) => ({ ...current, receiptno: event.currentTarget.value }))}
+              onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+            <TextInput label="창고" placeholder="창고코드 또는 창고명" value={filterInputs.warehouse}
+              onChange={(event) => setFilterInputs((current) => ({ ...current, warehouse: event.currentTarget.value }))}
+              onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+          </Stack>
+        </Paper>}
       </Box>
 
       <Modal
@@ -1426,10 +1587,10 @@ export default function OutboundRegisterPage() {
             ) : <Box className={codeClasses.emptyState}>검색된 출고전표가 없습니다.</Box>}
           </Box>
           <Group justify="space-between" align="center">
-            <Text size="xs" c="dimmed">페이지 {page} / {Math.max(1, Math.ceil(total / PAGE_SIZE))}</Text>
+            <Text size="xs" c="dimmed">페이지 {page} / {Math.max(1, Math.ceil(total / pageSize))}</Text>
             <Pagination
               size="sm"
-              total={Math.max(1, Math.ceil(total / PAGE_SIZE))}
+              total={Math.max(1, Math.ceil(total / pageSize))}
               value={page}
               onChange={(value) => loadReceipts(value, filters)}
               withEdges

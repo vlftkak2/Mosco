@@ -174,26 +174,70 @@ def lookup_items(companyid: str, itemcodes: list[str]):
         return [{"itemcode": code, "itemname": name} for code, name in cursor.fetchall()]
 
 
-def search_active_items(companyid: str, query: str, page: int, page_size: int):
+def search_active_items(companyid: str, query: str, page: int, page_size: int, field: str = "all"):
     search = query.strip()
     where = "companyid = %s AND UPPER(BTRIM(use_yn)) = 'Y'"
     params: list = [companyid]
     if search:
-        where += " AND (itemcode ILIKE %s OR itemname ILIKE %s OR COALESCE(itemtypecode, '') ILIKE %s)"
         pattern = f"%{search}%"
-        params.extend((pattern, pattern, pattern))
+        if field == "code":
+            where += " AND itemcode ILIKE %s"
+            params.append(pattern)
+        elif field == "name":
+            where += " AND itemname ILIKE %s"
+            params.append(pattern)
+        elif field == "material":
+            where += " AND (itemtypecode ILIKE %s OR itemtypecodenm ILIKE %s)"
+            params.extend((pattern, pattern))
+        else:
+            where += " AND (itemcode ILIKE %s OR itemname ILIKE %s OR itemtypecode ILIKE %s OR itemtypecodenm ILIKE %s)"
+            params.extend((pattern, pattern, pattern, pattern))
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(f"SELECT COUNT(*) FROM ItemCode01t WHERE {where}", params)
         total = cursor.fetchone()[0]
         cursor.execute(
-            f"SELECT itemcode, itemname, COALESCE(itemtypecode, '') FROM ItemCode01t WHERE {where} ORDER BY itemcode LIMIT %s OFFSET %s",
+            f"SELECT itemcode, itemname, COALESCE(itemtypecode, ''), COALESCE(itemtypecodenm, '') FROM ItemCode01t WHERE {where} ORDER BY itemcode LIMIT %s OFFSET %s",
             (*params, page_size, (page - 1) * page_size),
         )
         items = [
-            {"itemcode": row[0], "itemname": row[1], "itemtypecode": row[2]}
+            {"itemcode": row[0], "itemname": row[1], "itemtypecode": row[2], "itemtypecodenm": row[3]}
             for row in cursor.fetchall()
         ]
     return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+def suggest_active_items(companyid: str, query: str, limit: int = 8):
+    search = query.strip()
+    if not search:
+        return []
+    pattern = f"%{search}%"
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT itemcode, itemname, COALESCE(itemtypecode, ''), COALESCE(itemtypecodenm, '')
+               FROM ItemCode01t
+               WHERE companyid = %s AND UPPER(BTRIM(use_yn)) = 'Y'
+                 AND (itemcode ILIKE %s OR itemname ILIKE %s
+                      OR itemtypecode ILIKE %s OR itemtypecodenm ILIKE %s)
+               ORDER BY
+                 CASE
+                   WHEN LOWER(BTRIM(itemcode)) = LOWER(%s) THEN 0
+                   WHEN LOWER(BTRIM(itemname)) = LOWER(%s) THEN 1
+                   WHEN LOWER(BTRIM(itemcode)) LIKE LOWER(%s) THEN 2
+                   WHEN LOWER(BTRIM(itemname)) LIKE LOWER(%s) THEN 3
+                   WHEN LOWER(BTRIM(itemtypecodenm)) = LOWER(%s) OR LOWER(BTRIM(itemtypecode)) = LOWER(%s) THEN 4
+                   WHEN LOWER(BTRIM(itemtypecodenm)) LIKE LOWER(%s) OR LOWER(BTRIM(itemtypecode)) LIKE LOWER(%s) THEN 5
+                   ELSE 6
+                 END,
+                 itemcode
+               LIMIT %s""",
+            (companyid, pattern, pattern, pattern, pattern,
+             search, search, f"{search}%", f"{search}%", search, search,
+             f"{search}%", f"{search}%", min(max(int(limit), 1), 8)),
+        )
+        return [
+            {"itemcode": code, "itemname": name, "itemtypecode": type_code, "itemtypecodenm": type_name}
+            for code, name, type_code, type_name in cursor.fetchall()
+        ]
 
 
 def save_items(companyid: str, companyname: str, items: list[dict]) -> int:

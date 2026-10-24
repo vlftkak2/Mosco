@@ -13,7 +13,7 @@ import { Notifications } from '@mantine/notifications';
 
 const theme = createTheme({
   primaryColor: 'red', // 비즈니스용으로 가장 신뢰감 있는 블루 선택
-  fontFamily: 'Inter, sans-serif',
+  fontFamily: "'Malgun Gothic', Arial, sans-serif",
 });
 
 startAppVersionCheck();

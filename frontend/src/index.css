@@ -1,0 +1,22 @@
+* { box-sizing: border-box; }
+
+html,
+body,
+#root {
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  color: #252a32;
+  background: #f6f7f9;
+  font-family: 'Malgun Gothic', Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+button,
+input,
+select,
+textarea { font: inherit; }
