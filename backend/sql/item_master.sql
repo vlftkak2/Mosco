@@ -22,3 +22,9 @@ CREATE INDEX IF NOT EXISTS ix_itemcode01t_itemcode_trgm
 
 CREATE INDEX IF NOT EXISTS ix_itemcode01t_itemname_trgm
     ON ItemCode01t USING GIN (itemname gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS ix_itemcode01t_itemtypecodenm_trgm
+    ON ItemCode01t USING GIN (itemtypecodenm gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS ix_itemcode01t_itemtypecode_trgm
+    ON ItemCode01t USING GIN (itemtypecode gin_trgm_ops);

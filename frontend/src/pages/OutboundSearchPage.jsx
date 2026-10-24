@@ -1,15 +1,18 @@
-import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
+import { forwardRef, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import {
-  Box, Button, Group, Loader, Pagination, Paper, Select,
-  Table, Text, TextInput, Title,
+  ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack,
+  Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconDownload, IconRefresh, IconSearch } from '@tabler/icons-react';
+import {
+  IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus,
+  IconPrinter, IconSearch, IconTrash, IconX,
+} from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
+import { PageRibbonContext } from '../components/layout/MainLayout';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
-import dashboardClasses from '../styles/pages/HomePage.module.css';
-import classes from '../styles/pages/OutboundSearch.module.css';
+import classes from '../styles/pages/InboundSearch.module.css';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' },
@@ -17,6 +20,7 @@ const PAGE_SIZE_OPTIONS = [
   { value: '100', label: '100개씩' },
   { value: '200', label: '200개씩' },
 ];
+const EMPTY_SUMMARY = { receipt_count: 0, total_qty: 0, detail_count: 0, total_weight: 0, total_amount: 0 };
 
 const makeDefaultFilters = () => {
   const today = new Date();
@@ -32,7 +36,7 @@ const makeDefaultFilters = () => {
 
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const HorizontalScroller = forwardRef(function HorizontalScroller({ style, ...props }, ref) {
-  return <div {...props} ref={ref} className={classes.outboundSearchScroller} style={{ ...style, overflowX: 'auto' }} />;
+  return <div {...props} ref={ref} className={classes.inboundSearchScroller} style={{ ...style, overflowX: 'auto' }} />;
 });
 const virtuosoComponents = {
   Scroller: HorizontalScroller,
@@ -68,14 +72,19 @@ const FILTERS = [
 ];
 
 export default function OutboundSearchPage() {
+  const pageLayout = useContext(PageRibbonContext);
+  const registerPageRibbon = pageLayout?.registerPageRibbon;
+  const closeActivePage = pageLayout?.closeActivePage;
   const [filterInputs, setFilterInputs] = useState(makeDefaultFilters);
   const [filters, setFilters] = useState(makeDefaultFilters);
   const [items, setItems] = useState([]);
+  const [summary, setSummary] = useState(EMPTY_SUMMARY);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(15);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(true);
   const [columnWidths, setColumnWidths] = useState({});
   const requestIdRef = useRef(0);
   const resizingColumnRef = useRef(null);
@@ -130,6 +139,7 @@ export default function OutboundSearchPage() {
       if (requestId !== requestIdRef.current) return;
       setItems(data.items || []);
       setTotal(data.total || 0);
+      setSummary(data.summary || EMPTY_SUMMARY);
     } catch (error) {
       if (requestId === requestIdRef.current) {
         notifications.show({
@@ -147,27 +157,20 @@ export default function OutboundSearchPage() {
     void loadItems(page, filters, pageSize);
   }, [loadItems, page, filters, pageSize]);
 
-  const runSearch = () => {
+  const runSearch = useCallback(() => {
     if (filterInputs.date_from && filterInputs.date_to && filterInputs.date_from > filterInputs.date_to) {
       notifications.show({ title: '조회 조건 확인', message: '시작일은 종료일보다 뒤일 수 없습니다.', color: 'orange' });
       return;
     }
     setFilters(Object.fromEntries(Object.entries(filterInputs).map(([key, value]) => [key, String(value || '').trim()])));
     setPage(1);
-  };
+  }, [filterInputs]);
 
-  const resetFilters = () => {
-    const defaults = makeDefaultFilters();
-    setFilterInputs(defaults);
-    setFilters(defaults);
-    setPage(1);
-  };
-
-  const handleFilterKeyDown = (event) => {
+  const handleFilterKeyDown = useCallback((event) => {
     if (event.key === 'Enter') runSearch();
-  };
+  }, [runSearch]);
 
-  const exportExcel = async () => {
+  const exportExcel = useCallback(async () => {
     if (!total || exporting) return;
     setExporting(true);
     try {
@@ -197,48 +200,65 @@ export default function OutboundSearchPage() {
     } finally {
       setExporting(false);
     }
-  };
+  }, [total, exporting, filters]);
+
+  useEffect(() => {
+    if (!registerPageRibbon) return undefined;
+    registerPageRibbon(
+      <Group className={classes.commandRibbon} justify="flex-start" wrap="nowrap" gap={2}>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
+        <span className={classes.ribbonSeparator} />
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} disabled>추가</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} disabled>복사</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>EXCEL</Button>
+        <Button className={`${classes.ribbonTool} ${classes.ribbonSave}`} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} onClick={() => window.print()}>인쇄</Button>
+        <span className={classes.ribbonSeparator} />
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closeActivePage}>닫기</Button>
+      </Group>,
+    );
+    return () => registerPageRibbon(null);
+  }, [registerPageRibbon, closeActivePage, runSearch, loading, exportExcel, exporting, total]);
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-      <Paper className={dashboardClasses.dashboardHeader}>
-        <Box className={dashboardClasses.headerCopy}>
-          <Text className={sharedClasses.breadcrumb}>매출 관리 <span>›</span> 출고현황</Text>
-          <Title order={1} className={`${dashboardClasses.pageTitle} ${classes.pageTitle}`}>출고 현황 <span>조회</span></Title>
-          <Text className={dashboardClasses.pageSubtitle}>회사별 출고전표와 품목 상세 내역을 조회합니다.</Text>
-          <Group className={dashboardClasses.sampleNotice} gap={8}><span className={dashboardClasses.statusDot} /><Text size="xs">System Active</Text></Group>
-        </Box>
-      </Paper>
-
-      <Paper className={`${sharedClasses.panel} ${classes.filterPanel}`} withBorder>
-        <Group className={classes.filterGrid} align="end" gap="sm">
-          {FILTERS.map(({ key, label, placeholder }) => (
-            <TextInput key={key} label={label} placeholder={`${placeholder} 검색`} value={filterInputs[key]}
-              onChange={(event) => setFilterInputs((current) => ({ ...current, [key]: event.currentTarget.value }))}
-              onKeyDown={handleFilterKeyDown} />
-          ))}
-          <Box className={classes.dateFilterGroup}>
-            <Box className={classes.dateFilterInputs}>
-              <TextInput label={'출고 시작일'} type="date" value={filterInputs.date_from}
-                onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
-              <Text className={classes.dateRangeSeparator}>~</Text>
-              <TextInput label={'출고 종료일'} type="date" value={filterInputs.date_to}
-                onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
-            </Box>
-          </Box>
-          <Group className={classes.filterActions} gap={8}>
-            <Button variant="default" leftSection={<IconRefresh size={15} />} onClick={resetFilters} disabled={loading}>초기화</Button>
-            <Button color="red" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
-          </Group>
+      <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
+        <Group className={classes.breadcrumbTrail} gap={7}>
+          <Text component="span" className={classes.breadcrumbParent}>출고관리</Text>
+          <Text component="span" className={classes.breadcrumbChevron}>›</Text>
+          <Text component="span" className={classes.breadcrumbCurrent}>출고현황</Text>
         </Group>
-      </Paper>
+        {!filterOpen && <Button className={classes.filterToggle} variant="subtle" size="xs" leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
+      </Box>
+
+      <Box className={classes.summaryGrid} aria-label="출고현황 요약">
+        <Paper className={classes.summaryCard} withBorder>
+          <Text className={classes.summaryLabel}>출고전표 수</Text>
+          <Text className={classes.summaryValue}>{displayNumber(summary.receipt_count, 0)}건</Text>
+        </Paper>
+        <Paper className={classes.summaryCard} withBorder>
+          <Text className={classes.summaryLabel}>총 출고수량</Text>
+          <Text className={classes.summaryValue}>{displayNumber(summary.total_qty)}</Text>
+        </Paper>
+        <Paper className={classes.summaryCard} withBorder>
+          <Text className={classes.summaryLabel}>총 출고중량</Text>
+          <Text className={classes.summaryValue}>{displayNumber(summary.total_weight)} KG</Text>
+        </Paper>
+        <Paper className={classes.summaryCard} withBorder>
+          <Text className={classes.summaryLabel}>총 출고금액</Text>
+          <Text className={classes.summaryValue}>{displayNumber(summary.total_amount, 0)} 원</Text>
+        </Paper>
+      </Box>
+
+      <Box className={classes.inboundWorkspace}>
 
       <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder>
         <Group className={classes.resultsToolbar} justify="space-between" wrap="wrap">
           <Group gap={8}>
-            <Text fw={700}>{'출고 상세 내역'}</Text>
+            <Text className={classes.sectionTitle} fw={700}>출고현황</Text>
+            <Badge color="gray" variant="light">{total.toLocaleString()}건</Badge>
           </Group>
-          <Button size="xs" variant="light" color="red" leftSection={<IconDownload size={14} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>{'엑셀 다운로드'}</Button>
         </Group>
 
         <Box className={classes.tableWrap}>
@@ -268,7 +288,7 @@ export default function OutboundSearchPage() {
                   <Table.Th>출고중량</Table.Th>
                   <Table.Th>단가기준</Table.Th>
                   <Table.Th>판매단가</Table.Th>
-                  <Table.Th>금액</Table.Th>
+                  <Table.Th>출고금액</Table.Th>
                   <Table.Th>비고</Table.Th>
                   {renderHeader('상세 등록일자', 'created_at', 210, 150)}
                   {renderHeader('상세 수정일자', 'updated_at', 210, 150)}
@@ -302,6 +322,31 @@ export default function OutboundSearchPage() {
           <Pagination size="sm" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={setPage} withEdges color="red" disabled={loading || !total} />
         </Group>
       </Paper>
+      {filterOpen && <Paper component="aside" className={classes.filterSidebar} withBorder>
+        <Group className={classes.filterHeader} justify="space-between" align="center">
+          <Text fw={700}>조회조건</Text>
+          <ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon>
+        </Group>
+        <Stack gap="sm" className={classes.filterFields}>
+          <Box>
+            <Text size="xs" fw={700} mb={5}>출고기간</Text>
+            <Stack gap={6}>
+              <TextInput aria-label="출고 시작일" type="date" value={filterInputs.date_from}
+                onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))}
+                onKeyDown={handleFilterKeyDown} />
+              <TextInput aria-label="출고 종료일" type="date" value={filterInputs.date_to}
+                onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))}
+                onKeyDown={handleFilterKeyDown} />
+            </Stack>
+          </Box>
+          {FILTERS.map(({ key, label, placeholder }) => (
+            <TextInput key={key} label={label} placeholder={`${placeholder} 검색`} value={filterInputs[key]}
+              onChange={(event) => setFilterInputs((current) => ({ ...current, [key]: event.currentTarget.value }))}
+              onKeyDown={handleFilterKeyDown} />
+          ))}
+        </Stack>
+      </Paper>}
+      </Box>
     </Box>
   );
 }

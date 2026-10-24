@@ -27,10 +27,10 @@ from routes import login_routes as login_router
 from routes import user_routes as user_routes
 from routes import userinfo_routes as userinfo_routes
 from routes import userauth_routes as userauth_routes
-from routes import teamauth_routes as teamauth_routes
-from routes import Department_routes as department_routes
+
 from routes import home_dashboard_routes as home_dashboard_routes
 from routes import Customer_routes as customer_routes
+
 # 고정 공통코드 그룹 API를 앱에 등록합니다.
 from routes import Codemaster_routes as Codemaster_routes
 from routes import ItemMaster_routes as ItemMaster_routes
@@ -89,12 +89,6 @@ app.include_router(userinfo_routes.router)
 
 # User Auth API
 app.include_router(userauth_routes.router)
-
-# Team Auth API
-app.include_router(teamauth_routes.router)
-
-# Department API
-app.include_router(department_routes.router)
 
 # Home dashboard API
 app.include_router(home_dashboard_routes.router)

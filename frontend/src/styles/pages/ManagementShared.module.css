@@ -7,20 +7,10 @@
   gap: 16px;
   margin: -20px;
   padding: 28px clamp(20px, 2.2vw, 34px) 36px;
-  background: #f1f3f5;
-  color: #182b49;
-  font-family: Inter, Pretendard, "Noto Sans KR", sans-serif;
-}
-
-.pageShell::before {
-  position: absolute;
-  z-index: -1;
-  top: -20px;
-  right: -24px;
-  left: -24px;
-  height: 184px;
-  background: linear-gradient(135deg, #ee7373 0%, #ec0a0a 100%);
-  content: '';
+  background: #f6f7f9;
+  color: #252a32;
+  font-family: 'Malgun Gothic', Arial, sans-serif;
+  font-size: 12px;
 }
 
 .breadcrumb {

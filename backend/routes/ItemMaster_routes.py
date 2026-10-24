@@ -58,14 +58,29 @@ def search_active_items(
     q: str = Query(default="", max_length=150),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    field: str = Query(default="all", pattern="^(all|name|code|material)$"),
     user: dict = Depends(security_module.get_current_user),
 ):
     try:
-        return {"success": True, **item_master_module.search_active_items(user["companyid"], q, page, page_size)}
+        return {"success": True, **item_master_module.search_active_items(user["companyid"], q, page, page_size, field)}
     except Exception as error:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="사용 중인 품목을 조회하지 못했습니다.",
+        ) from error
+
+
+@router.get("/items/suggest")
+def suggest_active_items(
+    q: str = Query(default="", max_length=150),
+    user: dict = Depends(security_module.get_current_user),
+):
+    try:
+        return {"success": True, "items": item_master_module.suggest_active_items(user["companyid"], q)}
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="품목 자동완성 목록을 조회하지 못했습니다.",
         ) from error
 
 

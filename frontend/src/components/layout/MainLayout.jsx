@@ -1,14 +1,24 @@
 
-import { AppShell, Burger, Group, Text, Box, ScrollArea, Avatar, Button, Divider, Stack, Modal, TextInput, PasswordInput } from '@mantine/core';
+import { AppShell, Burger, Group, Text, Box, ScrollArea, Button, Stack, Modal, TextInput, PasswordInput } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { LinksGroup } from './MainLayoutLink';
 import classes from '../../styles/layout/MainLayout.module.css';
-import { useEffect, useState } from 'react';
+import { createContext, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate,useLocation } from 'react-router-dom';
 import { 
+  IconAddressBook,
+  IconAdjustmentsHorizontal,
+  IconBuildingWarehouse,
+  IconFolder,
+  IconHeadset,
+  IconLayoutDashboard,
   IconLogout,
   IconPackage,
-  IconUser
+  IconTool,
+  IconTruckDelivery,
+  IconTruckLoading,
+  IconUser,
+  IconUsers,
 } from '@tabler/icons-react';
 import '@mantine/notifications/styles.css';
 import { Notifications, notifications } from '@mantine/notifications';
@@ -16,107 +26,125 @@ import axios from 'axios'; // axios 추가
 import { IconCheck, IconX } from '@tabler/icons-react'; // 아이콘 추가
 import steel119HomeLogo from '../../assets/img/steel119-home.png';
 
+export const PageRibbonContext = createContext(null);
+
 const mockdata = [
   {
     label: '대시보드',
-    icon: <IconPackage size={17} stroke={1.8} />,
+    icon: <IconLayoutDashboard size={18} stroke={1.8} />,
     link: '/HomePage',
     initiallyOpened: false,
     MenuID:null,
   },
 
- 
-
-  {
-    label: '거래처 관리',
-    icon: <IconPackage size={17} stroke={1.8} />,
+    {
+    label: '기본정보',
+    icon: <IconFolder size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      { label: '거래처등록', link: '/CustomerPage', icon: '', MenuID:'M-11' },
+      { label: '품목코드', link: '/ItemMasterPage', icon: '', MenuID: 'M7' },
+      {label: '일반코드',link: '/CodeMasterPage',icon: '',MenuID: 'M1'},
+      {label: '사용자관리',link: '/',icon: '',MenuID: 'M1'},
+      { label: '거래처관리', link: '/CustomerPage', icon: '', MenuID:'M-11' },
+
     ],
-  },   
+  },  
+ 
   {
-    label: '입고 관리',
-    icon: <IconPackage size={17} stroke={1.8} />,
+    label: '입고관리',
+    icon: <IconTruckDelivery size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
       { label: '입고등록', link: '/InboundRegisterPage', icon: '✔️', MenuID:'M-14' },
       { label: '입고현황', link: '/InboundSearchPage', icon: '✔️', MenuID:'M-16' },
     ],
   },
-  {
-    label: '출고 관리',
-    icon: <IconPackage size={17} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '출고등록', link: '/OutboundRegisterPage', icon: '', MenuID: 'M-22' },
-      { label: '출고현황', link: '/OutboundSearchPage', icon: '', MenuID: 'M-23' },
-    ],
-  },
+
   {
     label: '가공관리',
-    icon: <IconPackage size={17} stroke={1.8} />,
+    icon: <IconTool size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      {
-        label: 'AI 가공솔루션',
-        links: [
-          { label: '주문서 인식', link: '/AIOrderPage', icon: '', MenuID: 'AI-ORDER-TEST' },
-          { label: '주문서 확정', link: '/AIOrderConfirmPage', icon: '', MenuID: 'AI-ORDER-TEST' },
-        ],
-      },
+      { label: 'AI 가공솔루션', link: '/AIOrderPage', icon: '', MenuID: 'AI-ORDER-TEST' },
+      { label: '가공 진행현황', link: '/AIOrderConfirmPage', icon: '', MenuID: 'AI-ORDER-TEST' },
+        
     ],
-  },
+  },  
 
   
   {
     label: '재고 관리',
-    icon: <IconPackage size={17} stroke={1.8} />,
+    icon: <IconPackage size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      { label: '현재고', link: '/CurrentStockPage', icon: '', MenuID:'M-11' },
-      { label: '재고 수불장', link: '/IniopStockPage', icon: '', MenuID:'M-12' },
+      { label: '기초재고등록', link: '/StockStandPage', icon: '', MenuID: 'M-24' },
+      { label: '재고수불현황', link: '/IniopStockPage', icon: '', MenuID:'M-12' },
+      { label: '현재고현황', link: '/CurrentStockPage', icon: '', MenuID:'M-11' },
     ],
-  },   
+  },     
 
   {
-    label: '기초재고 관리',
-    icon: <IconPackage size={17} stroke={1.8} />,
+    label: '출고관리',
+    icon: <IconTruckLoading size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      { label: '기초재고 등록', link: '/StockStandPage', icon: '', MenuID: 'M-24' },
-    ],
-  },
-
-    {
-    label: '기본정보 관리',
-    icon: <IconPackage size={17} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '품목코드', link: '/ItemMasterPage', icon: '', MenuID: 'M7' },
-      {
-        label: '일반코드',
-        link: '/CodeMasterPage',
-        icon: '',
-        MenuID: 'M1',
-      },
+      
+      { label: '출고등록', link: '/OutboundRegisterPage', icon: '', MenuID: 'M-22' },
+      { label: '출고현황', link: '/OutboundSearchPage', icon: '', MenuID: 'M-23' },
     ],
   },
 
   {
-    label: '사용자 관리',
-    icon: <IconPackage size={17} stroke={1.8} />,
+    label: '고객지원',
+    icon: <IconHeadset size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      { label: '사용자 관리', link: '/UserPage', icon: '✔️', MenuID:'M-17' },
-      { label: '사용자 권한 관리', link: '/UserAuthPage', icon: '✔️', MenuID:'M-18' },
-      { label: '부서 관리', link: '/DepartmentPage', icon: '✔️', MenuID:'M-19' },
-      { label: '부서 권한 관리', link: '/DepartmentAuthPage', icon: '✔️', MenuID:'M-20' },
-      { label: '설정', link: '/settings', icon: '✔️', MenuID:'M-21' },
+      
+      { label: '상담게시판', link: '/', icon: '', MenuID: 'M-22' },
+      { label: '공지사항', link: '/', icon: '', MenuID: 'M-23' },
+    ],
+  },
+
+
+
+  {
+    label: '시스템관리',
+    icon: <IconAdjustmentsHorizontal size={18} stroke={1.8} />,
+    initiallyOpened: false,
+    links: [
+      { label: '고객사등록', link: '/', icon: '✔️', MenuID:'M-17' },
+      { label: '고객사 권한관리', link: '/', icon: '✔️', MenuID:'M-18' },
+      { label: '설정', link: '/', icon: '✔️', MenuID:'M-19' },
     ],
   },
 
 ];
+
+function findMenuLabel(items, path) {
+  const normalizePath = (value) => String(value || '').replace(/\/+$/, '').toLowerCase() || '/';
+  const normalizedPath = normalizePath(path);
+  const canonicalPath = normalizedPath === '/inboundregister'
+    ? '/inboundregisterpage'
+    : normalizedPath;
+  const routeLabelAliases = {
+    '/iniopstockpage': '재고수불현황',
+    '/stockstandpage': '기초재고등록',
+    '/inboundregister': '입고등록',
+    '/inboundregisterpage': '입고등록',
+    '/inboundsearch': '입고현황',
+    '/inboundsearchpage': '입고현황',
+    '/currentstockpage': '현재고현황',
+  };
+
+  if (routeLabelAliases[normalizedPath]) return routeLabelAliases[normalizedPath];
+
+  for (const item of items) {
+    if (item.link && normalizePath(item.link) === canonicalPath) return item.label;
+    const nested = item.links ? findMenuLabel(item.links, path) : '';
+    if (nested) return nested;
+  }
+  return canonicalPath === '/homepage' ? '대시보드' : path;
+}
 
 export default function MainLayout({ children }) {
   const [opened, { toggle }] = useDisclosure();
@@ -130,6 +158,42 @@ export default function MainLayout({ children }) {
 
   const navigate = useNavigate();
   const { pathname } = useLocation(); // 2. 현재 경로 가져오기
+  const isDashboard = String(pathname || '').replace(/\/+$/, '').toLowerCase() === '/homepage';
+  const isInboundWorkspace = [
+    '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
+    '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage', '/aiorderconfirmpage',
+    '/currentstockpage', '/iniopstockpage', '/stockstandpage',
+  ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
+  const [pageRibbon, setPageRibbon] = useState(null);
+  const registerPageRibbon = useCallback((content) => setPageRibbon(() => content), []);
+  const [tabState, setTabState] = useState(() => ({
+    pathname,
+    tabs: [{ path: pathname, label: findMenuLabel(mockdata, pathname) }],
+  }));
+  if (pathname !== tabState.pathname) {
+    const tab = { path: pathname, label: findMenuLabel(mockdata, pathname) };
+    const tabs = tabState.tabs.some((item) => item.path === tab.path)
+      ? tabState.tabs
+      : [...tabState.tabs, tab];
+    setTabState({ pathname, tabs });
+  }
+  const pageTabs = useMemo(
+    () => tabState.tabs.filter((tab) => String(tab.path || '').replace(/\/+$/, '').toLowerCase() !== '/homepage'),
+    [tabState.tabs],
+  );
+
+  const closePageTab = useCallback((event, path) => {
+    event?.stopPropagation?.();
+    const remaining = pageTabs.filter((tab) => tab.path !== path);
+    if (!remaining.length) remaining.push({ path: '/HomePage', label: findMenuLabel(mockdata, '/HomePage') });
+    setTabState({ pathname, tabs: remaining });
+    if (pathname === path) navigate(remaining[remaining.length - 1].path);
+  }, [pageTabs, pathname, navigate]);
+  const closeActivePage = useCallback(() => closePageTab(null, pathname), [closePageTab, pathname]);
+  const pageRibbonContextValue = useMemo(
+    () => ({ registerPageRibbon, closeActivePage }),
+    [registerPageRibbon, closeActivePage],
+  );
 
   const [myPermissions, setMyPermissions] = useState([]);
 
@@ -304,88 +368,85 @@ const links = mockdata.map((item) => (
     <>
     <Notifications position="bottom-right" zIndex={2000} />
     <AppShell
-      header={{ height: 68 }}
+      className={isInboundWorkspace || isDashboard ? classes.appShellInbound : undefined}
+      header={{ height: 49 }}
       navbar={{
-        width: 224,
+        width: 204,
         breakpoint: 'sm',
         collapsed: { mobile: !opened },
       }}
       padding="sm"
     >
       <AppShell.Header className={classes.appHeader}>
-        <Group h="100%" px="md" justify="space-between">
-          <Group>
-            <Box className={classes.headerBrand}>
-              <Box className={classes.logoMark}>
-                <img src={steel119HomeLogo} alt="Steel119" />
-              </Box>
-              <Box className={classes.brandCopy}>
-                <Text className={classes.brandName}>STEEL119</Text>
-              </Box>
-            </Box>
-            <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
+        <Box className={classes.headerBrand}>
+          <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" color="white" />
+          <Box className={classes.logoMark}>
+            <img src={steel119HomeLogo} alt="Steel119" />
+          </Box>
+          <Box className={classes.brandCopy}>
+            <Text className={classes.brandName}>STEEL119</Text>
+          </Box>
+        </Box>
+
+        <Box className={classes.headerActions}>
+          {!isDashboard && pageRibbon}
+        </Box>
+
+        <Group className={classes.headerUser} gap={16} wrap="nowrap">
+          <Group
+            className={classes.userIdentity}
+            gap={0}
+            onClick={openPwModal}
+            title="비밀번호 변경"
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') openPwModal(); }}
+          >
+            <Text size="xs" fw={600}>{userInfo.name ? `${userInfo.name}님` : <IconUser size={15} />}</Text>
           </Group>
+          <Button
+            className={classes.logoutButton}
+            variant="subtle"
+            size="xs"
+            leftSection={<IconLogout size={15} />}
+            onClick={handleLogout}
+          >
+            로그아웃
+          </Button>
+        </Group>
 
-          {/* --- 우측 사용자 영역 추가 --- */}
-          <Group gap="md">
-            <Group 
-              gap="sm"
-              onClick={openPwModal}        // [수정] 클릭 시 모달 열기 함수 호출
-              style={{ cursor: 'pointer' }}
-            >
-              <Avatar color="red.8" radius="xl" size="md" variant="light">
-                {userInfo.name ? userInfo.name.charAt(0) : <IconUser size={20} />}
-              </Avatar>
-              <Stack gap={0}>
-                <Text size="sm" fw={600} c="red.8">{userInfo.name}님</Text>
-              </Stack>
-            </Group>
-
-           <Modal opened={pwModalOpened} onClose={closePwModal} title={<Text fw={700} size="xl">비밀번호 수정</Text>} centered size="lg" padding="xl" >
+        <Modal opened={pwModalOpened} onClose={closePwModal} title={<Text fw={700} size="md">비밀번호 수정</Text>} centered size="sm" padding="md">
             <form onSubmit={handlePasswordChange}>
-              <Stack gap="xl">
+              <Stack gap="md">
                 {/* [필수 수정] value와 onChange를 연결해야 pwdForm에 값이 담깁니다. */}
                 <PasswordInput 
                   label="현재 비밀번호" 
-                  size="md"
+                  size="sm"
                   required 
                   value={pwdForm.current}
                   onChange={(e) => setPwdForm({ ...pwdForm, current: e.target.value })}
                 />
                 <PasswordInput 
                   label="새 비밀번호" 
-                  size="md"
+                  size="sm"
                   required 
                   value={pwdForm.next}
                   onChange={(e) => setPwdForm({ ...pwdForm, next: e.target.value })}
                 />
                 <PasswordInput 
                   label="새 비밀번호 확인" 
-                  size="md"
+                  size="sm"
                   required 
                   value={pwdForm.confirm}
                   onChange={(e) => setPwdForm({ ...pwdForm, confirm: e.target.value })}
                 />
-                <Group justify="flex-end" mt="md">
-                  <Button variant="outline" color="gray" onClick={closePwModal}>취소</Button>
-                  <Button type="submit" color="red.8">패스워드 변경</Button>
+                <Group justify="flex-end" mt="xs">
+                  <Button size="sm" variant="outline" color="gray" onClick={closePwModal}>취소</Button>
+                  <Button size="sm" type="submit" color="red.8">패스워드 변경</Button>
                 </Group>
               </Stack>
             </form>
-          </Modal>
-
-            <Divider orientation="vertical" h={30} />
-
-            <Button 
-              variant="subtle" 
-              color="gray" 
-              leftSection={<IconLogout size={20} />}
-              onClick={handleLogout}
-            >
-              로그아웃
-            </Button>
-          </Group>   
-        </Group>
+        </Modal>
       </AppShell.Header>
 
       <AppShell.Navbar className={classes.navBar} p={0}>
@@ -400,10 +461,24 @@ const links = mockdata.map((item) => (
         </AppShell.Section>
       </AppShell.Navbar>
 
-      <AppShell.Main bg="gray.0">
+      <AppShell.Main className={`${classes.appMain} ${isDashboard ? classes.appMainDashboard : isInboundWorkspace ? classes.appMainInbound : ''}`}>
+        {!isDashboard && <div className={classes.pageTabs} role="tablist" aria-label="열린 메뉴">
+          {pageTabs.map((tab) => {
+            const label = findMenuLabel(mockdata, tab.path);
+            return (
+              <div key={tab.path} role="tab" aria-selected={pathname === tab.path} tabIndex={0}
+                className={`${classes.pageTab} ${pathname === tab.path ? classes.pageTabActive : ''}`}
+                onClick={() => navigate(tab.path)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) navigate(tab.path); }}>
+                <span>{label}</span>
+                <button type="button" className={classes.pageTabClose} aria-label={`${label} 닫기`}
+                  onClick={(event) => closePageTab(event, tab.path)}>×</button>
+              </div>
+            );
+          })}
+        </div>}
         {/* 클래스 적용 */}
-        <div className={classes.contentCard}>
-          {children}
+        <div className={`${classes.contentCard} ${isDashboard ? classes.dashboardContentCard : isInboundWorkspace ? classes.inboundContentCard : ''}`}>
+          <PageRibbonContext.Provider value={pageRibbonContextValue}>{children}</PageRibbonContext.Provider>
         </div>
       </AppShell.Main>
     </AppShell>

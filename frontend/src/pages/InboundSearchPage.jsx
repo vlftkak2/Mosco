@@ -1,14 +1,17 @@
-import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
+import { forwardRef, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import {
-  Box, Button, Group, Loader, Pagination, Paper, Select,
-  Table, Text, TextInput, Title,
+  ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack,
+  Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconDownload, IconRefresh, IconSearch } from '@tabler/icons-react';
+import {
+  IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus,
+  IconSearch, IconTrash, IconX,
+} from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
+import { PageRibbonContext } from '../components/layout/MainLayout';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
-import dashboardClasses from '../styles/pages/HomePage.module.css';
 import classes from '../styles/pages/InboundSearch.module.css';
 
 const PAGE_SIZE_OPTIONS = [
@@ -17,6 +20,23 @@ const PAGE_SIZE_OPTIONS = [
   { value: '100', label: '100개씩' },
   { value: '200', label: '200개씩' },
 ];
+const EMPTY_SUMMARY = { receipt_count: 0, detail_count: 0, total_weight: 0, total_amount: 0 };
+const TABLE_COLUMN_WIDTHS = {
+  no: 56, receptdate: 120, receiptno: 175, customname: 190, warehousecodename: 160,
+  productname: 140, itemname: 200, materialname: 130, surfacename: 120, myrtle: 130,
+  thickness: 90, width: 90, length: 90, qty: 105, weight: 115, unitprice: 125,
+  supplyamt: 120, vat: 110, unitamt: 130, qtyunit: 110, unit: 110, manager: 130,
+  description: 220, created_at: 160, updated_at: 160,
+};
+const BASE_TABLE_WIDTH = Object.values(TABLE_COLUMN_WIDTHS).reduce((sum, width) => sum + width, 0);
+const TABLE_COLUMNS = [
+  ['no', 'No.'], ['receptdate', '입고일자'], ['receiptno', '입고전표'], ['customname', '매입처'],
+  ['warehousecodename', '창고'], ['productname', '제품번호'], ['itemname', '품명'], ['materialname', '강종'],
+  ['surfacename', '표면'], ['myrtle', '도금량(g/㎡)'], ['thickness', '두께'], ['width', '폭'], ['length', '길이'],
+  ['qty', '수량'], ['weight', '중량'], ['unitprice', '매입단가'], ['supplyamt', '공급가'], ['vat', '부가세'],
+  ['unitamt', '합계금액'], ['qtyunit', '수량단위'], ['unit', '단가기준'], ['manager', '담당자'], ['description', '비고'],
+  ['created_at', '\uB4F1\uB85D\uC77C\uC790'], ['updated_at', '\uC218\uC815\uC77C\uC790'],
+].map(([key, label]) => ({ key, label, width: TABLE_COLUMN_WIDTHS[key], minWidth: Math.min(TABLE_COLUMN_WIDTHS[key], 72) }));
 
 const makeDefaultFilters = () => {
   const today = new Date();
@@ -26,7 +46,7 @@ const makeDefaultFilters = () => {
   return {
     date_from: `${year}-${pad(month + 1)}-01`,
     date_to: `${year}-${pad(month + 1)}-${pad(new Date(year, month + 1, 0).getDate())}`,
-    receiptno: '', customcode: '', customname: '', itemcode: '', itemname: '',
+    receiptno: '', customer: '', warehouse: '', iteminfo: '',
   };
 };
 
@@ -38,7 +58,7 @@ const virtuosoComponents = {
   Scroller: HorizontalScroller,
   Table: ({ style, ...props }) => (
     <Table {...props} className={classes.statusTable} withTableBorder withColumnBorders highlightOnHover
-      style={{ ...style, width: 'max(100%, 2500px)', minWidth: 2500, tableLayout: 'fixed' }} />
+      style={{ ...style, width: 'var(--inbound-search-table-width)', minWidth: 'var(--inbound-search-table-width)', tableLayout: 'fixed' }} />
   ),
   TableHead: Table.Thead,
   TableBody: Table.Tbody,
@@ -60,60 +80,66 @@ const displayNumber = (value, maximumFractionDigits = 3) => {
 };
 
 const FILTERS = [
-  { key: 'receiptno', label: '입고전표번호', placeholder: '입고전표번호' },
-  { key: 'customcode', label: '거래처코드', placeholder: '거래처코드' },
-  { key: 'customname', label: '거래처명', placeholder: '거래처명' },
-  { key: 'itemcode', label: '품목코드', placeholder: '품목코드' },
-  { key: 'itemname', label: '품목명', placeholder: '품목명' },
+  { key: 'customer', label: '거래처', placeholder: '거래처코드 또는 거래처명' },
+  { key: 'warehouse', label: '창고', placeholder: '창고코드 또는 창고명' },
+  { key: 'receiptno', label: '입고전표번호', placeholder: '전표번호' },
+  { key: 'iteminfo', label: '품목정보', placeholder: '품목코드 또는 품목명' },
 ];
 
 export default function InboundSearchPage() {
+  const pageLayout = useContext(PageRibbonContext);
+  const registerPageRibbon = pageLayout?.registerPageRibbon;
+  const closeActivePage = pageLayout?.closeActivePage;
   const [filterInputs, setFilterInputs] = useState(makeDefaultFilters);
   const [filters, setFilters] = useState(makeDefaultFilters);
   const [items, setItems] = useState([]);
+  const [summary, setSummary] = useState(EMPTY_SUMMARY);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(15);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(true);
   const [columnWidths, setColumnWidths] = useState({});
+  const tableWidth = TABLE_COLUMNS.reduce((sum, column) => sum + (columnWidths[column.key] ?? column.width), 0);
   const requestIdRef = useRef(0);
-  const resizingColumnRef = useRef(null);
 
-  const startColumnResize = (event, key, minWidth) => {
+  const resizeColumn = (event, column) => {
     event.preventDefault();
     event.stopPropagation();
-    resizingColumnRef.current = {
-      key,
-      minWidth,
-      startX: event.clientX,
-      startWidth: event.currentTarget.parentElement.getBoundingClientRect().width,
+    const startX = event.clientX;
+    const startWidth = columnWidths[column.key] ?? column.width;
+    const table = event.currentTarget.closest('table');
+    const header = event.currentTarget.parentElement;
+    const baseTableWidth = tableWidth;
+    let nextWidth = startWidth;
+    const move = (pointerEvent) => {
+      nextWidth = Math.max(column.minWidth, Math.min(1600, startWidth + pointerEvent.clientX - startX));
+      if (header) header.style.width = `${nextWidth}px`;
+      if (table) {
+        table.style.width = `${baseTableWidth + nextWidth - startWidth}px`;
+        table.style.minWidth = table.style.width;
+      }
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    const finish = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      setColumnWidths((current) => ({ ...current, [column.key]: nextWidth }));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
   };
 
-  const moveColumnResize = (event) => {
-    const resizing = resizingColumnRef.current;
-    if (!resizing) return;
-    const width = Math.max(resizing.minWidth, resizing.startWidth + event.clientX - resizing.startX);
-    setColumnWidths((current) => ({ ...current, [resizing.key]: width }));
-  };
-
-  const endColumnResize = () => {
-    resizingColumnRef.current = null;
-  };
-
-  const renderHeader = (label, key, defaultWidth, minWidth = 80) => (
-    <Table.Th key={key} style={{ width: columnWidths[key] || defaultWidth }}>
-      {label}
+  const renderHeader = (column) => (
+    <Table.Th key={column.key} style={{ width: columnWidths[column.key] ?? column.width, position: 'relative' }}>
+      <span>{column.label}</span>
       <span
         className={classes.columnResizeHandle}
         role="separator"
-        aria-label={`${label} 열 너비 조절`}
-        onPointerDown={(event) => startColumnResize(event, key, minWidth)}
-        onPointerMove={moveColumnResize}
-        onPointerUp={endColumnResize}
-        onPointerCancel={endColumnResize}
+        aria-label={`${column.label} 열 너비 조절`}
+        onPointerDown={(event) => resizeColumn(event, column)}
       />
     </Table.Th>
   );
@@ -130,6 +156,7 @@ export default function InboundSearchPage() {
       if (requestId !== requestIdRef.current) return;
       setItems(data.items || []);
       setTotal(data.total || 0);
+      setSummary(data.summary || EMPTY_SUMMARY);
     } catch (error) {
       if (requestId === requestIdRef.current) {
         notifications.show({
@@ -147,27 +174,20 @@ export default function InboundSearchPage() {
     void loadItems(page, filters, pageSize);
   }, [loadItems, page, filters, pageSize]);
 
-  const runSearch = () => {
+  const runSearch = useCallback(() => {
     if (filterInputs.date_from && filterInputs.date_to && filterInputs.date_from > filterInputs.date_to) {
       notifications.show({ title: '조회 조건 확인', message: '시작일은 종료일보다 뒤일 수 없습니다.', color: 'orange' });
       return;
     }
     setFilters(Object.fromEntries(Object.entries(filterInputs).map(([key, value]) => [key, String(value || '').trim()])));
     setPage(1);
-  };
-
-  const resetFilters = () => {
-    const defaults = makeDefaultFilters();
-    setFilterInputs(defaults);
-    setFilters(defaults);
-    setPage(1);
-  };
+  }, [filterInputs]);
 
   const handleFilterKeyDown = (event) => {
     if (event.key === 'Enter') runSearch();
   };
 
-  const exportExcel = async () => {
+  const exportExcel = useCallback(async () => {
     if (!total || exporting) return;
     setExporting(true);
     try {
@@ -197,48 +217,63 @@ export default function InboundSearchPage() {
     } finally {
       setExporting(false);
     }
-  };
+  }, [total, exporting, filters]);
+
+  useEffect(() => {
+    if (!registerPageRibbon) return undefined;
+    registerPageRibbon(
+      <Group className={classes.commandRibbon} justify="flex-start" wrap="nowrap" gap={2}>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
+        <span className={classes.ribbonSeparator} />
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} disabled>추가</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} disabled>복사</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>EXCEL</Button>
+        <Button className={`${classes.ribbonTool} ${classes.ribbonSave}`} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
+        <span className={classes.ribbonSeparator} />
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closeActivePage}>닫기</Button>
+      </Group>,
+    );
+    return () => registerPageRibbon(null);
+  }, [registerPageRibbon, closeActivePage, runSearch, loading, exportExcel, exporting, total]);
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-      <Paper className={dashboardClasses.dashboardHeader}>
-        <Box className={dashboardClasses.headerCopy}>
-          <Text className={sharedClasses.breadcrumb}>매입 관리 <span>›</span> 입고현황</Text>
-          <Title order={1} className={`${dashboardClasses.pageTitle} ${classes.pageTitle}`}>입고 현황 <span>조회</span></Title>
-          <Text className={dashboardClasses.pageSubtitle}>회사별 입고전표와 품목 상세 내역을 조회합니다.</Text>
-          <Group className={dashboardClasses.sampleNotice} gap={8}><span className={dashboardClasses.statusDot} /><Text size="xs">System Active</Text></Group>
-        </Box>
-      </Paper>
-
-      <Paper className={`${sharedClasses.panel} ${classes.filterPanel}`} withBorder>
-        <Group className={classes.filterGrid} align="end" gap="sm">
-          {FILTERS.map(({ key, label, placeholder }) => (
-            <TextInput key={key} label={label} placeholder={`${placeholder} 검색`} value={filterInputs[key]}
-              onChange={(event) => setFilterInputs((current) => ({ ...current, [key]: event.currentTarget.value }))}
-              onKeyDown={handleFilterKeyDown} />
-          ))}
-          <Box className={classes.dateFilterGroup}>
-            <Box className={classes.dateFilterInputs}>
-              <TextInput label={'입고 시작일'} type="date" value={filterInputs.date_from}
-                onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
-              <Text className={classes.dateRangeSeparator}>~</Text>
-              <TextInput label={'입고 종료일'} type="date" value={filterInputs.date_to}
-                onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
-            </Box>
-          </Box>
-          <Group className={classes.filterActions} gap={8}>
-            <Button variant="default" leftSection={<IconRefresh size={15} />} onClick={resetFilters} disabled={loading}>초기화</Button>
-            <Button color="red" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
-          </Group>
+      <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
+        <Group className={classes.breadcrumbTrail} gap={7}>
+          <Text component="span" className={classes.breadcrumbParent}>구매관리</Text>
+          <Text component="span" className={classes.breadcrumbChevron}>›</Text>
+          <Text component="span" className={classes.breadcrumbCurrent}>입고현황</Text>
         </Group>
-      </Paper>
+        {!filterOpen && <Button className={classes.filterToggle} variant="subtle" size="xs" leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
+      </Box>
 
+      <Box className={classes.summaryGrid} aria-label="입고현황 요약">
+        <Paper className={classes.summaryCard} withBorder>
+          <Text className={classes.summaryLabel}>입고전표 수</Text>
+          <Text className={classes.summaryValue}>{displayNumber(summary.receipt_count, 0)}건</Text>
+        </Paper>
+        <Paper className={classes.summaryCard} withBorder>
+          <Text className={classes.summaryLabel}>상세 품목 건수</Text>
+          <Text className={classes.summaryValue}>{displayNumber(summary.detail_count, 0)}건</Text>
+        </Paper>
+        <Paper className={classes.summaryCard} withBorder>
+          <Text className={classes.summaryLabel}>총 입고중량</Text>
+          <Text className={classes.summaryValue}>{displayNumber(summary.total_weight)} KG</Text>
+        </Paper>
+        <Paper className={classes.summaryCard} withBorder>
+          <Text className={classes.summaryLabel}>총 입고금액</Text>
+          <Text className={classes.summaryValue}>{displayNumber(summary.total_amount, 0)} 원</Text>
+        </Paper>
+      </Box>
+
+      <Box className={classes.inboundWorkspace}>
       <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder>
         <Group className={classes.resultsToolbar} justify="space-between" wrap="wrap">
           <Group gap={8}>
-            <Text fw={700}>{'입고 상세 내역'}</Text>
+            <Text className={classes.sectionTitle} fw={700}>입고현황</Text>
+            <Badge color="gray" variant="light">{total.toLocaleString()}건</Badge>
           </Group>
-          <Button size="xs" variant="light" color="red" leftSection={<IconDownload size={14} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>{'엑셀 다운로드'}</Button>
         </Group>
 
         <Box className={classes.tableWrap}>
@@ -246,44 +281,31 @@ export default function InboundSearchPage() {
           {items.length ? (
             <TableVirtuoso
               data={items}
-              style={{ height: '100%', width: '100%' }}
+              style={{ height: '100%', width: '100%', '--inbound-search-table-width': `${tableWidth}px` }}
               components={virtuosoComponents}
               computeItemKey={(_index, item) => `${item.receiptno}:${item.lineno}`}
               defaultItemHeight={40}
               increaseViewportBy={{ top: 160, bottom: 320 }}
-              fixedHeaderContent={() => (
-                <Table.Tr>
-                  <Table.Th>No.</Table.Th>
-                  <Table.Th>입고일자</Table.Th>
-                  {renderHeader('입고전표번호', 'receiptno', 175, 130)}
-                  {renderHeader('거래처코드', 'customcode', 115, 90)}
-                  {renderHeader('거래처명', 'customname', 170, 120)}
-                  <Table.Th>품목코드</Table.Th>
-                  <Table.Th>품목명</Table.Th>
-                  <Table.Th>규격</Table.Th>
-                  <Table.Th>수량</Table.Th>
-                  <Table.Th>수량단위</Table.Th>
-                  <Table.Th>창고코드</Table.Th>
-                  <Table.Th>창고명</Table.Th>
-                  <Table.Th>입고중량</Table.Th>
-                  <Table.Th>단가기준</Table.Th>
-                  <Table.Th>매입단가</Table.Th>
-                  <Table.Th>금액</Table.Th>
-                  <Table.Th>비고</Table.Th>
-                  {renderHeader('상세 등록일자', 'created_at', 210, 150)}
-                  {renderHeader('상세 수정일자', 'updated_at', 210, 150)}
-                </Table.Tr>
-              )}
+              fixedHeaderContent={() => <Table.Tr>{TABLE_COLUMNS.map(renderHeader)}</Table.Tr>}
               itemContent={(index, item) => (
                 <>
                   <Table.Td ta="center">{(page - 1) * pageSize + index + 1}</Table.Td>
                   <Table.Td>{displayDate(item.receptdate)}</Table.Td><Table.Td>{item.receiptno}</Table.Td>
-                  <Table.Td>{item.customcode}</Table.Td><Table.Td>{item.customname}</Table.Td>
-                  <Table.Td>{item.itemcode}</Table.Td><Table.Td>{item.itemname}</Table.Td><Table.Td>{item.size}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.qty)}</Table.Td><Table.Td>{item.qtyunit}</Table.Td>
-                  <Table.Td>{item.warehousecode}</Table.Td><Table.Td>{item.warehousecodename}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.weight)}</Table.Td><Table.Td>{item.unit}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.unitprice, 2)}</Table.Td><Table.Td ta="right">{displayNumber(item.unitamt, 2)}</Table.Td>
+                  <Table.Td>{item.customname}</Table.Td><Table.Td>{item.warehousecodename}</Table.Td>
+                  <Table.Td>{item.productname}</Table.Td><Table.Td>{item.itemname}</Table.Td>
+                  <Table.Td>{item.materialname}</Table.Td><Table.Td>{item.surfacename}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.myrtle)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.thickness)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.width)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.length)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.qty)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.weight)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.unitprice, 2)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.supplyamt, 2)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.vat, 2)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.unitamt, 2)}</Table.Td>
+                  <Table.Td>{item.qtyunit}</Table.Td><Table.Td>{item.unit}</Table.Td>
+                  <Table.Td>{item.manager}</Table.Td>
                   <Table.Td>{item.description}</Table.Td>
                   <Table.Td>{displayDateTime(item.created_at)}</Table.Td>
                   <Table.Td>{displayDateTime(item.updated_at)}</Table.Td>
@@ -302,6 +324,31 @@ export default function InboundSearchPage() {
           <Pagination size="sm" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={setPage} withEdges color="red" disabled={loading || !total} />
         </Group>
       </Paper>
+      {filterOpen && <Paper component="aside" className={classes.filterSidebar} withBorder>
+        <Group className={classes.filterHeader} justify="space-between" align="center">
+          <Text fw={700}>조회조건</Text>
+          <ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon>
+        </Group>
+        <Stack gap="sm" className={classes.filterFields}>
+          <Box>
+            <Text size="xs" fw={700} mb={5}>입고기간</Text>
+            <Stack gap={6}>
+              <TextInput aria-label="입고 시작일" type="date" value={filterInputs.date_from}
+                onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))}
+                onKeyDown={handleFilterKeyDown} />
+              <TextInput aria-label="입고 종료일" type="date" value={filterInputs.date_to}
+                onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))}
+                onKeyDown={handleFilterKeyDown} />
+            </Stack>
+          </Box>
+          {FILTERS.map(({ key, label, placeholder }) => (
+            <TextInput key={key} label={label} placeholder={placeholder} value={filterInputs[key]}
+              onChange={(event) => setFilterInputs((current) => ({ ...current, [key]: event.currentTarget.value }))}
+              onKeyDown={handleFilterKeyDown} />
+          ))}
+        </Stack>
+      </Paper>}
+      </Box>
     </Box>
   );
 }

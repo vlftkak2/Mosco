@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
   Badge,
@@ -14,22 +14,24 @@ import {
   Text,
   TextInput,
   Textarea,
-  Title,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
+  IconCopy,
   IconDeviceFloppy,
   IconDownload,
+  IconFileSpreadsheet,
   IconPlus,
   IconSearch,
+  IconTrash,
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
-import * as XLSX from "xlsx-js-style";
+import * as XLSX from "xlsx";
 import { applyExcelHeaderStyle } from '../utils/excelHeaderStyle';
 import sharedClasses from "../styles/pages/ManagementShared.module.css";
 import classes from "../styles/pages/CustomerPage.module.css";
-import dashboardClasses from "../styles/pages/HomePage.module.css";
+import { PageRibbonContext } from "../components/layout/MainLayout";
 
 const PAGE_SIZE_OPTIONS = [
   { value: "15", label: "15개씩" },
@@ -229,7 +231,6 @@ const CustomerListPanel = memo(function CustomerListPanel({
   query,
   loading,
   uploadProgress,
-  exportLoading,
   uploadInputRef,
   onQueryChange,
   onSearch,
@@ -237,9 +238,7 @@ const CustomerListPanel = memo(function CustomerListPanel({
   onTradetypeChange,
   onPageChange,
   onPageSizeChange,
-  onStartNew,
   onDownloadTemplate,
-  onExport,
   onUpload,
   onSelect,
   selectedCode,
@@ -252,8 +251,8 @@ const CustomerListPanel = memo(function CustomerListPanel({
         wrap="wrap"
       >
         <Group gap="xs">
-          <Text fw={700}>거래처 등록 목록</Text>
-          <Badge color="red" variant="light">
+          <Text className={classes.sectionTitle} fw={700}>거래처 등록 목록</Text>
+          <Badge color="gray" variant="light">
             {total}건
           </Badge>
         </Group>
@@ -285,14 +284,22 @@ const CustomerListPanel = memo(function CustomerListPanel({
             샘플양식
           </Button>
           <Button
-            variant="light"
             size="sm"
-            leftSection={<IconDownload size={15} />}
-            onClick={onExport}
-            loading={exportLoading}
+            variant="light"
+            leftSection={<IconUpload size={15} />}
+            onClick={() => uploadInputRef.current?.click()}
+            loading={Boolean(uploadProgress)}
+            disabled={loading && !uploadProgress}
           >
-            엑셀 다운로드
+            {uploadProgress || "엑셀 일괄등록"}
           </Button>
+          <input
+            ref={uploadInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={onUpload}
+            hidden
+          />
         </Group>
       </Group>
       <Group className={sharedClasses.toolbar} gap={6} wrap="nowrap">
@@ -304,40 +311,6 @@ const CustomerListPanel = memo(function CustomerListPanel({
           onKeyDown={(event) => event.key === "Enter" && onSearch()}
           leftSection={<IconSearch size={15} />}
           size="sm"
-        />
-        <Button
-          size="sm"
-          leftSection={<IconSearch size={15} />}
-          onClick={onSearch}
-          loading={loading}
-          disabled={loading}
-        >
-          조회
-        </Button>
-        <Button
-          size="sm"
-          color="red"
-          leftSection={<IconPlus size={15} />}
-          onClick={onStartNew}
-        >
-          신규등록
-        </Button>
-        <Button
-          size="sm"
-          variant="light"
-          leftSection={<IconUpload size={15} />}
-          onClick={() => uploadInputRef.current?.click()}
-          loading={Boolean(uploadProgress)}
-          disabled={loading && !uploadProgress}
-        >
-          {uploadProgress || "엑셀 일괄등록"}
-        </Button>
-        <input
-          ref={uploadInputRef}
-          type="file"
-          accept=".xlsx,.xls"
-          onChange={onUpload}
-          hidden
         />
       </Group>
       <ScrollArea
@@ -385,12 +358,9 @@ const CustomerListPanel = memo(function CustomerListPanel({
 const CustomerFormPanel = memo(function CustomerFormPanel({
   draft,
   isNew,
-  saving,
   onChange,
   banks,
   managers,
-  onReset,
-  onSave,
 }) {
   const [addressOpen, setAddressOpen] = useState(false);
   const postcodeContainerRef = useRef(null);
@@ -430,10 +400,9 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
         justify="space-between"
       >
         <Group gap="xs">
-          <span className={classes.statusDot} />
-          <Text fw={700}>상세 정보 입력 및 수정</Text>
+          <Text className={classes.sectionTitle} fw={700}>상세 정보 입력 및 수정</Text>
         </Group>
-        <Badge color={isNew ? "teal" : "blue"} variant="light">
+        <Badge color="gray" variant="light">
           {isNew ? "신규 등록" : "조회 모드"}
         </Badge>
       </Group>
@@ -567,22 +536,6 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
           />
         </Box>
       </Box>
-      <Group
-        className={`${sharedClasses.footer} ${classes.formFooter}`}
-        justify="flex-end"
-      >
-        <Button variant="default" onClick={onReset}>
-          초기화
-        </Button>
-        <Button
-          color="red"
-          onClick={onSave}
-          loading={saving}
-          leftSection={<IconDeviceFloppy size={15} />}
-        >
-          저장 및 적용
-        </Button>
-      </Group>
       <Modal
         opened={addressOpen}
         onClose={() => setAddressOpen(false)}
@@ -598,6 +551,9 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
 });
 
 export default function CustomerPage() {
+  const pageLayout = useContext(PageRibbonContext);
+  const registerPageRibbon = pageLayout?.registerPageRibbon;
+  const closeActivePage = pageLayout?.closeActivePage;
   const companyid = localStorage.getItem("user_company") || "";
   const companyname = localStorage.getItem("user_companyname") || "";
   const [customers, setCustomers] = useState([]);
@@ -966,18 +922,6 @@ export default function CustomerPage() {
     }
   }, [draft, isNew, managers, refreshAfterWrite]);
 
-  const resetDraft = useCallback(() => {
-    if (isNew) {
-      setDraft({ ...emptyCustomer(), customercode: draft.customercode });
-      return;
-    }
-    const selected = customers.find(
-      (customer) => customer.customercode === selectedCode,
-    );
-    if (selected) setDraft(selected);
-    else setDraft(emptyCustomer());
-  }, [customers, draft.customercode, isNew, selectedCode]);
-
   const downloadTemplate = useCallback(() => {
     const headers = [
       "거래처코드(선택/자동채번)",
@@ -1170,15 +1114,16 @@ export default function CustomerPage() {
               );
               if (key) customer[field] = normalized[key.toLowerCase()];
             });
-            const importedBankName = customer.bankcode.trim().toLocaleLowerCase();
-            const bankMatch = importedBankName
-              ? banks.find((bank) => bank.bankname.trim().toLocaleLowerCase() === importedBankName)
+            const importedBankValue = customer.bankcode.trim().toLocaleLowerCase();
+            const bankMatch = importedBankValue
+              ? banks.find((bank) => bank.bankcode.trim().toLocaleLowerCase() === importedBankValue)
+                || banks.find((bank) => bank.bankname.trim().toLocaleLowerCase() === importedBankValue)
               : null;
             if (bankMatch) customer.bankcode = bankMatch.bankcode;
             return {
               customer,
               excelRow: rowIndex + 2,
-              bankError: Boolean(importedBankName && !bankMatch),
+              bankError: Boolean(importedBankValue && !bankMatch),
             };
           })
           .filter(({ customer }) => customer.customercode || customer.customername);
@@ -1192,7 +1137,7 @@ export default function CustomerPage() {
         imported.forEach(({ customer, excelRow, bankError }) => {
           const rowErrors = [];
           if (!customer.customername) rowErrors.push("거래처명 필수");
-          if (bankError) rowErrors.push("코드마스터에 등록되지 않은 은행명");
+          if (bankError) rowErrors.push("코드마스터에 등록되지 않은 은행명/은행코드");
           if (rowErrors.length) failures.push(`${excelRow}행: ${rowErrors.join(", ")}`);
           else validCustomers.push(customer);
         });
@@ -1234,25 +1179,33 @@ export default function CustomerPage() {
     [banks, companyid, companyname, refreshAfterWrite],
   );
 
+  useEffect(() => {
+    if (!registerPageRibbon) return undefined;
+    registerPageRibbon(
+      <Group className={classes.commandRibbon} justify="flex-start" wrap="nowrap" gap={2}>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconSearch size={15} />} onClick={handleSearch} loading={listLoading}>조회</Button>
+        <span className={classes.ribbonSeparator} />
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={startNewCustomer} loading={allocatingCode}>추가</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} disabled>복사</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportCustomers} loading={exportLoading} disabled={listLoading}>EXCEL</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={saveCustomer} loading={saving || allocatingCode} disabled={allocatingCode}>저장</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
+        <span className={classes.ribbonSeparator} />
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closeActivePage}>닫기</Button>
+      </Group>,
+    );
+    return () => registerPageRibbon(null);
+  }, [registerPageRibbon, closeActivePage, handleSearch, listLoading, startNewCustomer, allocatingCode, exportCustomers, exportLoading, saveCustomer, saving]);
+
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-      <Paper className={dashboardClasses.dashboardHeader}>
-        <Box className={dashboardClasses.headerCopy}>
-          <Text className={classes.breadcrumb}>
-            시스템 관리 <span>›</span> 거래처 등록
-          </Text>
-          <Title order={1} className={dashboardClasses.pageTitle}>
-            거래처 <span>등록</span>
-          </Title>
-          <Text className={dashboardClasses.pageSubtitle}>
-            거래처 정보를 조회하고 등록·관리합니다.
-          </Text>
-          <Group className={dashboardClasses.sampleNotice} gap={8}>
-            <span className={dashboardClasses.statusDot} />
-            <Text size="xs">System Active</Text>
-          </Group>
-        </Box>
-      </Paper>
+      <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
+        <Group gap={7}>
+          <Text component="span" className={classes.breadcrumbParent}>거래처 관리</Text>
+          <Text component="span" className={classes.breadcrumbChevron}>›</Text>
+          <Text component="span" className={classes.breadcrumbCurrent}>거래처등록</Text>
+        </Group>
+      </Box>
 
       <div className={classes.workspace}>
         <CustomerListPanel
@@ -1266,7 +1219,6 @@ export default function CustomerPage() {
           query={query}
           loading={listLoading}
           uploadProgress={uploadProgress}
-          exportLoading={exportLoading}
           uploadInputRef={uploadInputRef}
           onQueryChange={handleQueryChange}
           onSearch={handleSearch}
@@ -1274,9 +1226,7 @@ export default function CustomerPage() {
           onTradetypeChange={handleTradetypeChange}
           onPageChange={setPage}
           onPageSizeChange={handlePageSizeChange}
-          onStartNew={startNewCustomer}
           onDownloadTemplate={downloadTemplate}
-          onExport={exportCustomers}
           onUpload={uploadCustomers}
           onSelect={selectCustomer}
           selectedCode={selectedCode}
@@ -1284,12 +1234,9 @@ export default function CustomerPage() {
         <CustomerFormPanel
           draft={draft}
           isNew={isNew}
-          saving={saving || allocatingCode}
           onChange={updateDraft}
           banks={banks}
           managers={managers}
-          onReset={resetDraft}
-          onSave={saveCustomer}
         />
       </div>
     </Box>

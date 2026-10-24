@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UnstyledButton, Collapse, Group, Box, Text } from '@mantine/core';
+import { IconChevronRight } from '@tabler/icons-react';
 import classes from '../../styles/layout/MainLayoutLink.module.css';
 import { Notifications, notifications } from '@mantine/notifications';
 import axios from 'axios';
@@ -32,7 +33,7 @@ function NestedMenuItem({ item, pathname, navigate, depth = 0 }) {
           >
             {item.label}
           </span>
-          <span className={`${classes.chevron} ${opened ? classes.chevronOpened : ''}`}>▼</span>
+          <IconChevronRight className={`${classes.chevron} ${opened ? classes.chevronOpened : ''}`} size={15} stroke={1.8} />
         </UnstyledButton>
         <Collapse in={opened}>
           <div className={classes.subGroupChildren}>
@@ -98,7 +99,7 @@ export function LinksGroup({ icon: Icon, label, initiallyOpened, links, link, di
             navigate(link);
           }
         }} 
-        className={`${classes.control} ${isActive ? classes.controlActive : ''} ${opened ? classes.controlOpen : ''}`}
+        className={`${classes.control} ${hasLinks ? classes.controlParent : ''} ${isActive ? classes.controlActive : ''} ${opened ? classes.controlOpen : ''}`}
         aria-expanded={hasLinks ? opened : undefined}
         aria-current={normalizePath(link) === normalizePath(pathname) ? 'page' : undefined}
         style={{
@@ -109,21 +110,23 @@ export function LinksGroup({ icon: Icon, label, initiallyOpened, links, link, di
       >
         <Group justify="space-between" gap={0}>
           <Box className={classes.innerControl}>
-            <Box className={classes.icon} style={{ filter: disabled ? 'grayscale(1)' : 'none' }}>
-              {Icon}
-            </Box>
+            {Icon && (
+              <Box className={classes.icon} style={{ filter: disabled ? 'grayscale(1)' : 'none' }}>
+                {Icon}
+              </Box>
+            )}
             <Box className={classes.label} style={{ color: disabled ? '#adb5bd' : 'inherit' }}>
               {label}
             </Box>
           </Box>
 
           {hasLinks && (
-            <span 
+              <IconChevronRight
               className={`${classes.chevron} ${opened ? classes.chevronOpened : ''}`}
-              style={{ display: disabled ? 'none' : 'inline-block' }} // 권한 없으면 화살표 숨김
-            >
-              ▼
-            </span>
+              size={15}
+              stroke={1.8}
+              style={{ display: disabled ? 'none' : 'inline-block' }}
+            />
           )}
         </Group>
       </UnstyledButton>

@@ -1,6 +1,8 @@
 import copy
 import json
+import logging
 import re
+import threading
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from html import unescape
@@ -21,6 +23,9 @@ _HOME_MARKET_CACHE = {
     "expires_at": None,
     "payload": None,
 }
+_STEEL_NEWS_CACHE = {"expires_at": None, "items": [], "available": False}
+_STEEL_NEWS_LOCK = threading.Lock()
+logger = logging.getLogger(__name__)
 
 
 def _fetch_text(url, timeout=6, encoding="utf-8"):
@@ -189,6 +194,69 @@ def get_news(limit=5):
             break
 
     return articles
+
+
+def get_steel_news(limit=8):
+    now = datetime.now()
+    with _STEEL_NEWS_LOCK:
+        if _STEEL_NEWS_CACHE["expires_at"] and now < _STEEL_NEWS_CACHE["expires_at"]:
+            return {
+                "items": copy.deepcopy(_STEEL_NEWS_CACHE["items"][:limit]),
+                "available": _STEEL_NEWS_CACHE["available"],
+                "cached": True,
+            }
+
+        articles = []
+        available = False
+        try:
+            query = quote('철강 OR 철강가격 OR 철광석 OR 철스크랩 OR 철강수급 OR 철강업계')
+            rss_url = f"https://news.google.com/rss/search?q={query}&hl=ko&gl=KR&ceid=KR:ko"
+            root = ET.fromstring(_fetch_text(rss_url))
+            seen = set()
+            for item in root.findall("./channel/item"):
+                title = _strip_html(item.findtext("title"))
+                link = item.findtext("link") or ""
+                if not title or not link:
+                    continue
+                title = re.sub(r"\s+-\s+[^-]+$", "", title).strip()
+                identity = re.sub(r"[^0-9a-z가-힣]", "", title.lower())
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                pub_date = item.findtext("pubDate")
+                published_at = ""
+                published_sort = None
+                try:
+                    published_sort = parsedate_to_datetime(pub_date)
+                    published_at = published_sort.isoformat()
+                except (TypeError, ValueError, OverflowError):
+                    published_at = pub_date or ""
+                source = item.findtext("source") or urlparse(link).netloc
+                articles.append({
+                    "title": title,
+                    "source": source,
+                    "description": _strip_html(item.findtext("description")),
+                    "url": link,
+                    "published_at": published_at,
+                    "_published_sort": published_sort,
+                })
+            articles.sort(
+                key=lambda article: article["_published_sort"].timestamp() if article["_published_sort"] else 0,
+                reverse=True,
+            )
+            for article in articles:
+                article.pop("_published_sort", None)
+            articles = articles[:limit]
+            available = bool(articles)
+        except Exception as error:
+            logger.warning("Steel news RSS unavailable: %s", type(error).__name__)
+
+        _STEEL_NEWS_CACHE.update({
+            "expires_at": now + CACHE_TTL,
+            "items": copy.deepcopy(articles),
+            "available": available,
+        })
+        return {"items": articles, "available": available, "cached": False}
 
 
 def get_home_market_summary():

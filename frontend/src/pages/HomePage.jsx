@@ -133,7 +133,7 @@ export default function HomePage() {
 
   return (
     <main className={classes.root}>
-      <Stack gap="lg">
+      <Stack className={classes.dashboardStack} gap="lg">
         <Paper className={classes.dashboardHeader}>
           <Group className={classes.pageHeading} justify="space-between" align="center" wrap="wrap">
             <div className={classes.headerCopy}>
@@ -195,7 +195,7 @@ export default function HomePage() {
               </Group>
             </Group>
             <div className={classes.chart}>
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 640, height: 228 }}>
                 <ComposedChart data={monthlyData} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid vertical={false} stroke="#edf1f6" />
                   <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#8491a4', fontSize: 12 }} />
@@ -223,7 +223,7 @@ export default function HomePage() {
               <Text className={classes.panelCaption}>이번 달 품목 구성</Text>
             </div>
             <div className={classes.donutWrap}>
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 220, height: 174 }}>
                 <PieChart>
                   <Pie data={salesMix} dataKey="share" nameKey="name" innerRadius={58} outerRadius={82} paddingAngle={3} stroke="none" cornerRadius={4}>
                     {salesMix.map((item) => <Cell key={item.name} fill={item.color} />)}

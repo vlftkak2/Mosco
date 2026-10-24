@@ -9,6 +9,8 @@ import {
 import { notifications } from '@mantine/notifications';
 import { IconBraces, IconFileTypePdf, IconPhoto, IconFileUpload, IconPlus, IconPlayerPlay, IconTrash, IconZoomIn, IconZoomOut } from '@tabler/icons-react';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
+import useErpPageRibbon from '../components/common/useErpPageRibbon';
+import ErpBreadcrumb from '../components/common/ErpBreadcrumb';
 import dashboardClasses from '../styles/pages/HomePage.module.css';
 import outboundTableClasses from '../styles/pages/CodeMasterPage.module.css';
 import classes from '../styles/pages/AIOrder.module.css';
@@ -922,13 +924,14 @@ export default function AIOrderPage() {
     return counts;
   }, {});
 
+  useErpPageRibbon({
+    onAdd: () => fileInputRef.current?.click(),
+    onDelete: clearDocuments,
+    onPrint: () => window.print(),
+  });
+
   return <Box className={`${sharedClasses.pageShell} ${classes.page} ${classes.batchPage}`}>
-    <Paper className={dashboardClasses.dashboardHeader}><Box className={dashboardClasses.headerCopy}>
-      <Text className={sharedClasses.breadcrumb}>가공관리 <span>›</span> AI 가공솔루션 <span>›</span> 주문서 인식</Text>
-      <Title order={1} className={`${dashboardClasses.pageTitle} ${classes.pageTitle}`}>AI <span>주문서 인식</span></Title>
-      <Text className={dashboardClasses.pageSubtitle}>여러 거래처의 주문서를 파일별로 분석하고 원본과 결과를 비교합니다. 분석 결과는 ERP 전표나 재고에 저장되지 않습니다. 추출 결과를 검토·수정한 뒤 사용자가 최종 확인하고 확정해야 합니다.</Text>
-      <Group className={dashboardClasses.sampleNotice} gap={8}><span className={dashboardClasses.statusDot} /><Text size="xs">OpenAI API 분석 · 파일별 독립 처리</Text></Group>
-    </Box></Paper>
+    <ErpBreadcrumb parent="가공관리" current="주문서 인식" />
 
     <Paper className={`${sharedClasses.panel} ${classes.uploadPanel}`} withBorder>
       <Group justify="space-between" align="center" wrap="wrap" gap="md">
