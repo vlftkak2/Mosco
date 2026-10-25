@@ -70,8 +70,7 @@ const currentMonthRange = () => {
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
-  const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
-  return { from: `${year}-${month}-01`, to: `${year}-${month}-${String(lastDay).padStart(2, '0')}` };
+  return { from: `${year}-${month}-01`, to: localDate() };
 };
 const hasRowInput = (row) => ['itemcode', 'itemname', 'customname', 'productname', 'materialcode', 'surfacecode', 'myrtle', 'thickness', 'width', 'length', 'qty', 'qtyunit', 'weight', 'warehousecode', 'unitprice', 'supplyamt', 'vat', 'description'].some((key) => String(row[key] ?? '').trim() !== '' && !(key === 'qtyunit' && row[key] === 'EA'));
 const fitColumnWidth = (label, values, baseWidth, minWidth, maxWidth = 420) => {
@@ -849,10 +848,11 @@ export default function StockStandPage() {
       let data = response.data;
       const registeredDate = data.registered_standdate ? String(data.registered_standdate).slice(0, 10) : '';
       if (useRegisteredDate && data.has_stock_rows && registeredDate && registeredDate !== nextDate) {
+        const today = localDate();
         setStanddate(registeredDate);
         setDateFrom(registeredDate);
-        setDateTo(registeredDate);
-        response = await axios.get('/api/stock-stand/items', { ...authConfig(), params: { standdate: registeredDate, date_from: registeredDate, date_to: registeredDate, q: nextQuery || undefined, warehouse: nextWarehouse || undefined, cursor: 0, limit: nextPageSize, offset } });
+        setDateTo(today);
+        response = await axios.get('/api/stock-stand/items', { ...authConfig(), params: { standdate: registeredDate, date_from: registeredDate, date_to: today, q: nextQuery || undefined, warehouse: nextWarehouse || undefined, cursor: 0, limit: nextPageSize, offset } });
         data = response.data;
       }
       if (requestId !== listRequestIdRef.current) return;

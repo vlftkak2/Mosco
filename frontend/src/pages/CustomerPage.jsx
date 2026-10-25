@@ -475,7 +475,9 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
               label="우편번호"
               value={draft.zipcode}
               placeholder="주소 검색 시 자동 입력"
-              readOnly
+              inputMode="numeric"
+              maxLength={5}
+              onChange={(event) => onChange("zipcode", event.currentTarget.value)}
               style={{ flex: "0 0 120px" }}
             />
             <TextInput
