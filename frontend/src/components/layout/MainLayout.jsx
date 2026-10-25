@@ -19,7 +19,15 @@ import {
   IconTruckLoading,
   IconUser,
   IconUsers,
-  IconRobot
+  IconRobot,
+  
+  IconDatabase,           // 기준정보
+  IconPackageImport,      // 입고관리
+  
+  IconFileAi,             // 가공관리
+  IconPackageExport,      // 출고관리
+  
+  IconSettings,    
 } from '@tabler/icons-react';
 import '@mantine/notifications/styles.css';
 import { Notifications, notifications } from '@mantine/notifications';
@@ -40,7 +48,7 @@ const mockdata = [
 
     {
     label: '기준정보',
-    icon: <IconFolder size={18} stroke={1.8} />,
+    icon: <IconDatabase size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
       {label: '일반코드',link: '/CodeMasterPage',icon: '',MenuID: 'M1'},
@@ -52,7 +60,7 @@ const mockdata = [
  
   {
     label: '입고관리',
-    icon: <IconTruckDelivery size={18} stroke={1.8} />,
+    icon: <IconPackageImport size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
       { label: '입고등록', link: '/InboundRegisterPage', icon: '✔️', MenuID:'M-14' },
@@ -61,8 +69,19 @@ const mockdata = [
   },
 
   {
-    label: 'AI 가공관리',
-    icon: <IconRobot size={18} stroke={1.8} />,
+    label: '출고관리',
+    icon: <IconPackageExport size={18} stroke={1.8} />,
+    initiallyOpened: false,
+    links: [
+      
+      { label: '출고등록', link: '/OutboundRegisterPage', icon: '', MenuID: 'M-22' },
+      { label: '출고현황', link: '/OutboundSearchPage', icon: '', MenuID: 'M-23' },
+    ],
+  },  
+
+  {
+    label: '가공관리',
+    icon: <IconFileAi size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
       { label: 'AI 주문서 인식', link: '/AIOrderPage', icon: '', MenuID: 'AI-ORDER-TEST' },
@@ -78,7 +97,7 @@ const mockdata = [
   
   {
     label: '재고관리',
-    icon: <IconPackage size={18} stroke={1.8} />,
+    icon: <IconBuildingWarehouse size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
       { label: '기초재고등록', link: '/StockStandPage', icon: '', MenuID: 'M-24' },
@@ -87,16 +106,7 @@ const mockdata = [
     ],
   },     
 
-  {
-    label: '출고관리',
-    icon: <IconTruckLoading size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      
-      { label: '출고등록', link: '/OutboundRegisterPage', icon: '', MenuID: 'M-22' },
-      { label: '출고현황', link: '/OutboundSearchPage', icon: '', MenuID: 'M-23' },
-    ],
-  },
+
 
   {
     label: '고객지원(EX)',
@@ -110,7 +120,7 @@ const mockdata = [
 
   {
     label: '시스템관리',
-    icon: <IconAdjustmentsHorizontal size={18} stroke={1.8} />,
+    icon: <IconSettings size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
       { label: '고객사등록', link: '/', icon: '✔️', MenuID:'M-17', disabled: true},
