@@ -23,6 +23,10 @@ import StockStandPage from "./pages/StockStandPage";
 import CurrentStockPage from "./pages/CurrentStockPage";
 import IniopStockPage from "./pages/IniopStockPage";
 import AIOrderPage from "./pages/AIOrderPage";
+import AIProcessingStandards from "./pages/AIProcessingStandards";
+import AIOrderOptimization from "./pages/AIOrderOptimization";
+import AIOrderManage from "./pages/AIOrderManage";
+import CustomerSupport from "./pages/CustomerSupport";
 import AIOrderConfirmPage from "./pages/AIOrderConfirmPage";
 
 
@@ -63,6 +67,10 @@ function App() {
           <Route path="/CurrentStockPage" element={<CurrentStockPage />} />
           <Route path="/IniopStockPage" element={<IniopStockPage />} />
           <Route path="/AIOrderPage" element={<AIOrderPage />} />
+          <Route path="/AIOrderOptimization" element={<AIOrderOptimization />} />
+          <Route path="/AIProcessingStandards" element={<AIProcessingStandards />} />
+          <Route path="/AIOrderManage" element={<AIOrderManage />} />
+          <Route path="/CustomerSupport" element={<CustomerSupport />} />
           <Route path="/AIOrderConfirmPage" element={<AIOrderConfirmPage />} />
 
           </Route>

@@ -19,6 +19,7 @@ import {
   IconTruckLoading,
   IconUser,
   IconUsers,
+  IconRobot
 } from '@tabler/icons-react';
 import '@mantine/notifications/styles.css';
 import { Notifications, notifications } from '@mantine/notifications';
@@ -30,7 +31,7 @@ export const PageRibbonContext = createContext(null);
 
 const mockdata = [
   {
-    label: '대시보드',
+    label: '대시보드(EX)',
     icon: <IconLayoutDashboard size={18} stroke={1.8} />,
     link: '/HomePage',
     initiallyOpened: false,
@@ -44,7 +45,6 @@ const mockdata = [
     links: [
       {label: '일반코드',link: '/CodeMasterPage',icon: '',MenuID: 'M1'},
       { label: '품목코드', link: '/ItemMasterPage', icon: '', MenuID: 'M7' },
-      {label: '사용자관리',link: '/',icon: '',MenuID: 'M1', disabled: true},
       { label: '거래처관리', link: '/CustomerPage', icon: '', MenuID:'M-11' },
 
     ],
@@ -61,12 +61,16 @@ const mockdata = [
   },
 
   {
-    label: '가공관리',
-    icon: <IconTool size={18} stroke={1.8} />,
+    label: 'AI 가공관리',
+    icon: <IconRobot size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      { label: 'AI 가공솔루션', link: '/AIOrderPage', icon: '', MenuID: 'AI-ORDER-TEST' },
-      { label: '가공 진행현황', link: '/AIOrderConfirmPage', icon: '', MenuID: 'AI-ORDER-TEST' },
+      { label: 'AI 주문서 인식', link: '/AIOrderPage', icon: '', MenuID: 'AI-ORDER-TEST' },
+      { label: '주문서 관리(EX)', link: '/AIOrderManage', icon: '', MenuID: 'AI-ORDER-TEST' },
+      { label: '가공 최적화(EX)', link: '/AIOrderOptimization', icon: '', MenuID: 'AI-ORDER-TEST' },
+      { label: '가공기준 관리(EX)', link: '/AIProcessingStandards', icon: '', MenuID: 'AI-ORDER-TEST' },
+
+      // { label: '가공 진행현황', link: '/AIOrderConfirmPage', icon: '', MenuID: 'AI-ORDER-TEST' },
         
     ],
   },  
@@ -95,14 +99,11 @@ const mockdata = [
   },
 
   {
-    label: '고객지원',
+    label: '고객지원(EX)',
     icon: <IconHeadset size={18} stroke={1.8} />,
     initiallyOpened: false,
-    links: [
-      
-      { label: '상담게시판', link: '/', icon: '', MenuID: 'M-22', disabled: true},
-      { label: '공지사항', link: '/', icon: '', MenuID: 'M-23', disabled: true},
-    ],
+    link: '/CustomerSupport',
+    MenuID: 'M-22',
   },
 
 
@@ -137,6 +138,10 @@ function findMenuLabel(items, path) {
     '/outboundregisterpage': '출고등록',
     '/outboundsearchpage': '출고현황',
     '/aiorderpage': 'AI 가공솔루션',
+    '/aiordermanage': '주문서 관리',
+    '/aiorderoptimization': '가공 최적화',
+    '/aiprocessingstandards': '가공기준 관리',
+    '/customersupport': '고객지원',
   };
 
   if (routeLabelAliases[normalizedPath]) return routeLabelAliases[normalizedPath];
@@ -165,7 +170,7 @@ export default function MainLayout({ children }) {
   const isInboundWorkspace = [
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
     '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage', '/aiorderconfirmpage',
-    '/currentstockpage', '/iniopstockpage', '/stockstandpage',
+    '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/aiprocessingstandards', '/customersupport',
     '/outboundregisterpage', '/outboundsearchpage',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
   const [pageRibbon, setPageRibbon] = useState(null);
@@ -385,6 +390,7 @@ const links = mockdata.map((item) => (
         <Box className={classes.headerBrand}>
           <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" color="white" />
           <Box className={classes.logoMark}>
+            {/* <img src={steel119HomeLogo} alt="Steel119" /> */}
             <img src={steel119HomeLogo} alt="Steel119" />
           </Box>
           <Box className={classes.brandCopy}>
