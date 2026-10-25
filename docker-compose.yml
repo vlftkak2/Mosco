@@ -1,32 +1,50 @@
-version: "3.8"
-
 services:
-  # 백엔드 컨테이너 설정
   backend:
-    image: hmchoia/aprportal-backend:latest
-    build: ./backend
-    container_name: backend
+    image: mosco-backend:latest
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      RUNNING_IN_DOCKER: "1"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    expose:
+      - "8000"
     volumes:
-      - ./backend:/app # 내 컴퓨터의 코드를 컨테이너와 동기화
-    ports:
-      - "8000:8000"
+      - ai_order_usage:/app/instance
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/openapi.json', timeout=4)"
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
 
-  # 프론트엔드 컨테이너 설정
   frontend:
-    image: hmchoia/aprportal-frontend:latest
-    build: ./frontend
-    container_name: frontend
-    ports:
-      - "5173:80"
+    image: mosco-frontend:latest
+    build:
+      context: ./frontend
+    expose:
+      - "80"
+    restart: unless-stopped
 
-  # Nginx 컨테이너 설정 (리버스 프록시)
   nginx:
-    image: nginx:latest # 빌드 대신 순정 이미지 사용
-    container_name: nginx_proxy
+    image: mosco-proxy:latest
+    build:
+      context: ./nginx
     ports:
-      - "80:80"
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf # 위에서 수정한 파일을 주입
+      - "${HTTP_PORT:-80}:80"
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  ai_order_usage:

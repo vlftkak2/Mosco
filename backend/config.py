@@ -20,12 +20,14 @@ if local_env_path.is_file():
         env_key, env_value = env_line.split("=", 1)
         os.environ.setdefault(env_key.strip(), env_value.strip().strip('"').strip("'"))
 
+default_db_host = "host.docker.internal" if os.getenv("RUNNING_IN_DOCKER") == "1" else "localhost"
+
 DB_CONFIG = {
-    "host": "localhost",       # PostgreSQL이 설치된 주소 (로컬이면 localhost 또는 127.0.0.1)
-    "port": "5432",            # PostgreSQL 기본 포트
-    "database": "Mosco",       # 방금 pgAdmin에서 만드신 데이터베이스 이름 (Mosco)
-    "user": "postgres",        # PostgreSQL 접속 아이디 (기본값 postgres 또는 설정하신 계정)
-    "password": "1234"  # 설치할 때 입력했던 비밀번호
+    "host": os.getenv("DB_HOST", default_db_host),
+    "port": os.getenv("DB_PORT", "5432"),
+    "database": os.getenv("DB_NAME", "Mosco"),
+    "user": os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD", "1234"),
 }
 
 # CORS 허용 리스트
