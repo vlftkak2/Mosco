@@ -30,7 +30,7 @@ import {
   IconSettings,    
 } from '@tabler/icons-react';
 import '@mantine/notifications/styles.css';
-import { Notifications, notifications } from '@mantine/notifications';
+import { notifications } from '@mantine/notifications';
 import axios from 'axios'; // axios 추가
 import { IconCheck, IconX } from '@tabler/icons-react'; // 아이콘 추가
 import steel119HomeLogo from '../../assets/img/steel119-home.png';
@@ -80,7 +80,7 @@ const mockdata = [
   },  
 
   {
-    label: '가공관리',
+    label: 'AI 가공관리',
     icon: <IconFileAi size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
@@ -123,8 +123,8 @@ const mockdata = [
     icon: <IconSettings size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      { label: '고객사등록', link: '/', icon: '✔️', MenuID:'M-17', disabled: true},
-      { label: '고객사 권한관리', link: '/', icon: '✔️', MenuID:'M-18', disabled: true},
+      { label: '고객사등록', link: '/Company', icon: '', MenuID:'M-17'},
+      { label: '고객사 계정관리', link: '/User', icon: '', MenuID:'M-18'},
       { label: '설정', link: '/', icon: '✔️', MenuID:'M-19', disabled: true},
     ],
   },
@@ -152,6 +152,8 @@ function findMenuLabel(items, path) {
     '/aiorderoptimization': '가공 최적화',
     '/aiprocessingstandards': '가공기준 관리',
     '/customersupport': '고객지원',
+    '/company': '고객사등록',
+    '/user': '고객사 계정관리',
   };
 
   if (routeLabelAliases[normalizedPath]) return routeLabelAliases[normalizedPath];
@@ -181,7 +183,7 @@ export default function MainLayout({ children }) {
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
     '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage', '/aiorderconfirmpage',
     '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/aiprocessingstandards', '/customersupport',
-    '/outboundregisterpage', '/outboundsearchpage',
+    '/outboundregisterpage', '/outboundsearchpage', '/company', '/user',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
   const [pageRibbon, setPageRibbon] = useState(null);
   const registerPageRibbon = useCallback((content) => setPageRibbon(() => content), []);
@@ -385,7 +387,6 @@ const links = mockdata.map((item) => (
 
   return (
     <>
-    <Notifications position="bottom-right" zIndex={2000} />
     <AppShell
       className={isInboundWorkspace || isDashboard ? classes.appShellInbound : undefined}
       header={{ height: 49 }}
@@ -470,7 +471,7 @@ const links = mockdata.map((item) => (
       </AppShell.Header>
 
       <AppShell.Navbar className={classes.navBar} p={0}>
-        <AppShell.Section grow component={ScrollArea} offsetScrollbars>
+        <AppShell.Section grow component={ScrollArea} type="never" offsetScrollbars>
           <div className={classes.linksContainer}>{links}</div>
         </AppShell.Section>
 
@@ -487,7 +488,7 @@ const links = mockdata.map((item) => (
             const label = findMenuLabel(mockdata, tab.path);
             return (
               <div key={tab.path} role="tab" aria-selected={pathname === tab.path} tabIndex={0}
-                className={`${classes.pageTab} ${pathname === tab.path ? classes.pageTabActive : ''}`}
+                className={`${classes.pageTab} ${pathname === tab.path ? classes.pageTabActive : ''} ${String(tab.path || '').replace(/\/+$/, '').toLowerCase() === '/user' ? classes.pageTabNoBold : ''}`}
                 onClick={() => navigate(tab.path)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) navigate(tab.path); }}>
                 <span>{label}</span>
                 <button type="button" className={classes.pageTabClose} aria-label={`${label} 닫기`}

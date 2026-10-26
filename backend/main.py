@@ -24,12 +24,17 @@ from contextlib import asynccontextmanager
 # from routes import D2CItem_routes as D2CItem_routes
 
 from routes import login_routes as login_router
-from routes import user_routes as user_routes
+from routes import userpassword_routes as user_routes
 from routes import userinfo_routes as userinfo_routes
 from routes import userauth_routes as userauth_routes
 
 from routes import home_dashboard_routes as home_dashboard_routes
 from routes import Customer_routes as customer_routes
+from routes import Company_routes as company_routes
+try:
+    from routes import User_routes as company_user_routes
+except ImportError:  # Git may preserve the pre-existing lowercase filename on some platforms.
+    from routes import user_routes as company_user_routes
 
 # 고정 공통코드 그룹 API를 앱에 등록합니다.
 from routes import Codemaster_routes as Codemaster_routes
@@ -95,6 +100,10 @@ app.include_router(home_dashboard_routes.router)
 
 # Customer API
 app.include_router(customer_routes.router)
+
+# Steel119 master company management API
+app.include_router(company_routes.router)
+app.include_router(company_user_routes.router)
 
 # Tenant-scoped common code API
 app.include_router(Codemaster_routes.router)

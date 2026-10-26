@@ -235,6 +235,8 @@
   font-weight: 700;
 }
 
+.pageTabNoBold { font-weight: 400; }
+
 .pageTabClose {
   display: grid;
   width: 20px;
