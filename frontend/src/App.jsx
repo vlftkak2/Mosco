@@ -8,6 +8,7 @@ import LoginPage from "./components/auth/LoginPage";
 import HomePage from "./pages/HomePage";
 
 import UserPage from "./pages/UserPage" 
+import User from "./pages/User";
 import UserAuthPage from "./pages/UserAuthPage" 
 import DepartmentPage from "./pages/DepartmentPage";
 import DepartmentAuthPage from "./pages/DepartmentAuthPage";
@@ -28,6 +29,7 @@ import AIOrderOptimization from "./pages/AIOrderOptimization";
 import AIOrderManage from "./pages/AIOrderManage";
 import CustomerSupport from "./pages/CustomerSupport";
 import AIOrderConfirmPage from "./pages/AIOrderConfirmPage";
+import Company from "./pages/Company";
 
 
 // Mantine 기본 스타일 
@@ -53,6 +55,7 @@ function App() {
 
   
           <Route path="/UserPage" element={<UserPage />} />
+          <Route path="/User" element={<User />} />
           <Route path="/UserAuthPage" element={<UserAuthPage />} />
           <Route path="/CustomerPage" element={<CustomerPage />} />
           <Route path="/CustomPage" element={<CustomerPage />} />
@@ -72,6 +75,7 @@ function App() {
           <Route path="/AIOrderManage" element={<AIOrderManage />} />
           <Route path="/CustomerSupport" element={<CustomerSupport />} />
           <Route path="/AIOrderConfirmPage" element={<AIOrderConfirmPage />} />
+          <Route path="/Company" element={<Company />} />
 
           </Route>
         </Routes>

@@ -3,6 +3,7 @@ import psycopg2
 from pydantic import BaseModel
 from config import DB_CONFIG
 from fastapi import HTTPException
+import User as user_module
 
 
 # PostgreSQL 접속 문자열
@@ -35,12 +36,12 @@ def password_change(item: PasswordRequest, companyid: str, email: str):
 
         if not row:
             return {"success": False, "message": "현재 회사 정보와 이메일에 해당하는 계정을 찾을 수 없습니다."}
-        if row[0] != item.password:
+        if not user_module.verify_password(item.password, row[0]):
             return {"success": False, "message": "기존 비밀번호가 일치하지 않습니다."} 
 
-        # Password 업데이트
+        # 비밀번호는 새 계정과 같은 방식으로 해시해 저장합니다.
         query = "UPDATE USER01T SET Password=%s WHERE Email=%s AND companyid=%s"
-        cursor.execute(query, (item.changepassword, email, companyid))
+        cursor.execute(query, (user_module.hash_password(item.changepassword), email, companyid))
         
         conn.commit()
         

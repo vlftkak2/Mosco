@@ -3,6 +3,7 @@ import psycopg2
 from pydantic import BaseModel
 from config import DB_CONFIG
 from security import ACCESS_TOKEN_MINUTES, create_access_token
+import User as user_module
 
 
 # PostgreSQL 접속 문자열
@@ -25,13 +26,31 @@ def process_login(item: LoginRequest):
         # DB 연결
         conn = psycopg2.connect(conn_str)
         cursor = conn.cursor()
-        
-        # 쿼리 실행
-        query = "SELECT CompanyID,companyname, UserName, Email FROM User01t WHERE Email = %s AND Password = %s AND UseYN = 'Y'"
-        cursor.execute(query, (item.email, item.password))
-        user = cursor.fetchone()
-        
-        if user:
+
+        cursor.execute(
+            """SELECT u.companyid, c.companyname, u.username, u.email, u.password
+               FROM user01t u
+               JOIN company01t c ON c.companyid = u.companyid
+               WHERE LOWER(u.email) = LOWER(%s)
+                 AND UPPER(COALESCE(u.useyn, 'N')) = 'Y'
+                 AND UPPER(COALESCE(c.company_status, '')) = 'ACTIVE'
+               ORDER BY u.companyid
+               LIMIT 2""",
+            (item.email.strip(),),
+        )
+        matches = cursor.fetchall()
+        if len(matches) != 1:
+            return {"success": False, "message": "계정 정보가 일치하지 않거나 회사 이용 상태를 확인할 수 없습니다."}
+
+        user = matches[0]
+        if user_module.verify_password(item.password, user[4]):
+            if not user_module.is_password_hash(user[4]):
+                cursor.execute(
+                    """UPDATE user01t SET password = %s
+                       WHERE companyid = %s AND LOWER(email) = LOWER(%s) AND password = %s""",
+                    (user_module.hash_password(item.password), user[0], user[3], user[4]),
+                )
+                conn.commit()
             result = {
                 "success": True,
                 "message": "로그인 성공",
@@ -44,8 +63,7 @@ def process_login(item: LoginRequest):
             result["token_type"] = "bearer"
             result["expires_in"] = ACCESS_TOKEN_MINUTES * 60
             return result
-        else:
-            return {"success": False, "message": "계정 정보가 일치하지 않습니다."}
+        return {"success": False, "message": "계정 정보가 일치하지 않거나 회사 이용 상태를 확인할 수 없습니다."}
             
     finally:
         if conn:

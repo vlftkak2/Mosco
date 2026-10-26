@@ -733,7 +733,7 @@ def _create_analysis_audit(
 
 
 def _update_analysis_audit(
-    request_id: str, status_value: str, *, usage: dict[str, Any] | None = None,
+    companyid: str, request_id: str, status_value: str, *, usage: dict[str, Any] | None = None,
     extraction: dict[str, Any] | None = None, error_type: str | None = None,
 ) -> None:
     connection = _ai_order_audit_connection()
@@ -744,8 +744,8 @@ def _update_analysis_audit(
                     cursor.execute(
                         """UPDATE aiorderanalysis01t
                            SET status = %s, error_type = %s, completed_at = CURRENT_TIMESTAMP
-                           WHERE request_id = %s""",
-                        (status_value, (error_type or "")[:100] or None, request_id),
+                           WHERE companyid = %s AND request_id = %s""",
+                        (status_value, (error_type or "")[:100] or None, companyid, request_id),
                     )
                 else:
                     stored_extraction = {**extraction, "_schema_version": EXTRACTION_SCHEMA_VERSION} if extraction is not None else None
@@ -762,11 +762,11 @@ def _update_analysis_audit(
                                error_type = %s,
                                completed_at = CASE WHEN %s IN ('succeeded', 'failed_unknown', 'invalid_output')
                                                    THEN CURRENT_TIMESTAMP ELSE completed_at END
-                           WHERE request_id = %s""",
+                           WHERE companyid = %s AND request_id = %s""",
                         (status_value, usage["input_tokens"], usage["output_tokens"],
                          usage["reasoning_tokens"], usage["cached_input_tokens"],
                          usage["estimated_cost_usd"], extraction_json,
-                         (error_type or "")[:100] or None, status_value, request_id),
+                         (error_type or "")[:100] or None, status_value, companyid, request_id),
                     )
                 if cursor.rowcount != 1:
                     raise RuntimeError("AI order audit request row is missing")
@@ -1272,7 +1272,7 @@ async def _analyze_order_document(
         error_type = type(exc).__name__
         audit_error = f"{error_type}:code={error_code}:param={error_param}"[:100]
         try:
-            await asyncio.to_thread(_update_analysis_audit, request_id, "failed_unknown", error_type=audit_error)
+            await asyncio.to_thread(_update_analysis_audit, companyid, request_id, "failed_unknown", error_type=audit_error)
         except Exception as audit_exc:
             logger.error("AI order audit update failed company=%s request_id=%s error_type=%s", companyid, request_id, type(audit_exc).__name__)
         # Do not log the provider's message or submitted document; only log safe error metadata.
@@ -1296,7 +1296,7 @@ async def _analyze_order_document(
 
     output_usage = getattr(response, "usage", None)
     usage = await asyncio.to_thread(_record_usage, request_hash, output_usage, True)
-    await asyncio.to_thread(_update_analysis_audit, request_id, "response_received", usage=usage)
+    await asyncio.to_thread(_update_analysis_audit, companyid, request_id, "response_received", usage=usage)
     usage["daily_used"] = request["daily_used"]
     logger.info(
         "AI order analysis complete company=%s request_id=%s request=%s model=%s input_tokens=%s output_tokens=%s reasoning_tokens=%s estimated_cost_usd=%.8f",
@@ -1304,11 +1304,11 @@ async def _analyze_order_document(
         usage["reasoning_tokens"], usage["estimated_cost_usd"],
     )
     if getattr(response, "status", "completed") != "completed":
-        await asyncio.to_thread(_update_analysis_audit, request_id, "invalid_output", usage=usage, error_type="IncompleteResponse")
+        await asyncio.to_thread(_update_analysis_audit, companyid, request_id, "invalid_output", usage=usage, error_type="IncompleteResponse")
         raise AIOrderError(status.HTTP_502_BAD_GATEWAY, "AI 응답이 완료되지 않았습니다. 출력 토큰 한도를 확인하거나 다시 실행해주세요.")
     output_text = getattr(response, "output_text", None)
     if not output_text:
-        await asyncio.to_thread(_update_analysis_audit, request_id, "invalid_output", usage=usage, error_type="EmptyOutput")
+        await asyncio.to_thread(_update_analysis_audit, companyid, request_id, "invalid_output", usage=usage, error_type="EmptyOutput")
         raise AIOrderError(status.HTTP_502_BAD_GATEWAY, "AI 응답에 구조화된 결과가 없습니다.")
     try:
         extracted = AIOrderExtraction.model_validate_json(output_text)
@@ -1329,6 +1329,7 @@ async def _analyze_order_document(
         )
         await asyncio.to_thread(
             _update_analysis_audit,
+            companyid,
             request_id,
             "invalid_output",
             usage=usage,
@@ -1342,12 +1343,13 @@ async def _analyze_order_document(
     try:
         extracted = await asyncio.to_thread(_verify_source_locations, extracted, extension, source_data)
     except Exception as exc:
-        await asyncio.to_thread(_update_analysis_audit, request_id, "invalid_output", usage=usage, error_type=type(exc).__name__)
+        await asyncio.to_thread(_update_analysis_audit, companyid, request_id, "invalid_output", usage=usage, error_type=type(exc).__name__)
         logger.warning("AI order source verification failed company=%s request_id=%s error_type=%s", companyid, request_id, type(exc).__name__)
         raise AIOrderError(status.HTTP_502_BAD_GATEWAY, "AI 추출 결과의 원본 위치를 확인하지 못했습니다. 다시 분석해주세요.") from exc
     extracted = _apply_company_mapping_rules(extracted, company_rules)
     await asyncio.to_thread(
         _update_analysis_audit,
+        companyid,
         request_id,
         "succeeded",
         usage=usage,
