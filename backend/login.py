@@ -28,7 +28,7 @@ def process_login(item: LoginRequest):
         cursor = conn.cursor()
 
         cursor.execute(
-            """SELECT u.companyid, c.companyname, u.username, u.email, u.password
+            """SELECT u.companyid, c.companyname, u.username, u.email, u.password, u.authority
                FROM user01t u
                JOIN company01t c ON c.companyid = u.companyid
                WHERE LOWER(u.email) = LOWER(%s)
@@ -58,6 +58,7 @@ def process_login(item: LoginRequest):
                 "user_companyname": user[1],
                 "user_name": user[2],
                 "user_email": user[3],
+                "user_authority": str(user[5] or "USER").upper(),
             }
             result["access_token"] = create_access_token(result)
             result["token_type"] = "bearer"

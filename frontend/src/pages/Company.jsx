@@ -43,6 +43,8 @@ const STATUS_OPTIONS = [
   { value: 'SUSPENDED', label: '이용정지' },
   { value: 'CLOSED', label: '종료' },
 ];
+const PLAN_FILTER_OPTIONS = [{ value: 'ALL', label: '전체' }, ...PLAN_OPTIONS];
+const STATUS_FILTER_OPTIONS = [{ value: 'ALL', label: '전체' }, ...STATUS_OPTIONS];
 const STATUS_LABEL = Object.fromEntries(STATUS_OPTIONS.map((item) => [item.value, item.label]));
 const PLAN_LABEL = Object.fromEntries(PLAN_OPTIONS.map((item) => [item.value, item.label]));
 
@@ -136,8 +138,10 @@ export default function Company() {
   const [isNew, setIsNew] = useState(false);
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState('');
-  const [planFilter, setPlanFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [planFilter, setPlanFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [appliedPlanFilter, setAppliedPlanFilter] = useState('ALL');
+  const [appliedStatusFilter, setAppliedStatusFilter] = useState('ALL');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -159,8 +163,8 @@ export default function Company() {
         ...authConfig(),
         params: {
           q: search || undefined,
-          plan_code: planFilter || undefined,
-          company_status: statusFilter || undefined,
+          plan_code: appliedPlanFilter === 'ALL' ? undefined : appliedPlanFilter,
+          company_status: appliedStatusFilter === 'ALL' ? undefined : appliedStatusFilter,
           page,
           page_size: PAGE_SIZE,
         },
@@ -187,19 +191,22 @@ export default function Company() {
     } finally {
       setLoading(false);
     }
-  }, [page, planFilter, search, statusFilter]);
+  }, [appliedPlanFilter, appliedStatusFilter, page, search]);
 
   useEffect(() => { void loadCompanies(); }, [loadCompanies]);
 
   const handleSearch = useCallback(() => {
     const nextSearch = query.trim();
+    const filtersUnchanged = appliedPlanFilter === planFilter && appliedStatusFilter === statusFilter;
     setPage(1);
-    if (page === 1 && search === nextSearch) {
+    setAppliedPlanFilter(planFilter);
+    setAppliedStatusFilter(statusFilter);
+    if (page === 1 && search === nextSearch && filtersUnchanged) {
       void loadCompanies();
       return;
     }
     setSearch(nextSearch);
-  }, [loadCompanies, page, query, search]);
+  }, [appliedPlanFilter, appliedStatusFilter, loadCompanies, page, planFilter, query, search, statusFilter]);
 
   const handleAdd = useCallback(() => {
     selectedIdRef.current = '';
@@ -327,10 +334,44 @@ export default function Company() {
 
       <div className={classes.workspace}>
         <Paper className={classes.listPanel} withBorder>
-          <Group className={classes.panelHeader} justify="space-between">
+          <Group className={classes.panelHeader} justify="space-between" wrap="wrap">
             <Group gap={7}>
               <Text className={classes.sectionTitle} fw={700}>고객사 목록</Text>
               <Badge variant="light" color="gray">{total}건</Badge>
+            </Group>
+            <Group gap={7} align="flex-end" wrap="nowrap">
+              <Select
+                w={126}
+                label="요금제"
+                aria-label="요금제 필터"
+                data={PLAN_FILTER_OPTIONS}
+                value={planFilter}
+                onChange={(value) => {
+                  const nextValue = value || 'ALL';
+                  setPlanFilter(nextValue);
+                  setAppliedPlanFilter(nextValue);
+                  setSearch(query.trim());
+                  setPage(1);
+                }}
+                allowDeselect={false}
+                size="sm"
+              />
+              <Select
+                w={146}
+                label="이용상태"
+                aria-label="이용상태 필터"
+                data={STATUS_FILTER_OPTIONS}
+                value={statusFilter}
+                onChange={(value) => {
+                  const nextValue = value || 'ALL';
+                  setStatusFilter(nextValue);
+                  setAppliedStatusFilter(nextValue);
+                  setSearch(query.trim());
+                  setPage(1);
+                }}
+                allowDeselect={false}
+                size="sm"
+              />
             </Group>
           </Group>
           <Group className={classes.searchBar} gap={7} wrap="nowrap">
@@ -342,9 +383,6 @@ export default function Company() {
               placeholder="고객사 코드, 고객사명, 사업자번호"
               leftSection={<IconSearch size={15} />}
             />
-            <Select clearable w={112} placeholder="요금제" data={PLAN_OPTIONS} value={planFilter} onChange={(value) => { setPlanFilter(value || ''); setPage(1); }} />
-            <Select clearable w={112} placeholder="상태" data={STATUS_OPTIONS} value={statusFilter} onChange={(value) => { setStatusFilter(value || ''); setPage(1); }} />
-            <Button color="red" onClick={handleSearch} loading={loading}>조회</Button>
           </Group>
           <ScrollArea className={classes.tableWrap} type="auto">
             <Table className={`${sharedClasses.table} ${classes.table}`} highlightOnHover>

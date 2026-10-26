@@ -1,7 +1,7 @@
 import React from "react";
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
-import { BrowserRouter, Routes, Route,Outlet } from 'react-router-dom';
+import { BrowserRouter, Navigate, Routes, Route,Outlet } from 'react-router-dom';
 
 import MainLayout from "./components/layout/MainLayout";
 import LoginPage from "./components/auth/LoginPage";
@@ -9,6 +9,7 @@ import HomePage from "./pages/HomePage";
 
 import UserPage from "./pages/UserPage" 
 import User from "./pages/User";
+import UserMenu from "./pages/UserMenu";
 import UserAuthPage from "./pages/UserAuthPage" 
 import DepartmentPage from "./pages/DepartmentPage";
 import DepartmentAuthPage from "./pages/DepartmentAuthPage";
@@ -35,6 +36,11 @@ import Company from "./pages/Company";
 // Mantine 기본 스타일 
 import '@mantine/core/styles.css';
 
+const RequireAuthority = ({ allowed, children }) => {
+  const authority = String(localStorage.getItem('user_authority') || 'USER').toUpperCase();
+  return allowed.includes(authority) ? children : <Navigate to="/HomePage" replace />;
+};
+
 function App() {
   return (
     <MantineProvider defaultColorScheme="light">
@@ -55,7 +61,8 @@ function App() {
 
   
           <Route path="/UserPage" element={<UserPage />} />
-          <Route path="/User" element={<User />} />
+          <Route path="/User" element={<RequireAuthority allowed={['MASTER']}><User /></RequireAuthority>} />
+          <Route path="/UserMenu" element={<UserMenu />} />
           <Route path="/UserAuthPage" element={<UserAuthPage />} />
           <Route path="/CustomerPage" element={<CustomerPage />} />
           <Route path="/CustomPage" element={<CustomerPage />} />

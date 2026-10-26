@@ -22,18 +22,19 @@ conn_str = (
 PASSWORD_SCHEME = "pbkdf2_sha256"
 PASSWORD_ITERATIONS = 310_000
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-AUTHORITY_VALUES = {"USER", "MASTER"}
+AUTHORITY_VALUES = {"USER", "MASTER", "SUBMASTER"}
 
 
 class UserCreateInput(BaseModel):
     companyid: str = Field(min_length=1, max_length=50)
+    companyname: str = Field(default="", max_length=100)
     username: str = Field(min_length=1, max_length=20)
     email: str = Field(min_length=3, max_length=50)
     password: str = Field(min_length=1, max_length=128)
     team: str = Field(default="", max_length=50)
     authority: str = "USER"
 
-    @field_validator("companyid", "username", "email", "team", mode="before")
+    @field_validator("companyid", "companyname", "username", "email", "team", mode="before")
     @classmethod
     def strip_text(cls, value):
         return str(value or "").strip()
@@ -50,12 +51,13 @@ class UserCreateInput(BaseModel):
     def validate_authority(cls, value: str) -> str:
         value = str(value or "USER").strip().upper()
         if value not in AUTHORITY_VALUES:
-            raise ValueError("권한은 USER 또는 MASTER로 설정해 주세요.")
+            raise ValueError("\uad8c\ud55c\uc740 USER, SUBMASTER \ub610\ub294 MASTER\ub85c \uc124\uc815\ud574 \uc8fc\uc138\uc694.")
         return value
 
 
 class UserUpdateInput(BaseModel):
     companyid: str = Field(min_length=1, max_length=50)
+    companyname: str = Field(default="", max_length=100)
     original_email: str = Field(min_length=3, max_length=50)
     email: str = Field(min_length=3, max_length=50)
     username: str = Field(min_length=1, max_length=20)
@@ -64,7 +66,7 @@ class UserUpdateInput(BaseModel):
     useyn: str = "Y"
     password: str = Field(default="", max_length=128)
 
-    @field_validator("companyid", "original_email", "email", "username", "team", mode="before")
+    @field_validator("companyid", "companyname", "original_email", "email", "username", "team", mode="before")
     @classmethod
     def strip_text(cls, value):
         return str(value or "").strip()
@@ -88,7 +90,7 @@ class UserUpdateInput(BaseModel):
     def validate_authority(cls, value: str) -> str:
         value = str(value or "USER").strip().upper()
         if value not in AUTHORITY_VALUES:
-            raise ValueError("권한은 USER 또는 MASTER로 설정해 주세요.")
+            raise ValueError("\uad8c\ud55c\uc740 USER, SUBMASTER \ub610\ub294 MASTER\ub85c \uc124\uc815\ud574 \uc8fc\uc138\uc694.")
         return value
 
     @field_validator("useyn")
@@ -107,6 +109,32 @@ class UserUpdateInput(BaseModel):
 
 def _connect():
     return psycopg2.connect(conn_str)
+
+
+def _validate_authority_company(companyid: str, authority: str):
+    if authority == "MASTER" and companyid != "001":
+        raise ValueError("\ud50c\ub7ab\ud3fc MASTER \uad8c\ud55c\uc740 \uace0\uac1d\uc0ac\ucf54\ub4dc 001\uc5d0\ub9cc \uc9c0\uc815\ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4.")
+    if authority == "SUBMASTER" and companyid == "001":
+        raise ValueError("SUBMASTER \uad8c\ud55c\uc740 \uace0\uac1d\uc0ac \uacc4\uc815\uc5d0\ub9cc \uc9c0\uc815\ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4.")
+
+
+def _save_company_name(cursor, companyid: str, companyname: str, current_name: str, update_timestamp: bool):
+    next_name = str(companyname or "").strip()
+    if not next_name or next_name == str(current_name or "").strip():
+        return current_name
+
+    if update_timestamp:
+        cursor.execute(
+            "UPDATE company01t SET companyname = %s, updatedat = CURRENT_TIMESTAMP WHERE companyid = %s",
+            (next_name, companyid),
+        )
+    else:
+        cursor.execute(
+            "UPDATE company01t SET companyname = %s WHERE companyid = %s",
+            (next_name, companyid),
+        )
+    cursor.execute("UPDATE user01t SET companyname = %s WHERE companyid = %s", (next_name, companyid))
+    return next_name
 
 
 def hash_password(password: str) -> str:
@@ -190,9 +218,16 @@ def _lock_active_company(cursor, companyid: str):
     return companyname, int(licensed_seats or 0)
 
 
-def create_user(data: UserCreateInput):
+def create_user(
+    data: UserCreateInput,
+    *,
+    update_company_timestamp: bool = False,
+    created_by: str = "",
+):
+    _validate_authority_company(data.companyid, data.authority)
     with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         companyname, licensed_seats = _lock_active_company(cursor, data.companyid)
+        companyname = _save_company_name(cursor, data.companyid, data.companyname, companyname, update_company_timestamp)
 
         # Serialize registrations for the same email, including across different companies.
         cursor.execute("SELECT pg_advisory_xact_lock(hashtext(LOWER(%s)))", (data.email,))
@@ -219,19 +254,40 @@ def create_user(data: UserCreateInput):
                RETURNING companyid, username, email, team, authority, useyn""",
             (data.companyid, companyname, data.username, data.email, hash_password(data.password), data.team, data.authority),
         )
-        return dict(cursor.fetchone())
+        created_user = dict(cursor.fetchone())
+
+        if data.authority != "MASTER":
+            cursor.execute(
+                """INSERT INTO usermenupermission01t
+                       (companyid, useremail, menuid, useyn, createdby, updatedby, updatedat)
+                   SELECT %s, %s, m.menuid, 'Y', %s, NULL, NULL
+                   FROM menucatalog01t m
+                   WHERE UPPER(COALESCE(m.useyn, 'N')) = 'Y'
+                     AND m.assignable = TRUE
+                     AND m.access_scope = 'COMPANY'
+                   ON CONFLICT (companyid, useremail, menuid)
+                   DO UPDATE SET
+                       useyn = 'Y',
+                       updatedby = EXCLUDED.createdby,
+                       updatedat = CURRENT_TIMESTAMP""",
+                (data.companyid, created_user["email"], created_by or None),
+            )
+
+        return created_user
 
 
-def update_user(data: UserUpdateInput):
+def update_user(data: UserUpdateInput, *, update_company_timestamp: bool = False):
+    _validate_authority_company(data.companyid, data.authority)
     with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute(
-            "SELECT company_status, licensed_seats FROM company01t WHERE companyid = %s FOR UPDATE",
+            "SELECT companyname, company_status, licensed_seats FROM company01t WHERE companyid = %s FOR UPDATE",
             (data.companyid,),
         )
         company = cursor.fetchone()
         if not company:
             raise LookupError("고객사를 찾을 수 없습니다.")
 
+        _save_company_name(cursor, data.companyid, data.companyname, company["companyname"], update_company_timestamp)
         cursor.execute(
             """SELECT useyn, authority FROM user01t
                WHERE companyid = %s AND LOWER(email) = LOWER(%s) FOR UPDATE""",
@@ -294,6 +350,17 @@ def update_user(data: UserUpdateInput):
                 (data.username, data.email, data.team, data.authority, next_useyn, data.companyid, data.original_email),
             )
         return dict(cursor.fetchone())
+
+
+def get_user_authority(companyid: str, email: str):
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT authority FROM user01t
+               WHERE companyid = %s AND LOWER(email) = LOWER(%s)""",
+            (companyid, email),
+        )
+        row = cursor.fetchone()
+        return str(row[0] or "USER").upper() if row else None
 
 
 def delete_user(companyid: str, email: str):
