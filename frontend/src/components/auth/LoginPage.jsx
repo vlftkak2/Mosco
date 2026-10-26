@@ -46,6 +46,7 @@ function LoginPage() {
         localStorage.setItem('user_email', response.data.user_email);
         localStorage.setItem('user_company', response.data.user_company);
         localStorage.setItem('user_companyname', response.data.user_companyname);
+        localStorage.setItem('user_authority', response.data.user_authority || 'USER');
         localStorage.setItem('access_token', response.data.access_token);
         window.location.assign('/HomePage');
       }

@@ -35,6 +35,7 @@ try:
     from routes import User_routes as company_user_routes
 except ImportError:  # Git may preserve the pre-existing lowercase filename on some platforms.
     from routes import user_routes as company_user_routes
+from routes import UserMenu_routes as user_menu_routes
 
 # 고정 공통코드 그룹 API를 앱에 등록합니다.
 from routes import Codemaster_routes as Codemaster_routes
@@ -104,6 +105,7 @@ app.include_router(customer_routes.router)
 # Steel119 master company management API
 app.include_router(company_routes.router)
 app.include_router(company_user_routes.router)
+app.include_router(user_menu_routes.router)
 
 # Tenant-scoped common code API
 app.include_router(Codemaster_routes.router)

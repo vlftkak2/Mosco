@@ -15,7 +15,8 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { modals } from '@mantine/modals';
-import { useLocation } from 'react-router-dom';
+import { IconKey } from '@tabler/icons-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import useErpPageRibbon from '../components/common/useErpPageRibbon';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
 import classes from '../styles/pages/User.module.css';
@@ -37,11 +38,25 @@ const errorMessage = (error, fallback) => {
   return detail || error.message || fallback;
 };
 
+const AUTHORITY_LABELS = {
+  MASTER: '플랫폼 관리자',
+  SUBMASTER: '고객사 관리자',
+  USER: '일반 사용자',
+};
+
 export default function User() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const currentAuthority = String(localStorage.getItem('user_authority') || 'USER').toUpperCase();
+  const isPlatformMaster = currentAuthority === 'MASTER';
+  const isSubmaster = currentAuthority === 'SUBMASTER';
+  const currentEmail = String(localStorage.getItem('user_email') || '').toLowerCase();
   const [companies, setCompanies] = useState([]);
-  const [companyid, setCompanyid] = useState(() => location.state?.companyid || '');
+  const [companyid, setCompanyid] = useState(() => (
+    isSubmaster ? localStorage.getItem('user_company') || '' : location.state?.companyid || ''
+  ));
   const [companyInfo, setCompanyInfo] = useState(null);
+  const [companyname, setCompanyname] = useState('');
   const [users, setUsers] = useState([]);
   const [selectedEmail, setSelectedEmail] = useState('');
   const [draft, setDraft] = useState(emptyUser());
@@ -62,10 +77,16 @@ export default function User() {
     () => companies.find((company) => company.companyid === companyid) || null,
     [companies, companyid],
   );
-  const canCreateUser = selectedCompany?.company_status === 'ACTIVE'
-    && Number(selectedCompany.active_users || 0) < Number(selectedCompany.licensed_seats || 0);
+  const accountCompany = selectedCompany || companyInfo;
+  const canCreateUser = accountCompany?.company_status === 'ACTIVE'
+    && Number(accountCompany.active_users || 0) < Number(accountCompany.licensed_seats || 0);
 
   const loadCompanies = useCallback(async () => {
+    if (isSubmaster) {
+      setCompanies([]);
+      setCompanyid(localStorage.getItem('user_company') || '');
+      return;
+    }
     setLoadingCompanies(true);
     try {
       const { data } = await axios.get('/api/companies', {
@@ -82,11 +103,12 @@ export default function User() {
     } finally {
       setLoadingCompanies(false);
     }
-  }, []);
+  }, [isSubmaster]);
 
   const loadUsers = useCallback(async (targetCompanyId = companyid, preferredEmail = selectedEmailRef.current, preserveDraft = false) => {
     if (!targetCompanyId) {
       setCompanyInfo(null);
+      setCompanyname('');
       setUsers([]);
       setSelectedEmail('');
       setDraft(emptyUser());
@@ -99,6 +121,7 @@ export default function User() {
         params: { companyid: targetCompanyId },
       });
       setCompanyInfo(data.company);
+      setCompanyname(data.company.companyname || '');
       setUsers(data.items || []);
       if (!preserveDraft && !isNewRef.current) {
         const selected = (data.items || []).find((item) => item.email === preferredEmail) || null;
@@ -108,6 +131,7 @@ export default function User() {
     } catch (error) {
       notifications.show({ title: '계정 조회 실패', message: errorMessage(error, '고객사 계정을 불러오지 못했습니다.'), color: 'red' });
       setCompanyInfo(null);
+      setCompanyname('');
       setUsers([]);
     } finally {
       setLoadingUsers(false);
@@ -147,12 +171,13 @@ export default function User() {
   }, [canCreateUser, companyid, selectedCompany?.company_status]);
 
   const handleSelectUser = useCallback((user) => {
+    if (isSubmaster && user.authority !== 'USER') return;
     selectedEmailRef.current = user.email;
     isNewRef.current = false;
     setSelectedEmail(user.email);
     setDraft({ ...user, password: '' });
     setIsNew(false);
-  }, []);
+  }, [isSubmaster]);
 
   const updateDraft = useCallback((field, value) => {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -171,10 +196,14 @@ export default function User() {
   }, [updateDraft]);
 
   const handleSave = useCallback(async () => {
+    if (isSubmaster && !isNew && (draft.authority !== 'USER' || selectedEmail.toLowerCase() === currentEmail)) {
+      notifications.show({ title: '수정할 수 없습니다', message: '고객사 관리자는 일반 사용자 계정만 수정할 수 있습니다.', color: 'orange' });
+      return;
+    }
     const username = String(draft.username ?? '').trim();
     const email = String(draft.email ?? '').trim();
     const password = String(draft.password ?? '');
-    if (!companyid || !username || !email || (isNew && !password)) {
+    if (!companyid || !companyname.trim() || !username || !email || (isNew && !password)) {
       notifications.show({ title: '필수값 확인', message: '고객사, 사용자명, 이메일과 신규 계정 비밀번호를 입력해 주세요.', color: 'red' });
       return;
     }
@@ -186,10 +215,11 @@ export default function User() {
     try {
       const payload = {
         companyid,
+        companyname,
         username,
         email,
         team: String(draft.team ?? '').trim(),
-        authority: draft.authority || 'USER',
+        authority: isSubmaster ? 'USER' : draft.authority || 'USER',
         useyn: draft.useyn || 'Y',
         password,
       };
@@ -208,7 +238,7 @@ export default function User() {
     } finally {
       setSaving(false);
     }
-  }, [canCreateUser, companyid, draft, isNew, loadCompanies, loadUsers, selectedEmail]);
+  }, [canCreateUser, companyid, companyname, currentEmail, draft, isNew, isSubmaster, loadCompanies, loadUsers, selectedEmail]);
 
   const handleDelete = useCallback(() => {
     if (!companyid || !selectedEmail || isNew) return;
@@ -252,8 +282,8 @@ export default function User() {
   useErpPageRibbon({
     onSearch: () => loadUsers(companyid),
     onAdd: handleAdd,
-    onSave: saving ? undefined : handleSave,
-    onDelete: !isNew && selectedEmail && !deleting ? handleDelete : undefined,
+    onSave: saving || (isSubmaster && !isNew && (draft.authority !== 'USER' || selectedEmail.toLowerCase() === currentEmail)) ? undefined : handleSave,
+    onDelete: isPlatformMaster && !isNew && selectedEmail && !deleting ? handleDelete : undefined,
     showPrint: false,
     showExcel: false,
     useSaveColor: false,
@@ -289,6 +319,7 @@ export default function User() {
             )}
           </Group>
           <Group className={classes.searchBar} gap={8} align="flex-end" wrap="nowrap">
+            {isPlatformMaster ? (
             <Select
               className={classes.companySelect}
               label="고객사"
@@ -304,7 +335,11 @@ export default function User() {
                 ) : option.label;
               }}
               value={companyid || null}
-              onChange={(value) => setCompanyid(value || '')}
+              onChange={(value) => {
+                const selected = companies.find((company) => company.companyid === value);
+                setCompanyname(selected?.companyname || '');
+                setCompanyid(value || '');
+              }}
               dropdownOpened={companyDropdownOpen}
               onDropdownOpen={() => setCompanyDropdownOpen(true)}
               onDropdownClose={() => setCompanyDropdownOpen(false)}
@@ -314,6 +349,15 @@ export default function User() {
               allowDeselect={false}
               disabled={loadingCompanies}
             />
+            ) : (
+              <TextInput
+                className={classes.companySelect}
+                label="고객사"
+                value={`${companyid} - ${companyInfo?.companyname || ''}`}
+                readOnly
+                disabled
+              />
+            )}
           </Group>
           <ScrollArea className={classes.tableWrap} type="always" scrollbars="xy" scrollbarSize={12}>
             <Table className={`${sharedClasses.table} ${classes.table}`} highlightOnHover>
@@ -336,7 +380,7 @@ export default function User() {
                     <Table.Td>{user.username}</Table.Td>
                     <Table.Td title={user.email}>{user.email}</Table.Td>
                     <Table.Td>{user.team || '-'}</Table.Td>
-                    <Table.Td>{user.authority === 'MASTER' ? '마스터' : '일반 사용자'}</Table.Td>
+                    <Table.Td>{AUTHORITY_LABELS[user.authority] || user.authority || AUTHORITY_LABELS.USER}</Table.Td>
                     <Table.Td>
                       <Badge size="sm" variant="light" color={user.useyn === 'Y' ? 'teal' : 'gray'}>
                         {user.useyn === 'Y' ? '사용중' : '사용중지'}
@@ -366,23 +410,63 @@ export default function User() {
         <Paper className={classes.formPanel} withBorder>
           <Group className={classes.panelHeader} justify="space-between">
             <Text className={classes.sectionTitle} fw={700}>사용자 계정 정보</Text>
-            <Badge variant="light" color={isNew ? 'red' : draft.email ? 'gray' : 'gray'}>
-              {isNew ? '신규 등록' : draft.email ? '수정' : '선택 대기'}
-            </Badge>
+            <Group gap={8} wrap="nowrap">
+              {companyid && (
+                <Button
+                  size="xs"
+                  variant="light"
+                  color="red"
+                  leftSection={<IconKey size={14} />}
+                  onClick={() => {
+                    if (selectedEmail && String(draft.authority || '').toUpperCase() === 'MASTER') {
+                      notifications.show({
+                        title: '메뉴 권한 설정 불필요',
+                        message: '플랫폼 관리자는 모든 메뉴 권한을 가지고 있어 개별 메뉴 권한을 설정하지 않습니다.',
+                        color: 'red',
+                      });
+                      return;
+                    }
+                    navigate('/UserMenu', {
+                      state: { companyid, useremail: selectedEmail || undefined },
+                    });
+                  }}
+                >
+                  메뉴 권한
+                </Button>
+              )}
+              <Badge variant="light" color={isNew ? 'red' : draft.email ? 'gray' : 'gray'}>
+                {isNew ? '신규 등록' : draft.email ? '수정' : '선택 대기'}
+              </Badge>
+            </Group>
           </Group>
           <ScrollArea className={classes.formBody} type="auto">
             <div className={classes.formGrid}>
               <TextInput label="고객사코드" value={companyid} readOnly disabled />
-              <TextInput label="고객사명" value={companyInfo?.companyname || selectedCompany?.companyname || ''} readOnly disabled />
+              <TextInput
+                label="고객사명 *"
+                value={companyname}
+                onChange={(event) => setCompanyname(event.currentTarget.value)}
+                maxLength={100}
+                disabled={!companyid}
+              />
               <TextInput label="사용자명 *" value={draft.username} onChange={(event) => updateDraft('username', event.currentTarget.value)} maxLength={20} />
               <TextInput label="이메일 *" type="email" value={draft.email} onChange={(event) => updateDraft('email', event.currentTarget.value)} maxLength={50} />
               <TextInput label="부서" value={draft.team} onChange={(event) => updateDraft('team', event.currentTarget.value)} maxLength={50} />
               <Select
                 label="권한 *"
-                data={[{ value: 'USER', label: '일반 사용자' }, { value: 'MASTER', label: '마스터' }]}
+                data={companyid === '001'
+                  ? [
+                    { value: 'MASTER', label: '플랫폼 관리자' },
+                    { value: 'USER', label: '일반 사용자' },
+                  ]
+                  : [
+                    { value: 'SUBMASTER', label: '고객사 관리자' },
+                    { value: 'USER', label: '일반 사용자' },
+                  ]}
                 value={draft.authority || 'USER'}
                 onChange={(value) => updateDraft('authority', value || 'USER')}
                 allowDeselect={false}
+                disabled={isSubmaster}
               />
               <Select
                 label="사용여부"

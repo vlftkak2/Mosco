@@ -8,19 +8,19 @@ import security as security_module
 router = APIRouter(prefix="/api/company-users", tags=["company-users"])
 
 
-def require_platform_admin(user: dict = Depends(security_module.get_current_user)) -> dict:
-    if user["companyid"] != "001" or not company_module.is_master(user["companyid"], user["email"]):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Steel119 최종관리자만 고객사 계정을 관리할 수 있습니다.",
-        )
-    return user
+def require_account_manager(user: dict = Depends(security_module.get_current_user)) -> dict:
+    if user["companyid"] == "001" and company_module.is_master(user["companyid"], user["email"]):
+        return {**user, "authority": "MASTER"}
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="플랫폼 관리자만 고객사 계정을 관리할 수 있습니다.",
+    )
 
 
 @router.get("")
 def get_company_users(
     companyid: str = Query(..., min_length=1, max_length=50),
-    user: dict = Depends(require_platform_admin),
+    user: dict = Depends(require_account_manager),
 ):
     del user
     try:
@@ -30,10 +30,16 @@ def get_company_users(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def create_company_user(data: user_module.UserCreateInput, user: dict = Depends(require_platform_admin)):
-    del user
+def create_company_user(data: user_module.UserCreateInput, user: dict = Depends(require_account_manager)):
     try:
-        return {"success": True, "item": user_module.create_user(data)}
+        return {
+            "success": True,
+            "item": user_module.create_user(
+                data,
+                update_company_timestamp=user["authority"] == "MASTER",
+                created_by=user["email"],
+            ),
+        }
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
@@ -41,10 +47,12 @@ def create_company_user(data: user_module.UserCreateInput, user: dict = Depends(
 
 
 @router.put("")
-def update_company_user(data: user_module.UserUpdateInput, user: dict = Depends(require_platform_admin)):
-    del user
+def update_company_user(data: user_module.UserUpdateInput, user: dict = Depends(require_account_manager)):
     try:
-        return {"success": True, "item": user_module.update_user(data)}
+        return {
+            "success": True,
+            "item": user_module.update_user(data, update_company_timestamp=user["authority"] == "MASTER"),
+        }
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
@@ -55,10 +63,10 @@ def update_company_user(data: user_module.UserUpdateInput, user: dict = Depends(
 def delete_company_user(
     companyid: str = Query(..., min_length=1, max_length=50),
     email: str = Query(..., min_length=3, max_length=50),
-    user: dict = Depends(require_platform_admin),
+    user: dict = Depends(require_account_manager),
 ):
-    if user["companyid"] == companyid and user["email"].strip().lower() == email.strip().lower():
-        raise HTTPException(status_code=409, detail="현재 로그인한 최종관리자 계정은 삭제할 수 없습니다.")
+    if user["email"].strip().lower() == email.strip().lower() and user["companyid"] == companyid:
+        raise HTTPException(status_code=409, detail="현재 로그인한 관리자 계정은 삭제할 수 없습니다.")
     try:
         return {"success": True, "item": user_module.delete_user(companyid, email)}
     except LookupError as error:

@@ -43,7 +43,7 @@ const mockdata = [
     icon: <IconLayoutDashboard size={18} stroke={1.8} />,
     link: '/HomePage',
     initiallyOpened: false,
-    MenuID:null,
+    MenuID: 'HOME',
   },
 
     {
@@ -51,9 +51,9 @@ const mockdata = [
     icon: <IconDatabase size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      {label: '일반코드',link: '/CodeMasterPage',icon: '',MenuID: 'M1'},
-      { label: '품목코드', link: '/ItemMasterPage', icon: '', MenuID: 'M7' },
-      { label: '거래처관리', link: '/CustomerPage', icon: '', MenuID:'M-11' },
+      {label: '일반코드',link: '/CodeMasterPage',icon: '',MenuID: 'DATA_CODE'},
+      { label: '품목코드', link: '/ItemMasterPage', icon: '', MenuID: 'DATA_ITEM' },
+      { label: '거래처관리', link: '/CustomerPage', icon: '', MenuID:'DATA_CUSTOMER' },
 
     ],
   },  
@@ -63,8 +63,8 @@ const mockdata = [
     icon: <IconPackageImport size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      { label: '입고등록', link: '/InboundRegisterPage', icon: '✔️', MenuID:'M-14' },
-      { label: '입고현황', link: '/InboundSearchPage', icon: '✔️', MenuID:'M-16' },
+      { label: '입고등록', link: '/InboundRegisterPage', icon: '✔️', MenuID:'INBOUND_REGISTER' },
+      { label: '입고현황', link: '/InboundSearchPage', icon: '✔️', MenuID:'INBOUND_SEARCH' },
     ],
   },
 
@@ -74,8 +74,8 @@ const mockdata = [
     initiallyOpened: false,
     links: [
       
-      { label: '출고등록', link: '/OutboundRegisterPage', icon: '', MenuID: 'M-22' },
-      { label: '출고현황', link: '/OutboundSearchPage', icon: '', MenuID: 'M-23' },
+      { label: '출고등록', link: '/OutboundRegisterPage', icon: '', MenuID: 'OUTBOUND_REGISTER' },
+      { label: '출고현황', link: '/OutboundSearchPage', icon: '', MenuID: 'OUTBOUND_SEARCH' },
     ],
   },  
 
@@ -84,10 +84,10 @@ const mockdata = [
     icon: <IconFileAi size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      { label: 'AI 주문서 인식', link: '/AIOrderPage', icon: '', MenuID: 'AI-ORDER-TEST' },
-      { label: '주문서 관리(EX)', link: '/AIOrderManage', icon: '', MenuID: 'AI-ORDER-TEST' },
-      { label: '가공 최적화(EX)', link: '/AIOrderOptimization', icon: '', MenuID: 'AI-ORDER-TEST' },
-      { label: '가공기준 관리(EX)', link: '/AIProcessingStandards', icon: '', MenuID: 'AI-ORDER-TEST' },
+      { label: 'AI 주문서 인식', link: '/AIOrderPage', icon: '', MenuID: 'AI_ORDER_RECOGNITION' },
+      { label: '주문서 관리(EX)', link: '/AIOrderManage', icon: '', MenuID: 'AI_ORDER_MANAGEMENT' },
+      { label: '가공 최적화(EX)', link: '/AIOrderOptimization', icon: '', MenuID: 'AI_OPTIMIZATION' },
+      { label: '가공기준 관리(EX)', link: '/AIProcessingStandards', icon: '', MenuID: 'AI_STANDARDS' },
 
       // { label: '가공 진행현황', link: '/AIOrderConfirmPage', icon: '', MenuID: 'AI-ORDER-TEST' },
         
@@ -100,9 +100,9 @@ const mockdata = [
     icon: <IconBuildingWarehouse size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      { label: '기초재고등록', link: '/StockStandPage', icon: '', MenuID: 'M-24' },
-      { label: '재고수불현황', link: '/IniopStockPage', icon: '', MenuID:'M-12' },
-      { label: '현재고현황', link: '/CurrentStockPage', icon: '', MenuID:'M-11' },
+      { label: '기초재고등록', link: '/StockStandPage', icon: '', MenuID: 'STOCK_INITIAL' },
+      { label: '재고수불현황', link: '/IniopStockPage', icon: '', MenuID:'STOCK_HISTORY' },
+      { label: '현재고현황', link: '/CurrentStockPage', icon: '', MenuID:'STOCK_CURRENT' },
     ],
   },     
 
@@ -113,7 +113,7 @@ const mockdata = [
     icon: <IconHeadset size={18} stroke={1.8} />,
     initiallyOpened: false,
     link: '/CustomerSupport',
-    MenuID: 'M-22',
+    MenuID: 'CUSTOMER_SUPPORT',
   },
 
 
@@ -123,8 +123,9 @@ const mockdata = [
     icon: <IconSettings size={18} stroke={1.8} />,
     initiallyOpened: false,
     links: [
-      { label: '고객사등록', link: '/Company', icon: '', MenuID:'M-17'},
-      { label: '고객사 계정관리', link: '/User', icon: '', MenuID:'M-18'},
+      { label: '고객사등록', link: '/Company', icon: '', MenuID:'COMPANY_REGISTRATION'},
+      { label: '고객사 계정관리', link: '/User', icon: '', MenuID:'COMPANY_USER_MANAGEMENT'},
+      { label: '메뉴 권한', link: '/UserMenu', icon: '', MenuID:'USER_MENU_PERMISSION'},
       { label: '설정', link: '/', icon: '✔️', MenuID:'M-19', disabled: true},
     ],
   },
@@ -154,6 +155,7 @@ function findMenuLabel(items, path) {
     '/customersupport': '고객지원',
     '/company': '고객사등록',
     '/user': '고객사 계정관리',
+    '/usermenu': '메뉴 권한',
   };
 
   if (routeLabelAliases[normalizedPath]) return routeLabelAliases[normalizedPath];
@@ -183,7 +185,7 @@ export default function MainLayout({ children }) {
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
     '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage', '/aiorderconfirmpage',
     '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/aiprocessingstandards', '/customersupport',
-    '/outboundregisterpage', '/outboundsearchpage', '/company', '/user',
+    '/outboundregisterpage', '/outboundsearchpage', '/company', '/user', '/usermenu',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
   const [pageRibbon, setPageRibbon] = useState(null);
   const registerPageRibbon = useCallback((content) => setPageRibbon(() => content), []);
@@ -360,7 +362,22 @@ const handlePasswordChange = async (e) => {
   }
 
 
-const links = mockdata.map((item) => (
+const currentAuthority = String(localStorage.getItem('user_authority') || 'USER').toUpperCase();
+const visibleMockdata = mockdata
+  .map((item) => {
+    if (!item.links) return item;
+    const links = item.links.filter((link) => {
+      if (link.link === '/Company') return currentAuthority === 'MASTER';
+      if (link.link === '/User') return currentAuthority === 'MASTER';
+      if (link.link === '/UserMenu') return ['MASTER', 'SUBMASTER'].includes(currentAuthority);
+      if (link.link === '/') return currentAuthority === 'MASTER';
+      return true;
+    });
+    return { ...item, links };
+  })
+  .filter((item) => !item.links || item.links.length > 0);
+
+const links = visibleMockdata.map((item) => (
   <LinksGroup {...item} pathname={pathname} key={item.label} />
 ));
 
