@@ -80,6 +80,15 @@ export default function User() {
   const accountCompany = selectedCompany || companyInfo;
   const canCreateUser = accountCompany?.company_status === 'ACTIVE'
     && Number(accountCompany.active_users || 0) < Number(accountCompany.licensed_seats || 0);
+  const isSelectedSelf = Boolean(selectedEmail) && selectedEmail.toLowerCase() === currentEmail;
+  const canSubmasterEditSelected = isSubmaster
+    && Boolean(selectedEmail)
+    && ['USER', 'SUBMASTER'].includes(String(draft.authority || '').toUpperCase());
+  const readOnlyExisting = isSubmaster && !isNew && !canSubmasterEditSelected;
+  const selectedAccount = users.find((item) => item.email === selectedEmail) || null;
+  const canSubmasterDeleteSelected = isSubmaster
+    && selectedAccount?.authority === 'USER'
+    && !isSelectedSelf;
 
   const loadCompanies = useCallback(async () => {
     if (isSubmaster) {
@@ -156,7 +165,7 @@ export default function User() {
     if (!canCreateUser) {
       notifications.show({
         title: '계정 등록 불가',
-        message: selectedCompany?.company_status !== 'ACTIVE'
+        message: accountCompany?.company_status !== 'ACTIVE'
           ? '이용 상태가 ACTIVE인 고객사에만 계정을 등록할 수 있습니다.'
           : '허용된 계정 수를 모두 사용 중입니다.',
         color: 'orange',
@@ -168,10 +177,10 @@ export default function User() {
     setSelectedEmail('');
     setDraft({ ...emptyUser(), companyid });
     setIsNew(true);
-  }, [canCreateUser, companyid, selectedCompany?.company_status]);
+  }, [accountCompany?.company_status, canCreateUser, companyid]);
 
   const handleSelectUser = useCallback((user) => {
-    if (isSubmaster && user.authority !== 'USER') return;
+    if (isSubmaster && user.authority === 'MASTER') return;
     selectedEmailRef.current = user.email;
     isNewRef.current = false;
     setSelectedEmail(user.email);
@@ -196,14 +205,14 @@ export default function User() {
   }, [updateDraft]);
 
   const handleSave = useCallback(async () => {
-    if (isSubmaster && !isNew && (draft.authority !== 'USER' || selectedEmail.toLowerCase() === currentEmail)) {
-      notifications.show({ title: '수정할 수 없습니다', message: '고객사 관리자는 일반 사용자 계정만 수정할 수 있습니다.', color: 'orange' });
+    if (isSubmaster && !isNew && readOnlyExisting) {
+      notifications.show({ title: '수정할 수 없습니다', message: '고객사 관리자는 고객사 관리자 또는 일반 사용자 계정만 수정할 수 있습니다.', color: 'orange' });
       return;
     }
     const username = String(draft.username ?? '').trim();
     const email = String(draft.email ?? '').trim();
     const password = String(draft.password ?? '');
-    if (!companyid || !companyname.trim() || !username || !email || (isNew && !password)) {
+    if (!companyid || !username || !email || (isNew && !password)) {
       notifications.show({ title: '필수값 확인', message: '고객사, 사용자명, 이메일과 신규 계정 비밀번호를 입력해 주세요.', color: 'red' });
       return;
     }
@@ -215,17 +224,29 @@ export default function User() {
     try {
       const payload = {
         companyid,
-        companyname,
+        companyname: '',
         username,
         email,
         team: String(draft.team ?? '').trim(),
-        authority: isSubmaster ? 'USER' : draft.authority || 'USER',
-        useyn: draft.useyn || 'Y',
+        authority: draft.authority || 'USER',
+        useyn: isSubmaster && isNew ? 'Y' : draft.useyn || 'Y',
         password,
       };
       const { data } = isNew
         ? await axios.post('/api/company-users', payload, authConfig())
         : await axios.put('/api/company-users', { ...payload, original_email: selectedEmail }, authConfig());
+      const updatingSelf = isSubmaster && selectedEmail.toLowerCase() === currentEmail;
+      if (updatingSelf && (
+        data.item.email.toLowerCase() !== currentEmail
+        || data.item.authority !== 'SUBMASTER'
+        || data.item.useyn !== 'Y'
+      )) {
+        notifications.show({ title: '계정 정보 변경 완료', message: '이메일, 권한 또는 사용 상태가 변경되어 다시 로그인합니다.', color: 'teal' });
+        ['access_token', 'user_name', 'user_email', 'user_company', 'user_companyname', 'user_authority'].forEach((key) => localStorage.removeItem(key));
+        navigate('/login');
+        return;
+      }
+      if (updatingSelf) localStorage.setItem('user_name', data.item.username);
       isNewRef.current = false;
       selectedEmailRef.current = data.item.email;
       setIsNew(false);
@@ -238,12 +259,16 @@ export default function User() {
     } finally {
       setSaving(false);
     }
-  }, [canCreateUser, companyid, companyname, currentEmail, draft, isNew, isSubmaster, loadCompanies, loadUsers, selectedEmail]);
+  }, [canCreateUser, companyid, currentEmail, draft, isNew, isSubmaster, loadCompanies, loadUsers, navigate, readOnlyExisting, selectedEmail]);
 
   const handleDelete = useCallback(() => {
     if (!companyid || !selectedEmail || isNew) return;
     const target = users.find((item) => item.email === selectedEmail);
     if (!target) return;
+    if (isSubmaster && (target.authority !== 'USER' || selectedEmail.toLowerCase() === currentEmail)) {
+      notifications.show({ title: '삭제할 수 없습니다', message: '고객사 관리자는 본인 계정을 삭제할 수 없으며 일반 사용자 계정만 삭제할 수 있습니다.', color: 'red' });
+      return;
+    }
 
     modals.openConfirmModal({
       title: '고객사 계정 삭제 확인',
@@ -277,13 +302,13 @@ export default function User() {
         }
       },
     });
-  }, [companyid, isNew, loadCompanies, loadUsers, selectedEmail, users]);
+  }, [companyid, currentEmail, isNew, isSubmaster, loadCompanies, loadUsers, selectedEmail, users]);
 
   useErpPageRibbon({
     onSearch: () => loadUsers(companyid),
     onAdd: handleAdd,
-    onSave: saving || (isSubmaster && !isNew && (draft.authority !== 'USER' || selectedEmail.toLowerCase() === currentEmail)) ? undefined : handleSave,
-    onDelete: isPlatformMaster && !isNew && selectedEmail && !deleting ? handleDelete : undefined,
+    onSave: saving || (!isNew && !selectedEmail) || (isSubmaster && !isNew && readOnlyExisting) ? undefined : handleSave,
+    onDelete: !isNew && selectedEmail && !deleting && (isPlatformMaster || canSubmasterDeleteSelected) ? handleDelete : undefined,
     showPrint: false,
     showExcel: false,
     useSaveColor: false,
@@ -294,7 +319,7 @@ export default function User() {
       <Box component="nav" className={classes.breadcrumb}>
         <Text component="span" className={classes.breadcrumbParent}>시스템관리</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-        <Text component="span" className={classes.breadcrumbCurrent}>고객사 계정관리</Text>
+        <Text component="span" className={classes.breadcrumbCurrent}>사용자 관리</Text>
       </Box>
 
       <div className={classes.workspace}>
@@ -445,13 +470,13 @@ export default function User() {
               <TextInput
                 label="고객사명 *"
                 value={companyname}
-                onChange={(event) => setCompanyname(event.currentTarget.value)}
                 maxLength={100}
-                disabled={!companyid}
+                readOnly
+                disabled
               />
-              <TextInput label="사용자명 *" value={draft.username} onChange={(event) => updateDraft('username', event.currentTarget.value)} maxLength={20} />
-              <TextInput label="이메일 *" type="email" value={draft.email} onChange={(event) => updateDraft('email', event.currentTarget.value)} maxLength={50} />
-              <TextInput label="부서" value={draft.team} onChange={(event) => updateDraft('team', event.currentTarget.value)} maxLength={50} />
+              <TextInput label="사용자명 *" value={draft.username} onChange={(event) => updateDraft('username', event.currentTarget.value)} maxLength={20} disabled={readOnlyExisting} />
+              <TextInput label="이메일 *" type="email" value={draft.email} onChange={(event) => updateDraft('email', event.currentTarget.value)} maxLength={50} disabled={readOnlyExisting} />
+              <TextInput label="부서" value={draft.team} onChange={(event) => updateDraft('team', event.currentTarget.value)} maxLength={50} disabled={readOnlyExisting} />
               <Select
                 label="권한 *"
                 data={companyid === '001'
@@ -466,7 +491,7 @@ export default function User() {
                 value={draft.authority || 'USER'}
                 onChange={(value) => updateDraft('authority', value || 'USER')}
                 allowDeselect={false}
-                disabled={isSubmaster}
+                disabled={readOnlyExisting}
               />
               <Select
                 label="사용여부"
@@ -474,8 +499,9 @@ export default function User() {
                 value={draft.useyn || 'Y'}
                 onChange={(value) => updateDraft('useyn', value || 'Y')}
                 allowDeselect={false}
+                disabled={isSubmaster && (isNew || readOnlyExisting)}
               />
-              {(isNew || draft.email) && (
+              {(isNew || (draft.email && (isPlatformMaster || (isSubmaster && !readOnlyExisting)))) && (
                 <Group className={classes.fullWidth} align="flex-end" gap="xs" wrap="nowrap">
                   <PasswordInput
                     style={{ flex: 1 }}

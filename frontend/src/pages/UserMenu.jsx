@@ -8,6 +8,7 @@ import {
   Paper,
   ScrollArea,
   Select,
+  Switch,
   Table,
   Text,
   TextInput,
@@ -73,9 +74,8 @@ export default function UserMenu() {
     [companyid, selectedEmail, users],
   );
   const selectedMenuSet = useMemo(() => new Set(selectedMenuids), [selectedMenuids]);
-  const activeMenus = useMemo(() => menus.filter((menu) => menu.useyn === 'Y'), [menus]);
-  const allSelected = activeMenus.length > 0 && selectedMenuids.length === activeMenus.length;
-  const partiallySelected = selectedMenuids.length > 0 && !allSelected;
+  const allSelected = menus.length > 0 && menus.every((menu) => selectedMenuSet.has(menu.menuid));
+  const partiallySelected = menus.some((menu) => selectedMenuSet.has(menu.menuid)) && !allSelected;
 
   const loadCompanies = useCallback(async () => {
     setLoadingCompanies(true);
@@ -99,7 +99,7 @@ export default function UserMenu() {
     } finally {
       setLoadingCompanies(false);
     }
-  }, [isPlatformMaster]);
+  }, []);
 
   const loadUsers = useCallback(async (targetCompanyid, preferredEmail = '') => {
     if (!targetCompanyid) {
@@ -231,7 +231,7 @@ export default function UserMenu() {
       <Box component="nav" className={classes.breadcrumb}>
         <Text component="span" className={classes.breadcrumbParent}>시스템관리</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-        <Text component="span" className={classes.breadcrumbCurrent}>메뉴 권한</Text>
+        <Text component="span" className={classes.breadcrumbCurrent}>사용자 메뉴권한</Text>
       </Box>
 
       <div className={classes.workspace}>
@@ -346,15 +346,15 @@ export default function UserMenu() {
           </Group>
 
           <Group className={classes.permissionBar} justify="space-between">
-            <Text size="xs" c="dimmed">허용할 메뉴를 선택한 뒤 상단 저장을 눌러주세요.</Text>
+            <Text size="xs" c="dimmed">접근 스위치는 선택 사용자 권한만 변경합니다. 메뉴 운영상태는 그대로 유지됩니다.</Text>
             <Checkbox
               size="xs"
-              label="전체 선택"
+              label="전체 허용"
               checked={allSelected}
               indeterminate={partiallySelected}
               disabled={!selectedUser || menus.length === 0}
               onChange={(event) => setSelectedMenuids(
-                event.currentTarget.checked ? activeMenus.map((menu) => menu.menuid) : [],
+                event.currentTarget.checked ? menus.map((menu) => menu.menuid) : [],
               )}
             />
           </Group>
@@ -363,29 +363,28 @@ export default function UserMenu() {
             <Table className={`${sharedClasses.table} ${classes.menuTable}`} highlightOnHover>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th className={classes.checkColumn}>선택</Table.Th>
+                  <Table.Th className={classes.checkColumn}>사용자 접근</Table.Th>
                   <Table.Th>메뉴코드</Table.Th>
                   <Table.Th>메뉴명</Table.Th>
-                  <Table.Th>사용여부</Table.Th>
+                  <Table.Th>메뉴 운영상태</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
                 {menus.length ? menus.map((menu) => (
                   <Table.Tr
                     key={menu.menuid}
-                    className={menu.useyn === 'Y' ? '' : classes.disabledRow}
-                    onClick={() => {
-                      if (menu.useyn === 'Y') toggleMenu(menu.menuid, !selectedMenuSet.has(menu.menuid));
-                    }}
+                    className={menu.useyn === 'Y' ? '' : classes.inactiveMenuRow}
+                    title={menu.useyn === 'Y' ? undefined : '전역 메뉴 운영상태가 사용중지입니다. 사용자 권한과 별도로 유지됩니다.'}
                   >
                     <Table.Td className={classes.checkColumn}>
-                      <Checkbox
+                      <Switch
                         size="xs"
+                        color="red"
                         checked={selectedMenuSet.has(menu.menuid)}
-                        disabled={menu.useyn !== 'Y'}
+                        disabled={!selectedUser}
                         onChange={(event) => toggleMenu(menu.menuid, event.currentTarget.checked)}
                         onClick={(event) => event.stopPropagation()}
-                        aria-label={`${menu.menuname} 권한`}
+                        aria-label={`${menu.menuname} 접근 허용`}
                       />
                     </Table.Td>
                     <Table.Td>{menu.menuid}</Table.Td>

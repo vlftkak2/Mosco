@@ -61,7 +61,7 @@ function App() {
 
   
           <Route path="/UserPage" element={<UserPage />} />
-          <Route path="/User" element={<RequireAuthority allowed={['MASTER']}><User /></RequireAuthority>} />
+          <Route path="/User" element={<RequireAuthority allowed={['MASTER', 'SUBMASTER']}><User /></RequireAuthority>} />
           <Route path="/UserMenu" element={<UserMenu />} />
           <Route path="/UserAuthPage" element={<UserAuthPage />} />
           <Route path="/CustomerPage" element={<CustomerPage />} />

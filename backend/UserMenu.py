@@ -111,8 +111,7 @@ def get_user_menu_permissions(companyid: str, useremail: str, is_master: bool):
             """SELECT m.menuid, m.menuname, m.sort_order,
                       UPPER(COALESCE(m.useyn, 'N')) AS useyn,
                       CASE
-                          WHEN UPPER(COALESCE(m.useyn, 'N')) = 'Y'
-                           AND UPPER(COALESCE(p.useyn, 'N')) = 'Y'
+                          WHEN UPPER(COALESCE(p.useyn, 'N')) = 'Y'
                           THEN TRUE ELSE FALSE
                       END AS granted
                FROM menucatalog01t m
@@ -135,8 +134,7 @@ def save_user_menu_permissions(data: UserMenuPermissionInput, manager_email: str
         cursor.execute(
             """SELECT menuid
                FROM menucatalog01t
-               WHERE UPPER(COALESCE(useyn, 'N')) = 'Y'
-                 AND assignable = TRUE
+               WHERE assignable = TRUE
                  AND access_scope = 'COMPANY'"""
         )
         assignable_menuids = {row["menuid"] for row in cursor.fetchall()}
@@ -150,6 +148,10 @@ def save_user_menu_permissions(data: UserMenuPermissionInput, manager_email: str
                SET useyn = 'N', updatedby = %s, updatedat = CURRENT_TIMESTAMP
                WHERE companyid = %s
                  AND LOWER(useremail) = LOWER(%s)
+                 AND menuid IN (
+                     SELECT menuid FROM menucatalog01t
+                     WHERE assignable = TRUE AND access_scope = 'COMPANY'
+                 )
                  AND UPPER(COALESCE(useyn, 'N')) <> 'N'""",
             (manager_email, data.companyid, target["email"]),
         )

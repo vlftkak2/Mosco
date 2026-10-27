@@ -118,25 +118,6 @@ def _validate_authority_company(companyid: str, authority: str):
         raise ValueError("SUBMASTER \uad8c\ud55c\uc740 \uace0\uac1d\uc0ac \uacc4\uc815\uc5d0\ub9cc \uc9c0\uc815\ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4.")
 
 
-def _save_company_name(cursor, companyid: str, companyname: str, current_name: str, update_timestamp: bool):
-    next_name = str(companyname or "").strip()
-    if not next_name or next_name == str(current_name or "").strip():
-        return current_name
-
-    if update_timestamp:
-        cursor.execute(
-            "UPDATE company01t SET companyname = %s, updatedat = CURRENT_TIMESTAMP WHERE companyid = %s",
-            (next_name, companyid),
-        )
-    else:
-        cursor.execute(
-            "UPDATE company01t SET companyname = %s WHERE companyid = %s",
-            (next_name, companyid),
-        )
-    cursor.execute("UPDATE user01t SET companyname = %s WHERE companyid = %s", (next_name, companyid))
-    return next_name
-
-
 def hash_password(password: str) -> str:
     encode = lambda value: base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
     salt = encode(secrets.token_bytes(16))
@@ -221,13 +202,11 @@ def _lock_active_company(cursor, companyid: str):
 def create_user(
     data: UserCreateInput,
     *,
-    update_company_timestamp: bool = False,
     created_by: str = "",
 ):
     _validate_authority_company(data.companyid, data.authority)
     with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         companyname, licensed_seats = _lock_active_company(cursor, data.companyid)
-        companyname = _save_company_name(cursor, data.companyid, data.companyname, companyname, update_company_timestamp)
 
         # Serialize registrations for the same email, including across different companies.
         cursor.execute("SELECT pg_advisory_xact_lock(hashtext(LOWER(%s)))", (data.email,))
@@ -276,18 +255,16 @@ def create_user(
         return created_user
 
 
-def update_user(data: UserUpdateInput, *, update_company_timestamp: bool = False):
-    _validate_authority_company(data.companyid, data.authority)
+def update_user(data: UserUpdateInput, *, actor: dict | None = None):
     with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute(
-            "SELECT companyname, company_status, licensed_seats FROM company01t WHERE companyid = %s FOR UPDATE",
+            "SELECT company_status, licensed_seats FROM company01t WHERE companyid = %s FOR UPDATE",
             (data.companyid,),
         )
         company = cursor.fetchone()
         if not company:
             raise LookupError("고객사를 찾을 수 없습니다.")
 
-        _save_company_name(cursor, data.companyid, data.companyname, company["companyname"], update_company_timestamp)
         cursor.execute(
             """SELECT useyn, authority FROM user01t
                WHERE companyid = %s AND LOWER(email) = LOWER(%s) FOR UPDATE""",
@@ -299,6 +276,15 @@ def update_user(data: UserUpdateInput, *, update_company_timestamp: bool = False
 
         current_useyn = str(current["useyn"] or "N").upper()
         current_authority = str(current["authority"] or "USER").upper()
+        if actor and actor.get("authority") == "SUBMASTER":
+            actor_companyid = str(actor.get("companyid") or "")
+            if data.companyid != actor_companyid:
+                raise PermissionError("Customer administrators can only update accounts in their own company.")
+            if current_authority not in {"USER", "SUBMASTER"}:
+                raise PermissionError("Customer administrators cannot update platform administrator accounts.")
+            if data.authority not in {"USER", "SUBMASTER"}:
+                raise PermissionError("Customer administrators can assign only USER or SUBMASTER authority.")
+        _validate_authority_company(data.companyid, data.authority)
         next_useyn = data.useyn
         if data.companyid == "001" and current_authority == "MASTER" and (data.authority != "MASTER" or next_useyn != "Y"):
             cursor.execute(
@@ -363,7 +349,7 @@ def get_user_authority(companyid: str, email: str):
         return str(row[0] or "USER").upper() if row else None
 
 
-def delete_user(companyid: str, email: str):
+def delete_user(companyid: str, email: str, *, actor: dict | None = None):
     with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute(
             "SELECT company_status FROM company01t WHERE companyid = %s FOR UPDATE",
@@ -380,6 +366,16 @@ def delete_user(companyid: str, email: str):
         target = cursor.fetchone()
         if not target:
             raise LookupError("삭제할 사용자 계정을 찾을 수 없습니다.")
+
+        if actor and actor.get("authority") == "SUBMASTER":
+            actor_companyid = str(actor.get("companyid") or "")
+            actor_email = str(actor.get("email") or "").strip().lower()
+            if companyid != actor_companyid:
+                raise PermissionError("Customer administrators can only delete accounts in their own company.")
+            if email.strip().lower() == actor_email:
+                raise PermissionError("You cannot delete your own account.")
+            if str(target["authority"] or "USER").upper() != "USER":
+                raise PermissionError("Customer administrators can delete ordinary user accounts only.")
 
         if (
             companyid == "001"
