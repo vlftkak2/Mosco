@@ -8,7 +8,11 @@ from starlette.background import BackgroundTask
 import CurrentStock as current_stock_module
 import security as security_module
 
-router = APIRouter(prefix="/api/current-stock", tags=["current-stock"])
+router = APIRouter(
+    prefix="/api/current-stock",
+    tags=["current-stock"],
+    dependencies=[Depends(security_module.require_menu_access("STOCK_CURRENT"))],
+)
 
 
 def _filters(itemcode="", itemname="", thickness="", width="", length="", warehousecode="", warehousecodename="",

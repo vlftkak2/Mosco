@@ -1,4 +1,4 @@
-from fastapi import FastAPI,APIRouter, HTTPException, Query
+from fastapi import FastAPI,APIRouter, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from config import ALLOWED_ORIGINS
 from fastapi.responses import StreamingResponse
@@ -9,8 +9,13 @@ from urllib.parse import quote
 
 # 모듈 임포트 (이름 충돌을 피하기 위해 as 사용)
 import userauth as userauth_module
+import security as security_module
 
-router = APIRouter(prefix="/api", tags=["userauth"])
+router = APIRouter(
+    prefix="/api",
+    tags=["userauth"],
+    dependencies=[Depends(security_module.require_platform_admin)],
+)
 
 # 로그인 API
 @router.get("/menu-list")

@@ -1,5 +1,5 @@
 
-import { AppShell, Burger, Group, Text, Box, ScrollArea, Button, Stack, Modal, TextInput, PasswordInput } from '@mantine/core';
+import { AppShell, Burger, Group, Text, Box, ScrollArea, Button, Stack, Modal, TextInput, PasswordInput, Menu } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { LinksGroup } from './MainLayoutLink';
 import classes from '../../styles/layout/MainLayout.module.css';
@@ -36,6 +36,7 @@ import { IconCheck, IconX } from '@tabler/icons-react'; // 아이콘 추가
 import steel119HomeLogo from '../../assets/img/steel119-home.png';
 
 export const PageRibbonContext = createContext(null);
+export const MenuAccessContext = createContext({ menuids: [], loaded: false, authority: 'USER', fallbackPath: null });
 
 const mockdata = [
   {
@@ -204,6 +205,17 @@ export default function MainLayout({ children }) {
     () => tabState.tabs.filter((tab) => String(tab.path || '').replace(/\/+$/, '').toLowerCase() !== '/homepage'),
     [tabState.tabs],
   );
+  const visiblePageTabs = useMemo(() => {
+    const maxVisible = 6;
+    if (pageTabs.length <= maxVisible) return pageTabs;
+    const initialTabs = pageTabs.slice(0, maxVisible);
+    if (initialTabs.some((tab) => tab.path === pathname)) return initialTabs;
+    return [...pageTabs.slice(0, maxVisible - 1), pageTabs.find((tab) => tab.path === pathname)].filter(Boolean);
+  }, [pageTabs, pathname]);
+  const overflowPageTabs = useMemo(
+    () => pageTabs.filter((tab) => !visiblePageTabs.some((visibleTab) => visibleTab.path === tab.path)),
+    [pageTabs, visiblePageTabs],
+  );
 
   const closePageTab = useCallback((event, path) => {
     event?.stopPropagation?.();
@@ -220,6 +232,12 @@ export default function MainLayout({ children }) {
 
   const [myPermissions, setMyPermissions] = useState([]);
   const [myPermissionsLoaded, setMyPermissionsLoaded] = useState(false);
+  const [currentAuthority, setCurrentAuthority] = useState(() =>
+    String(localStorage.getItem('user_authority') || 'USER').toUpperCase()
+  );
+  const [currentCompanyId, setCurrentCompanyId] = useState(() =>
+    String(localStorage.getItem('user_company') || '')
+  );
 
   const [userInfo, setUserInfo] = useState(() => {
     
@@ -244,6 +262,13 @@ export default function MainLayout({ children }) {
     }).then(({ data }) => {
       if (!cancelled) {
         setMyPermissions(data.menuids || []);
+        const authority = String(data.authority || 'USER').toUpperCase();
+        setCurrentAuthority(authority);
+        localStorage.setItem('user_authority', authority);
+        setCurrentCompanyId(String(data.companyid || ''));
+        localStorage.setItem('user_company', String(data.companyid || ''));
+        if (data.username) localStorage.setItem('user_name', data.username);
+        if (data.companyname) localStorage.setItem('user_companyname', data.companyname);
         setMyPermissionsLoaded(true);
       }
     }).catch((error) => {
@@ -251,11 +276,18 @@ export default function MainLayout({ children }) {
       if (!cancelled) {
         setMyPermissions([]);
         setMyPermissionsLoaded(true);
+        if (error.response?.status === 401) {
+          setCurrentAuthority('USER');
+          setCurrentCompanyId('');
+          ['access_token', 'user_name', 'user_email', 'user_company', 'user_companyname', 'user_authority']
+            .forEach((key) => localStorage.removeItem(key));
+          navigate('/login', { replace: true });
+        }
       }
     });
 
     return () => { cancelled = true; };
-  }, [userInfo.email]);
+  }, [navigate, pathname, userInfo.email]);
 
 // 1. 함수 앞에 async를 붙입니다.
 const handlePasswordChange = async (e) => {
@@ -353,43 +385,52 @@ const handlePasswordChange = async (e) => {
   }
 
 
-const currentAuthority = String(localStorage.getItem('user_authority') || 'USER').toUpperCase();
+const isPlatformMaster = currentCompanyId === '001' && currentAuthority === 'MASTER';
 const visibleMockdata = mockdata
   .map((item) => {
     if (!item.links) return item;
     const links = item.links.filter((link) => {
-      if (link.link === '/Company') return currentAuthority === 'MASTER';
+      if (link.link === '/Company') return isPlatformMaster;
       if (link.link === '/User') return ['MASTER', 'SUBMASTER'].includes(currentAuthority);
       if (link.link === '/UserMenu') return ['MASTER', 'SUBMASTER'].includes(currentAuthority);
-      if (currentAuthority === 'MASTER') return true;
+      if (isPlatformMaster) return true;
       return !link.MenuID || myPermissions.includes(link.MenuID);
     });
     return { ...item, links };
   })
   .filter((item) => {
     if (item.links) return item.links.length > 0;
-    if (currentAuthority === 'MASTER') return true;
+    if (isPlatformMaster) return true;
+    if (item.link === '/CustomerSupport') return false;
     return !item.MenuID || myPermissions.includes(item.MenuID);
   });
 
 const firstAccessiblePath = visibleMockdata
   .flatMap((item) => item.links || [item])
   .find((item) => item.link && item.link !== '/HomePage')?.link;
-const noAccessibleMenus = currentAuthority !== 'MASTER'
+const noAccessibleMenus = !isPlatformMaster
   && myPermissionsLoaded
   && !myPermissions.includes('HOME')
   && !firstAccessiblePath;
 
 useEffect(() => {
-  if (!isDashboard || currentAuthority === 'MASTER' || !myPermissionsLoaded || myPermissions.includes('HOME')) return;
+  if (!isDashboard || isPlatformMaster || !myPermissionsLoaded || myPermissions.includes('HOME')) return;
   if (firstAccessiblePath) {
     navigate(firstAccessiblePath, { replace: true });
   }
-}, [currentAuthority, firstAccessiblePath, isDashboard, myPermissions, myPermissionsLoaded, navigate]);
+}, [currentAuthority, firstAccessiblePath, isDashboard, isPlatformMaster, myPermissions, myPermissionsLoaded, navigate]);
 
 const links = visibleMockdata.map((item) => (
   <LinksGroup {...item} pathname={pathname} key={item.label} />
 ));
+
+const menuAccessContextValue = {
+  menuids: myPermissions,
+  loaded: myPermissionsLoaded,
+  authority: currentAuthority,
+  companyid: currentCompanyId,
+  fallbackPath: firstAccessiblePath || (isPlatformMaster ? '/HomePage' : null),
+};
 
 //   /* 잠시 주석처리 */
 // const links = useMemo(() => {
@@ -511,25 +552,46 @@ const links = visibleMockdata.map((item) => (
 
       <AppShell.Main className={`${classes.appMain} ${isDashboard ? classes.appMainDashboard : isInboundWorkspace ? classes.appMainInbound : ''}`}>
         {!isDashboard && <div className={classes.pageTabs} role="tablist" aria-label="열린 메뉴">
-          {pageTabs.map((tab) => {
+          {visiblePageTabs.map((tab) => {
             const label = findMenuLabel(mockdata, tab.path);
             return (
               <div key={tab.path} role="tab" aria-selected={pathname === tab.path} tabIndex={0}
                 className={`${classes.pageTab} ${pathname === tab.path ? classes.pageTabActive : ''} ${String(tab.path || '').replace(/\/+$/, '').toLowerCase() === '/user' ? classes.pageTabNoBold : ''}`}
                 onClick={() => navigate(tab.path)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) navigate(tab.path); }}>
-                <span>{label}</span>
+                <span className={classes.pageTabLabel} title={label}>{label}</span>
                 <button type="button" className={classes.pageTabClose} aria-label={`${label} 닫기`}
                   onClick={(event) => closePageTab(event, tab.path)}>×</button>
               </div>
             );
           })}
+          {overflowPageTabs.length > 0 && <Menu position="bottom-end" withinPortal shadow="sm">
+            <Menu.Target>
+              <button type="button" className={classes.moreTabsButton} aria-label={`나머지 열린 화면 ${overflowPageTabs.length}개`}>
+                더보기 <span>{overflowPageTabs.length}</span><span aria-hidden="true">⌄</span>
+              </button>
+            </Menu.Target>
+            <Menu.Dropdown className={classes.moreTabsDropdown}>
+              <div className={classes.moreTabsHeading}>열린 화면 {pageTabs.length}개</div>
+              {overflowPageTabs.map((tab) => {
+                const label = findMenuLabel(mockdata, tab.path);
+                return <div className={classes.moreTabRow} key={tab.path}>
+                  <button type="button" className={classes.moreTabOpen} title={label} onClick={() => navigate(tab.path)}>
+                    <span>{label}</span>
+                  </button>
+                  <button type="button" className={classes.moreTabClose} aria-label={`${label} 닫기`}
+                    onClick={(event) => closePageTab(event, tab.path)}>×</button>
+                </div>;
+              })}
+            </Menu.Dropdown>
+          </Menu>}
         </div>}
         {/* 클래스 적용 */}
         <div className={`${classes.contentCard} ${isDashboard ? classes.dashboardContentCard : isInboundWorkspace ? classes.inboundContentCard : ''}`}>
+          <MenuAccessContext.Provider value={menuAccessContextValue}>
           <PageRibbonContext.Provider value={pageRibbonContextValue}>
-            {isDashboard && currentAuthority !== 'MASTER' && !myPermissionsLoaded
+            {isDashboard && !isPlatformMaster && !myPermissionsLoaded
               ? <Text c="dimmed" ta="center" mt="xl">메뉴 권한을 확인하고 있습니다.</Text>
-              : isDashboard && currentAuthority !== 'MASTER' && !myPermissions.includes('HOME')
+              : isDashboard && !isPlatformMaster && !myPermissions.includes('HOME')
                 ? <Text c="dimmed" ta="center" mt="xl">
                     {noAccessibleMenus
                       ? '접근할 수 있는 메뉴가 없습니다. 관리자에게 메뉴 권한을 요청해 주세요.'
@@ -537,6 +599,7 @@ const links = visibleMockdata.map((item) => (
                   </Text>
                 : children}
           </PageRibbonContext.Provider>
+          </MenuAccessContext.Provider>
         </div>
       </AppShell.Main>
     </AppShell>

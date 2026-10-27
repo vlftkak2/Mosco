@@ -65,7 +65,7 @@ const DETAIL_FIELDS = [
   { key: 'productname', label: '제품번호', width: 135, minWidth: 100 },
   { key: 'itemname', label: '품명', width: 180, minWidth: 100, required: true },
   { key: 'materialname', label: '강종', width: 120, minWidth: 90 },
-  { key: 'surfacename', label: '표면', width: 120, minWidth: 90 },
+  { key: 'surfacename', label: '표면', width: 140, minWidth: 100 },
   { key: 'myrtle', label: '도금량(g/㎡)', width: 135, minWidth: 120 },
   { key: 'thickness', label: '두께', width: 75, minWidth: 65 },
   { key: 'width', label: '폭', width: 75, minWidth: 65 },
@@ -402,7 +402,7 @@ const ItemNameAutocompleteCell = memo(function ItemNameAutocompleteCell({ row, d
   useEffect(() => {
     if (!isEditing || disabled || !query) return undefined;
     const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
+    const loadItems = async () => {
       try {
         const { data } = await axios.get('/api/item-master/items/suggest', {
           ...authConfig(), params: { q: query }, signal: controller.signal,
@@ -412,8 +412,9 @@ const ItemNameAutocompleteCell = memo(function ItemNameAutocompleteCell({ row, d
           setItemsQuery(query);
         }
       } catch { /* the shape-style suggestion list stays closed on lookup failure */ }
-    }, 220);
-    return () => { window.clearTimeout(timer); controller.abort(); };
+    };
+    void loadItems();
+    return () => controller.abort();
   }, [isEditing, disabled, query]);
 
   const chooseItem = (item) => {
@@ -455,7 +456,7 @@ const ItemNameAutocompleteCell = memo(function ItemNameAutocompleteCell({ row, d
     }
   };
 
-  return <Popover opened={isOpen} onChange={(nextOpened) => { if (!nextOpened) setIsEditing(false); }} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500}>
+  return <Popover opened={isOpen} onChange={(nextOpened) => { if (!nextOpened) setIsEditing(false); }} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500} transitionProps={{ duration: 0 }}>
     <Popover.Target>
       <div className={classes.itemNameSearchTarget}>
         <input
@@ -489,9 +490,9 @@ const ItemNameAutocompleteCell = memo(function ItemNameAutocompleteCell({ row, d
             } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
               event.preventDefault(); event.stopPropagation();
               setIsEditing(true);
-              if (items.length) setActiveIndex((current) => event.key === 'ArrowDown'
+              if (isOpen) setActiveIndex((current) => event.key === 'ArrowDown'
                 ? (current + 1) % items.length : (current - 1 + items.length) % items.length);
-            } else if (event.key === 'Enter' && isEditing) {
+            } else if (event.key === 'Enter' && isOpen) {
               event.preventDefault(); event.stopPropagation();
               const chosen = items[activeIndex >= 0 ? activeIndex : 0];
               if (chosen) chooseItem(chosen);
@@ -522,26 +523,37 @@ const CustomerNameAutocompleteCell = memo(function CustomerNameAutocompleteCell(
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(row.customname || '');
   const [customers, setCustomers] = useState([]);
+  const [customersQuery, setCustomersQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
   const requestIdRef = useRef(0);
   const pickerOpenRef = useRef(false);
   const query = String(draft || '').trim();
-  const isOpen = isEditing && !disabled && query.length > 0 && customers.length > 0;
+  const visibleCustomers = useMemo(() => {
+    if (!query || !customersQuery || !query.toLocaleLowerCase().startsWith(customersQuery.toLocaleLowerCase())) return [];
+    const keyword = query.toLocaleLowerCase();
+    return customers.filter((customer) => [customer.customername, customer.customercode]
+      .some((value) => String(value || '').toLocaleLowerCase().includes(keyword)));
+  }, [customers, customersQuery, query]);
+  const isOpen = isEditing && !disabled && visibleCustomers.length > 0;
 
   useEffect(() => {
     if (!isEditing || disabled || !query) return undefined;
     const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
+    const loadCustomers = async () => {
       try {
         const { data } = await axios.get('/api/list', {
           ...authConfig(),
           params: { search_keyword: query, status: 'Y', page: 1, page_size: 8, include_total: false },
           signal: controller.signal,
         });
-        if (!controller.signal.aborted) setCustomers(data.data || []);
+        if (!controller.signal.aborted) {
+          setCustomers(data.data || []);
+          setCustomersQuery(query);
+        }
       } catch { /* keep the customer suggestion list closed on lookup failure */ }
-    }, 220);
-    return () => { window.clearTimeout(timer); controller.abort(); };
+    };
+    void loadCustomers();
+    return () => controller.abort();
   }, [isEditing, disabled, query]);
 
   const chooseCustomer = (customer) => {
@@ -587,7 +599,7 @@ const CustomerNameAutocompleteCell = memo(function CustomerNameAutocompleteCell(
     onFindCustomer(row.id);
   };
 
-  return <Popover opened={isOpen} onChange={(opened) => { if (!opened) setIsEditing(false); }} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500}>
+  return <Popover opened={isOpen} onChange={(opened) => { if (!opened) setIsEditing(false); }} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500} transitionProps={{ duration: 0 }}>
     <Popover.Target>
       <div className={classes.itemNameSearchTarget}>
         <input
@@ -619,13 +631,13 @@ const CustomerNameAutocompleteCell = memo(function CustomerNameAutocompleteCell(
               event.preventDefault(); event.stopPropagation();
               if (!disabled) openPicker();
             } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-              if (!customers.length) return;
+              if (!isOpen) return;
               event.preventDefault(); event.stopPropagation(); setIsEditing(true);
               setActiveIndex((current) => event.key === 'ArrowDown'
-                ? (current + 1) % customers.length : (current - 1 + customers.length) % customers.length);
-            } else if (event.key === 'Enter' && isEditing) {
+                ? (current + 1) % visibleCustomers.length : (current - 1 + visibleCustomers.length) % visibleCustomers.length);
+            } else if (event.key === 'Enter' && isOpen) {
               event.preventDefault(); event.stopPropagation();
-              const customer = customers[activeIndex >= 0 ? activeIndex : 0];
+              const customer = visibleCustomers[activeIndex >= 0 ? activeIndex : 0];
               if (customer) chooseCustomer(customer);
             } else if (event.key === 'Escape') {
               event.preventDefault(); event.stopPropagation(); setDraft(row.customname || ''); setIsEditing(false); setActiveIndex(-1);
@@ -637,7 +649,7 @@ const CustomerNameAutocompleteCell = memo(function CustomerNameAutocompleteCell(
     </Popover.Target>
     <Popover.Dropdown className={itemMasterClasses.shapeSuggestions}>
       <div id={`customer-suggestions-${row.id}`} role="listbox" aria-label="매입처 검색 결과">
-        {customers.map((customer, index) => <button key={customer.customercode} type="button" role="option" aria-selected={index === activeIndex}
+        {visibleCustomers.map((customer, index) => <button key={customer.customercode} type="button" role="option" aria-selected={index === activeIndex}
           className={itemMasterClasses.shapeSuggestion}
           style={index === activeIndex ? { background: '#edf3f8' } : undefined}
           onMouseDown={(event) => event.preventDefault()}
@@ -688,7 +700,7 @@ const WarehouseNameAutocompleteCell = memo(function WarehouseNameAutocompleteCel
     onFindMaster(row.id, 'warehousecodename');
   };
 
-  return <Popover opened={isOpen} onChange={(opened) => { if (!opened) setIsEditing(false); }} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500}>
+  return <Popover opened={isOpen} onChange={(opened) => { if (!opened) setIsEditing(false); }} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500} transitionProps={{ duration: 0 }}>
     <Popover.Target>
       <div className={classes.itemNameSearchTarget}>
         <input
@@ -780,7 +792,7 @@ const GeneralCodeNameAutocompleteCell = memo(function GeneralCodeNameAutocomplet
     onFindMaster(row.id, field);
   };
 
-  return <Popover opened={isOpen} onChange={(opened) => { if (!opened) setIsEditing(false); }} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500}>
+  return <Popover opened={isOpen} onChange={(opened) => { if (!opened) setIsEditing(false); }} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500} transitionProps={{ duration: 0 }}>
     <Popover.Target>
       <div className={classes.itemNameSearchTarget}>
         <input
@@ -827,7 +839,7 @@ const GeneralCodeNameAutocompleteCell = memo(function GeneralCodeNameAutocomplet
           className={itemMasterClasses.shapeSuggestion}
           style={index === activeIndex ? { background: '#edf3f8' } : undefined}
           onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(option)}>
-          <span>{option.name}</span><small>{option.code}</small>
+          <span>{option.name}</span>
         </button>)}
       </div>
     </Popover.Dropdown>
@@ -1418,7 +1430,7 @@ export default function InboundRegisterPage() {
       } catch {
         // A code that is not in this company's item master stays blank for correction.
       }
-    }, 220);
+    }, 0);
     codeLookupTimersRef.current.set(id, timer);
   }, [lookupItemNames, unitOptions, selectedReceiptno]);
 

@@ -30,9 +30,37 @@ DB_CONFIG = {
     "password": os.getenv("DB_PASSWORD", "1234"),
 }
 
-# CORS 허용 리스트
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
+
+APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+_cors_origins = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
 ALLOWED_ORIGINS = [
-    "*",
+    origin.strip().rstrip("/")
+    for origin in _cors_origins.split(",")
+    if origin.strip()
 ]
 
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
+if APP_ENV in {"production", "prod"}:
+    if not ALLOWED_ORIGINS or "*" in ALLOWED_ORIGINS:
+        raise RuntimeError("Set CORS_ALLOWED_ORIGINS to explicit production site origins.")
+    required_production_settings = {
+        "DB_HOST": os.getenv("DB_HOST", "").strip(),
+        "DB_NAME": os.getenv("DB_NAME", "").strip(),
+        "DB_USER": os.getenv("DB_USER", "").strip(),
+        "DB_PASSWORD": os.getenv("DB_PASSWORD", "").strip(),
+    }
+    missing_production_settings = [name for name, value in required_production_settings.items() if not value]
+    if missing_production_settings:
+        raise RuntimeError(
+            "Missing production database settings: " + ", ".join(missing_production_settings)
+        )
+    if len(JWT_SECRET_KEY) < 32:
+        raise RuntimeError("JWT_SECRET_KEY must be configured with at least 32 characters in production.")
+elif not ALLOWED_ORIGINS:
+    # Local development defaults; production must supply an explicit allowlist.
+    ALLOWED_ORIGINS = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]

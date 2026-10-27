@@ -68,8 +68,15 @@
   min-height: 0;
   height: 0;
   flex: 1 1 auto;
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #aab6c4 #f1f4f7;
 }
+
+.customerTableWrap::-webkit-scrollbar { width: 12px; height: 12px; }
+.customerTableWrap::-webkit-scrollbar-thumb { border: 3px solid #f1f4f7; border-radius: 8px; background: #aab6c4; }
+.customerTableWrap::-webkit-scrollbar-track { background: #f1f4f7; }
 
 .formPanel {
   display: flex !important;
@@ -107,7 +114,7 @@
 
 .partnerTable {
   width: max-content !important;
-  min-width: 100% !important;
+  min-width: max(100%, 960px) !important;
   font-size: 11px;
   table-layout: auto !important;
 }
@@ -192,9 +199,15 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #aab6c4 #f1f4f7;
   padding: 9px 12px;
   background: #fff;
 }
+
+.formBody::-webkit-scrollbar { width: 12px; }
+.formBody::-webkit-scrollbar-thumb { border: 3px solid #f1f4f7; border-radius: 8px; background: #aab6c4; }
+.formBody::-webkit-scrollbar-track { background: #f1f4f7; }
 
 .customerFormGrid {
   display: grid;

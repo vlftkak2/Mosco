@@ -9,7 +9,11 @@ from starlette.background import BackgroundTask
 import IniopStock as iniop_stock_module
 import security as security_module
 
-router = APIRouter(prefix="/api/iniop-stock", tags=["iniop-stock"])
+router = APIRouter(
+    prefix="/api/iniop-stock",
+    tags=["iniop-stock"],
+    dependencies=[Depends(security_module.require_menu_access("STOCK_HISTORY"))],
+)
 
 
 def _filters(date_from=None, date_to=None, iniotype="", receiptno="", customcode="", customname="", itemcode="", itemname="", thickness="", width="", length="", warehousecode="", warehousecodename="", item_search="", product_search="", warehouse_search=""):

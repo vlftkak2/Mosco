@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-import Company as company_module
 import User as user_module
 import security as security_module
 
@@ -9,10 +8,10 @@ router = APIRouter(prefix="/api/company-users", tags=["company-users"])
 
 
 def require_account_manager(user: dict = Depends(security_module.get_current_user)) -> dict:
-    if user["companyid"] == "001" and company_module.is_master(user["companyid"], user["email"]):
-        return {**user, "authority": "MASTER"}
-    if company_module.is_submaster(user["companyid"], user["email"]):
-        return {**user, "authority": "SUBMASTER"}
+    if user["companyid"] == "001" and user["authority"] == "MASTER":
+        return user
+    if user["companyid"] != "001" and user["authority"] == "SUBMASTER":
+        return user
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="플랫폼 관리자만 고객사 계정을 관리할 수 있습니다.",
@@ -41,12 +40,10 @@ def create_company_user(data: user_module.UserCreateInput, user: dict = Depends(
             if data.authority not in {"USER", "SUBMASTER"}:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Customer administrators can assign only USER or SUBMASTER authority.")
             data = data.model_copy(update={"companyname": ""})
+        item = user_module.create_user(data, created_by=user["email"])
         return {
             "success": True,
-            "item": user_module.create_user(
-                data,
-                created_by=user["email"],
-            ),
+            "item": item,
         }
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -59,9 +56,12 @@ def update_company_user(data: user_module.UserUpdateInput, user: dict = Depends(
     try:
         if user["authority"] == "SUBMASTER" and data.companyid != user["companyid"]:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only update accounts in your own company.")
+        item = user_module.update_user(data, actor=user if user["authority"] == "SUBMASTER" else None)
+        security_module.invalidate_user_access_cache(data.companyid, data.original_email)
+        security_module.invalidate_user_access_cache(data.companyid, data.email)
         return {
             "success": True,
-            "item": user_module.update_user(data, actor=user if user["authority"] == "SUBMASTER" else None),
+            "item": item,
         }
     except PermissionError as error:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
@@ -80,13 +80,15 @@ def delete_company_user(
     if user["email"].strip().lower() == email.strip().lower() and user["companyid"] == companyid:
         raise HTTPException(status_code=409, detail="현재 로그인한 관리자 계정은 삭제할 수 없습니다.")
     try:
+        item = user_module.delete_user(
+            companyid,
+            email,
+            actor=user if user["authority"] == "SUBMASTER" else None,
+        )
+        security_module.invalidate_user_access_cache(companyid, email)
         return {
             "success": True,
-            "item": user_module.delete_user(
-                companyid,
-                email,
-                actor=user if user["authority"] == "SUBMASTER" else None,
-            ),
+            "item": item,
         }
     except PermissionError as error:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error

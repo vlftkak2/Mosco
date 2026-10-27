@@ -60,23 +60,11 @@ MAX_CONCURRENT_GLOBAL = max(MAX_CONCURRENT_PER_COMPANY, int(os.getenv("AI_ORDER_
 MAX_QUEUE_WAIT_SECONDS = max(30, int(os.getenv("AI_ORDER_MAX_QUEUE_WAIT_SECONDS", "900")))
 
 
-def check_user_access(companyid: str, email: str) -> bool:
-    """Require an active user record belonging to the authenticated company."""
-    conn_str = (
-        f"host={DB_CONFIG['host']} port={DB_CONFIG['port']} dbname={DB_CONFIG['database']} "
-        f"user={DB_CONFIG['user']} password={DB_CONFIG['password']}"
-    )
-    conn = psycopg2.connect(conn_str, connect_timeout=5)
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SET LOCAL statement_timeout = '5s'")
-        cursor.execute(
-            "SELECT 1 FROM User01t WHERE Email = %s AND CompanyID = %s AND UseYN = 'Y' LIMIT 1",
-            (email, companyid),
-        )
-        return cursor.fetchone() is not None
-    finally:
-        conn.close()
+def check_user_access(companyid: str, email: str, menuid: str = "AI_ORDER_RECOGNITION") -> bool:
+    """Require an active account/company and the requested AI menu permission."""
+    from security import user_has_menu_access
+
+    return user_has_menu_access(companyid, email, menuid)
 
 
 class OrderHeader(BaseModel):

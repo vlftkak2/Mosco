@@ -6,7 +6,7 @@ import security as security_module
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
 def require_master(user: dict = Depends(security_module.get_current_user)) -> dict:
-    if user["companyid"] != "001" or not company_module.is_master(user["companyid"], user["email"]):
+    if user["companyid"] != "001" or user["authority"] != "MASTER":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Steel119 최종관리자만 사용할 수 있습니다.")
     return user
 
@@ -35,9 +35,10 @@ def create_company(data: company_module.CompanyInput, user: dict = Depends(requi
 
 @router.put("/{companyid}")
 def update_company(companyid: str, data: company_module.CompanyInput, user: dict = Depends(require_master)):
-    del user
     try:
-        return {"success": True, "item": company_module.update_company(companyid, data)}
+        item = company_module.update_company(companyid, data)
+        security_module.invalidate_user_access_cache(companyid)
+        return {"success": True, "item": item}
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
@@ -48,6 +49,7 @@ def update_company(companyid: str, data: company_module.CompanyInput, user: dict
 def delete_company(companyid: str, user: dict = Depends(require_master)):
     del user
     try:
+        security_module.invalidate_user_access_cache(companyid)
         if not company_module.delete_company(companyid):
             raise HTTPException(status_code=404, detail="고객사를 찾을 수 없습니다.")
         return {"success": True}

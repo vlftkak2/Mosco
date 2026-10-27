@@ -4,7 +4,11 @@ from datetime import date
 import InboundRegister as inbound_module
 import security as security_module
 
-router = APIRouter(prefix="/api/inbound-register", tags=["inbound-register"])
+router = APIRouter(
+    prefix="/api/inbound-register",
+    tags=["inbound-register"],
+    dependencies=[Depends(security_module.require_menu_access("INBOUND_REGISTER"))],
+)
 
 
 @router.get("/receipts")

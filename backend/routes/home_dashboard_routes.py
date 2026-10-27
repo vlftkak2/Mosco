@@ -6,7 +6,11 @@ import home_dashboard_data as dashboard_data_module
 import security as security_module
 
 
-router = APIRouter(prefix="/api", tags=["home"])
+router = APIRouter(
+    prefix="/api",
+    tags=["home"],
+    dependencies=[Depends(security_module.require_menu_access("HOME"))],
+)
 
 
 @router.get("/home-market-summary")

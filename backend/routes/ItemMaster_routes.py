@@ -3,7 +3,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 import ItemMaster as item_master_module
 import security as security_module
 
-router = APIRouter(prefix="/api/item-master", tags=["item-master"])
+router = APIRouter(
+    prefix="/api/item-master",
+    tags=["item-master"],
+    dependencies=[Depends(security_module.require_menu_access("DATA_ITEM"))],
+)
 
 
 @router.get("/items")

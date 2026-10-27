@@ -9,7 +9,6 @@ import {
   Pagination,
   Paper,
   Select,
-  ScrollArea,
   Table,
   Text,
   TextInput,
@@ -313,19 +312,14 @@ const CustomerListPanel = memo(function CustomerListPanel({
           size="sm"
         />
       </Group>
-      <ScrollArea
-        className={classes.customerTableWrap}
-        type="always"
-        scrollbars="xy"
-        scrollbarSize={12}
-      >
+      <div className={classes.customerTableWrap}>
         <CustomerTable
           customers={customers}
           selectedCode={selectedCode}
           loading={loading}
           onSelect={onSelect}
         />
-      </ScrollArea>
+      </div>
       <Group
         className={`${sharedClasses.footer} ${classes.customerListFooter}`}
         justify="space-between"
@@ -474,7 +468,7 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
               className={classes.zipcodeField}
               label="우편번호"
               value={draft.zipcode}
-              placeholder="주소 검색 시 자동 입력"
+              placeholder="주소 검색"
               inputMode="numeric"
               maxLength={5}
               onChange={(event) => onChange("zipcode", event.currentTarget.value)}
@@ -605,7 +599,7 @@ export default function CustomerPage() {
 
   useEffect(() => {
     if (!companyid) return;
-    axios.get("/api/managers", { ...authConfig(), params: { companyid } })
+    axios.get("/api/managers", authConfig())
       .then(({ data }) => setManagers(data.data || []))
       .catch((error) => {
         setManagers([]);
@@ -926,7 +920,7 @@ export default function CustomerPage() {
 
   const downloadTemplate = useCallback(() => {
     const headers = [
-      "거래처코드(선택/자동채번)",
+      "거래처코드",
       "거래처명",
       "사업자번호",
       "법인번호",
@@ -947,7 +941,7 @@ export default function CustomerPage() {
     ];
     const worksheet = XLSX.utils.aoa_to_sheet([
       headers,
-      ["", "모스코", "", "", "김찬수", "매입처", "", "", "", "", "", "", "", "", "", "", "Y", ""],
+      ["CUST001", "거래처명", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
     ]);
     applyExcelHeaderStyle(worksheet, headers.length);
     worksheet["!cols"] = headers.map(() => ({ wch: 18 }));
@@ -1107,7 +1101,7 @@ export default function CustomerPage() {
                 String(value).trim(),
               ]),
             );
-            const customer = emptyCustomer();
+            const customer = { ...emptyCustomer(), tradetype: "" };
             customer.companyid = companyid;
             customer.companyname = companyname;
             Object.entries(aliases).forEach(([field, names]) => {
@@ -1138,13 +1132,13 @@ export default function CustomerPage() {
         const validCustomers = [];
         imported.forEach(({ customer, excelRow, bankError }) => {
           const rowErrors = [];
+          if (!customer.customercode) rowErrors.push("거래처코드 필수");
           if (!customer.customername) rowErrors.push("거래처명 필수");
           if (bankError) rowErrors.push("코드마스터에 등록되지 않은 은행명/은행코드");
           if (rowErrors.length) failures.push(`${excelRow}행: ${rowErrors.join(", ")}`);
           else validCustomers.push(customer);
         });
 
-        let generatedCodes = [];
         if (validCustomers.length) {
           setUploadProgress(
             `${validCustomers.length.toLocaleString()}건 서버 등록 중`,
@@ -1154,13 +1148,12 @@ export default function CustomerPage() {
           }, authConfig());
           if (data.success === false)
             throw new Error(data.message || "일괄 등록에 실패했습니다.");
-          generatedCodes = data.generated_codes || [];
         }
         notifications.show({
           title: failures.length
             ? validCustomers.length ? "일괄 등록 완료 (일부 제외)" : "일괄 등록 중단"
             : "일괄 등록 완료",
-          message: `${validCustomers.length}건 등록${generatedCodes.length ? ` (자동채번 ${generatedCodes.length}건: ${generatedCodes.slice(0, 3).join(", ")}${generatedCodes.length > 3 ? " 외" : ""})` : ""}${failures.length ? `, ${failures.length}건 제외: ${failures.slice(0, 5).join(" / ")}` : ""}`,
+          message: `${validCustomers.length}건 등록${failures.length ? `, ${failures.length}건 제외: ${failures.slice(0, 5).join(" / ")}` : ""}`,
           color: failures.length ? "orange" : "teal",
           position: "bottom-right",
           autoClose: 7000,
