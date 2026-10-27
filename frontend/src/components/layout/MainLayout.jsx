@@ -124,8 +124,8 @@ const mockdata = [
     initiallyOpened: false,
     links: [
       { label: '고객사등록', link: '/Company', icon: '', MenuID:'COMPANY_REGISTRATION'},
-      { label: '고객사 계정관리', link: '/User', icon: '', MenuID:'COMPANY_USER_MANAGEMENT'},
-      { label: '메뉴 권한', link: '/UserMenu', icon: '', MenuID:'USER_MENU_PERMISSION'},
+      { label: '사용자 관리', link: '/User', icon: '', MenuID:'COMPANY_USER_MANAGEMENT'},
+      { label: '사용자 메뉴권한', link: '/UserMenu', icon: '', MenuID:'USER_MENU_PERMISSION'},
       { label: '설정', link: '/', icon: '✔️', MenuID:'M-19', disabled: true},
     ],
   },
@@ -154,8 +154,8 @@ function findMenuLabel(items, path) {
     '/aiprocessingstandards': '가공기준 관리',
     '/customersupport': '고객지원',
     '/company': '고객사등록',
-    '/user': '고객사 계정관리',
-    '/usermenu': '메뉴 권한',
+    '/user': '사용자 관리',
+    '/usermenu': '사용자 메뉴권한',
   };
 
   if (routeLabelAliases[normalizedPath]) return routeLabelAliases[normalizedPath];
@@ -368,7 +368,7 @@ const visibleMockdata = mockdata
     if (!item.links) return item;
     const links = item.links.filter((link) => {
       if (link.link === '/Company') return currentAuthority === 'MASTER';
-      if (link.link === '/User') return currentAuthority === 'MASTER';
+      if (link.link === '/User') return ['MASTER', 'SUBMASTER'].includes(currentAuthority);
       if (link.link === '/UserMenu') return ['MASTER', 'SUBMASTER'].includes(currentAuthority);
       if (link.link === '/') return currentAuthority === 'MASTER';
       return true;

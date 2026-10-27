@@ -85,17 +85,17 @@
 .userTable th:nth-child(2), .userTable td:nth-child(2) { width: 42%; }
 .userTable th:nth-child(3), .userTable td:nth-child(3) { width: 21%; }
 .userTable th:nth-child(4), .userTable td:nth-child(4) { width: 13%; }
-.userTable tbody tr,
-.menuTable tbody tr { cursor: pointer; }
+.userTable tbody tr { cursor: pointer; }
+.menuTable tbody tr { cursor: default; }
 .userTable th:nth-child(3),
 .userTable td:nth-child(3),
 .userTable th:nth-child(4),
 .userTable td:nth-child(4),
 .checkColumn { text-align: center !important; }
+.menuTable :global(.mantine-Switch-track) { cursor: pointer; }
 .statusColumn { text-align: center !important; }
 .menuTable th:nth-child(4) { text-align: center; }
-.disabledRow { cursor: default !important; }
-.disabledRow td { color: #9aa5b4; background: #fafbfc; }
+.inactiveMenuRow td { color: #78869a; background: #fafbfc; }
 .selectedRow td { background: #fff0f0; }
 .selectedRow td:first-child { box-shadow: inset 3px 0 #f0444c; }
 .empty { height: 160px !important; color: #94a3b8 !important; text-align: center; }

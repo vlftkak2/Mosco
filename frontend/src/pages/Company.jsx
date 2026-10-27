@@ -320,7 +320,7 @@ export default function Company() {
   });
 
   const usageText = useMemo(
-    () => `${draft.active_users || 0} / ${draft.licensed_seats || 0}명`,
+    () => `${Number(draft.active_users || 0).toLocaleString('ko-KR')} / ${Number(draft.licensed_seats || 0).toLocaleString('ko-KR')}명`,
     [draft.active_users, draft.licensed_seats],
   );
 
@@ -401,7 +401,7 @@ export default function Company() {
                     <Table.Td title={company.companyname}>{company.companyname}</Table.Td>
                     <Table.Td>{PLAN_LABEL[company.plan_code] || company.plan_code}</Table.Td>
                     <Table.Td><Badge size="sm" variant="light" color={company.company_status === 'ACTIVE' ? 'teal' : company.company_status === 'SUSPENDED' ? 'orange' : 'gray'}>{STATUS_LABEL[company.company_status] || company.company_status}</Badge></Table.Td>
-                    <Table.Td>{company.licensed_seats}</Table.Td>
+                    <Table.Td>{Number(company.licensed_seats || 0).toLocaleString('ko-KR')}</Table.Td>
                     <Table.Td>{formatDate(company.createdat)}</Table.Td>
                     <Table.Td>{formatDate(company.updatedat)}</Table.Td>
                   </Table.Tr>
@@ -445,7 +445,7 @@ export default function Company() {
               <TextInput label="이메일" value={draft.email} onChange={(event) => updateDraft('email', event.currentTarget.value)} maxLength={255} />
               <Select label="서비스 유형 *" data={PLAN_OPTIONS} value={draft.plan_code} onChange={(value) => updateDraft('plan_code', value || 'BASIC')} allowDeselect={false} />
               <Select label="이용 상태 *" data={STATUS_OPTIONS} value={draft.company_status} onChange={(value) => updateDraft('company_status', value || 'PENDING')} allowDeselect={false} />
-              <NumberInput label="허용 계정 수 *" min={0} allowDecimal={false} value={draft.licensed_seats} onChange={(value) => updateDraft('licensed_seats', Number(value || 0))} />
+              <NumberInput label="허용 계정 수 *" min={0} allowDecimal={false} thousandSeparator="," value={draft.licensed_seats} onChange={(value) => updateDraft('licensed_seats', Number(value || 0))} />
               <TextInput label="현재 활성 계정" value={usageText} readOnly disabled />
               <Group className={classes.addressField} align="flex-end" gap="xs" wrap="nowrap">
                 <TextInput
