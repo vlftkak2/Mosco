@@ -69,6 +69,7 @@ export default function User() {
   const selectedEmailRef = useRef(selectedEmail);
   const isNewRef = useRef(isNew);
   const companyDropdownWasOpen = useRef(false);
+  const saveInProgressRef = useRef(false);
 
   useEffect(() => { selectedEmailRef.current = selectedEmail; }, [selectedEmail]);
   useEffect(() => { isNewRef.current = isNew; }, [isNew]);
@@ -106,7 +107,9 @@ export default function User() {
       setCompanies(rows);
       setCompanyid((current) => (rows.some((row) => row.companyid === current) ? current : rows[0]?.companyid || ''));
     } catch (error) {
-      notifications.show({ title: '고객사 조회 실패', message: errorMessage(error, '고객사 목록을 불러오지 못했습니다.'), color: 'red' });
+      if (![401, 403].includes(error.response?.status)) {
+        notifications.show({ title: '고객사 조회 실패', message: errorMessage(error, '고객사 목록을 불러오지 못했습니다.'), color: 'red' });
+      }
       setCompanies([]);
       setCompanyid('');
     } finally {
@@ -129,7 +132,10 @@ export default function User() {
         ...authConfig(),
         params: { companyid: targetCompanyId },
       });
-      setCompanyInfo(data.company);
+      setCompanyInfo({
+        ...data.company,
+        active_users: Number(data.active_users || 0),
+      });
       setCompanyname(data.company.companyname || '');
       setUsers(data.items || []);
       if (!preserveDraft && !isNewRef.current) {
@@ -220,6 +226,8 @@ export default function User() {
       notifications.show({ title: '계정 등록 불가', message: '고객사 상태와 허용 계정 수를 확인해 주세요.', color: 'orange' });
       return;
     }
+    if (saveInProgressRef.current) return;
+    saveInProgressRef.current = true;
     setSaving(true);
     try {
       const payload = {
@@ -241,7 +249,14 @@ export default function User() {
         || data.item.authority !== 'SUBMASTER'
         || data.item.useyn !== 'Y'
       )) {
-        notifications.show({ title: '계정 정보 변경 완료', message: '이메일, 권한 또는 사용 상태가 변경되어 다시 로그인합니다.', color: 'teal' });
+        const changedToUser = data.item.authority === 'USER';
+        notifications.show({
+          title: changedToUser ? '권한 변경 완료' : '계정 정보 변경 완료',
+          message: changedToUser
+            ? '일반 사용자로 권한이 변경되었습니다. 다시 로그인해 주세요.'
+            : '로그인 정보가 변경되었습니다. 다시 로그인해 주세요.',
+          color: 'teal',
+        });
         ['access_token', 'user_name', 'user_email', 'user_company', 'user_companyname', 'user_authority'].forEach((key) => localStorage.removeItem(key));
         navigate('/login');
         return;
@@ -257,6 +272,7 @@ export default function User() {
     } catch (error) {
       notifications.show({ title: '저장 실패', message: errorMessage(error, '고객사 계정을 저장하지 못했습니다.'), color: 'red' });
     } finally {
+      saveInProgressRef.current = false;
       setSaving(false);
     }
   }, [canCreateUser, companyid, currentEmail, draft, isNew, isSubmaster, loadCompanies, loadUsers, navigate, readOnlyExisting, selectedEmail]);

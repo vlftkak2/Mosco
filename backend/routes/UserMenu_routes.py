@@ -27,6 +27,14 @@ def ensure_company_scope(user: dict, companyid: str):
         )
 
 
+@router.get("/mine")
+def get_my_permissions(user: dict = Depends(security_module.get_current_user)):
+    return {
+        "success": True,
+        "menuids": user_menu_module.get_my_menuids(user["companyid"], user["email"]),
+    }
+
+
 @router.get("/companies")
 def get_manageable_companies(user: dict = Depends(require_menu_manager)):
     return {
