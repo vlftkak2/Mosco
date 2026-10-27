@@ -219,42 +219,7 @@ export default function MainLayout({ children }) {
   );
 
   const [myPermissions, setMyPermissions] = useState([]);
-
-  //   /* 잠시 주석처리 */
-  // useEffect(() => {
-  //   const fetchMyAuth = async () => {
-  //     const myEmail = localStorage.getItem('user_email');
-  //     if (!myEmail) return;
-
-  //     try {
-  //       // UserAuthPage에서 썼던 API를 그대로 활용해서 '나'의 권한만 추출
-  //       //const res = await axios.get(`http://${window.location.hostname}/api/menu-user-Authemaillist`, {
-  //       const res = await axios.get(`/api/menu-user-Authemaillist`, {
-  //         params: { email: myEmail } // 내 이메일로 검색
-  //       });
-
-  //       if (res.data.success && res.data.data.length > 0) {
-  //         const me = res.data.data[0];
-  //         const teamAuths = me.TeamAuths || [];
-  //         const userExceptions = me.UserExceptions || [];
-          
-  //         const finalSet = new Set(teamAuths.map(t => t.MenuID));
-  //         userExceptions.forEach(ex => {
-  //           if (ex.AuthType === 'GRANT') finalSet.add(ex.MenuID);
-  //           if (ex.AuthType === 'DENY') finalSet.delete(ex.MenuID);
-  //         });
-  //         console.log("실제 내 권한 리스트:", Array.from(finalSet));
-  //         setMyPermissions(Array.from(finalSet));
-  //       }
-  //     } catch (error) {
-  //       console.error("내 권한 로드 실패:", error);
-  //     }
-  //   };
-
-  //   fetchMyAuth();
-  // }, []);
-
-  
+  const [myPermissionsLoaded, setMyPermissionsLoaded] = useState(false);
 
   const [userInfo, setUserInfo] = useState(() => {
     
@@ -266,6 +231,31 @@ export default function MainLayout({ children }) {
       email: email || '' 
     };
   });
+
+  useEffect(() => {
+    let cancelled = false;
+    const token = localStorage.getItem('access_token');
+    if (!token || !userInfo.email) {
+      return undefined;
+    }
+
+    axios.get('/api/user-menu/mine', {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(({ data }) => {
+      if (!cancelled) {
+        setMyPermissions(data.menuids || []);
+        setMyPermissionsLoaded(true);
+      }
+    }).catch((error) => {
+      console.error('사용자 메뉴 권한 조회 실패:', error);
+      if (!cancelled) {
+        setMyPermissions([]);
+        setMyPermissionsLoaded(true);
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [userInfo.email]);
 
 // 1. 함수 앞에 async를 붙입니다.
 const handlePasswordChange = async (e) => {
@@ -357,8 +347,9 @@ const handlePasswordChange = async (e) => {
   }, [userInfo, navigate]);
 
   const handleLogout = () =>{
-    localStorage.clear();
-    navigate('/');
+    ['access_token', 'user_name', 'user_email', 'user_company', 'user_companyname', 'user_authority']
+      .forEach((key) => localStorage.removeItem(key));
+    navigate('/login');
   }
 
 
@@ -370,12 +361,31 @@ const visibleMockdata = mockdata
       if (link.link === '/Company') return currentAuthority === 'MASTER';
       if (link.link === '/User') return ['MASTER', 'SUBMASTER'].includes(currentAuthority);
       if (link.link === '/UserMenu') return ['MASTER', 'SUBMASTER'].includes(currentAuthority);
-      if (link.link === '/') return currentAuthority === 'MASTER';
-      return true;
+      if (currentAuthority === 'MASTER') return true;
+      return !link.MenuID || myPermissions.includes(link.MenuID);
     });
     return { ...item, links };
   })
-  .filter((item) => !item.links || item.links.length > 0);
+  .filter((item) => {
+    if (item.links) return item.links.length > 0;
+    if (currentAuthority === 'MASTER') return true;
+    return !item.MenuID || myPermissions.includes(item.MenuID);
+  });
+
+const firstAccessiblePath = visibleMockdata
+  .flatMap((item) => item.links || [item])
+  .find((item) => item.link && item.link !== '/HomePage')?.link;
+const noAccessibleMenus = currentAuthority !== 'MASTER'
+  && myPermissionsLoaded
+  && !myPermissions.includes('HOME')
+  && !firstAccessiblePath;
+
+useEffect(() => {
+  if (!isDashboard || currentAuthority === 'MASTER' || !myPermissionsLoaded || myPermissions.includes('HOME')) return;
+  if (firstAccessiblePath) {
+    navigate(firstAccessiblePath, { replace: true });
+  }
+}, [currentAuthority, firstAccessiblePath, isDashboard, myPermissions, myPermissionsLoaded, navigate]);
 
 const links = visibleMockdata.map((item) => (
   <LinksGroup {...item} pathname={pathname} key={item.label} />
@@ -516,7 +526,17 @@ const links = visibleMockdata.map((item) => (
         </div>}
         {/* 클래스 적용 */}
         <div className={`${classes.contentCard} ${isDashboard ? classes.dashboardContentCard : isInboundWorkspace ? classes.inboundContentCard : ''}`}>
-          <PageRibbonContext.Provider value={pageRibbonContextValue}>{children}</PageRibbonContext.Provider>
+          <PageRibbonContext.Provider value={pageRibbonContextValue}>
+            {isDashboard && currentAuthority !== 'MASTER' && !myPermissionsLoaded
+              ? <Text c="dimmed" ta="center" mt="xl">메뉴 권한을 확인하고 있습니다.</Text>
+              : isDashboard && currentAuthority !== 'MASTER' && !myPermissions.includes('HOME')
+                ? <Text c="dimmed" ta="center" mt="xl">
+                    {noAccessibleMenus
+                      ? '접근할 수 있는 메뉴가 없습니다. 관리자에게 메뉴 권한을 요청해 주세요.'
+                      : '대시보드 권한이 없어 허용된 메뉴로 이동합니다.'}
+                  </Text>
+                : children}
+          </PageRibbonContext.Provider>
         </div>
       </AppShell.Main>
     </AppShell>

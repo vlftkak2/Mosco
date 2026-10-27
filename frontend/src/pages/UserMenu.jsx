@@ -91,11 +91,13 @@ export default function UserMenu() {
     } catch (error) {
       setCompanies([]);
       setCompanyid('');
-      notifications.show({
-        title: '고객사 조회 실패',
-        message: errorMessage(error, '관리 가능한 고객사를 불러오지 못했습니다.'),
-        color: 'red',
-      });
+      if (![401, 403].includes(error.response?.status)) {
+        notifications.show({
+          title: '고객사 조회 실패',
+          message: errorMessage(error, '관리 가능한 고객사를 불러오지 못했습니다.'),
+          color: 'red',
+        });
+      }
     } finally {
       setLoadingCompanies(false);
     }
@@ -346,7 +348,7 @@ export default function UserMenu() {
           </Group>
 
           <Group className={classes.permissionBar} justify="space-between">
-            <Text size="xs" c="dimmed">접근 스위치는 선택 사용자 권한만 변경합니다. 메뉴 운영상태는 그대로 유지됩니다.</Text>
+            <Text size="xs" c="dimmed">접근 스위치는 선택 사용자 권한만 변경합니다.</Text>
             <Checkbox
               size="xs"
               label="전체 허용"

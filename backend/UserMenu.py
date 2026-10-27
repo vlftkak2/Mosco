@@ -127,6 +127,25 @@ def get_user_menu_permissions(companyid: str, useremail: str, is_master: bool):
         return {"target": dict(target), "items": [dict(row) for row in cursor.fetchall()]}
 
 
+def get_my_menuids(companyid: str, useremail: str):
+    with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
+        cursor.execute(
+            """SELECT m.menuid
+               FROM menucatalog01t m
+               JOIN usermenupermission01t p
+                 ON p.menuid = m.menuid
+                AND p.companyid = %s
+                AND LOWER(p.useremail) = LOWER(%s)
+               WHERE m.assignable = TRUE
+                 AND m.access_scope = 'COMPANY'
+                 AND UPPER(COALESCE(m.useyn, 'N')) = 'Y'
+                 AND UPPER(COALESCE(p.useyn, 'N')) = 'Y'
+               ORDER BY m.sort_order, m.menuid""",
+            (companyid, useremail),
+        )
+        return [row["menuid"] for row in cursor.fetchall()]
+
+
 def save_user_menu_permissions(data: UserMenuPermissionInput, manager_email: str, is_master: bool):
     with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         target = _get_target_user(cursor, data.companyid, data.useremail, is_master)
