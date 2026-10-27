@@ -9,7 +9,11 @@ from starlette.background import BackgroundTask
 import OutboundSearch as outbound_search_module
 import security as security_module
 
-router = APIRouter(prefix="/api/outbound-search", tags=["outbound-search"])
+router = APIRouter(
+    prefix="/api/outbound-search",
+    tags=["outbound-search"],
+    dependencies=[Depends(security_module.require_menu_access("OUTBOUND_SEARCH"))],
+)
 
 
 @router.get("/details/export")

@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-import Company as company_module
 import UserMenu as user_menu_module
 import security as security_module
 
@@ -9,10 +8,10 @@ router = APIRouter(prefix="/api/user-menu", tags=["user-menu"])
 
 
 def require_menu_manager(user: dict = Depends(security_module.get_current_user)) -> dict:
-    if user["companyid"] == "001" and company_module.is_master(user["companyid"], user["email"]):
-        return {**user, "authority": "MASTER"}
-    if company_module.is_submaster(user["companyid"], user["email"]):
-        return {**user, "authority": "SUBMASTER"}
+    if user["companyid"] == "001" and user["authority"] == "MASTER":
+        return user
+    if user["companyid"] != "001" and user["authority"] == "SUBMASTER":
+        return user
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="플랫폼 관리자 또는 고객사 관리자만 메뉴 권한을 관리할 수 있습니다.",
@@ -31,7 +30,11 @@ def ensure_company_scope(user: dict, companyid: str):
 def get_my_permissions(user: dict = Depends(security_module.get_current_user)):
     return {
         "success": True,
-        "menuids": user_menu_module.get_my_menuids(user["companyid"], user["email"]),
+        "menuids": sorted(user["menuids"]),
+        "authority": user["authority"],
+        "companyid": user["companyid"],
+        "username": user["username"],
+        "companyname": user["companyname"],
     }
 
 
@@ -87,13 +90,15 @@ def update_permissions(
 ):
     ensure_company_scope(user, data.companyid)
     try:
+        result = user_menu_module.save_user_menu_permissions(
+            data,
+            user["email"],
+            user["authority"] == "MASTER",
+        )
+        security_module.invalidate_user_access_cache(data.companyid, result["useremail"])
         return {
             "success": True,
-            "item": user_menu_module.save_user_menu_permissions(
-                data,
-                user["email"],
-                user["authority"] == "MASTER",
-            ),
+            "item": result,
         }
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

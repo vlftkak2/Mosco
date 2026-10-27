@@ -131,7 +131,7 @@ def CustomerManagerList(companyid: str):
                 SELECT DISTINCT username
                 FROM user01t
                 WHERE companyid = %s
-                  AND useyn = 'Y'
+                  AND UPPER(BTRIM(COALESCE(useyn, 'N'))) = 'Y'
                   AND NULLIF(BTRIM(username), '') IS NOT NULL
                 ORDER BY username
                 """,
@@ -153,7 +153,8 @@ def _validate_customer_references(cursor, item: CustomModifyRequest):
         cursor.execute(
             """
             SELECT 1 FROM user01t
-            WHERE companyid = %s AND username = %s AND useyn = 'Y'
+            WHERE companyid = %s AND username = %s
+              AND UPPER(BTRIM(COALESCE(useyn, 'N'))) = 'Y'
             LIMIT 1
             """,
             (item.companyid, item.manager),
@@ -179,11 +180,29 @@ def _validate_customer_references(cursor, item: CustomModifyRequest):
 
 def _validate_customer_batch_references(cursor, items: List[CustomModifyRequest], companyid: str):
     bank_values = set()
+    manager_values = set()
     for item in items:
         item.manager = (item.manager or "").strip()
         item.bankcode = (item.bankcode or "").strip()
+        if item.manager:
+            manager_values.add(item.manager)
         if item.bankcode:
             bank_values.add(item.bankcode)
+
+    if manager_values:
+        cursor.execute(
+            """
+            SELECT DISTINCT username FROM user01t
+            WHERE companyid = %s
+              AND UPPER(BTRIM(COALESCE(useyn, 'N'))) = 'Y'
+              AND username = ANY(%s)
+            """,
+            (companyid, list(manager_values)),
+        )
+        missing_managers = manager_values - {row[0] for row in cursor.fetchall()}
+        if missing_managers:
+            names = ", ".join(sorted(missing_managers)[:10])
+            return {"success": False, "message": f"사용 중인 회사 계정에 없는 담당자입니다: {names}"}
 
     if bank_values:
         cursor.execute(
@@ -273,10 +292,13 @@ def CustomerBulkCreate(items: List[CustomModifyRequest]):
             if not reference_check["success"]:
                 return reference_check
 
-            next_number = int(_next_customer_code(cursor, companyid).split("-")[1])
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (companyid,))
             requested_codes = [(item.customercode or "").strip() for item in items]
-            explicit_codes = [code for code in requested_codes if code]
-            normalized_codes = [code.casefold() for code in explicit_codes]
+            if not all(requested_codes):
+                return {"success": False, "message": "엑셀 일괄등록은 거래처코드와 거래처명이 필수입니다."}
+            if any(not (item.customername or "").strip() for item in items):
+                return {"success": False, "message": "엑셀 일괄등록은 거래처코드와 거래처명이 필수입니다."}
+            normalized_codes = [code.casefold() for code in requested_codes]
             if len(normalized_codes) != len(set(normalized_codes)):
                 return {"success": False, "message": "업로드 파일에 중복된 거래처코드가 있습니다."}
 
@@ -289,21 +311,8 @@ def CustomerBulkCreate(items: List[CustomModifyRequest]):
                 if duplicates:
                     return {"success": False, "message": f"이미 등록된 거래처코드가 있습니다: {', '.join(duplicates[:10])}"}
 
-            used_codes = set(normalized_codes)
-            assigned_codes = []
+            assigned_codes = requested_codes
             generated_codes = []
-            for requested_code in requested_codes:
-                if requested_code:
-                    assigned_codes.append(requested_code)
-                    continue
-                while True:
-                    candidate = f"Cust-{next_number:05d}"
-                    next_number += 1
-                    if candidate.casefold() not in used_codes:
-                        break
-                used_codes.add(candidate.casefold())
-                assigned_codes.append(candidate)
-                generated_codes.append(candidate)
 
             query = """
                 INSERT INTO customer01t

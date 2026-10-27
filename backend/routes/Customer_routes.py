@@ -8,7 +8,11 @@ from typing import List
 import Customer as customer_module
 import security as security_module
 
-router = APIRouter(prefix="/api", tags=["customer"])
+router = APIRouter(
+    prefix="/api",
+    tags=["customer"],
+    dependencies=[Depends(security_module.require_menu_access("DATA_CUSTOMER"))],
+)
 
 
 class CustomerBulkCreateRequest(BaseModel):

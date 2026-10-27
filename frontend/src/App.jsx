@@ -1,9 +1,9 @@
-import React from "react";
+import React, { useContext } from "react";
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { BrowserRouter, Navigate, Routes, Route,Outlet } from 'react-router-dom';
 
-import MainLayout from "./components/layout/MainLayout";
+import MainLayout, { MenuAccessContext } from "./components/layout/MainLayout";
 import LoginPage from "./components/auth/LoginPage";
 import HomePage from "./pages/HomePage";
 
@@ -37,9 +37,22 @@ import Company from "./pages/Company";
 import '@mantine/core/styles.css';
 
 const RequireAuthority = ({ allowed, children }) => {
-  const authority = String(localStorage.getItem('user_authority') || 'USER').toUpperCase();
-  return allowed.includes(authority) ? children : <Navigate to="/HomePage" replace />;
+  const access = useContext(MenuAccessContext);
+  if (!access.loaded) return null;
+  const authority = String(access.authority || 'USER').toUpperCase();
+  const companyid = String(access.companyid || '');
+  const isAllowed = allowed.includes(authority) && (authority !== 'MASTER' || companyid === '001');
+  return isAllowed ? children : <Navigate to={access.fallbackPath || '/login'} replace />;
 };
+
+const RequireMenuAccess = ({ menuid, children }) => {
+  const access = useContext(MenuAccessContext);
+  if (!access.loaded) return null;
+  if ((access.companyid === '001' && access.authority === 'MASTER') || access.menuids.includes(menuid)) return children;
+  return <Navigate to={access.fallbackPath || '/login'} replace />;
+};
+
+const menuPage = (menuid, element) => <RequireMenuAccess menuid={menuid}>{element}</RequireMenuAccess>;
 
 function App() {
   return (
@@ -57,32 +70,32 @@ function App() {
               <Outlet /> 
             </MainLayout>
           }>
-          <Route path="/HomePage" element={<HomePage />} />
+          <Route path="/HomePage" element={menuPage('HOME', <HomePage />)} />
 
   
-          <Route path="/UserPage" element={<UserPage />} />
+          <Route path="/UserPage" element={<RequireAuthority allowed={['MASTER']}><UserPage /></RequireAuthority>} />
           <Route path="/User" element={<RequireAuthority allowed={['MASTER', 'SUBMASTER']}><User /></RequireAuthority>} />
-          <Route path="/UserMenu" element={<UserMenu />} />
-          <Route path="/UserAuthPage" element={<UserAuthPage />} />
-          <Route path="/CustomerPage" element={<CustomerPage />} />
-          <Route path="/CustomPage" element={<CustomerPage />} />
-          <Route path="/CodeMasterPage" element={<CodeMasterPage />} />
-          <Route path="/ItemMasterPage" element={<ItemMaster />} />
-          <Route path="/InboundRegisterPage" element={<InboundRegisterPage />} />
-          <Route path="/InboundSearchPage" element={<InboundSearchPage />} />
-          <Route path="/PurchasePage" element={<PurchasePage />} />
-          <Route path="/OutboundRegisterPage" element={<OutboundRegisterPage />} />
-          <Route path="/OutboundSearchPage" element={<OutboundSearchPage />} />
-          <Route path="/StockStandPage" element={<StockStandPage />} />
-          <Route path="/CurrentStockPage" element={<CurrentStockPage />} />
-          <Route path="/IniopStockPage" element={<IniopStockPage />} />
-          <Route path="/AIOrderPage" element={<AIOrderPage />} />
-          <Route path="/AIOrderOptimization" element={<AIOrderOptimization />} />
-          <Route path="/AIProcessingStandards" element={<AIProcessingStandards />} />
-          <Route path="/AIOrderManage" element={<AIOrderManage />} />
-          <Route path="/CustomerSupport" element={<CustomerSupport />} />
-          <Route path="/AIOrderConfirmPage" element={<AIOrderConfirmPage />} />
-          <Route path="/Company" element={<Company />} />
+          <Route path="/UserMenu" element={<RequireAuthority allowed={['MASTER', 'SUBMASTER']}><UserMenu /></RequireAuthority>} />
+          <Route path="/UserAuthPage" element={<RequireAuthority allowed={['MASTER']}><UserAuthPage /></RequireAuthority>} />
+          <Route path="/CustomerPage" element={menuPage('DATA_CUSTOMER', <CustomerPage />)} />
+          <Route path="/CustomPage" element={menuPage('DATA_CUSTOMER', <CustomerPage />)} />
+          <Route path="/CodeMasterPage" element={menuPage('DATA_CODE', <CodeMasterPage />)} />
+          <Route path="/ItemMasterPage" element={menuPage('DATA_ITEM', <ItemMaster />)} />
+          <Route path="/InboundRegisterPage" element={menuPage('INBOUND_REGISTER', <InboundRegisterPage />)} />
+          <Route path="/InboundSearchPage" element={menuPage('INBOUND_SEARCH', <InboundSearchPage />)} />
+          <Route path="/PurchasePage" element={menuPage('INBOUND_REGISTER', <PurchasePage />)} />
+          <Route path="/OutboundRegisterPage" element={menuPage('OUTBOUND_REGISTER', <OutboundRegisterPage />)} />
+          <Route path="/OutboundSearchPage" element={menuPage('OUTBOUND_SEARCH', <OutboundSearchPage />)} />
+          <Route path="/StockStandPage" element={menuPage('STOCK_INITIAL', <StockStandPage />)} />
+          <Route path="/CurrentStockPage" element={menuPage('STOCK_CURRENT', <CurrentStockPage />)} />
+          <Route path="/IniopStockPage" element={menuPage('STOCK_HISTORY', <IniopStockPage />)} />
+          <Route path="/AIOrderPage" element={menuPage('AI_ORDER_RECOGNITION', <AIOrderPage />)} />
+          <Route path="/AIOrderOptimization" element={menuPage('AI_OPTIMIZATION', <AIOrderOptimization />)} />
+          <Route path="/AIProcessingStandards" element={menuPage('AI_STANDARDS', <AIProcessingStandards />)} />
+          <Route path="/AIOrderManage" element={menuPage('AI_ORDER_MANAGEMENT', <AIOrderManage />)} />
+          <Route path="/CustomerSupport" element={<RequireAuthority allowed={['MASTER']}><CustomerSupport /></RequireAuthority>} />
+          <Route path="/AIOrderConfirmPage" element={menuPage('AI_ORDER_MANAGEMENT', <AIOrderConfirmPage />)} />
+          <Route path="/Company" element={<RequireAuthority allowed={['MASTER']}><Company /></RequireAuthority>} />
 
           </Route>
         </Routes>

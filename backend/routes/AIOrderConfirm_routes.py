@@ -11,9 +11,14 @@ from pydantic import BaseModel, Field
 
 import AIOrder as ai_order_module
 import AIOrderConfirm as service
+import security as security_module
 from security import get_current_user
 
-router = APIRouter(prefix="/api/ai-order/confirmed", tags=["ai-order-confirmed"])
+router = APIRouter(
+    prefix="/api/ai-order/confirmed",
+    tags=["ai-order-confirmed"],
+    dependencies=[Depends(security_module.require_menu_access("AI_ORDER_MANAGEMENT"))],
+)
 logger = logging.getLogger(__name__)
 
 
@@ -52,7 +57,7 @@ async def authorized_user(user: dict = Depends(get_current_user)):
     email = str(user.get("email") or "").strip()
     if not companyid or not email:
         raise HTTPException(401, "로그인 정보가 필요합니다.")
-    if not await asyncio.to_thread(ai_order_module.check_user_access, companyid, email):
+    if not await asyncio.to_thread(ai_order_module.check_user_access, companyid, email, "AI_ORDER_MANAGEMENT"):
         raise HTTPException(403, "AI 주문서 메뉴 권한이 없습니다.")
     return user
 

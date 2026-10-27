@@ -193,14 +193,15 @@
   display: flex;
   height: 34px;
   min-height: 34px;
+  min-width: 0;
   align-items: end;
   gap: 5px;
-  overflow-x: auto;
+  overflow: visible;
   padding: 4px 11px 0;
   margin: 0 -16px 12px;
   border-bottom: 1px solid #d3dce8;
   background: #f0f2f5;
-  scrollbar-width: thin;
+  position: relative;
 }
 
 .pageTab {
@@ -222,6 +223,8 @@
   white-space: nowrap;
   cursor: pointer;
 }
+
+.pageTabLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 .pageTab:focus-visible,
 .pageTabClose:focus-visible {
@@ -257,6 +260,33 @@
 .pageTabClose:hover {
   color: #d92d32;
 }
+
+.moreTabsButton {
+  display: inline-flex;
+  height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid #ccd5e1;
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+  background: #e7ebf0;
+  color: #58677a;
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.moreTabsButton:hover { background: #fff; color: #d92d32; }
+.moreTabsButton > span:first-of-type { min-width: 18px; padding: 1px 5px; border-radius: 9px; background: #d8e0e9; color: #536174; text-align: center; }
+.moreTabsDropdown { width: 260px; max-height: min(60vh, 420px); overflow-y: auto; padding: 5px; }
+.moreTabsHeading { padding: 6px 9px 8px; border-bottom: 1px solid #e5e9ef; color: #7b8797; font-size: 11px; }
+.moreTabRow { display: flex; min-width: 0; align-items: center; gap: 4px; }
+.moreTabOpen { min-width: 0; flex: 1 1 auto; overflow: hidden; padding: 8px 9px; border: 0; border-radius: 4px; background: transparent; color: #40536b; font: inherit; font-size: 12px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.moreTabOpen:hover { background: #f1f4f7; color: #d92d32; }
+.moreTabClose { width: 28px; height: 28px; flex: 0 0 28px; border: 0; border-radius: 4px; background: transparent; color: #9ba5b5; font-size: 16px; cursor: pointer; }
+.moreTabClose:hover { background: #fff0f0; color: #d92d32; }
 
 /* Inbound workspace uses the remaining viewport height as a fixed ERP canvas. */
 .appShellInbound {

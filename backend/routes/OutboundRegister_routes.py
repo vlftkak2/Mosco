@@ -4,7 +4,11 @@ from datetime import date
 import OutboundRegister as outbound_module
 import security as security_module
 
-router = APIRouter(prefix="/api/outbound-register", tags=["outbound-register"])
+router = APIRouter(
+    prefix="/api/outbound-register",
+    tags=["outbound-register"],
+    dependencies=[Depends(security_module.require_menu_access("OUTBOUND_REGISTER"))],
+)
 
 
 @router.get("/available-stock")

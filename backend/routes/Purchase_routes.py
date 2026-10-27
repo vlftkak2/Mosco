@@ -6,7 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 import Purchase as purchase
 import security
 
-router = APIRouter(prefix='/api/purchase', tags=['purchase'])
+router = APIRouter(
+    prefix='/api/purchase',
+    tags=['purchase'],
+    dependencies=[Depends(security.require_menu_access("INBOUND_REGISTER"))],
+)
 
 
 class ResolveRequest(BaseModel):

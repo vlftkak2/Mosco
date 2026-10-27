@@ -8,7 +8,11 @@ from fastapi.responses import Response
 import AIOrder as ai_order_module
 import security as security_module
 
-router = APIRouter(prefix="/api/ai-order", tags=["ai-order-test"])
+router = APIRouter(
+    prefix="/api/ai-order",
+    tags=["ai-order-test"],
+    dependencies=[Depends(security_module.require_menu_access("AI_ORDER_RECOGNITION"))],
+)
 logger = logging.getLogger(__name__)
 _IDEMPOTENCY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{16,120}$")
 

@@ -6,7 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 import StockStand as stock_stand_module
 import security as security_module
 
-router = APIRouter(prefix="/api/stock-stand", tags=["stock-stand"])
+router = APIRouter(
+    prefix="/api/stock-stand",
+    tags=["stock-stand"],
+    dependencies=[Depends(security_module.require_menu_access("STOCK_INITIAL"))],
+)
 logger = logging.getLogger(__name__)
 
 

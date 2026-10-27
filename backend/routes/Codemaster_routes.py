@@ -8,7 +8,11 @@ import security as security_module
 
 
 # 공통코드 API의 URL 접두사와 OpenAPI 문서 그룹을 정의합니다.
-router = APIRouter(prefix="/api/code-master", tags=["common-codes"])
+router = APIRouter(
+    prefix="/api/code-master",
+    tags=["common-codes"],
+    dependencies=[Depends(security_module.require_menu_access("DATA_CODE"))],
+)
 
 
 class CodeItemInput(BaseModel):
