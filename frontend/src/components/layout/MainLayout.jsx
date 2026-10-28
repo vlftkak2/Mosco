@@ -28,6 +28,7 @@ import {
   IconPackageExport,      // 출고관리
   
   IconSettings,
+  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
 } from '@tabler/icons-react';
@@ -224,7 +225,7 @@ export default function MainLayout({ children }) {
     [tabState.tabs],
   );
   const visiblePageTabs = useMemo(() => {
-    const maxVisible = 8;
+    const maxVisible = 10;
     if (pageTabs.length <= maxVisible) return pageTabs;
     const initialTabs = pageTabs.slice(0, maxVisible);
     if (initialTabs.some((tab) => tab.path === pathname)) return initialTabs;
@@ -511,7 +512,7 @@ const menuAccessContextValue = {
           {pageRibbon}
         </Box>
 
-        <Group className={classes.headerUser} gap={16} wrap="nowrap">
+        <Group className={classes.headerUser} gap={8} wrap="nowrap">
           <Group
             className={classes.userIdentity}
             gap={0}
@@ -523,6 +524,7 @@ const menuAccessContextValue = {
           >
             <Text size="xs" fw={600}>{userInfo.name ? `${userInfo.name}님` : <IconUser size={15} />}</Text>
           </Group>
+          <Box className={classes.userDivider} aria-hidden="true" />
           <Button
             className={classes.logoutButton}
             variant="subtle"
@@ -573,11 +575,6 @@ const menuAccessContextValue = {
           <div className={classes.linksContainer}>{links}</div>
         </AppShell.Section>
 
-        <AppShell.Section className={`${classes.navFooter} ${sidebarCollapsed ? classes.navFooterCollapsed : ''}`}>
-          <Text className={classes.footer}>
-            © Steel119 ERP
-          </Text>
-        </AppShell.Section>
       </AppShell.Navbar>
 
       <AppShell.Main className={`${classes.appMain} ${isDashboard ? classes.appMainDashboard : isInboundWorkspace ? classes.appMainInbound : ''}`}>
@@ -597,7 +594,7 @@ const menuAccessContextValue = {
           {overflowPageTabs.length > 0 && <Menu position="bottom-end" withinPortal shadow="sm">
             <Menu.Target>
               <button type="button" className={classes.moreTabsButton} aria-label={`나머지 열린 화면 ${overflowPageTabs.length}개`}>
-                더보기 <span>{overflowPageTabs.length}</span><span aria-hidden="true">⌄</span>
+                더보기 <span>{overflowPageTabs.length}</span><IconChevronDown className={classes.moreTabsChevron} size={13} stroke={1.8} aria-hidden="true" />
               </button>
             </Menu.Target>
             <Menu.Dropdown className={classes.moreTabsDropdown}>

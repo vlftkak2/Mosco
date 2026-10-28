@@ -263,7 +263,7 @@ const CustomerListPanel = memo(function CustomerListPanel({
             onChange={onStatusChange}
             data={["전체", "사용중", "사용중지"]}
             w={126}
-            size="sm"
+            size="xs"
           />
           <Select
             label="거래 구분"
@@ -272,20 +272,20 @@ const CustomerListPanel = memo(function CustomerListPanel({
             onChange={onTradetypeChange}
             data={["전체", "매입처", "매출처", "매입매출처"]}
             w={146}
-            size="sm"
+            size="xs"
           />
           <Button
             variant="default"
-            size="sm"
-            leftSection={<IconDownload size={15} />}
+            size="xs"
+            leftSection={<IconDownload size={14} />}
             onClick={onDownloadTemplate}
           >
             샘플양식
           </Button>
           <Button
-            size="sm"
+            size="xs"
             variant="light"
-            leftSection={<IconUpload size={15} />}
+            leftSection={<IconUpload size={14} />}
             onClick={() => uploadInputRef.current?.click()}
             loading={Boolean(uploadProgress)}
             disabled={loading && !uploadProgress}

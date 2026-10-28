@@ -46,6 +46,12 @@
   color: #354052;
   font-size: 14px;
 }
+.filterHeader :global(.mantine-Text-root) {
+  color: #252a32;
+  font-size: 14px !important;
+  font-weight: 700;
+  line-height: 1.25;
+}
 
 .filterFields :global(.mantine-InputWrapper-label) {
   margin-bottom: 4px;

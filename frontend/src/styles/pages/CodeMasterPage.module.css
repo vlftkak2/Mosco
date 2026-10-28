@@ -124,7 +124,7 @@
 .statusFilter { flex: 0 0 126px; }
 .codeSearch :global(.mantine-Input-input) { min-height: 33px; font-size: 12px; }
 .statusFilter :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #475569; font-size: 12px; font-weight: 650; }
-.statusFilter :global(.mantine-Input-input) { font-size: 13px; }
+.statusFilter :global(.mantine-Input-input) { font-size: 12px; }
 .toolbar :global(.mantine-Text-root) { font-size: 11px; }
 .toolbar :global(.mantine-Button-root) { min-height: 30px; font-size: 11px; }
 

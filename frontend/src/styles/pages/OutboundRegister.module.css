@@ -82,6 +82,7 @@
 .receiptLoading { display: grid; min-height: 180px; flex: 1; place-items: center; }
 
 .editorPanel { position: relative; }
+.editorPanel > :global(.mantine-Group-root:first-child) { min-height: 42px; padding: 11px 13px; }
 .editorPanel :global(thead th) {
   background: #f0f3f7 !important;
   color: #354052 !important;

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { ActionIcon, Box, Button, Group, Loader, Pagination, Paper, Select, Stack, Text, TextInput } from '@mantine/core';
+import { ActionIcon, Box, Group, Loader, Pagination, Paper, Select, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconDownload, IconX } from '@tabler/icons-react';
+import { IconX } from '@tabler/icons-react';
 import ResizableVirtualTable from '../components/common/ResizableVirtualTable';
 import ErpBreadcrumb from '../components/common/ErpBreadcrumb';
 import useErpPageRibbon from '../components/common/useErpPageRibbon';
@@ -58,7 +58,7 @@ export default function IniopStockPage() {
         {fields.map(([key, label]) => <TextInput key={key} label={label} placeholder={key === "customname" ? "거래처명 검색" : key === "item_search" ? "품목코드 또는 품목명" : key === "product_search" ? "제품번호 검색" : "창고코드 또는 창고명"} value={inputs[key] || ""} onChange={(event) => setInputs((current) => ({ ...current, [key]: event.currentTarget.value }))} onKeyDown={(event) => event.key === "Enter" && search()} />)}
       </Stack>
     </Paper>}
-    <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder><Group className={classes.resultsToolbar} justify="space-between"><Text fw={700}>재고수불현황</Text><Button size="xs" variant="light" color="red" leftSection={<IconDownload size={14} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>엑셀 다운로드</Button></Group>
+    <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder><Group className={classes.resultsToolbar} justify="space-between"><Text className={classes.sectionTitle} fw={700}>재고수불현황</Text></Group>
       <Box className={classes.tableWrap}>{loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}{items.length ? <ResizableVirtualTable data={items} computeItemKey={(_index, item) => `${item.iniotype}:${item.receiptno}:${item.lineno}`} rowOffset={(page - 1) * pageSize} minTableWidth={0} columns={[
           { key: 'no', label: 'No.', width: 48, minWidth: 45, render: (_item, index) => index + 1 },
           { key: 'iniotype', label: '수불유형', width: 70, minWidth: 60, render: (item) => TYPE_NAMES[item.iniotype] || item.iniotype },

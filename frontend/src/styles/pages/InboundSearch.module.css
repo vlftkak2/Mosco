@@ -87,6 +87,7 @@
   background: #fff;
 }
 .filterHeader { min-height: 30px; margin-bottom: 16px; padding-bottom: 9px; border-bottom: 1px solid #e0e6ef; color: #354052; font-size: 14px; }
+.filterHeader :global(.mantine-Text-root) { color: #252a32; font-size: 14px !important; font-weight: 700; line-height: 1.25; }
 .filterFields :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #526079; font-size: 12px; font-weight: 600; }
 .filterFields :global(.mantine-Input-input) { min-height: 33px; font-size: 12px; }
 .sectionTitle { color: #252a32 !important; font-size: 14px !important; font-weight: 700 !important; line-height: 1.25; }
