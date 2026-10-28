@@ -23,10 +23,6 @@ const createDefaultFilters = () => {
 };
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
-const dimensionText = (item) => [item.thickness, item.width, item.length]
-  .filter((value) => value !== null && value !== undefined && String(value).trim() !== '')
-  .map(numberText)
-  .join(' × ');
 const sourceName = (value) => value === 'OPENING' ? '기초' : value === 'INBOUND' ? '입고' : '';
 const timestampText = (value) => {
   if (!value) return '';
@@ -120,7 +116,9 @@ export default function CurrentStockPage() {
           { key: 'surfacename', label: '표면', width: 75, minWidth: 65, render: (item) => item.surfacename || '' },
           { key: 'myrtle', label: '도금량(g/㎡)', width: 100, minWidth: 90, render: (item) => numberText(item.myrtle) },
           { key: 'manager', label: '담당자', width: 80, minWidth: 68, render: (item) => item.manager || '' },
-          { key: 'specification', label: '규격', width: 125, minWidth: 100, render: (item) => dimensionText(item) },
+          { key: 'thickness', label: '두께', width: 75, minWidth: 65, render: (item) => numberText(item.thickness) },
+          { key: 'width', label: '폭', width: 75, minWidth: 65, render: (item) => numberText(item.width) },
+          { key: 'length', label: '길이', width: 75, minWidth: 65, render: (item) => numberText(item.length) },
           { key: 'originalqty', label: '최초수량', width: 80, minWidth: 68, render: (item) => numberText(item.originalqty) },
           { key: 'qty', label: '현재수량', width: 80, minWidth: 68, render: (item) => numberText(item.qty) },
           { key: 'originalweight', label: '최초중량(KG)', width: 100, minWidth: 88, render: (item) => numberText(item.originalweight) },
