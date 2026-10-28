@@ -15,6 +15,24 @@
   transition: background 140ms ease, color 140ms ease;
 }
 
+.collapsedControl {
+  display: flex !important;
+  width: 100% !important;
+  height: 42px !important;
+  align-items: center;
+  justify-content: center;
+  margin: 2px 0 !important;
+  padding: 0 !important;
+  border: 1px solid transparent !important;
+  border-radius: 5px !important;
+  background: transparent !important;
+  color: #91a0b5 !important;
+  cursor: pointer;
+}
+.collapsedControl:hover { background: #2b3b52 !important; color: #fff !important; }
+.collapsedControl.controlActive { background: #f0444c !important; color: #fff !important; }
+.collapsedMenu { min-width: 190px; }
+
 .control:hover {
   background: #2b3b52 !important;
   color: #fff !important;

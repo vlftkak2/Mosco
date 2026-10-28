@@ -62,6 +62,12 @@
   background: #202d40;
 }
 
+.sidebarToggle {
+  flex: 0 0 auto;
+  color: #b8c4d3 !important;
+}
+.sidebarToggle:hover { background: #2b3b52 !important; color: #fff !important; }
+
 .logoMark {
   display: flex;
   width: 28px;
@@ -295,6 +301,14 @@
   overflow: hidden !important;
   --app-shell-navbar-width: 204px;
 }
+
+.sidebarCollapsed { --app-shell-navbar-width: 64px; }
+.sidebarCollapsed .headerBrand { justify-content: center; gap: 0; padding: 0; }
+.sidebarCollapsed .logoMark,
+.sidebarCollapsed .brandCopy { display: none; }
+.sidebarCollapsed .linksContainer { padding: 14px 8px 22px !important; }
+.navFooterCollapsed { padding: 0 8px 10px; }
+.navFooterCollapsed .footer { padding: 13px 0 !important; text-align: center; }
 
 .appShellInbound .headerBrand { width: 204px; flex-basis: 204px; }
 

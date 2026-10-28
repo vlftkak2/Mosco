@@ -1,5 +1,5 @@
 
-import { AppShell, Burger, Group, Text, Box, ScrollArea, Button, Stack, Modal, TextInput, PasswordInput, Menu } from '@mantine/core';
+import { AppShell, Burger, Group, Text, Box, ScrollArea, Button, Stack, Modal, TextInput, PasswordInput, Menu, ActionIcon } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { LinksGroup } from './MainLayoutLink';
 import classes from '../../styles/layout/MainLayout.module.css';
@@ -27,7 +27,9 @@ import {
   IconFileAi,             // 가공관리
   IconPackageExport,      // 출고관리
   
-  IconSettings,    
+  IconSettings,
+  IconChevronLeft,
+  IconChevronRight,
 } from '@tabler/icons-react';
 import '@mantine/notifications/styles.css';
 import { notifications } from '@mantine/notifications';
@@ -171,6 +173,13 @@ function findMenuLabel(items, path) {
 
 export default function MainLayout({ children }) {
   const [opened, { toggle }] = useDisclosure();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('steel119-sidebar-collapsed') === 'Y';
+    } catch {
+      return false;
+    }
+  });
   const [pwModalOpened, { open: openPwModal, close: closePwModal }] = useDisclosure(false);
 
   const [pwdForm, setPwdForm] = useState({
@@ -180,6 +189,15 @@ export default function MainLayout({ children }) {
   });
 
   const navigate = useNavigate();
+  const toggleSidebar = () => setSidebarCollapsed((collapsed) => {
+    const next = !collapsed;
+    try {
+      localStorage.setItem('steel119-sidebar-collapsed', next ? 'Y' : 'N');
+    } catch {
+      // Ignore storage errors; the current page can still toggle the sidebar.
+    }
+    return next;
+  });
   const { pathname } = useLocation(); // 2. 현재 경로 가져오기
   const isDashboard = String(pathname || '').replace(/\/+$/, '').toLowerCase() === '/homepage';
   const isInboundWorkspace = [
@@ -421,7 +439,7 @@ useEffect(() => {
 }, [currentAuthority, firstAccessiblePath, isDashboard, isPlatformMaster, myPermissions, myPermissionsLoaded, navigate]);
 
 const links = visibleMockdata.map((item) => (
-  <LinksGroup {...item} pathname={pathname} key={item.label} />
+  <LinksGroup {...item} pathname={pathname} collapsed={sidebarCollapsed} key={item.label} />
 ));
 
 const menuAccessContextValue = {
@@ -456,18 +474,30 @@ const menuAccessContextValue = {
   return (
     <>
     <AppShell
-      className={isInboundWorkspace || isDashboard ? classes.appShellInbound : undefined}
+      className={`${isInboundWorkspace || isDashboard ? classes.appShellInbound : ''} ${sidebarCollapsed ? classes.sidebarCollapsed : ''}`}
       header={{ height: 49 }}
       navbar={{
-        width: 204,
+        width: sidebarCollapsed ? 64 : 204,
         breakpoint: 'sm',
         collapsed: { mobile: !opened },
       }}
       padding="sm"
     >
       <AppShell.Header className={classes.appHeader}>
-        <Box className={classes.headerBrand}>
+        <Box className={classes.headerBrand} style={{ width: sidebarCollapsed ? 64 : 204, flexBasis: sidebarCollapsed ? 64 : 204 }}>
           <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" color="white" />
+          <ActionIcon
+            className={classes.sidebarToggle}
+            onClick={toggleSidebar}
+            aria-label={sidebarCollapsed ? '네비게이션 펼치기' : '네비게이션 접기'}
+            title={sidebarCollapsed ? '네비게이션 펼치기' : '네비게이션 접기'}
+            visibleFrom="sm"
+            variant="subtle"
+            color="gray"
+            size="sm"
+          >
+            {sidebarCollapsed ? <IconChevronRight size={17} /> : <IconChevronLeft size={17} />}
+          </ActionIcon>
           <Box className={classes.logoMark}>
             {/* <img src={steel119HomeLogo} alt="Steel119" /> */}
             <img src={steel119HomeLogo} alt="Steel119" />
@@ -543,7 +573,7 @@ const menuAccessContextValue = {
           <div className={classes.linksContainer}>{links}</div>
         </AppShell.Section>
 
-        <AppShell.Section className={classes.navFooter}>
+        <AppShell.Section className={`${classes.navFooter} ${sidebarCollapsed ? classes.navFooterCollapsed : ''}`}>
           <Text className={classes.footer}>
             © Steel119 ERP
           </Text>

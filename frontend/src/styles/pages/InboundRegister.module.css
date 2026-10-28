@@ -74,6 +74,12 @@
 
 .ribbonTool :global(.mantine-Button-label) { font-size: 11px; }
 .ribbonTool:hover:not(:disabled) { border-color: #e1e6ed !important; background: #f2f4f7 !important; color: #f0444c !important; }
+.ribbonTool:focus,
+.ribbonTool:focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+}
 .ribbonSave { color: #f0444c !important; }
 .ribbonTool :global(svg) { width: 17px; height: 17px; }
 .ribbonSeparator { width: 1px; height: 22px; flex: 0 0 1px; margin: 0 5px; background: #e1e6ed; }
@@ -318,7 +324,9 @@
 }
 .receiptFinderTable tbody td { padding: 9px 8px; border-color: #e0e6ef; color: #252a32; font-size: 11px; }
 .receiptFinderRowActive > td { background: #fceff0 !important; }
+.receiptFinderRowActive > td:first-child { box-shadow: inset 3px 0 #f0444c; }
 .receiptFinderRow:hover > td { background: #f8fafc; }
+.receiptFinderRowActive:hover > td { background: #fceff0 !important; }
 .itemSuggestionHeading { background: #f0f3f7; border-bottom-color: #dce2e9; color: #354052; }
 .itemSuggestionActive,
 .itemSuggestionOption:hover { background: #edf5fc; }
