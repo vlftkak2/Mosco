@@ -151,9 +151,10 @@
 .stockPickerTable :global(th),
 .stockPickerTable :global(td) { white-space: nowrap; }
 .stockDraftInput { width: 88px; height: 28px; padding: 3px 6px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; color: #24364b; text-align: right; font: inherit; }
-.customerCodeColumn { width: 26%; }
-.customerNameColumn { width: 38%; }
-.customerBusinessColumn { width: 36%; }
+.customerCodeColumn { width: 23%; }
+.customerNameColumn { width: 35%; }
+.customerRepresentativeColumn { width: 18%; }
+.customerBusinessColumn { width: 24%; }
 .customerResultRow { cursor: pointer; }
 .customerResultRow:hover > td { background: #fff5f5; }
 .customerEmpty { height: 120px; color: #7d899a !important; text-align: center !important; }

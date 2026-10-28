@@ -313,7 +313,8 @@
   box-sizing: border-box;
 }
 
-.appMainInbound .pageTabs {
+.appMainInbound .pageTabs,
+.appMainDashboard .pageTabs {
   height: 34px;
   min-height: 34px;
   flex: 0 0 34px;
