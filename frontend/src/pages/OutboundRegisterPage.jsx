@@ -247,14 +247,14 @@ const CustomerPickerModal = memo(function CustomerPickerModal({ opened, onClose,
         {loading && <Loader className={classes.pickerLoader} size="xs" color="red" aria-label="조회 중" />}
         <ScrollArea h={420} type="auto" scrollbarSize={6}>
           <Table className={`${codeClasses.codeTable} ${classes.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
-            <Table.Thead><Table.Tr><Table.Th className={classes.customerCodeColumn}>매출처코드</Table.Th><Table.Th className={classes.customerNameColumn}>매출처명</Table.Th><Table.Th className={classes.customerBusinessColumn}>사업자번호</Table.Th></Table.Tr></Table.Thead>
+            <Table.Thead><Table.Tr><Table.Th className={classes.customerCodeColumn}>매출처코드</Table.Th><Table.Th className={classes.customerNameColumn}>매출처명</Table.Th><Table.Th className={classes.customerRepresentativeColumn}>대표자</Table.Th><Table.Th className={classes.customerBusinessColumn}>사업자번호</Table.Th></Table.Tr></Table.Thead>
             <Table.Tbody>
               {customers.map((customer) => (
                 <Table.Tr key={customer.customercode} className={classes.customerResultRow} onClick={() => onSelect(customer)}>
-                  <Table.Td>{customer.customercode}</Table.Td><Table.Td>{customer.customername}</Table.Td><Table.Td>{customer.businessno || ''}</Table.Td>
+                  <Table.Td>{customer.customercode}</Table.Td><Table.Td>{customer.customername}</Table.Td><Table.Td>{customer.ceoname || ''}</Table.Td><Table.Td>{customer.businessno || ''}</Table.Td>
                 </Table.Tr>
               ))}
-              {!customers.length && <Table.Tr><Table.Td colSpan={3} className={classes.customerEmpty}>{loading ? '조회 중입니다.' : '조회된 매출처가 없습니다.'}</Table.Td></Table.Tr>}
+              {!customers.length && <Table.Tr><Table.Td colSpan={4} className={classes.customerEmpty}>{loading ? '조회 중입니다.' : '조회된 매출처가 없습니다.'}</Table.Td></Table.Tr>}
             </Table.Tbody>
           </Table>
         </ScrollArea>

@@ -220,10 +220,7 @@ export default function MainLayout({ children }) {
       : [...tabState.tabs, tab];
     setTabState({ pathname, tabs });
   }
-  const pageTabs = useMemo(
-    () => tabState.tabs.filter((tab) => String(tab.path || '').replace(/\/+$/, '').toLowerCase() !== '/homepage'),
-    [tabState.tabs],
-  );
+  const pageTabs = tabState.tabs;
   const visiblePageTabs = useMemo(() => {
     const maxVisible = 10;
     if (pageTabs.length <= maxVisible) return pageTabs;
@@ -578,7 +575,7 @@ const menuAccessContextValue = {
       </AppShell.Navbar>
 
       <AppShell.Main className={`${classes.appMain} ${isDashboard ? classes.appMainDashboard : isInboundWorkspace ? classes.appMainInbound : ''}`}>
-        {!isDashboard && <div className={classes.pageTabs} role="tablist" aria-label="열린 메뉴">
+        <div className={classes.pageTabs} role="tablist" aria-label="열린 메뉴">
           {visiblePageTabs.map((tab) => {
             const label = findMenuLabel(mockdata, tab.path);
             return (
@@ -611,7 +608,7 @@ const menuAccessContextValue = {
               })}
             </Menu.Dropdown>
           </Menu>}
-        </div>}
+        </div>
         {/* 클래스 적용 */}
         <div className={`${classes.contentCard} ${isDashboard ? classes.dashboardContentCard : isInboundWorkspace ? classes.inboundContentCard : ''}`}>
           <MenuAccessContext.Provider value={menuAccessContextValue}>

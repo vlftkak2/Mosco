@@ -275,9 +275,10 @@
 .pickerTable tbody td { border-color: #dce2e9 !important; }
 .pickerTable :global(th),
 .pickerTable :global(td) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.customerCodeColumn { width: 26%; }
-.customerNameColumn { width: 38%; }
-.customerBusinessColumn { width: 36%; }
+.customerCodeColumn { width: 23%; }
+.customerNameColumn { width: 35%; }
+.customerRepresentativeColumn { width: 18%; }
+.customerBusinessColumn { width: 24%; }
 .customerResultRow { cursor: pointer; }
 .customerResultRow:hover > td { background: #edf3f8; }
 .customerEmpty { height: 120px; color: #7d899a !important; text-align: center !important; }

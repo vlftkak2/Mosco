@@ -250,7 +250,7 @@ const CustomerListPanel = memo(function CustomerListPanel({
         wrap="wrap"
       >
         <Group gap="xs">
-          <Text className={classes.sectionTitle} fw={700}>거래처 등록 목록</Text>
+          <Text className={classes.sectionTitle} fw={700}>거래처 목록</Text>
           <Badge color="gray" variant="light">
             {total}건
           </Badge>

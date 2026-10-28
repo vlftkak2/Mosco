@@ -114,7 +114,7 @@
 .progressTrack span { display: block; height: 100%; border-radius: inherit; background: #8b70f5; }
 
 /* Dashboard example layout */
-.dashboardExample { display: flex; flex-direction: column; gap: 13px; padding: 16px clamp(16px, 1.8vw, 26px) 22px; background: #f4f6f8; color: #24344a; }
+.dashboardExample { display: flex; flex-direction: column; gap: 13px; padding: 16px 15px 22px; background: #f4f6f8; color: #24344a; }
 .dashboardExample::before { display: none; }
 .exampleToolbar { display: flex; min-height: 42px; align-items: center; justify-content: space-between; gap: 12px; }
 .exampleFilters { display: flex; min-width: 0; align-items: center; gap: 8px; }
