@@ -136,9 +136,16 @@
 }
 .userIdentity :global(.mantine-Text-root) { color: #273345; font-size: 13px !important; font-weight: 600; }
 
+.userDivider {
+  width: 1px;
+  height: 18px;
+  flex: 0 0 1px;
+  background: #d7dee8;
+}
+
 .logoutButton {
   min-height: 32px;
-  padding: 0 0 0 16px;
+  padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -168,20 +175,6 @@
 /* 사이드바 링크 컨테이너 */
 .linksContainer {
   padding: 14px 10px 22px !important;
-}
-
-.navFooter {
-  flex: 0 0 auto;
-  padding: 0 12px 10px;
-  background: #202d40;
-}
-
-/* 하단 푸터 영역 */
-.footer {
-  border-top: 1px solid #263449 !important;
-  padding: 13px 14px !important;
-  color: #8291a7 !important;
-  font-size: 10px !important;
 }
 
 /* 메인 콘텐츠 흰색 박스 */
@@ -286,6 +279,8 @@
 }
 .moreTabsButton:hover { background: #fff; color: #d92d32; }
 .moreTabsButton > span:first-of-type { min-width: 18px; padding: 1px 5px; border-radius: 9px; background: #d8e0e9; color: #536174; text-align: center; }
+.moreTabsChevron { flex: 0 0 auto; color: #7b8797; }
+.moreTabsButton:hover .moreTabsChevron { color: #d92d32; }
 .moreTabsDropdown { width: 260px; max-height: min(60vh, 420px); overflow-y: auto; padding: 5px; }
 .moreTabsHeading { padding: 6px 9px 8px; border-bottom: 1px solid #e5e9ef; color: #7b8797; font-size: 11px; }
 .moreTabRow { display: flex; min-width: 0; align-items: center; gap: 4px; }
@@ -307,9 +302,6 @@
 .sidebarCollapsed .logoMark,
 .sidebarCollapsed .brandCopy { display: none; }
 .sidebarCollapsed .linksContainer { padding: 14px 8px 22px !important; }
-.navFooterCollapsed { padding: 0 8px 10px; }
-.navFooterCollapsed .footer { padding: 13px 0 !important; text-align: center; }
-
 .appShellInbound .headerBrand { width: 204px; flex-basis: 204px; }
 
 .appMainInbound {
@@ -326,6 +318,7 @@
   min-height: 34px;
   flex: 0 0 34px;
   padding-left: 19px;
+  margin-top: -12px;
   margin-bottom: 0;
   border-bottom-color: #dce2e9;
 }

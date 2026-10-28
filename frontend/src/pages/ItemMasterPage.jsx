@@ -975,8 +975,8 @@ export default function ItemMaster() {
             <Text size="xs" c="dimmed" mt={5}>회사별 품목코드, 품목명, 형태구분 및 사용 여부를 관리합니다.</Text>
           </Box>
           <Group gap={7} align="center" wrap="wrap">
-            <Button variant="default" size="sm" leftSection={<IconDownload size={15} />} onClick={downloadTemplate}>샘플양식</Button>
-            <Button size="sm" variant="light" leftSection={<IconUpload size={15} />} onClick={() => uploadRef.current?.click()} disabled={loading || saving} loading={uploading}>엑셀 일괄등록</Button>
+            <Button variant="default" size="xs" leftSection={<IconDownload size={14} />} onClick={downloadTemplate}>샘플양식</Button>
+            <Button size="xs" variant="light" leftSection={<IconUpload size={14} />} onClick={() => uploadRef.current?.click()} disabled={loading || saving} loading={uploading}>엑셀 일괄등록</Button>
             <input ref={uploadRef} type="file" accept=".xlsx,.xls" onChange={uploadExcel} hidden />
           </Group>
         </Group>

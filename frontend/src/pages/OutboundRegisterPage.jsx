@@ -1775,11 +1775,11 @@ export default function OutboundRegisterPage() {
             <TextInput label="매출처" placeholder="매출처코드 또는 매출처명" value={filterInputs.customer}
               onChange={(event) => setFilterInputs((current) => ({ ...current, customer: event.currentTarget.value }))}
               onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
-            <TextInput label="출고전표번호" placeholder="전표번호" value={filterInputs.receiptno}
-              onChange={(event) => setFilterInputs((current) => ({ ...current, receiptno: event.currentTarget.value }))}
-              onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
             <TextInput label="창고" placeholder="창고코드 또는 창고명" value={filterInputs.warehouse}
               onChange={(event) => setFilterInputs((current) => ({ ...current, warehouse: event.currentTarget.value }))}
+              onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+            <TextInput label="출고전표번호" placeholder="전표번호" value={filterInputs.receiptno}
+              onChange={(event) => setFilterInputs((current) => ({ ...current, receiptno: event.currentTarget.value }))}
               onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
           </Stack>
           <Box className={classes.outboundStockLookup}>

@@ -80,6 +80,7 @@ def list_inbound_details(
         cursor.execute(
             f"""
             SELECT COUNT(DISTINCT h.receiptno), COUNT(*),
+                   COALESCE(SUM(d.qty), 0),
                    COALESCE(SUM(d.weight), 0),
                    COALESCE(SUM(d.unitamt), 0)
             FROM Inbound01t AS h
@@ -90,7 +91,7 @@ def list_inbound_details(
             """,
             params,
         )
-        receipt_count, detail_count, total_weight, total_amount = cursor.fetchone()
+        receipt_count, detail_count, total_qty, total_weight, total_amount = cursor.fetchone()
         total = detail_count
 
         cursor.execute(
@@ -124,6 +125,7 @@ def list_inbound_details(
         "summary": {
             "receipt_count": receipt_count,
             "detail_count": detail_count,
+            "total_qty": total_qty,
             "total_weight": total_weight,
             "total_amount": total_amount,
         },

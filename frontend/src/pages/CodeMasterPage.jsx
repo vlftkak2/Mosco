@@ -892,13 +892,13 @@ export default function CodeMasterPage() {
                 }}
                 data={['전체', '사용중', '사용중지']}
                 w={126}
-                size="sm"
+                size="xs"
                 allowDeselect={false}
                 disabled={!selectedGroup || loading}
               />
               <Group gap={7} align="center" wrap="nowrap">
-                <Button variant="default" size="sm" leftSection={<IconDownload size={15} />} onClick={downloadTemplate} disabled={!selectedGroup}>샘플양식</Button>
-                <Button size="sm" variant="light" leftSection={<IconUpload size={15} />} onClick={() => uploadInputRef.current?.click()} loading={Boolean(uploadProgress)} disabled={loading || saving}>
+                <Button variant="default" size="xs" leftSection={<IconDownload size={14} />} onClick={downloadTemplate} disabled={!selectedGroup}>샘플양식</Button>
+                <Button size="xs" variant="light" leftSection={<IconUpload size={14} />} onClick={() => uploadInputRef.current?.click()} loading={Boolean(uploadProgress)} disabled={loading || saving}>
                   {uploadProgress || '엑셀 일괄등록'}
                 </Button>
                 <input ref={uploadInputRef} type="file" accept=".xlsx,.xls" onChange={uploadCodes} hidden />

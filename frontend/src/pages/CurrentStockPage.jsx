@@ -99,7 +99,7 @@ export default function CurrentStockPage() {
       </Stack>
     </Paper>}
     <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder>
-      <Group className={classes.resultsToolbar} justify="space-between"><Text fw={700}>현재고 내역</Text></Group>
+      <Group className={classes.resultsToolbar} justify="space-between"><Text className={classes.sectionTitle} fw={700}>현재고 내역</Text></Group>
       <Box className={classes.tableWrap}>
         {loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}
         {items.length ? <ResizableVirtualTable data={items} computeItemKey={(_index, item) => item.sourcetype ? `${item.sourcetype}:${item.sourceno}:${item.sourceline}` : `${item.itemcode}:${item.thickness}:${item.width}:${item.length}:${item.warehousecode}:${item.qtyunit}`} rowOffset={(page - 1) * pageSize} minTableWidth={0} columns={[

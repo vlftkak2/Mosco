@@ -19,7 +19,7 @@ const PAGE_SIZE_OPTIONS = [
   { value: '100', label: '100개씩' },
   { value: '200', label: '200개씩' },
 ];
-const EMPTY_SUMMARY = { receipt_count: 0, detail_count: 0, total_weight: 0, total_amount: 0 };
+const EMPTY_SUMMARY = { receipt_count: 0, detail_count: 0, total_qty: 0, total_weight: 0, total_amount: 0 };
 const TABLE_COLUMN_WIDTHS = {
   no: 45, receptdate: 100, receiptno: 140, customname: 125, warehousecodename: 110,
   productname: 105, itemname: 125, materialname: 85, surfacename: 75, myrtle: 100,
@@ -253,8 +253,8 @@ export default function InboundSearchPage() {
           <Text className={classes.summaryValue}>{displayNumber(summary.receipt_count, 0)}건</Text>
         </Paper>
         <Paper className={classes.summaryCard} withBorder>
-          <Text className={classes.summaryLabel}>상세 품목 건수</Text>
-          <Text className={classes.summaryValue}>{displayNumber(summary.detail_count, 0)}건</Text>
+          <Text className={classes.summaryLabel}>총 입고수량</Text>
+          <Text className={classes.summaryValue}>{displayNumber(summary.total_qty)}</Text>
         </Paper>
         <Paper className={classes.summaryCard} withBorder>
           <Text className={classes.summaryLabel}>총 입고중량</Text>
