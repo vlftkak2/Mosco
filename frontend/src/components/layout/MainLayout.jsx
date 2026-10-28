@@ -224,7 +224,7 @@ export default function MainLayout({ children }) {
     [tabState.tabs],
   );
   const visiblePageTabs = useMemo(() => {
-    const maxVisible = 6;
+    const maxVisible = 8;
     if (pageTabs.length <= maxVisible) return pageTabs;
     const initialTabs = pageTabs.slice(0, maxVisible);
     if (initialTabs.some((tab) => tab.path === pathname)) return initialTabs;

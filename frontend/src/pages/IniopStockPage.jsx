@@ -18,10 +18,6 @@ const TYPE_OPTIONS = [{ value: "ALL", label: "전체" }, { value: "ST", label: "
 const TYPE_NAMES = { ST: "기초", IN: "입고", OUT: "출고" };
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
-const dimensionText = (item) => [item.thickness, item.width, item.length]
-  .filter((value) => value !== null && value !== undefined && String(value).trim() !== '')
-  .map(numberText)
-  .join(' × ');
 const timestampText = (value) => { if (!value) return ''; const d = new Date(value); return Number.isNaN(d.getTime()) ? String(value) : new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d); };
 export default function IniopStockPage() {
   const [inputs, setInputs] = useState(monthFilters);
@@ -77,7 +73,9 @@ export default function IniopStockPage() {
           { key: 'surfacename', label: '표면', width: 75, minWidth: 65, render: (item) => item.surfacename || '' },
           { key: 'myrtle', label: '도금량(g/㎡)', width: 100, minWidth: 90, render: (item) => numberText(item.myrtle) },
           { key: 'manager', label: '담당자', width: 80, minWidth: 68, render: (item) => item.manager || '' },
-          { key: 'specification', label: '규격', width: 125, minWidth: 100, render: (item) => dimensionText(item) },
+          { key: 'thickness', label: '두께', width: 75, minWidth: 65, render: (item) => numberText(item.thickness) },
+          { key: 'width', label: '폭', width: 75, minWidth: 65, render: (item) => numberText(item.width) },
+          { key: 'length', label: '길이', width: 75, minWidth: 65, render: (item) => numberText(item.length) },
           { key: 'qty', label: '수량', width: 80, minWidth: 68, render: (item) => numberText(item.qty) },
           { key: 'weight', label: '중량(KG)', width: 90, minWidth: 78, render: (item) => numberText(item.weight) },
           { key: 'unitprice', label: '단가', width: 95, minWidth: 82, render: (item) => numberText(item.unitprice) },
