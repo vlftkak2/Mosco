@@ -1,7 +1,7 @@
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import {
-  ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper,
+  ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper, Popover,
   ScrollArea, Select, Stack, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -95,7 +95,7 @@ const fitReceiptColumnWidth = (label, values, baseWidth, minWidth, maxWidth = 42
   const contentWidth = Math.max(measure(label), ...values.map(measure));
   return Math.max(minWidth, Math.min(maxWidth, Math.max(baseWidth, contentWidth)));
 };
-const READ_ONLY_DETAIL_FIELDS = new Set(['sourcetype', 'receiptdate', 'stocksourceno', 'stocksourceline', 'sourcecustomname', 'customname', 'itemcode', 'itemname', 'productname', 'materialname', 'surfacename', 'myrtle', 'thickness', 'width', 'length', 'warehousecodename', 'current_qty', 'qtyunit', 'current_weight', 'unit', 'unitprice', 'supplyamt', 'vat', 'unitamt', 'manager']);
+const READ_ONLY_DETAIL_FIELDS = new Set(['sourcetype', 'receiptdate', 'stocksourceno', 'stocksourceline', 'sourcecustomname', 'itemcode', 'itemname', 'productname', 'materialname', 'surfacename', 'myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'warehousecodename', 'current_qty', 'qtyunit', 'current_weight', 'unit', 'unitprice', 'supplyamt', 'vat', 'unitamt', 'manager']);
 const NAVIGABLE_FIELDS = DETAIL_FIELDS.map(({ key }) => key).filter((key) => !READ_ONLY_DETAIL_FIELDS.has(key));
 const EDITABLE_FIELDS = NAVIGABLE_FIELDS;
 const EMPTY_DETAIL = { sourcetype: '', receiptdate: '', receptdate: localDate(), stocksourceno: '', stocksourcetype: '', stocksourceline: '', sourcecustomname: '', customcode: '', customname: '', itemcode: '', itemname: '', productname: '', materialcode: '', materialname: '', surfacecode: '', surfacename: '', myrtle: '', thickness: '', width: '', length: '', qty: '', qtyunit: '', warehousecode: '', warehousecodename: '', current_qty: '0', current_weight: '0', weight: '', unit: '', unitprice: '', supplyamt: '', vat: '', unitamt: '', manager: '', description: '' };
@@ -400,6 +400,210 @@ const ManagerInput = memo(function ManagerInput({ row, editable, label, onChange
   />;
 });
 
+const OutboundDateSegments = memo(function OutboundDateSegments({ row, disabled, onChange, registerCellInput, onFocusCell }) {
+  const inputRef = useRef(null);
+  const activeSegmentRef = useRef(0);
+  const segmentRanges = [[0, 4], [5, 7], [8, 10]];
+
+  const selectSegment = (index) => {
+    activeSegmentRef.current = index;
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    input.setSelectionRange(...segmentRanges[index]);
+  };
+
+  const handleKeyDown = (event) => {
+    if (event.key !== 'Tab') return;
+    const nextIndex = activeSegmentRef.current + (event.shiftKey ? -1 : 1);
+    if (nextIndex < 0 || nextIndex > 2) return;
+    event.preventDefault();
+    event.stopPropagation();
+    selectSegment(nextIndex);
+  };
+
+  return (
+    <input
+      ref={(element) => { inputRef.current = element; registerCellInput(row.id, 'receptdate', element); }}
+      className={`${codeClasses.cellInput} ${disabled ? classes.autoFilledInput : ''}`}
+      aria-label="출고일자 (연도-월-일)"
+      data-row-id={row.id}
+      data-field="receptdate"
+      type="text"
+      inputMode="numeric"
+      maxLength={10}
+      placeholder="YYYY-MM-DD"
+      value={row.receptdate || ''}
+      disabled={disabled}
+      onFocus={() => { onFocusCell(row.id, 'receptdate'); selectSegment(0); }}
+      onClick={(event) => {
+        const position = event.currentTarget.selectionStart || 0;
+        selectSegment(position < 5 ? 0 : position < 8 ? 1 : 2);
+      }}
+      onChange={(event) => onChange(row.id, 'receptdate', event.currentTarget.value.replace(/[^\d-]/g, '').slice(0, 10))}
+      onKeyDown={handleKeyDown}
+    />
+  );
+});
+
+const CustomerAutocompleteInput = memo(function CustomerAutocompleteInput({ row, disabled, onChange, onFindCustomer, registerCellInput, onFocusCell }) {
+  const [draft, setDraft] = useState(row.customname || '');
+  const [customers, setCustomers] = useState([]);
+  const [customersQuery, setCustomersQuery] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const pickerOpenRef = useRef(false);
+  const skipBlurCommitRef = useRef(false);
+  const hasEditedRef = useRef(false);
+  const keyboardSelectionRef = useRef(false);
+  const query = String(draft || '').trim();
+  const visibleCustomers = useMemo(() => {
+    if (!query || !customersQuery || !query.toLocaleLowerCase().startsWith(customersQuery.toLocaleLowerCase())) return [];
+    const keyword = query.toLocaleLowerCase();
+    return customers.filter((customer) => [customer.customername, customer.customercode]
+      .some((value) => String(value || '').toLocaleLowerCase().includes(keyword)));
+  }, [customers, customersQuery, query]);
+  const opened = editing && !disabled && visibleCustomers.length > 0;
+
+  useEffect(() => {
+    if (!editing || disabled || !query) return undefined;
+    const controller = new AbortController();
+    const loadCustomers = async () => {
+      try {
+        const { data } = await axios.get('/api/list', {
+          ...authConfig(),
+          params: { search_keyword: query, status: 'Y', page: 1, page_size: 8, include_total: false },
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted) {
+          setCustomers(data.data || []);
+          setCustomersQuery(query);
+          setActiveIndex(-1);
+        }
+      } catch { /* 입력값은 유지하고 자동완성 목록만 닫는다. */ }
+    };
+    void loadCustomers();
+    return () => controller.abort();
+  }, [editing, disabled, query]);
+
+  const selectCustomer = (customer) => {
+    const name = customer.customername || '';
+    hasEditedRef.current = false;
+    keyboardSelectionRef.current = false;
+    setDraft(name);
+    onChange(row.id, 'customcode', customer.customercode || '');
+    onChange(row.id, 'customname', name);
+    setEditing(false);
+    setActiveIndex(-1);
+  };
+
+  const openPicker = () => {
+    pickerOpenRef.current = true;
+    setEditing(false);
+    onFindCustomer(row.id);
+  };
+
+  return <Popover opened={opened} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500} transitionProps={{ duration: 0 }}>
+    <Popover.Target>
+      <div className={classes.customerAutocompleteTarget}>
+        <input
+          ref={(element) => registerCellInput(row.id, 'customname', element)}
+          className={`${codeClasses.cellInput} ${inboundClasses.itemCodePickerInput} ${inboundClasses.itemNameSearchInput} ${classes.customerAutocompleteInput}`}
+          aria-label="매출처"
+          aria-haspopup="listbox"
+          aria-expanded={opened}
+          data-row-id={row.id}
+          data-field="customname"
+          value={editing ? draft : row.customname || ''}
+          disabled={disabled}
+          onFocus={(event) => {
+            pickerOpenRef.current = false;
+            hasEditedRef.current = false;
+            keyboardSelectionRef.current = false;
+            onFocusCell(row.id, 'customname');
+            setDraft(row.customname || '');
+            setEditing(true);
+            event.currentTarget.select();
+          }}
+          onBlur={() => {
+            if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
+            if (pickerOpenRef.current) return;
+            const normalized = query.toLocaleLowerCase();
+            const exact = visibleCustomers.filter((customer) => [customer.customername, customer.customercode]
+              .some((value) => String(value || '').trim().toLocaleLowerCase() === normalized));
+            if (exact.length === 1) selectCustomer(exact[0]);
+            else setEditing(false);
+          }}
+          onChange={(event) => {
+            const value = event.currentTarget.value;
+            hasEditedRef.current = true;
+            keyboardSelectionRef.current = false;
+            setDraft(value);
+            setEditing(true);
+            setActiveIndex(-1);
+            onChange(row.id, 'customname', value);
+            onChange(row.id, 'customcode', '');
+          }}
+          onClick={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            if (!disabled && bounds.right - event.clientX <= 27) openPicker();
+          }}
+          onKeyDown={(event) => {
+            if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && opened) {
+              event.preventDefault();
+              keyboardSelectionRef.current = true;
+              setActiveIndex((current) => event.key === 'ArrowDown'
+                ? (current + 1) % visibleCustomers.length
+                : (current - 1 + visibleCustomers.length) % visibleCustomers.length);
+            } else if (event.key === 'Tab' && hasEditedRef.current) {
+              const customer = opened && keyboardSelectionRef.current && activeIndex >= 0
+                ? visibleCustomers[activeIndex]
+                : null;
+              skipBlurCommitRef.current = true;
+              if (customer) {
+                selectCustomer(customer);
+              } else {
+                onChange(row.id, 'customname', '');
+                onChange(row.id, 'customcode', '');
+                setDraft('');
+                setEditing(false);
+                setActiveIndex(-1);
+                hasEditedRef.current = false;
+                keyboardSelectionRef.current = false;
+              }
+            } else if (event.key === 'Enter' && opened) {
+              event.preventDefault();
+              selectCustomer(visibleCustomers[activeIndex >= 0 ? activeIndex : 0]);
+            } else if (event.key === 'Escape') {
+              setDraft(row.customname || '');
+              setEditing(false);
+              setActiveIndex(-1);
+            }
+          }}
+          onDoubleClick={() => { if (!disabled) openPicker(); }}
+        />
+      </div>
+    </Popover.Target>
+    <Popover.Dropdown className={classes.stockCustomerSuggestions}>
+      <div role="listbox" aria-label="매출처 검색 결과">
+        {visibleCustomers.map((customer, index) => <button
+          key={customer.customercode}
+          type="button"
+          role="option"
+          aria-selected={index === activeIndex}
+          className={classes.stockCustomerSuggestion}
+          style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          onMouseDown={(event) => event.preventDefault()}
+          onMouseEnter={() => setActiveIndex(index)}
+          onClick={() => selectCustomer(customer)}
+        >
+          <span>{customer.customername}</span>
+        </button>)}
+      </div>
+    </Popover.Dropdown>
+  </Popover>;
+});
+
 const DetailCells = memo(function DetailCells({ row, index, selected, disabled, managerEditable, saved, unitOptions, onSelect, onChange, onPaste, registerCodeInput, registerCellInput, onFindItem, onFindMaster, onFindCustomer, onFocusCell }) {
   const displayValue = (key) => {
     if (key === 'sourcetype') return row.sourcetype === 'OPENING' || row.stocksourcetype === 'OPENING' ? '기초' : row.sourcetype === 'INBOUND' || row.stocksourcetype === 'INBOUND' ? '입고' : '';
@@ -442,43 +646,9 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
         ) : key === 'manager' ? (
           <ManagerInput key={`${row.id}:${row.manager || ''}`} row={row} editable={managerEditable} label={label} onChange={onChange} onPaste={pasteHandler(key)} registerCellInput={registerCellInput} onFocusCell={onFocusCell} />
         ) : key === 'customname' ? (
-          <Group gap={2} wrap="nowrap">
-            <input
-              ref={(element) => registerCellInput(row.id, key, element)}
-              className={`${codeClasses.cellInput} ${classes.autoFilledInput}`}
-              aria-label={label}
-              title="저장 전에 돋보기 버튼을 눌러 매출처를 변경할 수 있습니다."
-              data-row-id={row.id}
-              data-field={key}
-              value={row.customname || ''}
-              readOnly
-              disabled={disabled}
-              onFocus={() => onFocusCell(row.id, key)}
-              onDoubleClick={() => onFindCustomer(row.id)}
-            />
-            <ActionIcon size="sm" variant="subtle" color="red" aria-label="매출처 찾기" title="저장 전에 매출처 변경" disabled={disabled} onClick={() => onFindCustomer(row.id)}>
-              <IconSearch size={15} />
-            </ActionIcon>
-          </Group>
-        ) : key === 'customcode' ? (
-          <Group gap={2} wrap="nowrap">
-            <input
-              ref={(element) => registerCellInput(row.id, key, element)}
-              className={codeClasses.cellInput}
-              aria-label={label}
-              title="매출처 찾기"
-              data-row-id={row.id}
-              data-field={key}
-              value={row.customcode || ''}
-              readOnly
-              disabled={disabled}
-              onFocus={() => onFocusCell(row.id, key)}
-              onDoubleClick={() => onFindCustomer(row.id)}
-            />
-            <ActionIcon size="sm" variant="subtle" color="red" aria-label="매출처 찾기" disabled={disabled} onClick={() => onFindCustomer(row.id)}>
-              <IconSearch size={15} />
-            </ActionIcon>
-          </Group>
+          <CustomerAutocompleteInput row={row} disabled={disabled} onChange={onChange} onFindCustomer={onFindCustomer} registerCellInput={registerCellInput} onFocusCell={onFocusCell} />
+        ) : key === 'receptdate' ? (
+          <OutboundDateSegments row={row} disabled={disabled} onChange={onChange} registerCellInput={registerCellInput} onFocusCell={onFocusCell} />
         ) : ['supplyamt', 'vat', 'unitamt'].includes(key) ? (
           <input className={`${codeClasses.cellInput} ${classes.amountInput} ${classes.autoFilledInput}`} aria-label={label}
             value={formatAmount(key === 'supplyamt' ? amountOf(row, unitOptions.price) : key === 'vat' ? vatAmountOf(row, unitOptions.price) : totalAmountOf(row, unitOptions.price))} disabled />
@@ -488,7 +658,7 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
               if (key === 'itemcode') registerCodeInput(row.id, element);
               registerCellInput(row.id, key, element);
             }}
-            className={`${codeClasses.cellInput} ${key === 'manager' && managerEditable ? '' : classes.autoFilledInput} ${key === 'current_qty' || key === 'current_weight' || key === 'unit' ? classes.currentStockInput : ''} ${key === 'unit' ? classes.itemCodePickerInput : ''}`}
+            className={`${codeClasses.cellInput} ${(key === 'manager' && managerEditable) || (key === 'receptdate' && !disabled) ? '' : classes.autoFilledInput} ${key === 'current_qty' || key === 'current_weight' || key === 'unit' ? classes.currentStockInput : ''} ${key === 'unit' ? classes.itemCodePickerInput : ''}`}
             aria-label={label}
             title={key === 'unit' ? `${label} - 더블클릭하여 마스터에서 선택` : undefined}
             data-row-id={row.id}
@@ -581,6 +751,17 @@ export default function OutboundRegisterPage() {
     totals.total += amount + vat;
     return totals;
   }, { weight: 0, amount: 0, vat: 0, total: 0 }), [rows, unitOptions.price]);
+  const quantitySummary = useMemo(() => {
+    if (!rows.length) return '0';
+    const totals = new Map();
+    const defaultUnit = unitOptions.quantity.find((option) => option.code === 'EA')?.name || 'EA';
+    rows.forEach((row) => {
+      const unit = unitOptions.quantity.find((option) => option.code === row.qtyunit)?.name || row.qtyunit || defaultUnit;
+      const quantity = Number(cleanNumericInput(row.qty)) || 0;
+      totals.set(unit, (totals.get(unit) || 0) + quantity);
+    });
+    return [...totals.entries()].map(([unit, quantity]) => `${quantity.toLocaleString(undefined, { maximumFractionDigits: 3 })}${unit}`).join(', ');
+  }, [rows, unitOptions.quantity]);
   const receiptAutoWidths = useMemo(() => Object.fromEntries(RECEIPT_COLUMNS.map((column) => {
     const values = receipts.map((receipt) => receipt[column.key]);
     if (column.key === 'total_weight') {
@@ -714,13 +895,13 @@ export default function OutboundRegisterPage() {
     return () => { cancelled = true; };
   }, [loadUnitOptions]);
 
-
   const openCustomerPicker = useCallback((rowId) => {
     if (!readOnly && !saving) {
       setCustomerPickerTargetId(rowId);
       setCustomerPickerOpen(true);
     }
   }, [readOnly, saving]);
+
 
   const selectCustomer = useCallback((customer) => {
     if (!customerPickerTargetId) return;
@@ -1017,10 +1198,12 @@ export default function OutboundRegisterPage() {
   const applyAvailableStocks = useCallback((stocks) => {
     const addedRows = stocks.map((stock) => makeDetail({
       ...stock,
+      customcode: '',
+      customname: '',
       stocksourcetype: stock.sourcetype,
       stocksourceno: stock.sourceno,
       stocksourceline: stock.sourceline,
-      sourcecustomname: stock.customname || '',
+      sourcecustomname: stock.sourcecustomname || stock.customname || '',
       current_qty: String(stock.available_qty ?? 0),
       current_weight: String(stock.available_weight ?? 0),
       qtyunit: stock.qtyunit || '',
@@ -1562,14 +1745,12 @@ export default function OutboundRegisterPage() {
             )}
           </Box>
           <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="flex-end" wrap="wrap">
-            <Group gap={16} wrap="wrap" justify="flex-end">
-              <Text size="xs" fw={700}>합계 중량 {detailTotals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 })} kg</Text>
-              <Text size="xs" fw={700}>
-                공급가 {formatWon(detailTotals.amount.toFixed(2))}
-                {' · '}부가세 {formatWon(detailTotals.vat.toFixed(2))}
-                {' · '}합계 {formatWon(detailTotals.total.toFixed(2))}
-              </Text>
-            </Group>
+            <Text size="xs" fw={700}>
+              총 수량 {quantitySummary} · 총 중량 {detailTotals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 })}{rows.length ? 'KG' : ''}
+              {' · '}총공급가 {formatWon(detailTotals.amount.toFixed(2))}
+              {' · '}부가세 {formatWon(detailTotals.vat.toFixed(2))}
+              {' · '}합계 {formatWon(detailTotals.total.toFixed(2))}
+            </Text>
           </Group>
         </Paper>
       </Box>
@@ -1627,8 +1808,6 @@ export default function OutboundRegisterPage() {
         opened={stockPickerOpen}
         receiptno={selectedReceiptno}
         existingRows={rows}
-        fixedCustomerCode={selectedReceiptno ? header.customcode : ''}
-        fixedCustomerName={selectedReceiptno ? header.customname : ''}
         onClose={() => setStockPickerOpen(false)}
         onApply={applyAvailableStocks}
       />

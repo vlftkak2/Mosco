@@ -396,6 +396,9 @@ const ItemNameAutocompleteCell = memo(function ItemNameAutocompleteCell({ row, d
   const [activeIndex, setActiveIndex] = useState(-1);
   const commitRequestRef = useRef(0);
   const pickerOpenRef = useRef(false);
+  const skipBlurCommitRef = useRef(false);
+  const hasEditedRef = useRef(false);
+  const keyboardSelectionRef = useRef(false);
   const query = String(draft || '').trim();
   const isOpen = isEditing && !disabled && itemsQuery === query && items.length > 0;
 
@@ -419,6 +422,8 @@ const ItemNameAutocompleteCell = memo(function ItemNameAutocompleteCell({ row, d
 
   const chooseItem = (item) => {
     onSelectItem(row.id, item);
+    hasEditedRef.current = false;
+    keyboardSelectionRef.current = false;
     setDraft(item.itemname || '');
     setIsEditing(false);
     setActiveIndex(-1);
@@ -475,13 +480,18 @@ const ItemNameAutocompleteCell = memo(function ItemNameAutocompleteCell({ row, d
           onFocus={(event) => {
             commitRequestRef.current += 1;
             pickerOpenRef.current = false;
+            hasEditedRef.current = false;
+            keyboardSelectionRef.current = false;
             onFocusCell(row.id, 'itemname');
             setDraft(row.itemname || '');
             setIsEditing(true);
             event.currentTarget.select();
           }}
-          onBlur={() => { if (!pickerOpenRef.current) void commitExactMatch(); }}
-          onChange={(event) => { setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); }}
+          onBlur={() => {
+            if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
+            if (!pickerOpenRef.current) void commitExactMatch();
+          }}
+          onChange={(event) => { hasEditedRef.current = true; keyboardSelectionRef.current = false; setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); }}
           onPaste={onPaste}
           onKeyDown={(event) => {
             if (event.key === 'F2' || event.key === ' ') {
@@ -489,9 +499,20 @@ const ItemNameAutocompleteCell = memo(function ItemNameAutocompleteCell({ row, d
               if (!disabled) openPicker();
             } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
               event.preventDefault(); event.stopPropagation();
+              if (isOpen) keyboardSelectionRef.current = true;
               setIsEditing(true);
               if (isOpen) setActiveIndex((current) => event.key === 'ArrowDown'
                 ? (current + 1) % items.length : (current - 1 + items.length) % items.length);
+            } else if (event.key === 'Tab' && isOpen) {
+              if (hasEditedRef.current) {
+                const item = keyboardSelectionRef.current && activeIndex >= 0 ? items[activeIndex] : null;
+                skipBlurCommitRef.current = true;
+                if (item) chooseItem(item);
+                else { onChange(row.id, 'itemname', ''); setDraft(''); setIsEditing(false); setActiveIndex(-1); hasEditedRef.current = false; keyboardSelectionRef.current = false; }
+              }
+            } else if (event.key === 'Tab' && hasEditedRef.current) {
+              skipBlurCommitRef.current = true;
+              onChange(row.id, 'itemname', ''); setDraft(''); setIsEditing(false); setActiveIndex(-1); hasEditedRef.current = false; keyboardSelectionRef.current = false;
             } else if (event.key === 'Enter' && isOpen) {
               event.preventDefault(); event.stopPropagation();
               const chosen = items[activeIndex >= 0 ? activeIndex : 0];
@@ -527,6 +548,9 @@ const CustomerNameAutocompleteCell = memo(function CustomerNameAutocompleteCell(
   const [activeIndex, setActiveIndex] = useState(-1);
   const requestIdRef = useRef(0);
   const pickerOpenRef = useRef(false);
+  const skipBlurCommitRef = useRef(false);
+  const hasEditedRef = useRef(false);
+  const keyboardSelectionRef = useRef(false);
   const query = String(draft || '').trim();
   const visibleCustomers = useMemo(() => {
     if (!query || !customersQuery || !query.toLocaleLowerCase().startsWith(customersQuery.toLocaleLowerCase())) return [];
@@ -558,6 +582,8 @@ const CustomerNameAutocompleteCell = memo(function CustomerNameAutocompleteCell(
 
   const chooseCustomer = (customer) => {
     requestIdRef.current += 1;
+    hasEditedRef.current = false;
+    keyboardSelectionRef.current = false;
     onSelectCustomer(row.id, customer);
     setDraft(customer.customername || '');
     setIsEditing(false);
@@ -618,13 +644,18 @@ const CustomerNameAutocompleteCell = memo(function CustomerNameAutocompleteCell(
           onFocus={(event) => {
             requestIdRef.current += 1;
             pickerOpenRef.current = false;
+            hasEditedRef.current = false;
+            keyboardSelectionRef.current = false;
             onFocusCell(row.id, 'customname');
             setDraft(row.customname || '');
             setIsEditing(true);
             event.currentTarget.select();
           }}
-          onBlur={() => { if (!pickerOpenRef.current) void commitExactMatch(); }}
-          onChange={(event) => { setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); onChange(row.id, 'customname', event.currentTarget.value); }}
+          onBlur={() => {
+            if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
+            if (!pickerOpenRef.current) void commitExactMatch();
+          }}
+          onChange={(event) => { hasEditedRef.current = true; keyboardSelectionRef.current = false; setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); onChange(row.id, 'customname', event.currentTarget.value); }}
           onPaste={onPaste}
           onKeyDown={(event) => {
             if (event.key === 'F2' || event.key === ' ') {
@@ -633,8 +664,19 @@ const CustomerNameAutocompleteCell = memo(function CustomerNameAutocompleteCell(
             } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
               if (!isOpen) return;
               event.preventDefault(); event.stopPropagation(); setIsEditing(true);
+              keyboardSelectionRef.current = true;
               setActiveIndex((current) => event.key === 'ArrowDown'
                 ? (current + 1) % visibleCustomers.length : (current - 1 + visibleCustomers.length) % visibleCustomers.length);
+            } else if (event.key === 'Tab' && isOpen) {
+              if (hasEditedRef.current) {
+                const customer = keyboardSelectionRef.current && activeIndex >= 0 ? visibleCustomers[activeIndex] : null;
+                skipBlurCommitRef.current = true;
+                if (customer) chooseCustomer(customer);
+                else { onChange(row.id, 'customname', ''); setDraft(''); setIsEditing(false); setActiveIndex(-1); hasEditedRef.current = false; keyboardSelectionRef.current = false; }
+              }
+            } else if (event.key === 'Tab' && hasEditedRef.current) {
+              skipBlurCommitRef.current = true;
+              onChange(row.id, 'customname', ''); setDraft(''); setIsEditing(false); setActiveIndex(-1); hasEditedRef.current = false; keyboardSelectionRef.current = false;
             } else if (event.key === 'Enter' && isOpen) {
               event.preventDefault(); event.stopPropagation();
               const customer = visibleCustomers[activeIndex >= 0 ? activeIndex : 0];
@@ -667,6 +709,9 @@ const WarehouseNameAutocompleteCell = memo(function WarehouseNameAutocompleteCel
   const [draft, setDraft] = useState(row.warehousecodename || '');
   const [activeIndex, setActiveIndex] = useState(-1);
   const pickerOpenRef = useRef(false);
+  const skipBlurCommitRef = useRef(false);
+  const hasEditedRef = useRef(false);
+  const keyboardSelectionRef = useRef(false);
   const query = String(draft || '').trim().toLocaleLowerCase();
   const matches = useMemo(() => query
     ? options.filter((option) => `${option.name || ''} ${option.code || ''}`.toLocaleLowerCase().includes(query)).slice(0, 8)
@@ -675,6 +720,8 @@ const WarehouseNameAutocompleteCell = memo(function WarehouseNameAutocompleteCel
 
   const choose = (option) => {
     onSelectWarehouse(row.id, option);
+    hasEditedRef.current = false;
+    keyboardSelectionRef.current = false;
     setDraft(option.name || '');
     setIsEditing(false);
     setActiveIndex(-1);
@@ -712,13 +759,18 @@ const WarehouseNameAutocompleteCell = memo(function WarehouseNameAutocompleteCel
           disabled={disabled}
           onFocus={(event) => {
             pickerOpenRef.current = false;
+            hasEditedRef.current = false;
+            keyboardSelectionRef.current = false;
             onFocusCell(row.id, 'warehousecodename');
             setDraft(row.warehousecodename || '');
             setIsEditing(true);
             event.currentTarget.select();
           }}
-          onBlur={() => { if (!pickerOpenRef.current) commit(); }}
-          onChange={(event) => { setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); }}
+          onBlur={() => {
+            if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
+            if (!pickerOpenRef.current) commit();
+          }}
+          onChange={(event) => { hasEditedRef.current = true; keyboardSelectionRef.current = false; setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); }}
           onPaste={onPaste}
           onKeyDown={(event) => {
             if (event.key === 'F2' || event.key === ' ') {
@@ -727,8 +779,19 @@ const WarehouseNameAutocompleteCell = memo(function WarehouseNameAutocompleteCel
             } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
               if (!matches.length) return;
               event.preventDefault(); event.stopPropagation(); setIsEditing(true);
+              keyboardSelectionRef.current = true;
               setActiveIndex((current) => event.key === 'ArrowDown'
                 ? (current + 1) % matches.length : (current - 1 + matches.length) % matches.length);
+            } else if (event.key === 'Tab' && isOpen) {
+              if (hasEditedRef.current) {
+                const option = keyboardSelectionRef.current && activeIndex >= 0 ? matches[activeIndex] : null;
+                skipBlurCommitRef.current = true;
+                if (option) choose(option);
+                else { onChange(row.id, 'warehousecodename', ''); setDraft(''); setIsEditing(false); setActiveIndex(-1); hasEditedRef.current = false; keyboardSelectionRef.current = false; }
+              }
+            } else if (event.key === 'Tab' && hasEditedRef.current) {
+              skipBlurCommitRef.current = true;
+              onChange(row.id, 'warehousecodename', ''); setDraft(''); setIsEditing(false); setActiveIndex(-1); hasEditedRef.current = false; keyboardSelectionRef.current = false;
             } else if (event.key === 'Enter' && isEditing) {
               event.preventDefault(); event.stopPropagation();
               const option = matches[activeIndex >= 0 ? activeIndex : 0];
@@ -760,6 +823,9 @@ const GeneralCodeNameAutocompleteCell = memo(function GeneralCodeNameAutocomplet
   const [draft, setDraft] = useState(row[nameKey] || '');
   const [activeIndex, setActiveIndex] = useState(-1);
   const pickerOpenRef = useRef(false);
+  const skipBlurCommitRef = useRef(false);
+  const hasEditedRef = useRef(false);
+  const keyboardSelectionRef = useRef(false);
   const query = String(draft || '').trim().toLocaleLowerCase();
   const matches = useMemo(() => query
     ? options.filter((option) => `${option.name || ''} ${option.code || ''}`.toLocaleLowerCase().includes(query)).slice(0, 8)
@@ -767,6 +833,8 @@ const GeneralCodeNameAutocompleteCell = memo(function GeneralCodeNameAutocomplet
   const isOpen = isEditing && !disabled && matches.length > 0;
   const choose = (option) => {
     onSelectMaster(row.id, field, option);
+    hasEditedRef.current = false;
+    keyboardSelectionRef.current = false;
     setDraft(option.name || '');
     setIsEditing(false);
     setActiveIndex(-1);
@@ -804,13 +872,18 @@ const GeneralCodeNameAutocompleteCell = memo(function GeneralCodeNameAutocomplet
           disabled={disabled}
           onFocus={(event) => {
             pickerOpenRef.current = false;
+            hasEditedRef.current = false;
+            keyboardSelectionRef.current = false;
             onFocusCell(row.id, nameKey);
             setDraft(row[nameKey] || '');
             setIsEditing(true);
             event.currentTarget.select();
           }}
-          onBlur={() => { if (!pickerOpenRef.current) commit(); }}
-          onChange={(event) => { setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); }}
+          onBlur={() => {
+            if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
+            if (!pickerOpenRef.current) commit();
+          }}
+          onChange={(event) => { hasEditedRef.current = true; keyboardSelectionRef.current = false; setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); }}
           onPaste={onPaste}
           onKeyDown={(event) => {
             if (event.key === 'F2' || event.key === ' ') {
@@ -819,8 +892,19 @@ const GeneralCodeNameAutocompleteCell = memo(function GeneralCodeNameAutocomplet
             } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
               if (!matches.length) return;
               event.preventDefault(); event.stopPropagation(); setIsEditing(true);
+              keyboardSelectionRef.current = true;
               setActiveIndex((current) => event.key === 'ArrowDown'
                 ? (current + 1) % matches.length : (current - 1 + matches.length) % matches.length);
+            } else if (event.key === 'Tab' && isOpen) {
+              if (hasEditedRef.current) {
+                const option = keyboardSelectionRef.current && activeIndex >= 0 ? matches[activeIndex] : null;
+                skipBlurCommitRef.current = true;
+                if (option) choose(option);
+                else { onChange(row.id, nameKey, ''); setDraft(''); setIsEditing(false); setActiveIndex(-1); hasEditedRef.current = false; keyboardSelectionRef.current = false; }
+              }
+            } else if (event.key === 'Tab' && hasEditedRef.current) {
+              skipBlurCommitRef.current = true;
+              onChange(row.id, nameKey, ''); setDraft(''); setIsEditing(false); setActiveIndex(-1); hasEditedRef.current = false; keyboardSelectionRef.current = false;
             } else if (event.key === 'Enter' && isEditing) {
               event.preventDefault(); event.stopPropagation();
               const option = matches[activeIndex >= 0 ? activeIndex : 0];
@@ -867,6 +951,53 @@ const ManagerInput = memo(function ManagerInput({ row, editable, label, onChange
   />;
 });
 
+const InboundDateSegments = memo(function InboundDateSegments({ row, disabled, label, onChange, onPaste, registerCellInput, onFocusCell }) {
+  const inputRef = useRef(null);
+  const activeSegmentRef = useRef(0);
+  const segmentRanges = [[0, 4], [5, 7], [8, 10]];
+
+  const selectSegment = (index) => {
+    activeSegmentRef.current = index;
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    input.setSelectionRange(...segmentRanges[index]);
+  };
+
+  const handleKeyDown = (event) => {
+    if (event.key !== 'Tab') return;
+    const nextIndex = activeSegmentRef.current + (event.shiftKey ? -1 : 1);
+    if (nextIndex < 0 || nextIndex > 2) return;
+    event.preventDefault();
+    event.stopPropagation();
+    selectSegment(nextIndex);
+  };
+
+  return (
+    <input
+      ref={(element) => { inputRef.current = element; registerCellInput(row.id, 'receptdate', element); }}
+      className={codeClasses.cellInput}
+      aria-label={label}
+      data-row-id={row.id}
+      data-field="receptdate"
+      type="text"
+      inputMode="numeric"
+      maxLength={10}
+      placeholder="YYYY-MM-DD"
+      value={row.receptdate || ''}
+      disabled={disabled}
+      onFocus={() => { onFocusCell(row.id, 'receptdate'); selectSegment(0); }}
+      onClick={(event) => {
+        const position = event.currentTarget.selectionStart || 0;
+        selectSegment(position < 5 ? 0 : position < 8 ? 1 : 2);
+      }}
+      onChange={(event) => onChange(row.id, 'receptdate', event.currentTarget.value.replace(/[^\d-]/g, '').slice(0, 10))}
+      onPaste={onPaste}
+      onKeyDown={handleKeyDown}
+    />
+  );
+});
+
 const DetailCells = memo(function DetailCells({ row, index, selected, disabled, managerEditable, saved, unitOptions, onSelect, onChange, onPaste, registerCellInput, onSelectItem, onSelectCustomer, onSelectWarehouse, onSelectGeneralMaster, onFindItem, onFindCustomer, onFindMaster, onFocusCell }) {
   const displayValue = (key) => {
     if (key === 'qtyunit') return unitOptions.quantity.find((option) => option.code === resolveMasterCode('qtyunit', row.qtyunit, unitOptions))?.name || row.qtyunit || '';
@@ -906,22 +1037,7 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
         ) : key === 'manager' ? (
           <ManagerInput key={`${row.id}:${row.manager || ''}`} row={row} editable={!disabled || managerEditable} label={label} onChange={onChange} onPaste={pasteHandler(key)} registerCellInput={registerCellInput} onFocusCell={onFocusCell} />
         ) : key === 'receptdate' ? (
-          <input
-            ref={(element) => registerCellInput(row.id, key, element)}
-            className={codeClasses.cellInput}
-            aria-label={label}
-            data-row-id={row.id}
-            data-field={key}
-            type="text"
-            inputMode="numeric"
-            maxLength={10}
-            placeholder="YYYY-MM-DD"
-            value={row.receptdate || ''}
-            disabled={disabled}
-            onFocus={() => onFocusCell(row.id, key)}
-            onChange={(event) => onChange(row.id, key, event.currentTarget.value)}
-            onPaste={pasteHandler(key)}
-          />
+          <InboundDateSegments row={row} disabled={disabled} label={label} onChange={onChange} onPaste={pasteHandler(key)} registerCellInput={registerCellInput} onFocusCell={onFocusCell} />
         ) : key === 'customname' ? (
           <CustomerNameAutocompleteCell row={row} disabled={disabled} onChange={onChange} onPaste={pasteHandler(key)}
             onSelectCustomer={onSelectCustomer} onFindCustomer={onFindCustomer} onFocusCell={onFocusCell} registerCellInput={registerCellInput} />
@@ -2065,6 +2181,18 @@ export default function InboundRegisterPage() {
     totals.total += Number(totalAmountOf(row, unitOptions.price)) || 0;
     return totals;
   }, { qty: 0, weight: 0, amount: 0, vat: 0, total: 0 }), [rows, unitOptions.price]);
+  const quantitySummary = useMemo(() => {
+    if (!rows.length) return '0';
+    const totals = new Map();
+    const defaultUnit = unitOptions.quantity.find((option) => option.code === 'EA')?.name || 'EA';
+    rows.forEach((row) => {
+      const unitCode = resolveMasterCode('qtyunit', row.qtyunit, unitOptions);
+      const unit = unitOptions.quantity.find((option) => option.code === unitCode)?.name || row.qtyunit || defaultUnit;
+      const quantity = Number(cleanNumericInput(row.qty)) || 0;
+      totals.set(unit, (totals.get(unit) || 0) + quantity);
+    });
+    return [...totals.entries()].map(([unit, quantity]) => `${quantity.toLocaleString(undefined, { maximumFractionDigits: 3 })}${unit}`).join(', ');
+  }, [rows, unitOptions]);
   const renderHeader = (column) => (
     <Table.Th key={column.key} className={[codeClasses.resizableHeader, column.className].filter(Boolean).join(' ')} style={{ width: columnWidths[column.key] ?? column.width }}>
       <span style={{ whiteSpace: 'nowrap' }}>{column.label}</span><span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeColumn(event, column.key, column.width, column.minWidth, tableWidth)} role="separator" aria-label={`${column.key} 열 너비 조절`} />
@@ -2183,27 +2311,8 @@ export default function InboundRegisterPage() {
                   style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
                   <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
                   <Table.Tbody>{rows.map((row, index) => <Table.Tr key={row.id} className={[row.is_new && codeClasses.newRow, row.is_new && classes.newRow].filter(Boolean).join(' ')}>{rowContent(index, row)}</Table.Tr>)}</Table.Tbody>
-                  <Table.Tfoot><Table.Tr className={classes.detailSubtotalRow}>{headerColumns.map((column) => <Table.Td key={column.key} className={column.className}>
-                    {column.key === 'number' ? '소계'
-                      : column.key === 'qty' ? detailSubtotals.qty.toLocaleString(undefined, { maximumFractionDigits: 3 })
-                        : column.key === 'weight' ? detailSubtotals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 })
-                          : column.key === 'supplyamt' ? formatAmount(detailSubtotals.amount.toFixed(2))
-                            : column.key === 'vat' ? formatAmount(detailSubtotals.vat.toFixed(2))
-                              : column.key === 'unitamt' ? formatAmount(detailSubtotals.total.toFixed(2))
-                                : column.key === 'description' ? `합계 ${formatAmount(String(detailSubtotals.total))}` : ''}
-                  </Table.Td>)}</Table.Tr></Table.Tfoot>
                 </Table>
-              </> : <TableVirtuoso ref={virtuosoRef} data={rows} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} increaseViewportBy={{ top: 84, bottom: 84 }} fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>} fixedFooterContent={() => <Table.Tr className={classes.detailSubtotalRow}>
-                {headerColumns.map((column) => <Table.Td key={column.key} className={column.className}>
-                  {column.key === 'number' ? '소계'
-                    : column.key === 'qty' ? detailSubtotals.qty.toLocaleString(undefined, { maximumFractionDigits: 3 })
-                      : column.key === 'weight' ? detailSubtotals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 })
-                      : column.key === 'supplyamt' ? formatAmount(detailSubtotals.amount.toFixed(2))
-                        : column.key === 'vat' ? formatAmount(detailSubtotals.vat.toFixed(2))
-                          : column.key === 'unitamt' ? formatAmount(detailSubtotals.total.toFixed(2))
-                            : column.key === 'description' ? `합계 ${formatAmount(String(detailSubtotals.total))}` : ''}
-                </Table.Td>)}
-              </Table.Tr>} itemContent={rowContent} />
+              </> : <TableVirtuoso ref={virtuosoRef} data={rows} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} increaseViewportBy={{ top: 84, bottom: 84 }} fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>} itemContent={rowContent} />
             ) : (
               <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
                 style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
@@ -2218,10 +2327,12 @@ export default function InboundRegisterPage() {
           </Box>
           <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="space-between" wrap="wrap">
             <Text size="xs" c="dimmed">엑셀 셀 범위를 붙여넣고 저장할 수 있습니다.</Text>
-            <Group gap={16}>
-              <Text size="xs" fw={700}>합계 중량 {detailSubtotals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 })} kg</Text>
-              <Text size="xs" fw={700}>공급가 {formatWon(detailSubtotals.amount.toFixed(2))} · 부가세 {formatWon(detailSubtotals.vat.toFixed(2))} · 합계 {formatWon(detailSubtotals.total.toFixed(2))}</Text>
-            </Group>
+            <Text size="xs" fw={700}>
+              총 수량 {quantitySummary} · 총 중량 {detailSubtotals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 })}{rows.length ? 'KG' : ''}
+              {' · '}총공급가 {formatWon(detailSubtotals.amount.toFixed(2))}
+              {' · '}부가세 {formatWon(detailSubtotals.vat.toFixed(2))}
+              {' · '}합계 {formatWon(detailSubtotals.total.toFixed(2))}
+            </Text>
           </Group>
         </Paper>
       </Box>

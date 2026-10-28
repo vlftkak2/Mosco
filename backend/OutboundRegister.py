@@ -105,7 +105,7 @@ def _row_dict(cursor, row):
     return dict(zip((column[0] for column in cursor.description), row))
 
 
-def _load_quantity_unit_codes(cursor, companyid: str) -> dict[str, str]:
+def _load_quantity_unit_maps(cursor, companyid: str) -> tuple[dict[str, str], dict[str, str]]:
     cursor.execute(
         """SELECT code, code_name FROM CodeMaster01t
            WHERE companyid = %s AND groupcode = 'QTY'""",
@@ -113,14 +113,16 @@ def _load_quantity_unit_codes(cursor, companyid: str) -> dict[str, str]:
     )
     by_code = {}
     by_name = {}
+    names_by_code = {}
     for code, name in cursor.fetchall():
         normalized_code = str(code or "").strip()
         normalized_name = str(name or "").strip()
         if normalized_code:
             by_code[normalized_code] = normalized_code
+            names_by_code[normalized_code] = normalized_name or normalized_code
         if normalized_name:
             by_name.setdefault(normalized_name, normalized_code)
-    return {**by_name, **by_code}
+    return {**by_name, **by_code}, names_by_code
 
 
 def _calculate_unit_amount(
@@ -442,7 +444,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
             if invalid_units:
                 raise ValueError("등록되어 사용 중인 단가기준을 확인해 주세요: " + ", ".join(invalid_units[:5]))
 
-            quantity_unit_codes = _load_quantity_unit_codes(cursor, companyid)
+            quantity_unit_codes, quantity_unit_names = _load_quantity_unit_maps(cursor, companyid)
             source_cache = {}
             demands = {}
             for index, item in enumerate(items, start=1):
@@ -514,7 +516,8 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
                         stock["itemcode"], stock["itemname"], stock["productname"],
                         stock["surfacecode"], stock["surfacename"], stock["materialcode"] or "",
                         stock["materialname"] or "", stock["myrtle"], stock["thickness"], stock["width"], stock["length"],
-                        qty, stock["qtyunit"], weight, unit, unitprice, supplyamt, vat, unitamt,
+                        qty, quantity_unit_names.get(stock["qtyunit"], stock["qtyunit"]), weight,
+                        price_unit_names.get(unit) or unit, unitprice, supplyamt, vat, unitamt,
                         stock["warehousecode"], stock["warehousecodename"], item.get("description", "").strip() or None,
                         stock["manager"],
                     ))
@@ -666,7 +669,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                      customer_name, payload.get("description") or None),
                 )
 
-            quantity_unit_codes = _load_quantity_unit_codes(cursor, companyid)
+            quantity_unit_codes, quantity_unit_names = _load_quantity_unit_maps(cursor, companyid)
             source_cache = {}
             demands = {}
             for index, item in enumerate(items, start=1):
@@ -728,7 +731,8 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                     stock["itemcode"], stock["itemname"], stock["productname"],
                     stock["surfacecode"], stock["surfacename"], stock["materialcode"] or "",
                     stock["materialname"] or "", stock["myrtle"], stock["thickness"], stock["width"], stock["length"],
-                    qty, stock["qtyunit"], weight, unit, unitprice, supplyamt, vat, unitamt,
+                    qty, quantity_unit_names.get(stock["qtyunit"], stock["qtyunit"]), weight,
+                    price_unit_names.get(unit) or unit, unitprice, supplyamt, vat, unitamt,
                     stock["warehousecode"], stock["warehousecodename"], item.get("description", "").strip() or None,
                     stock["manager"],
                 ))

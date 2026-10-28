@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { Box, Button, Group, Loader, Modal, Pagination, Popover, Select, Stack, Table, Text, TextInput } from '@mantine/core';
+import { Box, Button, Group, Loader, Modal, Pagination, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconSearch } from '@tabler/icons-react';
 import classes from '../styles/pages/OutboundRegister.module.css';
@@ -37,7 +37,7 @@ const dimensionText = (stock) => [stock.thickness, stock.width, stock.length]
   .join(' × ');
 const sourceName = (value) => value === 'OPENING' ? '기초' : value === 'INBOUND' ? '입고' : value;
 
-export default function OutboundStockPickerModal({ opened, receiptno = '', existingRows = [], fixedCustomerCode = '', fixedCustomerName = '', onClose, onApply }) {
+export default function OutboundStockPickerModal({ opened, receiptno = '', existingRows = [], onClose, onApply }) {
   const [filterInputs, setFilterInputs] = useState(createDefaultFilters);
   const [filters, setFilters] = useState(createDefaultFilters);
   const [stocks, setStocks] = useState([]);
@@ -47,66 +47,9 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
   const [total, setTotal] = useState(0);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [loading, setLoading] = useState(false);
-  const [customerInputs, setCustomerInputs] = useState({});
-  const [selectedCustomers, setSelectedCustomers] = useState({});
-  const [customerMatches, setCustomerMatches] = useState([]);
-  const [activeCustomerKey, setActiveCustomerKey] = useState('');
-  const [activeCustomerIndex, setActiveCustomerIndex] = useState(0);
   const requestId = useRef(0);
-  const customerRequestId = useRef(0);
   const draftInputRefs = useRef(new Map());
   const existingKeys = useMemo(() => new Set(existingRows.map(sourceKey)), [existingRows]);
-  const customerQuery = String(customerInputs[activeCustomerKey] || '').trim();
-
-  useEffect(() => {
-    if (!opened) return;
-    setCustomerInputs({});
-    setSelectedCustomers({});
-    setCustomerMatches([]);
-    setActiveCustomerKey('');
-    setActiveCustomerIndex(0);
-  }, [opened]);
-
-  useEffect(() => {
-    if (!opened || !fixedCustomerCode || !fixedCustomerName || !stocks.length) return;
-    setCustomerInputs((current) => {
-      const next = { ...current };
-      stocks.forEach((stock) => { next[sourceKey(stock)] = fixedCustomerName; });
-      return next;
-    });
-    setSelectedCustomers((current) => {
-      const next = { ...current };
-      stocks.forEach((stock) => { next[sourceKey(stock)] = { customercode: fixedCustomerCode, customername: fixedCustomerName }; });
-      return next;
-    });
-  }, [opened, stocks, fixedCustomerCode, fixedCustomerName]);
-
-  useEffect(() => {
-    if (!opened || !activeCustomerKey || !customerQuery) {
-      setCustomerMatches([]);
-      return undefined;
-    }
-    setCustomerMatches([]);
-    setActiveCustomerIndex(0);
-    const controller = new AbortController();
-    const id = ++customerRequestId.current;
-    const timer = window.setTimeout(async () => {
-      try {
-        const { data } = await axios.get('/api/list', {
-          ...authConfig(),
-          params: { search_keyword: customerQuery, status: 'Y', page: 1, page_size: 8, include_total: false },
-          signal: controller.signal,
-        });
-        if (!controller.signal.aborted && id === customerRequestId.current) {
-          setCustomerMatches(data.data || []);
-          setActiveCustomerIndex(0);
-        }
-      } catch {
-        if (!controller.signal.aborted && id === customerRequestId.current) setCustomerMatches([]);
-      }
-    }, 220);
-    return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [opened, activeCustomerKey, customerQuery]);
 
   const load = useCallback(async (nextPage, nextFilters, nextPageSize) => {
     const id = ++requestId.current;
@@ -226,12 +169,6 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
   };
 
   const selectedCount = Object.values(selected).filter(Boolean).length;
-  const chooseCustomer = (key, customer) => {
-    setSelectedCustomers((current) => ({ ...current, [key]: customer }));
-    setCustomerInputs((current) => ({ ...current, [key]: customer.customername || customer.customercode || '' }));
-    setActiveCustomerKey('');
-    setActiveCustomerIndex(0);
-  };
   const apply = () => {
     const chosen = stocks.filter((stock) => selected[sourceKey(stock)]);
     const result = [];
@@ -240,11 +177,6 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
       const receiptWarehouse = receiptno ? String(existingRows[0]?.warehousecode || '').trim() : '';
       if (receiptWarehouse && String(stock.warehousecode || '').trim() !== receiptWarehouse) {
         notifications.show({ title: '창고가 다른 재고입니다', message: `${stock.itemname}: 선택한 출고전표와 같은 창고의 재고만 추가할 수 있습니다.`, color: 'orange' });
-        return;
-      }
-      const selectedCustomer = selectedCustomers[key];
-      if (!selectedCustomer) {
-        notifications.show({ title: '매출처를 선택해 주세요', message: `${stock.itemname} 행의 매출처 칸에 매출처 코드나 이름을 입력하고, 검색 목록에서 해당 매출처를 선택한 뒤 다시 재고 반영을 눌러 주세요.`, color: 'orange' });
         return;
       }
       const draft = drafts[key] || getDraft(stock);
@@ -261,15 +193,15 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
         notifications.show({ title: '출고단가 확인', message: `${stock.itemname}: 출고단가를 입력해 주세요.`, color: 'orange' });
         return;
       }
-      result.push({ ...stock, customcode: selectedCustomer.customercode, customname: selectedCustomer.customername, qty: String(qty), weight: String(weight), unitprice: String(unitprice) });
+      result.push({ ...stock, qty: String(qty), weight: String(weight), unitprice: String(unitprice) });
     }
     if (!result.length) return;
     onApply(result);
   };
 
-  return <Modal opened={opened} onClose={onClose} title="출고 재고 선택" centered size="95%" classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader }}>
+  return <Modal opened={opened} onClose={onClose} title={<Text fw={700}>출고 재고 선택</Text>} centered size="95%" classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader }}>
     <Stack gap="sm" pt={8}>
-      <Box className={classes.modalHint}>매출처를 선택한 뒤 기초·입고 원천 재고에서 출고할 행과 수량·중량을 지정하세요.</Box>
+      <Box className={classes.modalHint}>기초·입고 원천 재고에서 출고할 행과 수량·중량을 지정하세요. 매출처는 재고 반영 후 출고 상세에서 입력합니다.</Box>
       <Group align="end" gap="xs" wrap="wrap">
         <TextInput label="기준일 시작" type="date" value={filterInputs.date_from} onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
         <TextInput label="기준일 종료" type="date" value={filterInputs.date_to} onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
@@ -293,7 +225,6 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
               <Table.Th style={{ width: 115 }}>창고</Table.Th>
               <Table.Th style={{ width: 100 }}>현재고수량</Table.Th>
               <Table.Th style={{ width: 125 }}>현재고중량(kg)</Table.Th>
-              <Table.Th style={{ width: 260 }}>매출처</Table.Th>
               <Table.Th style={{ width: 130 }}>&#xCD9C;&#xACE0;&#xB2E8;&#xAC00;</Table.Th>
               <Table.Th style={{ width: 100 }}>출고수량</Table.Th>
               <Table.Th style={{ width: 125 }}>출고중량(kg)</Table.Th>
@@ -315,30 +246,13 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
                   <Table.Td>{stock.warehousecodename || stock.warehousecode}</Table.Td>
                   <Table.Td ta="right">{numberText(stock.current_qty)}</Table.Td>
                   <Table.Td ta="right">{numberText(stock.current_weight)}</Table.Td>
-                  <Table.Td>
-                    <Popover opened={activeCustomerKey === key && customerQuery.length > 0 && customerMatches.length > 0} position="bottom-start" width={260} withinPortal shadow="sm" zIndex={500}>
-                      <Popover.Target>
-                        <TextInput size="xs" className={classes.stockCustomerInputWrap} value={customerInputs[key] || fixedCustomerName || ''} disabled={alreadyAdded || Boolean(fixedCustomerCode)} onFocus={() => setActiveCustomerKey(key)} onBlur={() => setActiveCustomerKey((current) => current === key ? '' : current)} onChange={(event) => { setCustomerInputs((current) => ({ ...current, [key]: event.currentTarget.value })); setSelectedCustomers((current) => { const next = { ...current }; delete next[key]; return next; }); setActiveCustomerKey(key); }} onKeyDown={(event) => {
-                          if (event.key === 'ArrowDown' && customerMatches.length) { event.preventDefault(); setActiveCustomerIndex((current) => (current + 1) % customerMatches.length); }
-                          else if (event.key === 'ArrowUp' && customerMatches.length) { event.preventDefault(); setActiveCustomerIndex((current) => (current - 1 + customerMatches.length) % customerMatches.length); }
-                          else if (event.key === 'Enter' && customerMatches.length) { event.preventDefault(); chooseCustomer(key, customerMatches[activeCustomerIndex] || customerMatches[0]); }
-                          else if (event.key === 'Escape') { setCustomerInputs((current) => ({ ...current, [key]: selectedCustomers[key]?.customername || '' })); setActiveCustomerKey(''); }
-                        }} />
-                      </Popover.Target>
-                      <Popover.Dropdown className={classes.stockCustomerSuggestions}>
-                        {customerMatches.map((customer, index) => <button key={customer.customercode} type="button" className={classes.stockCustomerSuggestion} style={index === activeCustomerIndex ? { background: '#edf3f8' } : undefined} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveCustomerIndex(index)} onClick={() => chooseCustomer(key, customer)}>
-                          <span>{customer.customername}</span><small>{customer.customercode}</small>
-                        </button>)}
-                      </Popover.Dropdown>
-                    </Popover>
-                  </Table.Td>
                   <Table.Td><input ref={(element) => { const inputKey = `${key}:unitprice`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="text" inputMode="decimal" value={draftNumberText(draft.unitprice)} disabled={alreadyAdded} onChange={(event) => updateUnitPriceDraft(stock, event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'unitprice', event)} /></Table.Td>
                   <Table.Td><input ref={(element) => { const inputKey = `${key}:qty`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="text" inputMode="decimal" value={draftNumberText(draft.qty)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'qty', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'qty', event)} /></Table.Td>
                   <Table.Td><input ref={(element) => { const inputKey = `${key}:weight`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="text" inputMode="decimal" value={draftNumberText(draft.weight)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'weight', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'weight', event)} /></Table.Td>
                   <Table.Td>{stock.productname || ''}</Table.Td>
                 </Table.Tr>;
               })}
-              {!stocks.length && <Table.Tr><Table.Td colSpan={14} className={classes.customerEmpty}>{loading ? '현재고를 조회하고 있습니다.' : '출고 가능한 재고가 없습니다.'}</Table.Td></Table.Tr>}
+              {!stocks.length && <Table.Tr><Table.Td colSpan={13} className={classes.customerEmpty}>{loading ? '현재고를 조회하고 있습니다.' : '출고 가능한 재고가 없습니다.'}</Table.Td></Table.Tr>}
             </Table.Tbody>
           </Table>
         </Box>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UnstyledButton, Collapse, Group, Box, Text } from '@mantine/core';
+import { UnstyledButton, Collapse, Group, Box, Text, Menu } from '@mantine/core';
 import { IconChevronRight } from '@tabler/icons-react';
 import classes from '../../styles/layout/MainLayoutLink.module.css';
 import { Notifications, notifications } from '@mantine/notifications';
@@ -76,7 +76,7 @@ function NestedMenuItem({ item, pathname, navigate, depth = 0 }) {
 }
 
 // 1. props에 'disabled'를 추가합니다.
-export function LinksGroup({ icon: Icon, label, initiallyOpened, links, link, disabled, pathname }) {
+export function LinksGroup({ icon: Icon, label, initiallyOpened, links, link, disabled, pathname, collapsed = false }) {
   const hasLinks = Array.isArray(links);
   const navigate = useNavigate();
   const isActive = normalizePath(link) === normalizePath(pathname) || (links || []).some((item) => itemContainsPath(item, pathname));
@@ -87,6 +87,47 @@ export function LinksGroup({ icon: Icon, label, initiallyOpened, links, link, di
   const items = (hasLinks ? links : []).map((item) => (
     <NestedMenuItem key={item.label} item={item} pathname={pathname} navigate={navigate} />
   ));
+
+  if (collapsed) {
+    const collapsedItems = (hasLinks ? links : []).flatMap((item) => (
+      item.links ? [
+        { type: 'label', key: `group-${item.label}`, label: item.label },
+        ...item.links,
+      ] : [item]
+    ));
+    const trigger = (
+      <UnstyledButton
+        className={`${classes.collapsedControl} ${isActive ? classes.controlActive : ''}`}
+        aria-label={label}
+        title={label}
+        onClick={!hasLinks && !disabled && link ? () => navigate(link) : undefined}
+        disabled={disabled || undefined}
+      >
+        {Icon}
+      </UnstyledButton>
+    );
+
+    if (!hasLinks) return trigger;
+
+    return (
+      <Menu position="right-start" offset={6} withinPortal shadow="sm">
+        <Menu.Target>{trigger}</Menu.Target>
+        <Menu.Dropdown className={classes.collapsedMenu}>
+          {collapsedItems.map((item) => item.type === 'label' ? (
+            <Menu.Label key={item.key}>{item.label}</Menu.Label>
+          ) : (
+            <Menu.Item
+              key={item.label}
+              disabled={item.disabled}
+              onClick={() => item.link && !item.disabled && navigate(item.link)}
+            >
+              {item.label}
+            </Menu.Item>
+          ))}
+        </Menu.Dropdown>
+      </Menu>
+    );
+  }
 
   return (
     <>
