@@ -151,7 +151,7 @@ def _load_master_names(cursor, companyid: str, groupcode: str, values: list[str]
 def _insert_source_stock(cursor, companyid, companyname, source_type, source_no, source_line,
                          receipt_date, customcode, customname, movement, line,
                          quantity_unit_name: str, price_unit_name: str):
-    if source_type not in {"OPENING", "INBOUND"}:
+    if source_type not in {"OPENING", "INBOUND", "PROCESS"}:
         raise ValueError("현재고 원천구분을 확인해 주세요.")
     if not source_no or source_line <= 0:
         raise ValueError("현재고 원천전표와 상세 순번을 확인해 주세요.")

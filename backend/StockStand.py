@@ -330,7 +330,7 @@ def _calculate_amounts(qty, length, weight, unitprice, unit: str, price_units: d
 def save_stand_items(companyid: str, companyname: str, standdate: date, items: list[dict]):
     try:
         with _connect() as connection, connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"stand-stock:{companyid}",))
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
             codes = _load_active_codes(cursor, companyid)
             item_codes = list(dict.fromkeys(item["itemcode"].strip() for item in items))
             cursor.execute(
@@ -546,7 +546,7 @@ def update_stand_prices(companyid: str, items: list[dict]):
 
 def delete_stand_items(companyid: str):
     with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"stand-stock:{companyid}",))
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
             """SELECT s.lineno, s.itemcode, s.warehousecode
                FROM StandStock01t s

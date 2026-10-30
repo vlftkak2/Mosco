@@ -20,7 +20,7 @@ def get_available_stock(
     customname: str = Query(default="", max_length=100),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
-    sourcetype: str = Query(default="", pattern="^(|OPENING|INBOUND)$"),
+    sourcetype: str = Query(default="", pattern="^(|OPENING|INBOUND|PROCESS)$"),
     receiptno: str = Query(default="", max_length=100),
     user: dict = Depends(security_module.get_current_user),
 ):

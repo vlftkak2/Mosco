@@ -40,6 +40,8 @@ from routes import UserMenu_routes as user_menu_routes
 # 고정 공통코드 그룹 API를 앱에 등록합니다.
 from routes import Codemaster_routes as Codemaster_routes
 from routes import ItemMaster_routes as ItemMaster_routes
+from routes import ItemProcessMaster_routes as ItemProcessMaster_routes
+from routes import ItemProcessRegister_routes as ItemProcessRegister_routes
 from routes import InboundRegister_routes as InboundRegister_routes
 from routes import InboundSearch_routes as InboundSearch_routes
 from routes import Purchase_routes as Purchase_routes
@@ -112,6 +114,10 @@ app.include_router(Codemaster_routes.router)
 
 # Company-scoped item master API
 app.include_router(ItemMaster_routes.router)
+
+# Company-scoped item processing rule API
+app.include_router(ItemProcessMaster_routes.router)
+app.include_router(ItemProcessRegister_routes.router)
 
 # Company-scoped inbound receipt API
 app.include_router(InboundRegister_routes.router)

@@ -16,6 +16,8 @@ import DepartmentAuthPage from "./pages/DepartmentAuthPage";
 import CustomerPage from "./pages/CustomerPage";
 import CodeMasterPage from "./pages/CodeMasterPage";
 import ItemMaster from "./pages/ItemMasterPage";
+import ItemProcessMaster from "./pages/ItemProcessMaster";
+import ItemProcessRegister from "./pages/ItemProcessRegister";
 import InboundRegisterPage from "./pages/InboundRegisterPage";
 import InboundSearchPage from "./pages/InboundSearchPage";
 import PurchasePage from "./pages/PurchasePage";
@@ -81,6 +83,8 @@ function App() {
           <Route path="/CustomPage" element={menuPage('DATA_CUSTOMER', <CustomerPage />)} />
           <Route path="/CodeMasterPage" element={menuPage('DATA_CODE', <CodeMasterPage />)} />
           <Route path="/ItemMasterPage" element={menuPage('DATA_ITEM', <ItemMaster />)} />
+          <Route path="/ItemProcessMaster" element={menuPage('ITEM_PROCESS_MASTER', <ItemProcessMaster />)} />
+          <Route path="/ItemProcessRegister" element={menuPage('ITEM_PROCESS_REGISTER', <ItemProcessRegister />)} />
           <Route path="/InboundRegisterPage" element={menuPage('INBOUND_REGISTER', <InboundRegisterPage />)} />
           <Route path="/InboundSearchPage" element={menuPage('INBOUND_SEARCH', <InboundSearchPage />)} />
           <Route path="/PurchasePage" element={menuPage('INBOUND_REGISTER', <PurchasePage />)} />

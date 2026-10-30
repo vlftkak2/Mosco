@@ -242,7 +242,7 @@ def save_group(companyid: str, companyname: str, groupcode: str, items: list[dic
     try:
         with _connect() as connection, connection.cursor() as cursor:
             cursor.execute(
-                "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                 (f"{companyid}:{groupcode}",),
             )
             cursor.execute(
@@ -320,7 +320,7 @@ def save_bulk_items(companyid: str, companyname: str, items: list[dict]) -> int:
         with _connect() as connection, connection.cursor() as cursor:
             for groupcode in groupcodes:
                 cursor.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                     (f"{companyid}:{groupcode}",),
                 )
 
@@ -410,7 +410,7 @@ def delete_codes(companyid: str, groupcode: str, codes: list[str]) -> int:
     try:
         with _connect() as connection, connection.cursor() as cursor:
             cursor.execute(
-                "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                 (f"{companyid}:{groupcode}",),
             )
             cursor.execute(

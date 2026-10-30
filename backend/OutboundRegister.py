@@ -61,7 +61,7 @@ class OutboundDetailInput(BaseModel):
 
     @model_validator(mode="after")
     def require_source_fields(self):
-        if self.stocksourcetype not in {"OPENING", "INBOUND"} or not self.stocksourceno:
+        if self.stocksourcetype not in {"OPENING", "INBOUND", "PROCESS"} or not self.stocksourceno:
             raise ValueError("출고 원천 재고 구분과 전표번호를 확인해 주세요.")
         return self
 
@@ -269,7 +269,7 @@ def _next_receiptno(cursor, companyid: str) -> str:
     today = datetime.now(ZoneInfo("Asia/Seoul")).date()
     prefix = f"OUT{today:%Y%m%d}"
     cursor.execute(
-        "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
         (f"outbound-sequence:{companyid}:{prefix}",),
     )
     suffix_start = len(prefix) + 1
@@ -396,7 +396,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
 
     try:
         with _connect() as connection, connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"stand-stock:{companyid}",))
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
             customer_codes = list(dict.fromkeys(item["customcode"] for item in items if item["customcode"]))
             customer_names_input = list(dict.fromkeys(
                 item["customname"].strip().lower() for item in items
@@ -449,7 +449,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
             demands = {}
             for index, item in enumerate(items, start=1):
                 source_key = (item["stocksourcetype"].strip().upper(), item["stocksourceno"].strip(), int(item["stocksourceline"]))
-                if source_key[0] not in {"OPENING", "INBOUND"}:
+                if source_key[0] not in {"OPENING", "INBOUND", "PROCESS"}:
                     raise ValueError(f"{index}행의 원천 재고 구분이 올바르지 않습니다.")
                 if source_key not in source_cache:
                     cursor.execute(
@@ -575,7 +575,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
     items = payload["items"]
     try:
         with _connect() as connection, connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"stand-stock:{companyid}",))
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
             customcode = (payload.get("customcode") or "").strip()
             supplied_customer_name = (payload.get("customname") or "").strip()
             if customcode:
@@ -612,7 +612,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                 receiptno = _next_receiptno(cursor, companyid)
             else:
                 cursor.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                     (f"outbound:{companyid}:{receiptno}",),
                 )
 
@@ -678,7 +678,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                     item["stocksourceno"].strip(),
                     int(item["stocksourceline"]),
                 )
-                if source_key[0] not in {"OPENING", "INBOUND"}:
+                if source_key[0] not in {"OPENING", "INBOUND", "PROCESS"}:
                     raise ValueError(f"{index}행 원천 재고 구분이 올바르지 않습니다.")
                 if source_key not in source_cache:
                     cursor.execute(
@@ -782,7 +782,7 @@ def update_receipt_managers(companyid: str, receiptno: str, items: list[dict]):
         normalized[lineno] = (item.get("manager") or "").strip()
 
     with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"stand-stock:{companyid}",))
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
             """SELECT COALESCE(subulyn, 'N')
                FROM Outbound01t
@@ -830,7 +830,7 @@ def update_receipt_managers(companyid: str, receiptno: str, items: list[dict]):
 
 def delete_receipt(companyid: str, receiptno: str):
     with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"stand-stock:{companyid}",))
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
             "SELECT COALESCE(subulyn, 'N') FROM Outbound01t WHERE companyid = %s AND receiptno = %s FOR UPDATE",
             (companyid, receiptno),

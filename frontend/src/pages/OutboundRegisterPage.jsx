@@ -606,7 +606,7 @@ const CustomerAutocompleteInput = memo(function CustomerAutocompleteInput({ row,
 
 const DetailCells = memo(function DetailCells({ row, index, selected, disabled, managerEditable, saved, unitOptions, onSelect, onChange, onPaste, registerCodeInput, registerCellInput, onFindItem, onFindMaster, onFindCustomer, onFocusCell }) {
   const displayValue = (key) => {
-    if (key === 'sourcetype') return row.sourcetype === 'OPENING' || row.stocksourcetype === 'OPENING' ? '기초' : row.sourcetype === 'INBOUND' || row.stocksourcetype === 'INBOUND' ? '입고' : '';
+    if (key === 'sourcetype') return row.sourcetype === 'OPENING' || row.stocksourcetype === 'OPENING' ? '기초' : row.sourcetype === 'INBOUND' || row.stocksourcetype === 'INBOUND' ? '입고' : row.sourcetype === 'PROCESS' || row.stocksourcetype === 'PROCESS' ? '가공' : '';
     if (key === 'stocksourceno') return row.stocksourceno || row.sourceno || '';
     if (key === 'stocksourceline') return row.stocksourceline ?? row.sourceline ?? '';
     if (key === 'sourcecustomname') return row.sourcecustomname || '';

@@ -259,7 +259,7 @@ def _next_receiptno(cursor, companyid: str) -> str:
     today = datetime.now(ZoneInfo("Asia/Seoul")).date()
     prefix = f"IN{today:%Y%m%d}"
     cursor.execute(
-        "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
         (f"inbound-sequence:{companyid}:{prefix}",),
     )
     suffix_start = len(prefix) + 1
@@ -294,7 +294,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
         raise ValueError("입고일자를 입력해 주세요.")
     try:
         with _connect() as connection, connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"stand-stock:{companyid}",))
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
             customer_codes = list(dict.fromkeys(item["customcode"] for item in items if item["customcode"]))
             customer_tokens = list(dict.fromkeys(
                 item["customname"].strip().lower() for item in items if not item["customcode"] and item["customname"].strip()
@@ -529,7 +529,7 @@ def update_receipt_managers(companyid: str, receiptno: str, items: list[dict]):
         normalized[lineno] = (item.get("manager") or "").strip()
 
     with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"stand-stock:{companyid}",))
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
             """SELECT COALESCE(subulyn, 'N')
                FROM Inbound01t
@@ -586,7 +586,7 @@ def update_receipt_managers(companyid: str, receiptno: str, items: list[dict]):
 
 def delete_receipt(companyid: str, receiptno: str):
     with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"stand-stock:{companyid}",))
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
             "SELECT COALESCE(subulyn, 'N') FROM Inbound01t WHERE companyid = %s AND receiptno = %s FOR UPDATE",
             (companyid, receiptno),

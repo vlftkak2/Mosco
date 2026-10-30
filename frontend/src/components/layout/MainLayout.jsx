@@ -92,6 +92,8 @@ const mockdata = [
       { label: '주문서 관리(EX)', link: '/AIOrderManage', icon: '', MenuID: 'AI_ORDER_MANAGEMENT' },
       { label: '가공 최적화(EX)', link: '/AIOrderOptimization', icon: '', MenuID: 'AI_OPTIMIZATION' },
       { label: '가공기준 관리(EX)', link: '/AIProcessingStandards', icon: '', MenuID: 'AI_STANDARDS' },
+      { label: '가공공정 관리', link: '/ItemProcessMaster', icon: '', MenuID: 'ITEM_PROCESS_MASTER' },
+      { label: '재고가공', link: '/ItemProcessRegister', icon: '', MenuID: 'ITEM_PROCESS_REGISTER' },
 
       // { label: '가공 진행현황', link: '/AIOrderConfirmPage', icon: '', MenuID: 'AI-ORDER-TEST' },
         
@@ -156,6 +158,8 @@ function findMenuLabel(items, path) {
     '/aiordermanage': '주문서 관리',
     '/aiorderoptimization': '가공 최적화',
     '/aiprocessingstandards': '가공기준 관리',
+    '/itemprocessmaster': '가공공정 관리',
+    '/itemprocessregister': '재고가공',
     '/customersupport': '고객지원',
     '/company': '고객사등록',
     '/user': '사용자 관리',
@@ -204,7 +208,7 @@ export default function MainLayout({ children }) {
   const isInboundWorkspace = [
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
     '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage', '/aiorderconfirmpage',
-    '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/aiprocessingstandards', '/customersupport',
+    '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/aiprocessingstandards', '/itemprocessmaster', '/itemprocessregister', '/customersupport',
     '/outboundregisterpage', '/outboundsearchpage', '/company', '/user', '/usermenu',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
   const [pageRibbon, setPageRibbon] = useState(null);
