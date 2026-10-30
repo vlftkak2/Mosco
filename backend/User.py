@@ -209,7 +209,7 @@ def create_user(
         companyname, licensed_seats = _lock_active_company(cursor, data.companyid)
 
         # Serialize registrations for the same email, including across different companies.
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(LOWER(%s)))", (data.email,))
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(LOWER(%s), 0))", (data.email,))
         cursor.execute(
             """SELECT 1 FROM user01t WHERE LOWER(email) = LOWER(%s) LIMIT 1""",
             (data.email,),
@@ -308,7 +308,7 @@ def update_user(data: UserUpdateInput, *, actor: dict | None = None):
             if active_users >= int(company["licensed_seats"] or 0):
                 raise ValueError(f"허용 계정 수({int(company['licensed_seats'] or 0)}명)를 모두 사용 중입니다.")
 
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(LOWER(%s)))", (data.email,))
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(LOWER(%s), 0))", (data.email,))
         cursor.execute(
             """SELECT 1 FROM user01t
                WHERE LOWER(email) = LOWER(%s)

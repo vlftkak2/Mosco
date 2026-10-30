@@ -243,7 +243,7 @@ def suggest_active_items(companyid: str, query: str, limit: int = 8):
 def save_items(companyid: str, companyname: str, items: list[dict]) -> int:
     try:
         with _connect() as connection, connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (f"item:{companyid}",))
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"item:{companyid}",))
             codes = [item["itemcode"] for item in items]
             cursor.execute(
                 "SELECT itemcode, COALESCE(itemtypecode, ''), COALESCE(itemtypecodenm, '') "

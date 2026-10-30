@@ -179,7 +179,7 @@ def get_inbound_preview(companyid, receiptno):
 def save_purchase(companyid, companyname, username, data: PurchaseInput):
     with _connect() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         # Serializes numbering and saves for this company; other companies remain independent.
-        cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)', (f'purchase:{companyid}',))
+        cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))', (f'purchase:{companyid}',))
         customer = resolve_token(companyid, 'customer', data.customcode)
         if not customer:
             raise ValueError('사용 가능한 매입처 코드를 선택하세요.')

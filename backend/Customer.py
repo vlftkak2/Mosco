@@ -64,7 +64,7 @@ def _filter_useyn(value: str) -> str:
 
 def _next_customer_code(cursor, companyid: str) -> str:
     # Serialize code allocation per company so simultaneous registrations cannot get the same preview/save code.
-    cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (companyid,))
+    cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (companyid,))
     cursor.execute(
         """
         SELECT COALESCE(MAX(substring(customercode FROM 6)::bigint), 0)
@@ -234,7 +234,7 @@ def CustomerCreate(item: CustomModifyRequest):
             return reference_check
         customercode = (item.customercode or "").strip()
         if customercode:
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (item.companyid,))
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (item.companyid,))
             cursor.execute(
                 "SELECT 1 FROM customer01t WHERE companyid = %s AND LOWER(customercode) = LOWER(%s) LIMIT 1",
                 (item.companyid, customercode),
@@ -292,7 +292,7 @@ def CustomerBulkCreate(items: List[CustomModifyRequest]):
             if not reference_check["success"]:
                 return reference_check
 
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (companyid,))
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (companyid,))
             requested_codes = [(item.customercode or "").strip() for item in items]
             if not all(requested_codes):
                 return {"success": False, "message": "엑셀 일괄등록은 거래처코드와 거래처명이 필수입니다."}

@@ -23,7 +23,7 @@ const createDefaultFilters = () => {
 };
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
-const sourceName = (value) => value === 'OPENING' ? '기초' : value === 'INBOUND' ? '입고' : '';
+const sourceName = (value) => value === 'OPENING' ? '기초' : value === 'INBOUND' ? '입고' : value === 'PROCESS' ? '가공' : '';
 const timestampText = (value) => {
   if (!value) return '';
   const date = new Date(value);
@@ -83,7 +83,7 @@ export default function CurrentStockPage() {
         <ActionIcon variant="subtle" color="gray" size="sm" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}><IconX size={15} /></ActionIcon>
       </Group>
       <Stack className={classes.filterFields} gap="sm">
-        <Select label="재고구분" data={[{ value: 'ALL', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }]} value={inputs.sourcetype || 'ALL'} onChange={(value) => setInputs((current) => ({ ...current, sourcetype: value === 'ALL' ? '' : value || '' }))} />
+        <Select label="재고구분" data={[{ value: 'ALL', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }]} value={inputs.sourcetype || 'ALL'} onChange={(value) => setInputs((current) => ({ ...current, sourcetype: value === 'ALL' ? '' : value || '' }))} />
         <Box>
           <Text size="xs" fw={700} mb={5}>재고기간</Text>
           <Stack gap={6}>

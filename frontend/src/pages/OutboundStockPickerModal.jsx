@@ -201,14 +201,14 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
 
   return <Modal opened={opened} onClose={onClose} title={<Text fw={700}>출고 재고 선택</Text>} centered size="95%" classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader }}>
     <Stack gap="sm" pt={8}>
-      <Box className={classes.modalHint}>기초·입고 원천 재고에서 출고할 행과 수량·중량을 지정하세요. 매출처는 재고 반영 후 출고 상세에서 입력합니다.</Box>
+      <Box className={classes.modalHint}>기초·입고·가공 원천 재고에서 출고할 행과 수량·중량을 지정하세요. 매출처는 재고 반영 후 출고 상세에서 입력합니다.</Box>
       <Group align="end" gap="xs" wrap="wrap">
         <TextInput label="기준일 시작" type="date" value={filterInputs.date_from} onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
         <TextInput label="기준일 종료" type="date" value={filterInputs.date_to} onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
         <TextInput label="품목" placeholder="품목코드·품명·제품번호" value={filterInputs.item_search} onChange={(event) => setFilterInputs((current) => ({ ...current, item_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
         <TextInput label="창고" placeholder="창고코드 또는 창고명" value={filterInputs.warehouse_search} onChange={(event) => setFilterInputs((current) => ({ ...current, warehouse_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
         <TextInput label="매입처" placeholder="원천 거래처명" value={filterInputs.customname} onChange={(event) => setFilterInputs((current) => ({ ...current, customname: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
-        <Select label="재고구분" data={[{ value: '', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }]} value={filterInputs.sourcetype} onChange={(value) => setFilterInputs((current) => ({ ...current, sourcetype: value || '' }))} />
+        <Select label="재고구분" data={[{ value: '', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }]} value={filterInputs.sourcetype} onChange={(value) => setFilterInputs((current) => ({ ...current, sourcetype: value || '' }))} />
         <Button color="red" leftSection={<IconSearch size={15} />} onClick={runSearch}>조회</Button>
       </Group>
       <Box pos="relative" className={classes.pickerResults}>

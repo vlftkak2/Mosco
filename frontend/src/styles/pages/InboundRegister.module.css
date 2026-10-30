@@ -440,7 +440,7 @@
 .headerForm { gap: 8px; padding: 9px 12px 10px; }
 .headerForm :global(.mantine-Input-input) { min-height: 33px; }
 .editorPanel :global(.mantine-Table-thead th) { height: 34px; padding-top: 6px; padding-bottom: 6px; }
-.editorPanel :global(.mantine-Table-tbody td) { color: #252a32; font-size: 11px; }
+.editorPanel :global(.mantine-Table-tbody td) { height: 34px; padding: 0 !important; color: #252a32; font-size: 11px; }
 .emptyDetailWrap { position: relative; }
 .emptyDetailMessage {
   position: absolute;
