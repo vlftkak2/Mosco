@@ -23,35 +23,33 @@ from contextlib import asynccontextmanager
 # from routes import D2CDay_routes as D2CDay_routes
 # from routes import D2CItem_routes as D2CItem_routes
 
-from routes import login_routes as login_router
-from routes import userpassword_routes as user_routes
-from routes import userinfo_routes as userinfo_routes
-from routes import userauth_routes as userauth_routes
+from routes.auth import login_routes as login_router
+from routes.auth import userpassword_routes as user_routes
+from routes.auth import userinfo_routes as userinfo_routes
+from routes.auth import userauth_routes as userauth_routes
 
-from routes import home_dashboard_routes as home_dashboard_routes
-from routes import Customer_routes as customer_routes
-from routes import Company_routes as company_routes
-try:
-    from routes import User_routes as company_user_routes
-except ImportError:  # Git may preserve the pre-existing lowercase filename on some platforms.
-    from routes import user_routes as company_user_routes
-from routes import UserMenu_routes as user_menu_routes
+from routes.dashboard import home_dashboard_routes as home_dashboard_routes
+from routes.masterdata import Customer_routes as customer_routes
+from routes.masterdata import Company_routes as company_routes
+from routes.auth import user_routes as company_user_routes
+from routes.auth import UserMenu_routes as user_menu_routes
 
 # 고정 공통코드 그룹 API를 앱에 등록합니다.
-from routes import Codemaster_routes as Codemaster_routes
-from routes import ItemMaster_routes as ItemMaster_routes
-from routes import ItemProcessMaster_routes as ItemProcessMaster_routes
-from routes import ItemProcessRegister_routes as ItemProcessRegister_routes
-from routes import InboundRegister_routes as InboundRegister_routes
-from routes import InboundSearch_routes as InboundSearch_routes
-from routes import Purchase_routes as Purchase_routes
-from routes import OutboundRegister_routes as OutboundRegister_routes
-from routes import OutboundSearch_routes as OutboundSearch_routes
-from routes import StockStand_routes as StockStand_routes
-from routes import CurrentStock_routes as CurrentStock_routes
-from routes import IniopStock_routes as IniopStock_routes
-from routes import AIOrder_routes as AIOrder_routes
-from routes import AIOrderConfirm_routes as AIOrderConfirm_routes
+from routes.masterdata import Codemaster_routes as Codemaster_routes
+from routes.masterdata import ItemMaster_routes as ItemMaster_routes
+from routes.process import ItemProcessMaster_routes as ItemProcessMaster_routes
+from routes.process import ItemProcessRegister_routes as ItemProcessRegister_routes
+from routes.process import ItemProcessSearch_routes as ItemProcessSearch_routes
+from routes.inbound import InboundRegister_routes as InboundRegister_routes
+from routes.inbound import InboundSearch_routes as InboundSearch_routes
+from routes.inbound import Purchase_routes as Purchase_routes
+from routes.outbound import OutboundRegister_routes as OutboundRegister_routes
+from routes.outbound import OutboundSearch_routes as OutboundSearch_routes
+from routes.inventory import StockStand_routes as StockStand_routes
+from routes.inventory import CurrentStock_routes as CurrentStock_routes
+from routes.inventory import IniopStock_routes as IniopStock_routes
+from routes.ai import AIOrder_routes as AIOrder_routes
+from routes.ai import AIOrderConfirm_routes as AIOrderConfirm_routes
 
 import uvicorn
 
@@ -118,6 +116,7 @@ app.include_router(ItemMaster_routes.router)
 # Company-scoped item processing rule API
 app.include_router(ItemProcessMaster_routes.router)
 app.include_router(ItemProcessRegister_routes.router)
+app.include_router(ItemProcessSearch_routes.router)
 
 # Company-scoped inbound receipt API
 app.include_router(InboundRegister_routes.router)

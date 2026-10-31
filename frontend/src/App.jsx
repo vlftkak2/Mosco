@@ -5,34 +5,35 @@ import { BrowserRouter, Navigate, Routes, Route,Outlet } from 'react-router-dom'
 
 import MainLayout, { MenuAccessContext } from "./components/layout/MainLayout";
 import LoginPage from "./components/auth/LoginPage";
-import HomePage from "./pages/HomePage";
+import HomePage from "./pages/dashboard/HomePage";
 
-import UserPage from "./pages/UserPage" 
-import User from "./pages/User";
-import UserMenu from "./pages/UserMenu";
-import UserAuthPage from "./pages/UserAuthPage" 
-import DepartmentPage from "./pages/DepartmentPage";
-import DepartmentAuthPage from "./pages/DepartmentAuthPage";
-import CustomerPage from "./pages/CustomerPage";
-import CodeMasterPage from "./pages/CodeMasterPage";
-import ItemMaster from "./pages/ItemMasterPage";
-import ItemProcessMaster from "./pages/ItemProcessMaster";
-import ItemProcessRegister from "./pages/ItemProcessRegister";
-import InboundRegisterPage from "./pages/InboundRegisterPage";
-import InboundSearchPage from "./pages/InboundSearchPage";
-import PurchasePage from "./pages/PurchasePage";
-import OutboundRegisterPage from "./pages/OutboundRegisterPage";
-import OutboundSearchPage from "./pages/OutboundSearchPage";
-import StockStandPage from "./pages/StockStandPage";
-import CurrentStockPage from "./pages/CurrentStockPage";
-import IniopStockPage from "./pages/IniopStockPage";
-import AIOrderPage from "./pages/AIOrderPage";
-import AIProcessingStandards from "./pages/AIProcessingStandards";
-import AIOrderOptimization from "./pages/AIOrderOptimization";
-import AIOrderManage from "./pages/AIOrderManage";
-import CustomerSupport from "./pages/CustomerSupport";
-import AIOrderConfirmPage from "./pages/AIOrderConfirmPage";
-import Company from "./pages/Company";
+import UserPage from "./pages/system/UserPage" 
+import User from "./pages/system/User";
+import UserMenu from "./pages/system/UserMenu";
+import UserAuthPage from "./pages/system/UserAuthPage" 
+import DepartmentPage from "./pages/system/DepartmentPage";
+import DepartmentAuthPage from "./pages/system/DepartmentAuthPage";
+import CustomerPage from "./pages/masterdata/CustomerPage";
+import CodeMasterPage from "./pages/masterdata/CodeMasterPage";
+import ItemMaster from "./pages/masterdata/ItemMasterPage";
+import ItemProcessMaster from "./pages/process/ItemProcessMaster";
+import ItemProcessRegister from "./pages/process/ItemProcessRegister";
+import ItemProcessSearch from "./pages/process/ItemProcessSearch";
+import InboundRegisterPage from "./pages/inbound/InboundRegisterPage";
+import InboundSearchPage from "./pages/inbound/InboundSearchPage";
+import PurchasePage from "./pages/inbound/PurchasePage";
+import OutboundRegisterPage from "./pages/outbound/OutboundRegisterPage";
+import OutboundSearchPage from "./pages/outbound/OutboundSearchPage";
+import StockStandPage from "./pages/inventory/StockStandPage";
+import CurrentStockPage from "./pages/inventory/CurrentStockPage";
+import IniopStockPage from "./pages/inventory/IniopStockPage";
+import AIOrderPage from "./pages/ai/AIOrderPage";
+import AIProcessingStandards from "./pages/ai/AIProcessingStandards";
+import AIOrderOptimization from "./pages/ai/AIOrderOptimization";
+import AIOrderManage from "./pages/ai/AIOrderManage";
+import CustomerSupport from "./pages/system/CustomerSupport";
+import AIOrderConfirmPage from "./pages/ai/AIOrderConfirmPage";
+import Company from "./pages/system/Company";
 
 
 // Mantine 기본 스타일 
@@ -85,6 +86,7 @@ function App() {
           <Route path="/ItemMasterPage" element={menuPage('DATA_ITEM', <ItemMaster />)} />
           <Route path="/ItemProcessMaster" element={menuPage('ITEM_PROCESS_MASTER', <ItemProcessMaster />)} />
           <Route path="/ItemProcessRegister" element={menuPage('ITEM_PROCESS_REGISTER', <ItemProcessRegister />)} />
+          <Route path="/ItemProcessSearch" element={menuPage('ITEM_PROCESS_SEARCH', <ItemProcessSearch />)} />
           <Route path="/InboundRegisterPage" element={menuPage('INBOUND_REGISTER', <InboundRegisterPage />)} />
           <Route path="/InboundSearchPage" element={menuPage('INBOUND_SEARCH', <InboundSearchPage />)} />
           <Route path="/PurchasePage" element={menuPage('INBOUND_REGISTER', <PurchasePage />)} />
