@@ -7,7 +7,7 @@ The inbound register service creates its receipt, stock and movement together.
 import psycopg2
 
 from config import DB_CONFIG
-from InboundRegister import save_receipt
+from services.inbound.InboundRegister import save_receipt
 
 
 COMPANY_ID = "001"
