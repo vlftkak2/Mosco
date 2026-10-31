@@ -57,11 +57,9 @@ const isValidDateInput = (value) => {
   date.setUTCFullYear(year, month - 1, day);
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 };
-const EMPTY_HEADER = { receiptno: '', receptdate: localDate(), customcode: '', customname: '' };
+const RECEIPT_HEADER_PICKER_ID = '__receipt_header__';
+const EMPTY_HEADER = { receiptno: '', receptdate: localDate(), customcode: '', customname: '', warehousecode: '', warehousecodename: '', manager: '', description: '' };
 const DETAIL_FIELDS = [
-  { key: 'receptdate', label: '입고일자', width: 120, minWidth: 112, required: true },
-  { key: 'customname', label: '매입처', width: 125, minWidth: 100, fixedWidth: true, required: true },
-  { key: 'warehousecodename', label: '창고', width: 100, minWidth: 85, fixedWidth: true, required: true },
   { key: 'productname', label: '제품번호', width: 115, minWidth: 95, fixedWidth: true },
   { key: 'itemname', label: '품명', width: 130, minWidth: 100, fixedWidth: true, required: true },
   { key: 'materialname', label: '강종', width: 100, minWidth: 85, fixedWidth: true },
@@ -78,8 +76,6 @@ const DETAIL_FIELDS = [
   { key: 'unitamt', label: '합계금액', width: 115, minWidth: 100 },
   { key: 'qtyunit', label: '수량단위', width: 95, minWidth: 85, required: true },
   { key: 'unit', label: '단가기준', width: 95, minWidth: 85, required: true },
-  { key: 'manager', label: '담당자', width: 110, minWidth: 90 },
-  { key: 'description', label: '비고', width: 160, minWidth: 100 },
 ];
 const RECEIPT_COLUMNS = [
   { key: 'receptdate', label: '입고일자', width: 100, minWidth: 90 },
@@ -487,6 +483,10 @@ const ItemNameAutocompleteCell = memo(function ItemNameAutocompleteCell({ row, d
             setIsEditing(true);
             event.currentTarget.select();
           }}
+          onClick={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            if (!disabled && event.clientX >= bounds.right - 28) openPicker();
+          }}
           onBlur={() => {
             if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
             if (!pickerOpenRef.current) void commitExactMatch();
@@ -651,6 +651,10 @@ const CustomerNameAutocompleteCell = memo(function CustomerNameAutocompleteCell(
             setIsEditing(true);
             event.currentTarget.select();
           }}
+          onClick={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            if (!disabled && event.clientX >= bounds.right - 28) openPicker();
+          }}
           onBlur={() => {
             if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
             if (!pickerOpenRef.current) void commitExactMatch();
@@ -765,6 +769,10 @@ const WarehouseNameAutocompleteCell = memo(function WarehouseNameAutocompleteCel
             setDraft(row.warehousecodename || '');
             setIsEditing(true);
             event.currentTarget.select();
+          }}
+          onClick={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            if (!disabled && event.clientX >= bounds.right - 28) openPicker();
           }}
           onBlur={() => {
             if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
@@ -1158,6 +1166,7 @@ export default function InboundRegisterPage() {
   const [customerPickerTarget, setCustomerPickerTarget] = useState(null);
   const [itemPickerTarget, setItemPickerTarget] = useState(null);
   const [masterPickerTarget, setMasterPickerTarget] = useState(null);
+  const [receiptCustomers, setReceiptCustomers] = useState([]);
   const [unitOptions, setUnitOptions] = useState({ price: [], quantity: [], warehouse: [], material: [], surface: [] });
   const virtuosoRef = useRef(null);
   const detailScrollerRef = useRef(null);
@@ -1173,7 +1182,7 @@ export default function InboundRegisterPage() {
   const selectionAnchorRef = useRef('');
   const locked = isReceiptConfirmed(subulyn);
   const readOnly = Boolean(selectedReceiptno) || locked;
-  const hasManagerChanges = useMemo(() => Boolean(selectedReceiptno) && rows.some((row) => row.manager_dirty), [selectedReceiptno, rows]);
+  const hasManagerChanges = Boolean(selectedReceiptno) && documentDirty;
   const hasPendingChanges = useMemo(() => documentDirty || rows.some((row) => row.is_new || row.is_dirty), [documentDirty, rows]);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const receiptAutoWidths = useMemo(() => Object.fromEntries(RECEIPT_COLUMNS.map((column) => {
@@ -1309,6 +1318,22 @@ export default function InboundRegisterPage() {
     return [...uniqueOptions.values()];
   }, []);
 
+  const loadReceiptCustomers = useCallback(async () => {
+    const customers = [];
+    let pageNumber = 1;
+    let totalCount = 0;
+    do {
+      const { data } = await axios.get('/api/list', {
+        ...authConfig(),
+        params: { status: 'Y', page: pageNumber, page_size: 200, include_total: true },
+      });
+      customers.push(...(data.data || []));
+      totalCount = data.total || 0;
+      pageNumber += 1;
+    } while (customers.length < totalCount && pageNumber <= 100);
+    setReceiptCustomers(customers);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     Promise.all([loadUnitOptions('PRICE_UNIT'), loadUnitOptions('QTY'), loadUnitOptions('WAREHOUSE'), loadUnitOptions('MATERIAL'), loadUnitOptions('SURFACE')])
@@ -1321,6 +1346,12 @@ export default function InboundRegisterPage() {
     return () => { cancelled = true; };
   }, [loadUnitOptions]);
 
+  useEffect(() => {
+    void loadReceiptCustomers().catch((error) => {
+      notifications.show({ title: '매입처 조회 실패', message: errorMessage(error), color: 'red' });
+    });
+  }, [loadReceiptCustomers]);
+
   const openCustomerPicker = useCallback((rowId) => {
     if (!readOnly && !saving) {
       setCustomerPickerTarget(rowId);
@@ -1329,7 +1360,12 @@ export default function InboundRegisterPage() {
   }, [readOnly, saving]);
 
   const selectCustomer = useCallback((customer) => {
-    if (customerPickerTarget) {
+    if (customerPickerTarget === RECEIPT_HEADER_PICKER_ID) {
+      const customcode = customer.customercode || '';
+      const customname = customer.customername || '';
+      setHeader((current) => ({ ...current, customcode, customname }));
+      setRows((current) => current.map((row) => ({ ...row, customcode, customname, is_dirty: !row.is_new })));
+    } else if (customerPickerTarget) {
       setRows((current) => current.map((row) => row.id === customerPickerTarget
         ? { ...row, customcode: customer.customercode || '', customname: customer.customername || '', is_dirty: !row.is_new }
         : row));
@@ -1344,6 +1380,47 @@ export default function InboundRegisterPage() {
     setCustomerPickerOpen(false);
     setCustomerPickerTarget(null);
   }, [customerPickerTarget]);
+
+  const changeReceiptField = useCallback((key, value) => {
+    if (key === 'receptdate') {
+      setHeader((current) => ({ ...current, receptdate: value }));
+      setRows((current) => current.map((row) => ({ ...row, receptdate: value, is_dirty: !row.is_new })));
+    } else if (key === 'customname') {
+      setHeader((current) => ({ ...current, customcode: '', customname: value }));
+      setRows((current) => current.map((row) => ({ ...row, customcode: '', customname: value, is_dirty: !row.is_new })));
+    } else if (key === 'warehousecodename') {
+      const code = resolveMasterCode('warehouse', value, unitOptions);
+      const selected = unitOptions.warehouse.find((option) => option.code === code);
+      const warehousecode = selected?.code || '';
+      const warehousecodename = selected?.name || String(value || '');
+      setHeader((current) => ({ ...current, warehousecode, warehousecodename }));
+      setRows((current) => current.map((row) => ({ ...row, warehousecode, warehousecodename, is_dirty: !row.is_new })));
+    } else if (key === 'description') {
+      setHeader((current) => ({ ...current, description: value }));
+      setRows((current) => current.map((row) => ({ ...row, description: value, is_dirty: !row.is_new })));
+    } else if (key === 'manager') {
+      setHeader((current) => ({ ...current, manager: value }));
+      setRows((current) => current.map((row) => ({ ...row, manager: value, is_dirty: !row.is_new })));
+    }
+    setDocumentDirty(true);
+  }, [unitOptions]);
+
+  const selectReceiptWarehouse = useCallback((id, option) => {
+    if (id !== RECEIPT_HEADER_PICKER_ID) return;
+    const warehousecode = option.code || '';
+    const warehousecodename = option.name || '';
+    setHeader((current) => ({ ...current, warehousecode, warehousecodename }));
+    setRows((current) => current.map((row) => ({ ...row, warehousecode, warehousecodename, is_dirty: !row.is_new })));
+    setDocumentDirty(true);
+  }, []);
+
+  const selectReceiptCustomer = useCallback((_id, customer) => {
+    const customcode = customer.customercode || '';
+    const customname = customer.customername || '';
+    setHeader((current) => ({ ...current, customcode, customname }));
+    setRows((current) => current.map((row) => ({ ...row, customcode, customname, is_dirty: !row.is_new })));
+    setDocumentDirty(true);
+  }, []);
 
   const selectCustomerForRow = useCallback((rowId, customer) => {
     setRows((current) => current.map((row) => row.id === rowId
@@ -1389,6 +1466,10 @@ export default function InboundRegisterPage() {
         receptdate: String(receipt.receptdate || '').slice(0, 10),
         customcode: receipt.customcode || '',
         customname: receipt.customname || '',
+        warehousecode: receipt.warehousecode || receipt.items?.[0]?.warehousecode || '',
+        warehousecodename: receipt.warehousecodename || receipt.items?.[0]?.warehousecodename || '',
+        manager: receipt.manager || '',
+        description: receipt.description || receipt.items?.[0]?.description || '',
       });
       setReceiptMetadata({
         companyid: receipt.companyid || '',
@@ -1396,7 +1477,16 @@ export default function InboundRegisterPage() {
         created_at: receipt.created_at || '',
         updated_at: receipt.updated_at || '',
       });
-      setRows((receipt.items || []).map((item) => makeDetail(item, item.lineno)));
+      setRows((receipt.items || []).map((item) => makeDetail({
+        ...item,
+        receptdate: String(receipt.receptdate || item.receptdate || '').slice(0, 10),
+        customcode: receipt.customcode || item.customcode || '',
+        customname: receipt.customname || item.customname || '',
+        warehousecode: receipt.warehousecode || item.warehousecode || '',
+        warehousecodename: receipt.warehousecodename || item.warehousecodename || '',
+        manager: receipt.manager || '',
+        description: receipt.description || item.description || '',
+      }, item.lineno)));
       setSelectedReceiptno(receipt.receiptno);
       setSubulyn(receipt.subulyn || 'N');
       setDocumentDirty(false);
@@ -1658,6 +1748,11 @@ export default function InboundRegisterPage() {
 
   const selectMasterOption = useCallback((option) => {
     if (!masterPickerTarget) return;
+    if (masterPickerTarget.id === RECEIPT_HEADER_PICKER_ID && masterPickerTarget.field === 'warehousecodename') {
+      selectReceiptWarehouse(masterPickerTarget.id, option);
+      setMasterPickerTarget(null);
+      return;
+    }
     if (masterPickerTarget.field === 'material' || masterPickerTarget.field === 'surface') {
       const field = masterPickerTarget.field;
       const codeKey = field === 'material' ? 'materialcode' : 'surfacecode';
@@ -1668,7 +1763,7 @@ export default function InboundRegisterPage() {
       setDocumentDirty(true);
     } else changeDetail(masterPickerTarget.id, masterPickerTarget.field, option.code);
     setMasterPickerTarget(null);
-  }, [masterPickerTarget, changeDetail]);
+  }, [masterPickerTarget, changeDetail, selectReceiptWarehouse]);
 
   const selectWarehouse = useCallback((id, option) => {
     setRows((current) => current.map((row) => row.id === id
@@ -1696,10 +1791,19 @@ export default function InboundRegisterPage() {
     const startingNewReceipt = Boolean(selectedReceiptno);
     if (startingNewReceipt && !createReceipt()) return;
     if (readOnly && !startingNewReceipt) return;
-    const row = makeDetail();
+    const receiptValues = startingNewReceipt ? { ...EMPTY_HEADER, receptdate: localDate() } : header;
+    const row = makeDetail({
+      receptdate: receiptValues.receptdate,
+      customcode: receiptValues.customcode,
+      customname: receiptValues.customname,
+      warehousecode: receiptValues.warehousecode,
+      warehousecodename: receiptValues.warehousecodename,
+      manager: receiptValues.manager,
+      description: receiptValues.description,
+    });
     pendingFocusIdRef.current = row.id;
-    pendingFocusFieldRef.current = 'receptdate';
-    pendingCellFocusRef.current = { key: `${row.id}:receptdate` };
+    pendingFocusFieldRef.current = 'productname';
+    pendingCellFocusRef.current = { key: `${row.id}:productname` };
     setRows((current) => startingNewReceipt ? [row] : [...current, row]);
     setDocumentDirty(true);
     selectionAnchorRef.current = '';
@@ -1707,7 +1811,7 @@ export default function InboundRegisterPage() {
       virtuosoRef.current?.scrollToIndex({ index: rows.length, align: 'end', behavior: 'auto' });
       if (detailScrollerRef.current) detailScrollerRef.current.scrollTop = detailScrollerRef.current.scrollHeight;
     });
-  }, [saving, selectedReceiptno, createReceipt, readOnly, rows.length]);
+  }, [saving, selectedReceiptno, createReceipt, readOnly, rows.length, header]);
 
   const toggleSelection = useCallback((id, shiftKey = false) => {
     setSelectedIds((current) => {
@@ -1865,11 +1969,10 @@ export default function InboundRegisterPage() {
   }, [selectedIds, readOnly]);
 
   const validateDocument = useCallback(() => {
-    const invalidDates = rows.flatMap((row, index) => isValidDateInput(row.receptdate) ? [] : [`${index + 1}행`]);
-    if (invalidDates.length) {
+    if (rows.length && !isValidDateInput(header.receptdate)) {
       notifications.show({
         title: '입고일자 형식 확인',
-        message: `${invalidDates.slice(0, 5).join(', ')}: 날짜를 YYYY-MM-DD 형식으로 입력해 주세요. 예: 2026-10-23`,
+        message: '입고일자를 YYYY-MM-DD 형식으로 입력해 주세요. 예: 2026-10-23',
         color: 'orange',
         autoClose: 8000,
       });
@@ -1878,20 +1981,20 @@ export default function InboundRegisterPage() {
     const missing = [];
     if (selectedReceiptno && !header.receiptno.trim()) missing.push('입고전표번호');
     if (!rows.length) missing.push('상세 품목');
+    if (!String(header.customcode || '').trim()) missing.push('매입처');
+    if (!String(header.warehousecode || '').trim()) missing.push('창고');
     if (missing.length) {
       notifications.show({ title: '필수 항목을 입력해 주세요', message: missing.join(', '), color: 'orange' });
       return false;
     }
     const failures = rows.flatMap((row, index) => {
       const errors = [];
-      if (!String(row.customcode || '').trim() && !String(row.customname || '').trim()) errors.push('매입처');
       if (!String(row.itemcode || '').trim()) errors.push('품목명 자동완성에서 품목을 선택해 주세요');
       if (!String(row.itemname || '').trim()) errors.push('품목명');
       if (!String(row.qtyunit || '').trim()) errors.push('수량단위');
       const qtyText = String(row.qty ?? '').trim();
       const qty = Number(qtyText);
       if (!qtyText || !Number.isFinite(qty) || qty <= 0) errors.push('수량(0 초과)');
-      if (!String(row.warehousecode || '').trim()) errors.push('창고코드');
       const weight = Number(row.weight);
       const unitprice = Number(row.unitprice);
       if (!Number.isFinite(weight) || weight <= 0) errors.push('입고중량(0 초과)');
@@ -1947,20 +2050,17 @@ export default function InboundRegisterPage() {
 
   const saveDocument = useCallback(async () => {
     if (selectedReceiptno && hasManagerChanges && !locked) {
-      const managerItems = rows
-        .filter((row) => row.manager_dirty)
-        .map((row) => ({ lineno: row.lineno, manager: String(row.manager || '').trim() }));
       setSaving(true);
       try {
         const { data } = await axios.patch(
           '/api/inbound-register/receipts/' + encodeURIComponent(selectedReceiptno) + '/manager',
-          { items: managerItems },
+          { manager: String(header.manager || '').trim() },
           authConfig(),
         );
         await openReceipt(selectedReceiptno, true);
         notifications.show({
           title: '담당자 수정 완료',
-          message: data.updated_count + ' 행의 담당자를 입고상세·현재고·수불현황에 반영했습니다.',
+          message: data.updated_count + '개 상세의 담당자를 입고전표·현재고·수불현황에 반영했습니다.',
           color: 'teal',
         });
         return true;
@@ -1983,14 +2083,18 @@ export default function InboundRegisterPage() {
     try {
       const payload = {
         ...sourceHeader,
-        receptdate: sourceRows[0]?.receptdate || sourceHeader.receptdate,
-        customcode: sourceRows[0]?.customcode || sourceHeader.customcode,
-        customname: sourceRows[0]?.customname || sourceHeader.customname,
+        receptdate: sourceHeader.receptdate,
+        customcode: sourceHeader.customcode,
+        customname: sourceHeader.customname,
+        warehousecode: sourceHeader.warehousecode,
+        warehousecodename: sourceHeader.warehousecodename,
+        manager: String(sourceHeader.manager || '').trim(),
+        description: sourceHeader.description,
         is_new: !selectedReceiptno,
         items: sourceRows.map((row) => ({
-          receptdate: row.receptdate,
-          customcode: String(row.customcode || '').trim(),
-          customname: String(row.customname || '').trim(),
+          receptdate: sourceHeader.receptdate,
+          customcode: String(sourceHeader.customcode || '').trim(),
+          customname: String(sourceHeader.customname || '').trim(),
           itemcode: String(row.itemcode || '').trim(), itemname: String(row.itemname || '').trim(),
           productname: String(row.productname || '').trim(),
           materialcode: String(row.materialcode || '').trim(), materialname: String(row.materialname || '').trim(),
@@ -1999,13 +2103,13 @@ export default function InboundRegisterPage() {
           thickness: String(row.thickness ?? '').trim(), width: String(row.width ?? '').trim(), length: String(row.length ?? '').trim(),
           unit: unitOptions.price.find((option) => option.code === resolveMasterCode('unit', row.unit || 'KG', unitOptions))?.name || String(row.unit || 'KG').trim(),
           qty: String(row.qty ?? '').trim(), qtyunit: unitOptions.quantity.find((option) => option.code === resolveMasterCode('qtyunit', row.qtyunit, unitOptions))?.name || String(row.qtyunit || '').trim(),
-          warehousecode: resolveMasterCode('warehouse', row.warehousecode || row.warehousecodename, unitOptions) || String(row.warehousecode || '').trim(),
-          warehousecodename: String(row.warehousecodename || '').trim(),
+          warehousecode: resolveMasterCode('warehouse', sourceHeader.warehousecode || sourceHeader.warehousecodename, unitOptions) || String(sourceHeader.warehousecode || '').trim(),
+          warehousecodename: String(sourceHeader.warehousecodename || '').trim(),
           weight: String(row.weight || '').trim(), unitprice: String(row.unitprice || '').trim(),
           supplyamt: row.supplyamt_manual ? String(row.supplyamt || '0').trim() : '',
           vat: row.vat_manual ? String(row.vat || '0').trim() : '',
-          manager: String(row.manager || '').trim(),
-          description: String(row.description || '').trim(),
+          manager: String(sourceHeader.manager || '').trim(),
+          description: String(sourceHeader.description || '').trim(),
         })),
       };
       const { data } = await axios.put('/api/inbound-register/receipts', payload, authConfig());
@@ -2039,6 +2143,10 @@ export default function InboundRegisterPage() {
       const workbook = XLSX.utils.book_new();
       const exportFields = [
         ['No.', (_, index) => index + 1],
+        ['입고일자', () => header.receptdate || ''],
+        ['매입처', () => header.customname || ''],
+        ['창고', () => header.warehousecodename || ''],
+        ['비고', () => header.description || ''],
         ...DETAIL_FIELDS.map(({ key, label }) => [
           label,
           (row) => key === 'supplyamt'
@@ -2215,6 +2323,18 @@ export default function InboundRegisterPage() {
       <span style={{ whiteSpace: 'nowrap' }}>{column.label}</span><span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeReceiptColumn(event, column.key, column.width, column.minWidth)} role="separator" aria-label={`${column.label} 열 너비 조절`} />
     </Table.Th>
   );
+  const receiptCustomerData = receiptCustomers
+    .map((customer) => ({ value: customer.customercode, label: customer.customername }))
+    .filter((option) => option.value && option.label);
+  if (header.customcode && !receiptCustomerData.some((option) => option.value === header.customcode)) {
+    receiptCustomerData.unshift({ value: header.customcode, label: header.customname || header.customcode });
+  }
+  const receiptWarehouseData = unitOptions.warehouse
+    .map((warehouse) => ({ value: warehouse.code, label: warehouse.name }))
+    .filter((option) => option.value && option.label);
+  if (header.warehousecode && !receiptWarehouseData.some((option) => option.value === header.warehousecode)) {
+    receiptWarehouseData.unshift({ value: header.warehousecode, label: header.warehousecodename || header.warehousecode });
+  }
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
@@ -2303,6 +2423,46 @@ export default function InboundRegisterPage() {
               {selectedIds.length > 0 && <Badge color="gray" variant="light">{selectedIds.length}개 선택</Badge>}
             </Group>
           </Group>
+
+          <Box className={classes.sharedReceiptFields}>
+            <Box className={classes.sharedReceiptField}>
+              <Text size="xs" fw={700} mb={4}>입고일자 <span className={codeClasses.required}>*</span></Text>
+              <TextInput type="date" aria-label="입고일자" value={header.receptdate || ''} disabled={readOnly || saving}
+                onChange={(event) => changeReceiptField('receptdate', event.currentTarget.value)} />
+            </Box>
+            <Box className={classes.sharedReceiptField}>
+              <Text size="xs" fw={700} mb={4}>매입처 <span className={codeClasses.required}>*</span></Text>
+              <Select searchable autoSelectOnBlur aria-label="매입처" placeholder=""
+                disabled={readOnly || saving} data={receiptCustomerData} value={header.customcode || null}
+                onChange={(value) => {
+                  const customer = receiptCustomers.find((item) => item.customercode === value);
+                  selectReceiptCustomer(RECEIPT_HEADER_PICKER_ID, customer || {
+                    customercode: value || '', customername: receiptCustomerData.find((item) => item.value === value)?.label || '',
+                  });
+                }} />
+            </Box>
+            <Box className={classes.sharedReceiptField}>
+              <Text size="xs" fw={700} mb={4}>창고 <span className={codeClasses.required}>*</span></Text>
+              <Select searchable autoSelectOnBlur aria-label="창고" placeholder=""
+                disabled={readOnly || saving} data={receiptWarehouseData} value={header.warehousecode || null}
+                onChange={(value) => {
+                  const warehouse = unitOptions.warehouse.find((item) => item.code === value);
+                  selectReceiptWarehouse(RECEIPT_HEADER_PICKER_ID, warehouse || {
+                    code: value || '', name: receiptWarehouseData.find((item) => item.value === value)?.label || '',
+                  });
+                }} />
+            </Box>
+            <Box className={classes.sharedReceiptField}>
+              <Text size="xs" fw={700} mb={4}>담당자</Text>
+              <TextInput aria-label="담당자" value={header.manager || ''} maxLength={100} disabled={saving || locked}
+                onChange={(event) => changeReceiptField('manager', event.currentTarget.value)} />
+            </Box>
+            <Box className={classes.sharedReceiptField}>
+              <Text size="xs" fw={700} mb={4}>비고</Text>
+              <TextInput aria-label="입고 비고" value={header.description || ''} maxLength={500} disabled={readOnly || saving}
+                onChange={(event) => changeReceiptField('description', event.currentTarget.value)} />
+            </Box>
+          </Box>
 
           <Box ref={detailScrollerRef} className={`${codeClasses.tableWrap} ${(rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? classes.savedDetailScroller : ''} ${!detailLoading && !rows.length ? classes.emptyDetailWrap : ''}`} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
             {detailLoading ? <Box className={classes.receiptLoading}><Loader size="sm" color="red" /></Box> : rows.length ? (

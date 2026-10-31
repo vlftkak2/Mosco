@@ -94,10 +94,11 @@ class InboundSaveRequest(BaseModel):
     receptdate: date
     customcode: str = Field(default="", max_length=50)
     customname: str = Field(default="", max_length=100)
+    manager: str = Field(default="", max_length=100)
     is_new: bool = False
     items: list[InboundDetailInput] = Field(min_length=1, max_length=10000)
 
-    @field_validator("receiptno", "customcode", "customname")
+    @field_validator("receiptno", "customcode", "customname", "manager")
     @classmethod
     def strip_text(cls, value: str) -> str:
         return value.strip()
@@ -109,18 +110,13 @@ class InboundSaveRequest(BaseModel):
         return self
 
 
-class InboundManagerUpdateLine(BaseModel):
-    lineno: int = Field(gt=0)
+class InboundManagerUpdateRequest(BaseModel):
     manager: str = Field(default="", max_length=100)
 
     @field_validator("manager")
     @classmethod
     def strip_manager(cls, value: str) -> str:
         return value.strip()
-
-
-class InboundManagerUpdateRequest(BaseModel):
-    items: list[InboundManagerUpdateLine] = Field(min_length=1, max_length=10000)
 
 
 def _row_dict(cursor, row):
@@ -195,7 +191,7 @@ def list_receipts(
         total = cursor.fetchone()[0]
         cursor.execute(
             f"""
-            SELECT h.receiptno, h.receptdate, h.customcode, h.customname,
+            SELECT h.receiptno, h.receptdate, h.customcode, h.customname, h.manager,
                    STRING_AGG(DISTINCT NULLIF(d.description, ''), ', ') AS description,
                    h.subulyn, h.created_at,
                    COUNT(d.lineno)::integer AS line_count,
@@ -225,7 +221,7 @@ def list_receipts(
 def get_receipt(companyid: str, receiptno: str):
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
-            """SELECT companyid, companyname, receiptno, receptdate, customcode, customname,
+            """SELECT companyid, companyname, receiptno, receptdate, customcode, customname, manager,
                       COALESCE(subulyn, 'N') AS subulyn,
                       created_at, updated_at
                FROM Inbound01t WHERE companyid = %s AND receiptno = %s""",
@@ -243,7 +239,7 @@ def get_receipt(companyid: str, receiptno: str):
                       d.thickness, d.width, d.length, d.qty, d.qtyunit,
                       d.weight, d.unit, d.unitprice, d.supplyamt, d.vat, d.unitamt,
                       d.warehousecode, d.warehousecodename, d.materialcode, d.materialname,
-                      d.surfacecode, d.surfacename, d.myrtle, d.manager, d.description,
+                      d.surfacecode, d.surfacename, d.myrtle, h.manager AS manager, d.description,
                       d.created_at, d.updated_at
                FROM Inbound02t AS d
                JOIN Inbound01t AS h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
@@ -282,6 +278,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
     items = payload["items"]
     default_customcode = (payload.get("customcode") or "").strip()
     default_receptdate = payload.get("receptdate")
+    default_manager = (payload.get("manager") or "").strip()
     for item in items:
         item["customcode"] = (item.get("customcode") or default_customcode).strip()
         item["customname"] = (item.get("customname") or "").strip()
@@ -420,10 +417,10 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                 cursor.execute(
                     """INSERT INTO Inbound01t
                        (companyid, companyname, receiptno, receptdate, customcode,
-                        customname, subulyn)
-                       VALUES (%s, %s, %s, %s, %s, %s, 'N')""",
+                        customname, manager, subulyn)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, 'N')""",
                     (companyid, companyname, receiptno, header_receptdate, customcode,
-                     customer_name),
+                     customer_name, default_manager or None),
                 )
 
                 detail_values = []
@@ -457,7 +454,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                         (item.get("surfacecode") or "").strip() or None,
                         (item.get("surfacename") or "").strip() or None,
                         item.get("myrtle"),
-                        (item.get("manager") or "").strip() or None,
+                        default_manager or None,
                         qty, item["qtyunit"].strip(),
                         weight, item["unit"].strip(), unitprice, supplyamt, vat, unitamt,
                         (item.get("warehousecode") or "").strip() or None,
@@ -487,6 +484,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                     "length": item.get("length"),
                     "warehousecode": item["warehousecode"].strip(),
                     "warehousecodename": warehouse_names[item["warehousecode"].strip()],
+                    "manager": default_manager,
                 } for line_no, (item, amounts) in enumerate(zip(group_items, calculated_amounts), start=1)]
                 current_stock_module.record_document(
                     cursor, companyid, companyname, header_receptdate, "IN", receiptno, stock_lines,
@@ -499,6 +497,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                     "customname": customer_name,
                     "warehousecode": warehousecode,
                     "warehousecodename": warehouse_names.get(warehousecode, ""),
+                    "manager": default_manager,
                     "saved_count": len(group_items),
                 })
         return {
@@ -520,14 +519,8 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
         raise
 
 
-def update_receipt_managers(companyid: str, receiptno: str, items: list[dict]):
-    normalized = {}
-    for item in items:
-        lineno = int(item["lineno"])
-        if lineno in normalized:
-            raise ValueError("수정 항목에 중복된 상세 순번이 있습니다.")
-        normalized[lineno] = (item.get("manager") or "").strip()
-
+def update_receipt_manager(companyid: str, receiptno: str, manager: str):
+    normalized_manager = (manager or "").strip()
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
@@ -544,44 +537,38 @@ def update_receipt_managers(companyid: str, receiptno: str, items: list[dict]):
             raise ValueError("수불 확정된 입고전표의 담당자는 수정할 수 없습니다.")
 
         cursor.execute(
-            """SELECT lineno
-               FROM Inbound02t
-               WHERE companyid = %s AND receiptno = %s AND lineno = ANY(%s)
-               FOR UPDATE""",
-            (companyid, receiptno, list(normalized)),
+            """UPDATE Inbound01t
+               SET manager = %s, updated_at = CURRENT_TIMESTAMP
+               WHERE companyid = %s AND receiptno = %s""",
+            (normalized_manager or None, companyid, receiptno),
         )
-        found_lines = {row[0] for row in cursor.fetchall()}
-        missing_lines = sorted(set(normalized) - found_lines)
-        if missing_lines:
-            raise ValueError(f"입고상세 {', '.join(map(str, missing_lines[:5]))}행을 찾을 수 없습니다.")
+        cursor.execute(
+            """UPDATE Inbound02t
+               SET manager = %s, updated_at = CURRENT_TIMESTAMP
+               WHERE companyid = %s AND receiptno = %s""",
+            (normalized_manager or None, companyid, receiptno),
+        )
+        updated_count = cursor.rowcount
+        if not updated_count:
+            raise ValueError("담당자를 수정할 입고상세가 없습니다.")
+        cursor.execute(
+            """UPDATE CurrentStock01t
+               SET manager = %s, updated_at = CURRENT_TIMESTAMP
+               WHERE companyid = %s AND sourcetype = 'INBOUND' AND sourceno = %s""",
+            (normalized_manager or None, companyid, receiptno),
+        )
+        if cursor.rowcount != updated_count:
+            raise ValueError("현재고 담당자 반영 건수가 입고상세 건수와 일치하지 않습니다.")
+        cursor.execute(
+            """UPDATE Iniop01t
+               SET manager = %s, updated_at = CURRENT_TIMESTAMP
+               WHERE companyid = %s AND iniotype = 'IN' AND receiptno = %s""",
+            (normalized_manager or None, companyid, receiptno),
+        )
+        if cursor.rowcount != updated_count:
+            raise ValueError("재고수불현황 담당자 반영 건수가 입고상세 건수와 일치하지 않습니다.")
 
-        for lineno, manager in normalized.items():
-            cursor.execute(
-                """UPDATE Inbound02t
-                   SET manager = %s, updated_at = CURRENT_TIMESTAMP
-                   WHERE companyid = %s AND receiptno = %s AND lineno = %s""",
-                (manager or None, companyid, receiptno, lineno),
-            )
-            cursor.execute(
-                """UPDATE CurrentStock01t
-                   SET manager = %s, updated_at = CURRENT_TIMESTAMP
-                   WHERE companyid = %s AND sourcetype = 'INBOUND'
-                     AND sourceno = %s AND sourceline = %s""",
-                (manager or None, companyid, receiptno, lineno),
-            )
-            if cursor.rowcount != 1:
-                raise ValueError(f"현재고 원천 재고 {receiptno}/{lineno}행을 찾을 수 없어 담당자를 수정하지 못했습니다.")
-            cursor.execute(
-                """UPDATE Iniop01t
-                   SET manager = %s, updated_at = CURRENT_TIMESTAMP
-                   WHERE companyid = %s AND iniotype = 'IN'
-                     AND receiptno = %s AND lineno = %s""",
-                (manager or None, companyid, receiptno, lineno),
-            )
-            if cursor.rowcount != 1:
-                raise ValueError(f"재고수불현황 {receiptno}/{lineno}행을 찾을 수 없어 담당자를 수정하지 못했습니다.")
-
-    return len(normalized)
+    return updated_count
 
 
 def delete_receipt(companyid: str, receiptno: str):

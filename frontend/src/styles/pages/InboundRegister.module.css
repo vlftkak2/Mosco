@@ -438,6 +438,19 @@
 
 .editorPanel > :global(.mantine-Group-root:first-child) { min-height: 42px; padding: 11px 13px; }
 .sectionTitle { color: #252a32 !important; font-size: 14px !important; font-weight: 700 !important; line-height: 1.25; }
+.sharedReceiptFields {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: 135px 190px 170px 130px minmax(180px, 240px);
+  justify-content: start;
+  gap: 9px;
+  min-width: 0;
+  padding: 8px 13px 11px;
+  border-bottom: 1px solid #dce2e9;
+}
+.sharedReceiptField { min-width: 0; }
+.sharedReceiptField > :global(.mantine-Text-root) { margin-bottom: 4px !important; color: #536179; font-size: 12px; }
+.sharedReceiptField :global(.mantine-Input-input) { min-height: 33px; height: 33px; font-size: 12px; }
 .headerForm { gap: 8px; padding: 9px 12px 10px; }
 .headerForm :global(.mantine-Input-input) { min-height: 33px; }
 .editorPanel :global(.mantine-Table-thead th) { height: 34px; padding-top: 6px; padding-bottom: 6px; }
@@ -456,12 +469,17 @@
 }
 
 @media (max-width: 1000px) {
+  .sharedReceiptFields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .inboundWorkspace { height: auto; flex: 1 1 auto; overflow: auto; }
   .inboundPrimaryColumn { height: auto; }
   .receiptFilterSidebar { min-height: 0; max-height: 270px; }
   .topReceiptPanel { height: 320px; min-height: 260px; flex: 0 0 320px; }
   .workspace { height: 560px; min-height: 460px; flex: 0 0 560px; }
   .editorPanel { height: 100%; }
+}
+
+@media (max-width: 560px) {
+  .sharedReceiptFields { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 850px) {
