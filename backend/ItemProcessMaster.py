@@ -148,7 +148,7 @@ def list_rules(
                  AND p.groupcode = 'PROCESS'
                  AND p.code = r.processid
                 WHERE {' AND '.join(where)}
-                ORDER BY r.itemcode, r.processid""",
+                 ORDER BY r.created_at, r.itemcode, r.processid""",
             params,
         )
         return [_row_to_rule(row) for row in cursor.fetchall()]
@@ -277,8 +277,8 @@ def save_rules(companyid: str, companyname: str, items: list[dict]) -> int:
                     """INSERT INTO ItemProcessrule01t
                            (companyid, companyname, itemcode, itemname, itemtypecode,
                             itemtypecodenm, processid, processnm, steelgradeyn, surfaceyn,
-                            thicknessyn, widthyn, lengthyn, description)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                            thicknessyn, widthyn, lengthyn, description, created_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, clock_timestamp())""",
                     (
                         companyid, companyname, item["itemcode"], master["itemname"],
                         master["itemtypecode"], master["itemtypecodenm"], item["processid"],
