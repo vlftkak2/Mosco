@@ -23,6 +23,28 @@ const GRID_FIELDS = ['itemname', 'processid', 'processnm', ...YES_NO_FIELDS, 'de
 const TABLE_COLUMN_WIDTHS = [42, 50, 235, 185, 175, 71, 71, 71, 71, 71, 245];
 const TABLE_COLUMN_MIN_WIDTHS = [38, 42, 130, 110, 110, 55, 55, 55, 55, 55, 100];
 
+function parseClipboardTsv(text) {
+  const matrix = [];
+  let row = [];
+  let cell = '';
+  let quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === '"') {
+      if (quoted && text[index + 1] === '"') { cell += '"'; index += 1; }
+      else quoted = !quoted;
+    } else if (character === '\t' && !quoted) {
+      row.push(cell); cell = '';
+    } else if ((character === '\n' || character === '\r') && !quoted) {
+      if (character === '\r' && text[index + 1] === '\n') index += 1;
+      row.push(cell); matrix.push(row); row = []; cell = '';
+    } else cell += character;
+  }
+  row.push(cell);
+  if (row.some((value) => value !== '') || !matrix.length) matrix.push(row);
+  return matrix;
+}
+
 const createRow = () => ({
   id: `new-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   itemcode: '', itemname: '', itemtypecode: '', itemtypecodenm: '',
@@ -602,6 +624,77 @@ export default function ItemProcessMaster() {
       return;
     }
   }, [rows]);
+  const handleGridPaste = useCallback(async (event) => {
+    const target = event.target;
+    const clipboardText = event.clipboardData?.getData('text/plain') || '';
+    if (!target?.dataset?.rowId || !target?.dataset?.field || !/[\t\r\n]/.test(clipboardText)) return;
+    const matrix = parseClipboardTsv(clipboardText);
+    const startRow = rowsRef.current.findIndex((row) => row.id === target.dataset.rowId);
+    const startColumn = GRID_FIELDS.indexOf(target.dataset.field);
+    if (startRow < 0 || startColumn < 0 || !matrix.length) return;
+    event.preventDefault();
+
+    const nextRows = [...rowsRef.current];
+    while (nextRows.length < startRow + matrix.length) nextRows.push(createRow());
+    const itemLookupCache = new Map();
+    const lookupItem = async (value) => {
+      if (!itemLookupCache.has(value)) {
+        itemLookupCache.set(value, axios.get('/api/item-process-master/items/suggest', {
+          headers: authHeaders(), params: { q: value },
+        }).then(({ data }) => data.items || []).catch(() => []));
+      }
+      const candidates = await itemLookupCache.get(value);
+      const normalized = value.trim().toLocaleLowerCase();
+      const codeMatch = candidates.find((item) => String(item.itemcode).trim().toLocaleLowerCase() === normalized);
+      if (codeMatch) return codeMatch;
+      const nameMatches = candidates.filter((item) => String(item.itemname).trim().toLocaleLowerCase() === normalized);
+      return nameMatches.length === 1 ? nameMatches[0] : null;
+    };
+    let applied = 0;
+    let unresolved = 0;
+
+    for (let rowOffset = 0; rowOffset < matrix.length; rowOffset += 1) {
+      const rowIndex = startRow + rowOffset;
+      let row = nextRows[rowIndex];
+      for (let columnOffset = 0; columnOffset < matrix[rowOffset].length; columnOffset += 1) {
+        const field = GRID_FIELDS[startColumn + columnOffset];
+        const value = String(matrix[rowOffset][columnOffset] ?? '').trim();
+        if (!field || !value) continue;
+
+        if (field === 'itemname') {
+          if (!row.is_new) { unresolved += 1; continue; }
+          const item = await lookupItem(value);
+          if (!item) { unresolved += 1; continue; }
+          row = { ...row, itemcode: item.itemcode, itemname: item.itemname,
+            itemtypecode: item.itemtypecode || '', itemtypecodenm: item.itemtypecodenm || '' };
+        } else if (field === 'processid') {
+          const normalized = value.toLocaleLowerCase();
+          const codeMatch = processOptions.find((option) => String(option.code).trim().toLocaleLowerCase() === normalized);
+          const nameMatches = processOptions.filter((option) => String(option.name).trim().toLocaleLowerCase() === normalized);
+          const process = codeMatch || (nameMatches.length === 1 ? nameMatches[0] : null);
+          if (!process) { unresolved += 1; continue; }
+          row = { ...row, processid: process.code, processcodename: process.name };
+        } else if (YES_NO_FIELDS.includes(field)) {
+          const normalized = value.toLocaleLowerCase();
+          if (['y', 'yes', '가능'].includes(normalized)) row = { ...row, [field]: 'Y' };
+          else if (['n', 'no', '불가'].includes(normalized)) row = { ...row, [field]: 'N' };
+          else { unresolved += 1; continue; }
+        } else row = { ...row, [field]: value };
+        row = { ...row, is_dirty: !row.is_new };
+        applied += 1;
+      }
+      nextRows[rowIndex] = row;
+    }
+
+    setRows(nextRows);
+    setSelectedIds([]);
+    selectionAnchorRef.current = '';
+    if (nextRows.length > rowsRef.current.length) requestAnimationFrame(() => {
+      if (tableViewportRef.current) tableViewportRef.current.scrollTop = tableViewportRef.current.scrollHeight;
+    });
+    if (unresolved) notifications.show({ title: '엑셀 붙여넣기 확인', message: `${applied}개 셀을 반영했고 ${unresolved}개 셀은 기존 품목·공정 기준에 맞지 않아 건너뛰었습니다.`, color: 'orange' });
+    else notifications.show({ title: '엑셀 붙여넣기 완료', message: `${applied}개 셀을 표에 반영했습니다. 저장을 눌러 적용하세요.`, color: 'teal' });
+  }, [processOptions]);
   const startColumnResize = (event, index) => {
     event.preventDefault();
     event.stopPropagation();
@@ -633,7 +726,7 @@ export default function ItemProcessMaster() {
             <Box><Group gap={9}><Text className={classes.title}>가공공정 등록</Text><Badge className={classes.count}>{rows.length}개</Badge></Group>
               <Text size="xs" c="dimmed" mt={5}>원소재 품목별 가공공정과 가공품명, 규격 적용 항목을 관리합니다.</Text></Box>
           </Group>
-          <Box className={classes.tableViewport} ref={tableViewportRef} onKeyDown={handleGridKeyDown}>
+          <Box className={classes.tableViewport} ref={tableViewportRef} onKeyDown={handleGridKeyDown} onPaste={handleGridPaste}>
             {loading ? <Box className={classes.loading}><Loader color="red" size="sm" /></Box> : (
               <table className={classes.table} style={{ width: tableWidth, minWidth: tableWidth }}>
                 <colgroup>{columnWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
