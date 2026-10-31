@@ -67,15 +67,13 @@ def save_receipt(
 
 
 @router.patch("/receipts/{receiptno}/manager")
-def update_receipt_managers(
+def update_receipt_manager(
     receiptno: str,
     data: inbound_module.InboundManagerUpdateRequest,
     user: dict = Depends(security_module.get_current_user),
 ):
     try:
-        updated_count = inbound_module.update_receipt_managers(
-            user["companyid"], receiptno, [item.model_dump() for item in data.items],
-        )
+        updated_count = inbound_module.update_receipt_manager(user["companyid"], receiptno, data.manager)
         return {"success": True, "updated_count": updated_count}
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
