@@ -103,7 +103,8 @@ def list_inbound_details(
                    CASE WHEN UPPER(BTRIM(COALESCE(d.unit, ''))) LIKE '%%TON%%'
                           OR BTRIM(COALESCE(d.unit, '')) LIKE '%%톤%%'
                         THEN d.weight / 1000 ELSE d.weight END AS weight,
-                   d.unitprice, d.supplyamt, d.vat, d.unitamt, d.qtyunit, d.unit, d.manager, d.description,
+                   d.unitprice, d.supplyamt, d.vat, d.unitamt, d.qtyunit, d.unit, h.manager,
+                   COALESCE(NULLIF(BTRIM(h.description), ''), d.description) AS description,
                    d.created_at, d.updated_at
             FROM Inbound01t AS h
             JOIN Inbound02t AS d
@@ -163,7 +164,8 @@ def write_inbound_details_excel(
                CASE WHEN UPPER(BTRIM(COALESCE(d.unit, ''))) LIKE '%%TON%%'
                           OR BTRIM(COALESCE(d.unit, '')) LIKE '%%톤%%'
                     THEN d.weight / 1000 ELSE d.weight END AS weight,
-               d.unitprice, d.supplyamt, d.vat, d.unitamt, d.qtyunit, d.unit, d.manager, d.description,
+               d.unitprice, d.supplyamt, d.vat, d.unitamt, d.qtyunit, d.unit, h.manager,
+               COALESCE(NULLIF(BTRIM(h.description), ''), d.description) AS description,
                d.created_at, d.updated_at
         FROM Inbound01t AS h
         JOIN Inbound02t AS d

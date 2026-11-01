@@ -112,8 +112,8 @@ def update_receipt_managers(
     user: dict = Depends(security_module.get_current_user),
 ):
     try:
-        updated_count = outbound_module.update_receipt_managers(
-            user["companyid"], receiptno, [item.model_dump() for item in data.items],
+        updated_count = outbound_module.update_receipt_manager(
+            user["companyid"], receiptno, data.manager,
         )
         return {"success": True, "updated_count": updated_count}
     except ValueError as error:

@@ -129,6 +129,8 @@
 .pickerTable { min-width: 1450px; font-size: 12px; }
 .pickerTable :global(th) { background: #f1f3f6; color: #4b5b70; font-weight: 600; white-space: nowrap; }
 .pickerTable :global(td) { white-space: nowrap; }
+.pickerCheckbox { width: 14px; height: 14px; margin: 0; accent-color: #1677ff; cursor: pointer; vertical-align: middle; }
+.pickerCheckbox:disabled { cursor: default; }
 .loader { position: absolute; z-index: 5; top: 12px; right: 12px; }
 .numberInput { width: 90px; height: 28px; padding: 0 7px; border: 1px solid #cfd8e3; border-radius: 3px; text-align: right; }
 @media (max-width: 1000px) {

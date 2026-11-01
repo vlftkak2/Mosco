@@ -71,11 +71,12 @@ class OutboundSaveRequest(BaseModel):
     receptdate: date
     customcode: str = Field(default="", max_length=50)
     customname: str = Field(default="", max_length=100)
+    manager: str = Field(default="", max_length=100)
     description: str = Field(default="", max_length=500)
     is_new: bool = False
     items: list[OutboundDetailInput] = Field(min_length=1, max_length=10000)
 
-    @field_validator("receiptno", "customcode", "customname", "description")
+    @field_validator("receiptno", "customcode", "customname", "manager", "description")
     @classmethod
     def strip_text(cls, value: str) -> str:
         return value.strip()
@@ -87,18 +88,13 @@ class OutboundSaveRequest(BaseModel):
         return self
 
 
-class OutboundManagerUpdateLine(BaseModel):
-    lineno: int = Field(gt=0)
+class OutboundManagerUpdateRequest(BaseModel):
     manager: str = Field(default="", max_length=100)
 
     @field_validator("manager")
     @classmethod
     def strip_manager(cls, value: str) -> str:
         return value.strip()
-
-
-class OutboundManagerUpdateRequest(BaseModel):
-    items: list[OutboundManagerUpdateLine] = Field(min_length=1, max_length=10000)
 
 
 def _row_dict(cursor, row):
@@ -218,7 +214,7 @@ def get_receipt(companyid: str, receiptno: str):
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """SELECT companyid, companyname, receiptno, receptdate, customcode, customname,
-                      description, COALESCE(subulyn, 'N') AS subulyn,
+                      manager, description, COALESCE(subulyn, 'N') AS subulyn,
                       created_at, updated_at
                FROM Outbound01t WHERE companyid = %s AND receiptno = %s""",
             (companyid, receiptno),
@@ -235,7 +231,8 @@ def get_receipt(companyid: str, receiptno: str):
                       h.customname AS customname,
                       d.itemcode, d.itemname, d.productname, d.surfacecode, d.surfacename, d.materialcode, d.materialname,
                       d.myrtle, d.thickness, d.width, d.length, d.qty, d.qtyunit, d.warehousecode, d.warehousecodename,
-                      d.weight, d.unit, d.unitprice, d.supplyamt, d.vat, d.unitamt, d.description, d.manager,
+                      d.weight, d.unit, d.unitprice, d.supplyamt, d.vat, d.unitamt, d.description,
+                      COALESCE(NULLIF(BTRIM(h.manager), ''), d.manager) AS manager,
                       stock.receiptdate, stock.customname AS sourcecustomname,
                       COALESCE(stock.qty, 0) + COALESCE(own.qty, 0) AS current_qty,
                       COALESCE(stock.weight, 0) + COALESCE(own.weight, 0) AS current_weight,
@@ -387,10 +384,11 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
     default_date = payload.get("receptdate")
     default_code = (payload.get("customcode") or "").strip()
     default_name = (payload.get("customname") or "").strip()
+    manager = (payload.get("manager") or "").strip()
     for index, item in enumerate(items, start=1):
-        item["receptdate"] = item.get("receptdate") or default_date
-        item["customcode"] = (item.get("customcode") or default_code).strip()
-        item["customname"] = (item.get("customname") or default_name).strip()
+        item["receptdate"] = default_date
+        item["customcode"] = default_code
+        item["customname"] = default_name
         if not item["receptdate"] or (not item["customcode"] and not item["customname"]):
             raise ValueError(f"{index}행의 출고일자와 거래처를 확인해 주세요.")
 
@@ -492,9 +490,10 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
                 customer_name = customers[customcode]
                 cursor.execute(
                     """INSERT INTO Outbound01t
-                       (companyid, companyname, receiptno, receptdate, customcode, customname, description, subulyn)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, 'N')""",
-                    (companyid, companyname, receiptno, receptdate, customcode, customer_name, payload.get("description") or None),
+                       (companyid, companyname, receiptno, receptdate, customcode, customname, manager, description, subulyn)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'N')""",
+                    (companyid, companyname, receiptno, receptdate, customcode, customer_name,
+                     manager or None, payload.get("description") or None),
                 )
                 detail_values = []
                 stock_lines = []
@@ -519,7 +518,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
                         qty, quantity_unit_names.get(stock["qtyunit"], stock["qtyunit"]), weight,
                         price_unit_names.get(unit) or unit, unitprice, supplyamt, vat, unitamt,
                         stock["warehousecode"], stock["warehousecodename"], item.get("description", "").strip() or None,
-                        stock["manager"],
+                        manager or None,
                     ))
                     stock_lines.append({
                         "stocksourcetype": source_key[0], "stocksourceno": source_key[1], "stocksourceline": source_key[2],
@@ -529,6 +528,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
                         "qty": qty, "qtyunit": stock["qtyunit"], "weight": weight,
                         "unit": unit, "unitprice": unitprice, "supplyamt": supplyamt, "vat": vat, "unitamt": unitamt,
                         "warehousecode": stock["warehousecode"], "warehousecodename": stock["warehousecodename"],
+                        "manager": manager or None,
                     })
                 cursor.executemany(
                     """INSERT INTO Outbound02t
@@ -578,6 +578,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
             cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
             customcode = (payload.get("customcode") or "").strip()
             supplied_customer_name = (payload.get("customname") or "").strip()
+            manager = (payload.get("manager") or "").strip()
             if customcode:
                 cursor.execute(
                     """SELECT customername FROM customer01t
@@ -634,12 +635,18 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                 raise ValueError("단가 기준을 확인해 주세요: " + " / ".join(unit_errors[:5]))
 
             cursor.execute(
-                "SELECT COALESCE(subulyn, 'N') FROM Outbound01t WHERE companyid = %s AND receiptno = %s FOR UPDATE",
+                """SELECT COALESCE(subulyn, 'N'), customcode, description
+                   FROM Outbound01t WHERE companyid = %s AND receiptno = %s FOR UPDATE""",
                 (companyid, receiptno),
             )
             existing = cursor.fetchone()
             if existing and str(existing[0] or "N").strip().upper() in {"Y", "YES", "확정"}:
                 raise ValueError("수불 확정된 출고전표는 수정할 수 없습니다.")
+            if existing and (
+                str(existing[1] or "").strip() != customcode
+                or str(existing[2] or "").strip() != str(payload.get("description") or "").strip()
+            ):
+                raise ValueError("저장된 출고전표의 매출처와 비고는 수정할 수 없습니다.")
             if payload.get("is_new") and existing:
                 raise ValueError(f"이미 등록된 출고전표번호입니다: {receiptno}")
             if not payload.get("is_new") and not existing:
@@ -650,10 +657,10 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                 cursor.execute(
                     """UPDATE Outbound01t
                        SET receptdate = %s, customcode = %s, customname = %s,
-                           description = %s, updated_at = CURRENT_TIMESTAMP
+                           manager = %s, description = %s, updated_at = CURRENT_TIMESTAMP
                        WHERE companyid = %s AND receiptno = %s""",
                     (payload["receptdate"], customcode, customer_name,
-                     payload.get("description") or None, companyid, receiptno),
+                     manager or None, payload.get("description") or None, companyid, receiptno),
                 )
                 cursor.execute(
                     "DELETE FROM Outbound02t WHERE companyid = %s AND receiptno = %s",
@@ -663,10 +670,10 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                 cursor.execute(
                     """INSERT INTO Outbound01t
                        (companyid, companyname, receiptno, receptdate, customcode,
-                        customname, description, subulyn)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, 'N')""",
+                        customname, manager, description, subulyn)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'N')""",
                     (companyid, companyname, receiptno, payload["receptdate"], customcode,
-                     customer_name, payload.get("description") or None),
+                     customer_name, manager or None, payload.get("description") or None),
                 )
 
             quantity_unit_codes, quantity_unit_names = _load_quantity_unit_maps(cursor, companyid)
@@ -734,7 +741,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                     qty, quantity_unit_names.get(stock["qtyunit"], stock["qtyunit"]), weight,
                     price_unit_names.get(unit) or unit, unitprice, supplyamt, vat, unitamt,
                     stock["warehousecode"], stock["warehousecodename"], item.get("description", "").strip() or None,
-                    stock["manager"],
+                    manager or None,
                 ))
                 stock_lines.append({
                     "stocksourcetype": source_key[0], "stocksourceno": source_key[1], "stocksourceline": source_key[2],
@@ -745,6 +752,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                     "qty": qty, "qtyunit": stock["qtyunit"], "weight": weight,
                     "unit": unit, "unitprice": unitprice, "supplyamt": supplyamt, "vat": vat, "unitamt": unitamt,
                     "warehousecode": stock["warehousecode"], "warehousecodename": stock["warehousecodename"],
+                    "manager": manager or None,
                 })
             cursor.executemany(
                 """INSERT INTO Outbound02t
@@ -773,14 +781,8 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
         raise
 
 
-def update_receipt_managers(companyid: str, receiptno: str, items: list[dict]):
-    normalized = {}
-    for item in items:
-        lineno = int(item["lineno"])
-        if lineno in normalized:
-            raise ValueError("수정 항목에 중복된 상세 순번이 있습니다.")
-        normalized[lineno] = (item.get("manager") or "").strip()
-
+def update_receipt_manager(companyid: str, receiptno: str, manager: str):
+    normalized_manager = (manager or "").strip()
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
@@ -792,40 +794,40 @@ def update_receipt_managers(companyid: str, receiptno: str, items: list[dict]):
         )
         receipt = cursor.fetchone()
         if not receipt:
-            raise ValueError("수정할 출고전표를 찾을 수 없습니다.")
-        if str(receipt[0] or "N").strip().upper() in {"Y", "YES", "확정"}:
-            raise ValueError("수불 확정된 출고전표의 담당자는 수정할 수 없습니다.")
+            raise ValueError("Outbound receipt was not found.")
+        if str(receipt[0] or "N").strip().upper() in {"Y", "YES", "\uD655\uC815"}:
+            raise ValueError("A confirmed outbound receipt cannot be edited.")
 
         cursor.execute(
-            """SELECT lineno
-               FROM Outbound02t
-               WHERE companyid = %s AND receiptno = %s AND lineno = ANY(%s)
-               FOR UPDATE""",
-            (companyid, receiptno, list(normalized)),
+            """UPDATE Outbound01t
+               SET manager = %s, updated_at = CURRENT_TIMESTAMP
+               WHERE companyid = %s AND receiptno = %s""",
+            (normalized_manager or None, companyid, receiptno),
         )
-        found_lines = {row[0] for row in cursor.fetchall()}
-        missing_lines = sorted(set(normalized) - found_lines)
-        if missing_lines:
-            raise ValueError(f"출고상세 {', '.join(map(str, missing_lines[:5]))}행을 찾을 수 없습니다.")
-
-        for lineno, manager in normalized.items():
-            cursor.execute(
-                """UPDATE Outbound02t
-                   SET manager = %s, updated_at = CURRENT_TIMESTAMP
-                   WHERE companyid = %s AND receiptno = %s AND lineno = %s""",
-                (manager or None, companyid, receiptno, lineno),
-            )
-            cursor.execute(
-                """UPDATE Iniop01t
-                   SET manager = %s, updated_at = CURRENT_TIMESTAMP
-                   WHERE companyid = %s AND iniotype = 'OUT'
-                     AND receiptno = %s AND lineno = %s""",
-                (manager or None, companyid, receiptno, lineno),
-            )
-            if cursor.rowcount != 1:
-                raise ValueError(f"재고수불현황 {receiptno}/{lineno}행을 찾을 수 없어 담당자를 수정하지 못했습니다.")
-
-    return len(normalized)
+        cursor.execute(
+            "SELECT COUNT(*) FROM Outbound02t WHERE companyid = %s AND receiptno = %s",
+            (companyid, receiptno),
+        )
+        updated_count = cursor.fetchone()[0]
+        if not updated_count:
+            raise ValueError("Outbound receipt has no detail rows.")
+        cursor.execute(
+            """UPDATE Outbound02t
+               SET manager = %s, updated_at = CURRENT_TIMESTAMP
+               WHERE companyid = %s AND receiptno = %s""",
+            (normalized_manager or None, companyid, receiptno),
+        )
+        if cursor.rowcount != updated_count:
+            raise ValueError("Outbound detail manager update count did not match.")
+        cursor.execute(
+            """UPDATE Iniop01t
+               SET manager = %s, updated_at = CURRENT_TIMESTAMP
+               WHERE companyid = %s AND iniotype = 'OUT' AND receiptno = %s""",
+            (normalized_manager or None, companyid, receiptno),
+        )
+        if cursor.rowcount != updated_count:
+            raise ValueError("Inventory ledger manager update count did not match.")
+    return updated_count
 
 
 def delete_receipt(companyid: str, receiptno: str):
