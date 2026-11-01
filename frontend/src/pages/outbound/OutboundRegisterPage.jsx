@@ -43,52 +43,47 @@ const localDate = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
-const EMPTY_HEADER = { receiptno: '', receptdate: localDate(), customcode: '', customname: '', description: '' };
+const EMPTY_HEADER = { receiptno: '', receptdate: localDate(), customcode: '', customname: '', warehousecode: '', warehousecodename: '', manager: '', description: '', manager_dirty: false, other_dirty: false };
 const DETAIL_FIELDS = [
-  { key: 'receptdate', label: '출고일자', width: 120, required: true },
-  { key: 'customname', label: '매출처', width: 180 },
-  { key: 'warehousecodename', label: '창고', width: 130 },
-  { key: 'productname', label: '제품번호', width: 120 },
-  { key: 'itemname', label: '품명', width: 170 },
-  { key: 'materialname', label: '강종', width: 110 },
-  { key: 'surfacename', label: '표면', width: 110 },
-  { key: 'myrtle', label: '도금량(g/㎡)', width: 135 },
-  { key: 'thickness', label: '두께', width: 80 },
-  { key: 'width', label: '폭', width: 80 },
-  { key: 'length', label: '길이', width: 80 },
-  { key: 'qty', label: '출고수량', width: 100, required: true },
-  { key: 'weight', label: '출고중량(kg)', width: 115, required: true },
+  { key: 'productname', label: '제품번호', width: 100 },
+  { key: 'itemname', label: '품명', width: 100 },
+  { key: 'materialname', label: '강종', width: 100 },
+  { key: 'surfacename', label: '표면', width: 100 },
+  { key: 'myrtle', label: '도금량(g/㎡)', width: 80 },
+  { key: 'thickness', label: '두께', width: 70 },
+  { key: 'width', label: '폭', width: 70 },
+  { key: 'length', label: '길이', width: 70 },
+  { key: 'qty', label: '출고수량', width: 70, required: true },
+  { key: 'weight', label: '출고중량(kg)', width: 90, required: true },
   { key: 'unitprice', label: '판매단가', width: 110, required: true },
   { key: 'supplyamt', label: '공급가', width: 110 },
-  { key: 'vat', label: '부가세', width: 95 },
-  { key: 'unitamt', label: '출고금액', width: 120 },
-  { key: 'qtyunit', label: '수량단위', width: 90 },
-  { key: 'unit', label: '단가기준', width: 105, required: true },
-  { key: 'manager', label: '담당자', width: 110 },
-  { key: 'description', label: '비고', width: 160 },
-  { key: 'current_qty', label: '현재고수량', width: 110 },
-  { key: 'current_weight', label: '현재고중량(kg)', width: 130 },
-  { key: 'itemcode', label: '품목코드', width: 130 },
-  { key: 'sourcecustomname', label: '매입처', width: 160 },
-  { key: 'receiptdate', label: '재고입고일자', width: 120 },
+  { key: 'vat', label: '부가세', width: 110 },
+  { key: 'unitamt', label: '출고금액', width: 110 },
+  { key: 'qtyunit', label: '수량단위', width: 70 },
+  { key: 'unit', label: '단가기준', width: 70, required: true },
+  { key: 'current_qty', label: '현재고수량', width: 80 },
+  { key: 'current_weight', label: '현재고중량(kg)', width: 100 },
+  { key: 'itemcode', label: '품목코드', width: 70 },
+  { key: 'sourcecustomname', label: '매입처', width: 100 },
+  { key: 'receiptdate', label: '재고입고일자', width: 100 },
   { key: 'sourcetype', label: '재고구분', width: 90 },
-  { key: 'stocksourceno', label: '원천전표', width: 170 },
+  { key: 'stocksourceno', label: '원천전표', width: 110 },
   { key: 'stocksourceline', label: '원천순번', width: 90 },
 ];
 const RECEIPT_COLUMNS = [
-  { key: 'receptdate', label: '출고일자', width: 100, minWidth: 90 },
-  { key: 'customname', label: '매출처', width: 150, minWidth: 105 },
-  { key: 'warehousecodename', label: '창고', width: 115, minWidth: 90 },
-  { key: 'line_count', label: '상세건수', width: 78, minWidth: 68, align: 'right' },
-  { key: 'total_qty', label: '수량', width: 78, minWidth: 68, align: 'right' },
-  { key: 'total_weight', label: '중량', width: 82, minWidth: 72, align: 'right' },
-  { key: 'supply_amount', label: '공급가', width: 105, minWidth: 85, align: 'right' },
-  { key: 'vat_amount', label: '부가세', width: 90, minWidth: 75, align: 'right' },
-  { key: 'total_amount', label: '합계금액', width: 115, minWidth: 95, align: 'right' },
-  { key: 'qtyunit', label: '수량단위', width: 80, minWidth: 70 },
-  { key: 'unit', label: '단가기준', width: 80, minWidth: 70 },
-  { key: 'receiptno', label: '출고전표', width: 155, minWidth: 125 },
-  { key: 'description', label: '비고', width: 115, minWidth: 85 },
+  { key: 'receptdate', label: '출고일자', width: 100, minWidth: 100 },
+  { key: 'customname', label: '매출처', width: 100, minWidth: 100 },
+  { key: 'warehousecodename', label: '창고', width: 70, minWidth: 70 },
+  { key: 'line_count', label: '상세건수', width: 70, minWidth: 70, align: 'right' },
+  { key: 'total_qty', label: '수량', width: 70, minWidth: 70, align: 'right' },
+  { key: 'total_weight', label: '중량', width: 70, minWidth: 70, align: 'right' },
+  { key: 'supply_amount', label: '공급가', width: 110, minWidth: 110, align: 'right' },
+  { key: 'vat_amount', label: '부가세', width: 110, minWidth: 110, align: 'right' },
+  { key: 'total_amount', label: '합계금액', width: 110, minWidth: 110, align: 'right' },
+  { key: 'qtyunit', label: '수량단위', width: 80, minWidth: 80 },
+  { key: 'unit', label: '단가기준', width: 80, minWidth: 80 },
+  { key: 'receiptno', label: '출고전표', width: 110, minWidth: 110 },
+  { key: 'description', label: '비고', width: 175, minWidth: 175 },
 ];
 const fitReceiptColumnWidth = (label, values, baseWidth, minWidth, maxWidth = 420) => {
   const measure = (value) => Array.from(String(value ?? '')).reduce((width, character) => width + (character.charCodeAt(0) > 255 ? 11 : 6.5), 0) + 20;
@@ -107,16 +102,19 @@ const errorMessage = (error) => {
     const location = Array.isArray(item.loc) ? item.loc : [];
     const itemIndex = location.indexOf('items');
     const field = location.at(-1);
-    const fieldNames = {
-      stocksourcetype: '원천 재고 구분', stocksourceno: '원천 전표번호',
-      stocksourceline: '원천 순번', customcode: '매출처코드', unit: '단가기준',
-    };
-    const rowLabel = itemIndex >= 0 && Number.isInteger(Number(location[itemIndex + 1]))
-      ? `${Number(location[itemIndex + 1]) + 1}행 ` : '';
-    const fieldLabel = fieldNames[field] || (typeof field === 'string' ? field : '요청값');
-    return `${rowLabel}${fieldLabel}: ${item.msg || String(item)}`;
+    const headerFields = { receptdate: '\uCD9C\uACE0\uC77C\uC790', customcode: '\uB9E4\uCD9C\uCC98', customname: '\uB9E4\uCD9C\uCC98', warehousecode: '\uCC3D\uACE0', warehousecodename: '\uCC3D\uACE0', manager: '\uB2F4\uB2F9\uC790', description: '\uBE44\uACE0', receiptno: '\uCD9C\uACE0\uC804\uD45C\uBC88\uD638' };
+    const detailFields = { receptdate: '\uCD9C\uACE0\uC77C\uC790', customcode: '\uB9E4\uCD9C\uCC98', customname: '\uB9E4\uCD9C\uCC98', warehousecode: '\uCC3D\uACE0', warehousecodename: '\uCC3D\uACE0', itemcode: '\uD488\uBAA9\uCF54\uB4DC', itemname: '\uD488\uBA85', productname: '\uC81C\uD488\uBC88\uD638', qty: '\uCD9C\uACE0\uC218\uB7C9', qtyunit: '\uC218\uB7C9\uB2E8\uC704', weight: '\uCD9C\uACE0\uC911\uB7C9', unit: '\uB2E8\uAC00\uAE30\uC900', unitprice: '\uD310\uB9E4\uB2E8\uAC00', stocksourcetype: '\uC6D0\uCC9C \uC7AC\uACE0 \uAD6C\uBD84', stocksourceno: '\uC6D0\uCC9C \uC804\uD45C\uBC88\uD638', stocksourceline: '\uC6D0\uCC9C \uC21C\uBC88' };
+    const rowNumber = itemIndex >= 0 && Number.isInteger(Number(location[itemIndex + 1]))
+      ? Number(location[itemIndex + 1]) + 1 : null;
+    const label = itemIndex >= 0 ? detailFields[field] : headerFields[field];
+    if (label) return rowNumber ? `${rowNumber}\uD589 ${label} \uD56D\uBAA9\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.` : `${label} \uD56D\uBAA9\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.`;
+    return rowNumber ? `${rowNumber}\uD589 \uC785\uB825 \uD56D\uBAA9\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.` : '\uC785\uB825 \uD56D\uBAA9\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.';
   }).join(' / ');
-  return detail || error.response?.data?.message || error.message || '출고 요청에 실패했습니다.';
+  if (typeof detail === 'string') return detail
+    .replaceAll('customcode', '\uB9E4\uCD9C\uCC98')
+    .replaceAll('warehousecode', '\uCC3D\uACE0')
+    .replaceAll('receptdate', '\uCD9C\uACE0\uC77C\uC790');
+  return detail || error.response?.data?.message || error.message || '\uCD9C\uACE0 \uC694\uCCAD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.';
 };
 const makeDetail = (source = EMPTY_DETAIL, lineNo = null) => ({
   ...EMPTY_DETAIL,
@@ -398,6 +396,22 @@ const ManagerInput = memo(function ManagerInput({ row, editable, label, onChange
       if (editable && value !== String(row.manager || '')) onChange(row.id, 'manager', value);
     }}
   />;
+});
+
+const DeferredReceiptTextInput = memo(function DeferredReceiptTextInput({ value, onCommit, onEditStart, disabled, maxLength, ariaLabel }) {
+  const [draft, setDraft] = useState(value || '');
+  const originalValueRef = useRef(value || '');
+  const editStartedRef = useRef(false);
+  return <TextInput aria-label={ariaLabel} value={draft} maxLength={maxLength} disabled={disabled}
+    onChange={(event) => {
+      const nextValue = event.currentTarget.value;
+      setDraft(nextValue);
+      if (!editStartedRef.current && nextValue !== originalValueRef.current) {
+        editStartedRef.current = true;
+        onEditStart();
+      }
+    }}
+    onBlur={() => { if (draft !== (value || '')) onCommit(draft); }} />;
 });
 
 const OutboundDateSegments = memo(function OutboundDateSegments({ row, disabled, onChange, registerCellInput, onFocusCell }) {
@@ -701,6 +715,7 @@ export default function OutboundRegisterPage() {
   const [filterInputs, setFilterInputs] = useState(createDefaultReceiptFilters);
   const [filters, setFilters] = useState(createDefaultReceiptFilters);
   const [header, setHeader] = useState(EMPTY_HEADER);
+  const [receiptCustomers, setReceiptCustomers] = useState([]);
   const [receiptMetadata, setReceiptMetadata] = useState({ companyid: '', companyname: '', created_at: '', updated_at: '' });
   const [rows, setRows] = useState([]);
   const [selectedReceiptno, setSelectedReceiptno] = useState('');
@@ -737,7 +752,7 @@ export default function OutboundRegisterPage() {
   const receiptHorizontalScrollRef = useRef(null);
   const locked = isReceiptConfirmed(subulyn);
   const readOnly = Boolean(selectedReceiptno) || locked;
-  const hasManagerChanges = useMemo(() => Boolean(selectedReceiptno) && rows.some((row) => row.manager_dirty), [selectedReceiptno, rows]);
+  const hasManagerChanges = Boolean(selectedReceiptno) && Boolean(header.manager_dirty);
   const hasNewDetails = useMemo(() => rows.some((row) => row.is_new), [rows]);
   const hasPendingChanges = useMemo(() => documentDirty || rows.some((row) => row.is_new || row.is_dirty), [documentDirty, rows]);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -913,6 +928,32 @@ export default function OutboundRegisterPage() {
     setCustomerPickerTargetId('');
   }, [customerPickerTargetId]);
 
+  const changeReceiptHeader = useCallback((key, value) => {
+    if (key === 'customcode') {
+      const customer = receiptCustomers.find((item) => item.customercode === value);
+      const customname = customer?.customername || '';
+      setHeader((current) => ({ ...current, customcode: value || '', customname, other_dirty: true }));
+      setRows((current) => current.map((row) => ({ ...row, customcode: value || '', customname, is_dirty: !row.is_new })));
+    } else if (key === 'receptdate') {
+      setHeader((current) => ({ ...current, receptdate: value, other_dirty: true }));
+      setRows((current) => current.map((row) => ({ ...row, receptdate: value, is_dirty: !row.is_new })));
+    } else {
+      setHeader((current) => ({
+        ...current,
+        [key]: value,
+        ...(key === 'manager' ? { manager_dirty: true } : { other_dirty: true }),
+      }));
+    }
+    setDocumentDirty(true);
+  }, [receiptCustomers]);
+  const markReceiptHeaderEdited = useCallback((key) => {
+    setHeader((current) => ({
+      ...current,
+      ...(key === 'manager' ? { manager_dirty: true } : { other_dirty: true }),
+    }));
+    setDocumentDirty(true);
+  }, []);
+
   const selectItem = useCallback((rowId, item) => {
     setRows((current) => current.map((row) => row.id === rowId
       ? { ...row, itemcode: item.itemcode || '', itemname: item.itemname || '', is_dirty: !row.is_new }
@@ -941,12 +982,20 @@ export default function OutboundRegisterPage() {
         ...item,
         sourcetype: item.stocksourcetype || '',
       }, item.lineno));
+      const warehouseKeys = [...new Set(loadedRows.map((row) => row.warehousecode).filter(Boolean))];
       setHeader({
         receiptno: receipt.receiptno || '',
         receptdate: String(receipt.receptdate || '').slice(0, 10),
         customcode: receipt.customcode || '',
         customname: receipt.customname || '',
+        warehousecode: warehouseKeys.length === 1 ? warehouseKeys[0] : '',
+        warehousecodename: warehouseKeys.length === 1
+          ? (loadedRows.find((row) => row.warehousecode === warehouseKeys[0])?.warehousecodename || '')
+          : warehouseKeys.length > 1 ? `복수 창고 (${warehouseKeys.length})` : '',
+        manager: receipt.manager || receipt.items?.[0]?.manager || '',
         description: receipt.description || '',
+        manager_dirty: false,
+        other_dirty: false,
       });
       setReceiptMetadata({
         companyid: receipt.companyid || '',
@@ -968,6 +1017,29 @@ export default function OutboundRegisterPage() {
       setDetailLoading(false);
     }
   }, [hasPendingChanges]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadCustomers = async () => {
+      const customers = [];
+      let pageNumber = 1;
+      let totalCount = 0;
+      do {
+        const { data } = await axios.get('/api/list', {
+          ...authConfig(),
+          params: { status: 'Y', page: pageNumber, page_size: 200, include_total: true },
+        });
+        customers.push(...(data.data || []));
+        totalCount = data.total || 0;
+        pageNumber += 1;
+      } while (customers.length < totalCount && pageNumber <= 100);
+      if (!cancelled) setReceiptCustomers(customers);
+    };
+    void loadCustomers().catch((error) => {
+      if (!cancelled) notifications.show({ title: '매출처 조회 실패', message: errorMessage(error), color: 'red' });
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!pendingFocusIdRef.current) return;
@@ -1198,8 +1270,9 @@ export default function OutboundRegisterPage() {
   const applyAvailableStocks = useCallback((stocks) => {
     const addedRows = stocks.map((stock) => makeDetail({
       ...stock,
-      customcode: '',
-      customname: '',
+      customcode: header.customcode || '',
+      customname: header.customname || '',
+      receptdate: header.receptdate || localDate(),
       stocksourcetype: stock.sourcetype,
       stocksourceno: stock.sourceno,
       stocksourceline: stock.sourceline,
@@ -1213,6 +1286,13 @@ export default function OutboundRegisterPage() {
       unitprice: String(stock.unitprice ?? ''),
     }));
     if (!addedRows.length) return;
+    const nextRows = [...rows, ...addedRows];
+    const warehouses = [...new Map(nextRows.filter((row) => row.warehousecode).map((row) => [row.warehousecode, row.warehousecodename || row.warehousecode])).entries()];
+    setHeader((current) => ({
+      ...current,
+      warehousecode: warehouses.length === 1 ? warehouses[0][0] : '',
+      warehousecodename: warehouses.length === 1 ? warehouses[0][1] : warehouses.length > 1 ? `복수 창고 (${warehouses.length})` : '',
+    }));
     setRows((current) => [...current, ...addedRows]);
     setSelectedIds(addedRows.map((row) => row.id));
     setDocumentDirty(true);
@@ -1222,7 +1302,7 @@ export default function OutboundRegisterPage() {
       virtuosoRef.current?.scrollToIndex({ index: rows.length + addedRows.length - 1, align: 'end', behavior: 'auto' });
       if (detailScrollerRef.current) detailScrollerRef.current.scrollTop = detailScrollerRef.current.scrollHeight;
     });
-  }, [rows.length, unitOptions.price]);
+  }, [rows, header.customcode, header.customname, header.receptdate, unitOptions.price]);
 
   const toggleSelection = useCallback((id, shiftKey = false) => {
     setSelectedIds((current) => {
@@ -1316,6 +1396,8 @@ export default function OutboundRegisterPage() {
 
   const validateDocument = useCallback(() => {
     const missing = [];
+    if (!String(header.receptdate || '').trim()) missing.push('출고일자');
+    if (!String(header.customcode || '').trim()) missing.push('매출처');
     if (selectedReceiptno && !header.receiptno.trim()) missing.push('출고전표번호');
     if (!rows.length) missing.push('상세 품목');
     if (missing.length) {
@@ -1324,8 +1406,6 @@ export default function OutboundRegisterPage() {
     }
     const failures = rows.flatMap((row, index) => {
       const errors = [];
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(row.receptdate || ''))) errors.push('출고일자(YYYY-MM-DD)');
-      if (!String(row.customcode || '').trim() && !String(row.customname || '').trim()) errors.push('매출처명');
       if (!String(row.stocksourcetype || '').trim() || !String(row.stocksourceno || '').trim() || !String(row.stocksourceline ?? '').trim()) errors.push('원천 재고 라인');
       if (!String(row.unit || '').trim()) errors.push('단가기준');
       const qtyText = String(row.qty ?? '').trim();
@@ -1373,15 +1453,12 @@ export default function OutboundRegisterPage() {
   }, [unitOptions]);
 
   const saveDocument = useCallback(async () => {
-    if (selectedReceiptno && hasManagerChanges && !hasNewDetails && !locked) {
-      const managerItems = rows
-        .filter((row) => row.manager_dirty)
-        .map((row) => ({ lineno: row.lineno, manager: String(row.manager || '').trim() }));
+    if (selectedReceiptno && hasManagerChanges && !header.other_dirty && !hasNewDetails && !rows.some((row) => row.is_dirty) && !locked) {
       setSaving(true);
       try {
         const { data } = await axios.patch(
           `/api/outbound-register/receipts/${encodeURIComponent(selectedReceiptno)}/manager`,
-          { items: managerItems },
+          { manager: String(header.manager || '').trim() },
           authConfig(),
         );
         await openReceipt(selectedReceiptno, true);
@@ -1414,23 +1491,20 @@ export default function OutboundRegisterPage() {
     try {
       const payload = {
         ...sourceHeader,
-        receptdate: sourceRows[0]?.receptdate || sourceHeader.receptdate,
-        customcode: String(sourceHeader.customcode || sourceRows[0]?.customcode || '').trim(),
-        customname: String(sourceHeader.customname || sourceRows[0]?.customname || '').trim(),
+        receptdate: sourceHeader.receptdate,
+        customcode: String(sourceHeader.customcode || '').trim(),
+        customname: String(sourceHeader.customname || '').trim(),
+        manager: String(sourceHeader.manager || '').trim(),
         is_new: !selectedReceiptno,
         items: sourceRows.map((row) => ({
           stocksourcetype: String(row.stocksourcetype || '').trim(),
           stocksourceno: String(row.stocksourceno || '').trim(),
           stocksourceline: Number(row.stocksourceline),
-          receptdate: String(row.receptdate || '').trim(),
-          customcode: String(row.customcode || '').trim(),
-          customname: String(row.customname || '').trim(),
           warehousecode: String(row.warehousecode || '').trim(),
           warehousecodename: String(row.warehousecodename || '').trim(),
           unit: resolveMasterCode('unit', row.unit, unitOptions) || String(row.unit || '').trim(),
           qty: String(row.qty ?? '').trim(),
           weight: String(row.weight || '').trim(), unitprice: String(row.unitprice || '').trim(),
-          description: String(row.description || '').trim(),
         })),
       };
       const saveRequest = selectedReceiptno
@@ -1471,7 +1545,10 @@ export default function OutboundRegisterPage() {
         ['회사코드', () => receiptMetadata.companyid],
         ['회사명', () => receiptMetadata.companyname],
         ['출고전표번호', () => header.receiptno],
-        ['출고일자', () => rows[0]?.receptdate || header.receptdate],
+        ['출고일자', () => header.receptdate],
+        ['매출처', () => header.customname],
+        ['창고', () => header.warehousecodename],
+        ['담당자', () => header.manager],
         ['전표 비고', () => header.description],
         ['수불확정여부', () => subulyn],
         ['전표 등록일자', () => receiptMetadata.created_at],
@@ -1615,6 +1692,13 @@ export default function OutboundRegisterPage() {
     }
     return totals;
   }, { line_count: 0, total_qty: 0, total_weight: 0, supply_amount: 0, vat_amount: 0, total_amount: 0 });
+  const receiptCustomerData = receiptCustomers.map((customer) => ({
+    value: customer.customercode,
+    label: customer.customername || customer.customercode,
+  }));
+  if (header.customcode && !receiptCustomerData.some((option) => option.value === header.customcode)) {
+    receiptCustomerData.unshift({ value: header.customcode, label: header.customname || header.customcode });
+  }
   const syncReceiptScroll = (left) => {
     for (const element of [receiptTableRef.current, receiptSubtotalRef.current]) {
       if (element && Math.abs(element.scrollLeft - left) > 0.5) element.scrollLeft = left;
@@ -1722,6 +1806,36 @@ export default function OutboundRegisterPage() {
               {selectedIds.length > 0 && <Badge color="gray" variant="light">{selectedIds.length}개 선택</Badge>}
             </Group>
           </Group>
+
+          <Box className={inboundClasses.sharedReceiptFields}>
+            <Box className={inboundClasses.sharedReceiptField}>
+              <Text size="xs" fw={700} mb={4}>출고일자 <span className={codeClasses.required}>*</span></Text>
+              <TextInput type="date" aria-label="출고일자" value={header.receptdate || ''} disabled={saving || locked}
+                onChange={(event) => changeReceiptHeader('receptdate', event.currentTarget.value)} />
+            </Box>
+            <Box className={inboundClasses.sharedReceiptField}>
+              <Text size="xs" fw={700} mb={4}>매출처 <span className={codeClasses.required}>*</span></Text>
+              <Select searchable autoSelectOnBlur aria-label="매출처" placeholder=""
+                disabled={readOnly || saving} data={receiptCustomerData} value={header.customcode || null}
+                onChange={(value) => changeReceiptHeader('customcode', value || '')} />
+            </Box>
+            <Box className={inboundClasses.sharedReceiptField}>
+              <Text size="xs" fw={700} mb={4}>창고</Text>
+              <TextInput aria-label="창고" value={header.warehousecodename || ''} readOnly disabled />
+            </Box>
+            <Box className={inboundClasses.sharedReceiptField}>
+              <Text size="xs" fw={700} mb={4}>담당자</Text>
+              <DeferredReceiptTextInput key={`${selectedReceiptno}:manager:${header.manager || ''}`} ariaLabel="담당자" value={header.manager || ''} maxLength={100}
+                disabled={saving || locked} onEditStart={() => markReceiptHeaderEdited('manager')}
+                onCommit={(value) => changeReceiptHeader('manager', value)} />
+            </Box>
+            <Box className={inboundClasses.sharedReceiptField}>
+              <Text size="xs" fw={700} mb={4}>비고</Text>
+              <DeferredReceiptTextInput key={`${selectedReceiptno}:description:${header.description || ''}`} ariaLabel="비고" value={header.description || ''} maxLength={500}
+                disabled={readOnly || saving} onEditStart={() => markReceiptHeaderEdited('description')}
+                onCommit={(value) => changeReceiptHeader('description', value)} />
+            </Box>
+          </Box>
 
           <Box ref={detailScrollerRef} className={`${codeClasses.tableWrap} ${(rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? classes.savedDetailScroller : ''} ${!detailLoading && !rows.length ? inboundClasses.emptyDetailWrap : ''}`} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
             {detailLoading ? <Box className={classes.receiptLoading}><Loader size="sm" color="red" /></Box> : rows.length ? (

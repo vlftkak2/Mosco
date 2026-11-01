@@ -137,7 +137,7 @@
 .topReceiptTable::-webkit-scrollbar-track { background: #f1f4f7; }
 .topReceiptTable .receiptFinderTable { table-layout: fixed; }
 .topReceiptTable .receiptFinderTable tbody tr { height: 34px; }
-.topReceiptTable .receiptFinderTable tbody td { padding: 5px 8px; }
+.topReceiptTable .receiptFinderTable tbody td { overflow: hidden; padding: 5px 8px; text-overflow: ellipsis; }
 .topReceiptBottom { width: 100%; min-width: 0; flex: 0 0 auto; border-top: 1px solid #d4dde7; }
 .topReceiptSubtotalViewport { width: 100%; height: 30px; overflow: hidden; }
 .topReceiptSubtotalCell { height: 30px; overflow: hidden; padding: 0 8px; border: 1px solid #cbd5e1; background: #e8edf3; color: #233148; font-size: 11px; font-weight: 600; text-overflow: ellipsis; vertical-align: middle; white-space: nowrap; }
@@ -259,12 +259,6 @@
   background-image: none !important;
   color: #8b95a3 !important;
   cursor: not-allowed;
-}
-.managerEditableCell { background: #fff !important; }
-.managerEditableCell :global(input) {
-  background-color: #fff !important;
-  color: #293a52 !important;
-  cursor: text !important;
 }
 .customerSearchInput { min-width: 0; flex: 1; }
 .customerResults { min-height: 200px; border: 1px solid #dce2ea; border-radius: 6px; overflow: hidden; }
@@ -441,7 +435,7 @@
 .sharedReceiptFields {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: 135px 190px 170px 130px minmax(180px, 240px);
+  grid-template-columns: 135px 160px 170px 105px minmax(180px, 220px);
   justify-content: start;
   gap: 9px;
   min-width: 0;

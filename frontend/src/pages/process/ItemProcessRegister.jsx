@@ -2,7 +2,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
 import {
-  ActionIcon, Badge, Box, Button, Checkbox, Group, Loader, Modal, Pagination,
+  ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination,
   Paper, Popover, Select, Stack, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -364,7 +364,7 @@ function StockPicker({ opened, onClose, onApply, existingKeys }) {
           <Table.Th /><Table.Th>구분</Table.Th><Table.Th>입고일자</Table.Th><Table.Th>창고</Table.Th><Table.Th>품명</Table.Th><Table.Th>제품명</Table.Th><Table.Th>강종</Table.Th><Table.Th>두께</Table.Th><Table.Th>폭</Table.Th><Table.Th>길이</Table.Th><Table.Th>현재수량</Table.Th><Table.Th>현재중량</Table.Th>
         </Table.Tr></Table.Thead><Table.Tbody>{items.map((row) => {
           const key = sourceKey(row); const disabled = existingKeys.has(key);
-          return <Table.Tr key={key}><Table.Td><Checkbox checked={Boolean(selected[key])} disabled={disabled} onChange={(e) => toggle(row, e.currentTarget.checked)} /></Table.Td>
+          return <Table.Tr key={key}><Table.Td><input className={classes.pickerCheckbox} type="checkbox" checked={Boolean(selected[key])} disabled={disabled} onChange={(e) => toggle(row, e.currentTarget.checked)} /></Table.Td>
             <Table.Td>{row.sourcetype === 'OPENING' ? '기초' : row.sourcetype === 'INBOUND' ? '입고' : '가공'}</Table.Td><Table.Td>{String(row.receiptdate || '').slice(0, 10)}</Table.Td><Table.Td>{row.warehousecodename}</Table.Td><Table.Td>{row.itemname}</Table.Td><Table.Td>{row.productname}</Table.Td><Table.Td>{row.materialname || row.myrtle}</Table.Td><Table.Td>{numberText(row.thickness)}</Table.Td><Table.Td>{numberText(row.width)}</Table.Td><Table.Td>{numberText(row.length)}</Table.Td><Table.Td ta="right">{numberText(row.qty)}</Table.Td><Table.Td ta="right">{numberText(row.weight)}</Table.Td>
             </Table.Tr>;
         })}{!items.length && <Table.Tr><Table.Td colSpan={12} className={classes.empty}>가공 가능한 현재고가 없습니다.</Table.Td></Table.Tr>}</Table.Tbody></Table>

@@ -299,6 +299,11 @@ def record_document(
                 raise ValueError("선택한 원천 재고 행을 현재 회사에서 찾을 수 없습니다.")
             source_metadata = _row_dict(cursor, source_row)
             metadata = {**line, **source_metadata}
+            # Outbound manager belongs to the outbound header. Keep that value
+            # for the movement ledger instead of replacing it with the source
+            # stock's original manager.
+            if "manager" in line:
+                metadata["manager"] = line["manager"]
         cursor.execute(
             """INSERT INTO Iniop01t
                    (companyid, companyname, iniodate, iniotype, receiptno, lineno, customcode, customname,
@@ -491,9 +496,25 @@ def _current_stock_select(source_lines: bool):
         "stock.qty AS originalqty, stock.weight AS originalweight, "
         "NULL::text AS unit, NULL::numeric AS unitprice"
     )
+    manager_field = (
+        "COALESCE((SELECT NULLIF(BTRIM(header.manager), '') "
+        "FROM Outbound02t AS outbound_detail "
+        "JOIN Outbound01t AS header "
+        "ON header.companyid = outbound_detail.companyid "
+        "AND header.receiptno = outbound_detail.receiptno "
+        "WHERE outbound_detail.companyid = stock.companyid "
+        "AND outbound_detail.stocksourcetype = stock.sourcetype "
+        "AND outbound_detail.stocksourceno = stock.sourceno "
+        "AND outbound_detail.stocksourceline = stock.sourceline "
+        "AND NULLIF(BTRIM(header.manager), '') IS NOT NULL "
+        "ORDER BY header.receptdate DESC, header.receiptno DESC, outbound_detail.lineno DESC "
+        "LIMIT 1), stock.manager) AS manager, "
+        if source_lines else "stock.manager, "
+    )
     return (
         f"{source_fields}, stock.itemcode, stock.itemname, stock.productname, stock.materialcode, "
-        "stock.materialname, stock.surfacecode, stock.surfacename, stock.myrtle, stock.manager, "
+        "stock.materialname, stock.surfacecode, stock.surfacename, stock.myrtle, "
+        f"{manager_field}"
         "stock.thickness, stock.width, "
         "stock.length, stock.qty, COALESCE(qty_code.code_name, stock.qtyunit) AS qtyunit, "
         "stock.weight, stock.warehousecode, stock.warehousecodename, "

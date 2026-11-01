@@ -51,7 +51,6 @@ class InboundDetailInput(BaseModel):
     surfacecode: str = Field(default="", max_length=50)
     surfacename: str = Field(default="", max_length=100)
     myrtle: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
-    manager: str = Field(default="", max_length=100)
     thickness: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
     width: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
     length: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
@@ -65,8 +64,6 @@ class InboundDetailInput(BaseModel):
     warehousecodename: str = Field(min_length=1, max_length=50)
     unit: str = Field(min_length=1, max_length=20)
 
-    description: str = Field(default="", max_length=500)
-
     @field_validator("myrtle", "thickness", "width", "length", mode="before")
     @classmethod
     def blank_dimension_to_none(cls, value):
@@ -77,7 +74,7 @@ class InboundDetailInput(BaseModel):
     def blank_amount_to_none(cls, value):
         return None if value is None or not str(value).strip() else value
 
-    @field_validator("customcode", "customname", "itemcode", "itemname", "productname", "materialcode", "materialname", "surfacecode", "surfacename", "manager", "qtyunit", "warehousecode", "warehousecodename", "unit", "description")
+    @field_validator("customcode", "customname", "itemcode", "itemname", "productname", "materialcode", "materialname", "surfacecode", "surfacename", "qtyunit", "warehousecode", "warehousecodename", "unit")
     @classmethod
     def strip_text(cls, value: str) -> str:
         return value.strip()
@@ -95,10 +92,11 @@ class InboundSaveRequest(BaseModel):
     customcode: str = Field(default="", max_length=50)
     customname: str = Field(default="", max_length=100)
     manager: str = Field(default="", max_length=100)
+    description: str = Field(default="", max_length=500)
     is_new: bool = False
     items: list[InboundDetailInput] = Field(min_length=1, max_length=10000)
 
-    @field_validator("receiptno", "customcode", "customname", "manager")
+    @field_validator("receiptno", "customcode", "customname", "manager", "description")
     @classmethod
     def strip_text(cls, value: str) -> str:
         return value.strip()
@@ -192,7 +190,7 @@ def list_receipts(
         cursor.execute(
             f"""
             SELECT h.receiptno, h.receptdate, h.customcode, h.customname, h.manager,
-                   STRING_AGG(DISTINCT NULLIF(d.description, ''), ', ') AS description,
+                   COALESCE(NULLIF(BTRIM(h.description), ''), STRING_AGG(DISTINCT NULLIF(d.description, ''), ', ')) AS description,
                    h.subulyn, h.created_at,
                    COUNT(d.lineno)::integer AS line_count,
                    STRING_AGG(DISTINCT NULLIF(d.warehousecode, ''), ', ') AS warehousecode,
@@ -208,7 +206,7 @@ def list_receipts(
             LEFT JOIN Inbound02t AS d
               ON d.companyid = h.companyid AND d.receiptno = h.receiptno
             WHERE {where_sql}
-            GROUP BY h.companyid, h.receiptno
+            GROUP BY h.companyid, h.receiptno, h.description
             ORDER BY h.receptdate ASC, h.customname ASC, h.receiptno ASC
             LIMIT %s OFFSET %s
             """,
@@ -221,10 +219,15 @@ def list_receipts(
 def get_receipt(companyid: str, receiptno: str):
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
-            """SELECT companyid, companyname, receiptno, receptdate, customcode, customname, manager,
-                      COALESCE(subulyn, 'N') AS subulyn,
-                      created_at, updated_at
-               FROM Inbound01t WHERE companyid = %s AND receiptno = %s""",
+            """SELECT h.companyid, h.companyname, h.receiptno, h.receptdate, h.customcode, h.customname, h.manager,
+                      COALESCE(NULLIF(BTRIM(h.description), ''), (
+                          SELECT STRING_AGG(DISTINCT NULLIF(d.description, ''), ', ')
+                          FROM Inbound02t AS d
+                          WHERE d.companyid = h.companyid AND d.receiptno = h.receiptno
+                      )) AS description,
+                      COALESCE(h.subulyn, 'N') AS subulyn,
+                      h.created_at, h.updated_at
+               FROM Inbound01t AS h WHERE h.companyid = %s AND h.receiptno = %s""",
             (companyid, receiptno),
         )
         header_row = cursor.fetchone()
@@ -239,7 +242,7 @@ def get_receipt(companyid: str, receiptno: str):
                       d.thickness, d.width, d.length, d.qty, d.qtyunit,
                       d.weight, d.unit, d.unitprice, d.supplyamt, d.vat, d.unitamt,
                       d.warehousecode, d.warehousecodename, d.materialcode, d.materialname,
-                      d.surfacecode, d.surfacename, d.myrtle, h.manager AS manager, d.description,
+                      d.surfacecode, d.surfacename, d.myrtle, h.manager AS manager,
                       d.created_at, d.updated_at
                FROM Inbound02t AS d
                JOIN Inbound01t AS h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
@@ -417,10 +420,10 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                 cursor.execute(
                     """INSERT INTO Inbound01t
                        (companyid, companyname, receiptno, receptdate, customcode,
-                        customname, manager, subulyn)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, 'N')""",
+                        customname, manager, description, subulyn)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'N')""",
                     (companyid, companyname, receiptno, header_receptdate, customcode,
-                     customer_name, default_manager or None),
+                     customer_name, default_manager or None, (payload.get("description") or "").strip() or None),
                 )
 
                 detail_values = []
@@ -454,20 +457,18 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                         (item.get("surfacecode") or "").strip() or None,
                         (item.get("surfacename") or "").strip() or None,
                         item.get("myrtle"),
-                        default_manager or None,
                         qty, item["qtyunit"].strip(),
                         weight, item["unit"].strip(), unitprice, supplyamt, vat, unitamt,
                         (item.get("warehousecode") or "").strip() or None,
                         warehouse_names.get((item.get("warehousecode") or "").strip()) or None,
-                        item.get("description", "").strip() or None,
                     ))
                 cursor.executemany(
                     """INSERT INTO Inbound02t
                        (companyid, companyname, receiptno, lineno, itemcode, itemname, productname,
                         thickness, width, length, materialcode, materialname, surfacecode,
-                        surfacename, myrtle, manager, qty, qtyunit, weight, unit, unitprice,
-                        supplyamt, vat, unitamt, warehousecode, warehousecodename, description)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                        surfacename, myrtle, qty, qtyunit, weight, unit, unitprice,
+                        supplyamt, vat, unitamt, warehousecode, warehousecodename)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     detail_values,
                 )
                 stock_lines = [{
@@ -498,6 +499,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                     "warehousecode": warehousecode,
                     "warehousecodename": warehouse_names.get(warehousecode, ""),
                     "manager": default_manager,
+                    "description": (payload.get("description") or "").strip(),
                     "saved_count": len(group_items),
                 })
         return {
@@ -543,12 +545,10 @@ def update_receipt_manager(companyid: str, receiptno: str, manager: str):
             (normalized_manager or None, companyid, receiptno),
         )
         cursor.execute(
-            """UPDATE Inbound02t
-               SET manager = %s, updated_at = CURRENT_TIMESTAMP
-               WHERE companyid = %s AND receiptno = %s""",
-            (normalized_manager or None, companyid, receiptno),
+            "SELECT COUNT(*) FROM Inbound02t WHERE companyid = %s AND receiptno = %s",
+            (companyid, receiptno),
         )
-        updated_count = cursor.rowcount
+        updated_count = cursor.fetchone()[0]
         if not updated_count:
             raise ValueError("담당자를 수정할 입고상세가 없습니다.")
         cursor.execute(

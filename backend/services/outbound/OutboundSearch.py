@@ -100,7 +100,8 @@ def list_outbound_details(
                    d.materialname, d.surfacename, d.myrtle,
                    d.thickness, d.width, d.length, d.qty, d.weight,
                    d.unitprice, d.supplyamt, d.vat, d.unitamt, d.qtyunit, d.unit,
-                   d.manager, d.description,
+                    COALESCE(NULLIF(BTRIM(h.manager), ''), d.manager) AS manager,
+                    COALESCE(NULLIF(BTRIM(h.description), ''), d.description) AS description,
                    d.created_at, d.updated_at
             FROM Outbound01t AS h
             JOIN Outbound02t AS d
@@ -157,7 +158,9 @@ def write_outbound_details_excel(
                d.warehousecodename, d.productname, d.itemname, d.materialname, d.surfacename,
                d.myrtle, d.thickness, d.width, d.length, d.qty, d.weight,
                d.unitprice, d.supplyamt, d.vat, d.unitamt, d.qtyunit, d.unit,
-               d.manager, d.description, d.created_at, d.updated_at
+                COALESCE(NULLIF(BTRIM(h.manager), ''), d.manager) AS manager,
+                COALESCE(NULLIF(BTRIM(h.description), ''), d.description) AS description,
+                d.created_at, d.updated_at
         FROM Outbound01t AS h
         JOIN Outbound02t AS d
           ON d.companyid = h.companyid
