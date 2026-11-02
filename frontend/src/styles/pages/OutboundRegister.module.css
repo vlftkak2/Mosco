@@ -148,8 +148,13 @@
 .pickerTable :global(td) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stockPickerTable { min-width: 1060px; width: max-content; table-layout: fixed; }
 .stockPickerTable :global(th) { text-align: center !important; }
+.stockPickerTable :global(thead th) { background: #f0f3f6 !important; color: #42566f !important; }
 .stockPickerTable :global(th),
-.stockPickerTable :global(td) { white-space: nowrap; }
+.stockPickerTable :global(td) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stockPickerHeader { position: relative; padding-right: 12px !important; }
+.stockPickerResizeHandle { position: absolute; top: 0; right: -2px; z-index: 2; width: 7px; height: 100%; cursor: col-resize; touch-action: none; user-select: none; }
+.stockPickerResizeHandle:hover,
+.stockPickerResizeHandle:active { background: #c9373d40; }
 .stockDraftInput { width: 88px; height: 28px; padding: 3px 6px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; color: #24364b; text-align: right; font: inherit; }
 .customerCodeColumn { width: 23%; }
 .customerNameColumn { width: 35%; }

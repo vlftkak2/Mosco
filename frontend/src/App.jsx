@@ -34,6 +34,7 @@ import AIOrderManage from "./pages/ai/AIOrderManage";
 import CustomerSupport from "./pages/system/CustomerSupport";
 import AIOrderConfirmPage from "./pages/ai/AIOrderConfirmPage";
 import Company from "./pages/system/Company";
+import InoutmoveRegister from "./pages/inoutmove/InoutmoveRegister";
 
 
 // Mantine 기본 스타일 
@@ -95,6 +96,7 @@ function App() {
           <Route path="/StockStandPage" element={menuPage('STOCK_INITIAL', <StockStandPage />)} />
           <Route path="/CurrentStockPage" element={menuPage('STOCK_CURRENT', <CurrentStockPage />)} />
           <Route path="/IniopStockPage" element={menuPage('STOCK_HISTORY', <IniopStockPage />)} />
+          <Route path="/InoutmoveRegister" element={menuPage('INOUTMOVE_REGISTER', <InoutmoveRegister />)} />
           <Route path="/AIOrderPage" element={menuPage('AI_ORDER_RECOGNITION', <AIOrderPage />)} />
           <Route path="/AIOrderOptimization" element={menuPage('AI_OPTIMIZATION', <AIOrderOptimization />)} />
           <Route path="/AIProcessingStandards" element={menuPage('AI_STANDARDS', <AIProcessingStandards />)} />
