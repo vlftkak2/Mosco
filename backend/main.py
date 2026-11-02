@@ -48,6 +48,7 @@ from routes.outbound import OutboundSearch_routes as OutboundSearch_routes
 from routes.inventory import StockStand_routes as StockStand_routes
 from routes.inventory import CurrentStock_routes as CurrentStock_routes
 from routes.inventory import IniopStock_routes as IniopStock_routes
+from routes.inoutmove import inoutmoveRegister_routes as inoutmoveRegister_routes
 from routes.ai import AIOrder_routes as AIOrder_routes
 from routes.ai import AIOrderConfirm_routes as AIOrderConfirm_routes
 
@@ -139,6 +140,9 @@ app.include_router(CurrentStock_routes.router)
 
 # Company-scoped inventory ledger API
 app.include_router(IniopStock_routes.router)
+
+# Company-scoped warehouse transfer API
+app.include_router(inoutmoveRegister_routes.router)
 
 # Isolated AI order recognition test API (does not touch ERP transaction tables).
 app.include_router(AIOrder_routes.router)

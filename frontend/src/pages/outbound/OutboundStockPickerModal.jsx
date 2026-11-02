@@ -7,6 +7,22 @@ import classes from '../../styles/pages/OutboundRegister.module.css';
 
 const PAGE_SIZE = 50;
 const PAGE_OPTIONS = [{ value: '25', label: '25개씩' }, { value: '50', label: '50개씩' }, { value: '100', label: '100개씩' }];
+const STOCK_COLUMNS = [
+  { key: 'select', label: '', width: 42, minWidth: 42 },
+  { key: 'sourcetype', label: '구분', width: 90, minWidth: 60 },
+  { key: 'receiptdate', label: '입고일자', width: 100, minWidth: 90 },
+  { key: 'customname', label: '매입처', width: 120, minWidth: 90 },
+  { key: 'itemname', label: '품명', width: 120, minWidth: 90 },
+  { key: 'dimension', label: '규격', width: 145, minWidth: 100 },
+  { key: 'warehouse', label: '창고', width: 115, minWidth: 90 },
+  { key: 'currentqty', label: '현재고수량', width: 100, minWidth: 90 },
+  { key: 'currentweight', label: '현재고중량(kg)', width: 125, minWidth: 100 },
+  { key: 'unitprice', label: '출고단가', width: 130, minWidth: 100 },
+  { key: 'qty', label: '출고수량', width: 100, minWidth: 90 },
+  { key: 'weight', label: '출고중량(kg)', width: 125, minWidth: 100 },
+  { key: 'productname', label: '제품번호', width: 260, minWidth: 150 },
+];
+const initialColumnWidths = () => Object.fromEntries(STOCK_COLUMNS.map(({ key, width }) => [key, width]));
 const createDefaultFilters = () => {
   const today = new Date();
   const formatDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -47,9 +63,35 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
   const [total, setTotal] = useState(0);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [loading, setLoading] = useState(false);
+  const [columnWidths, setColumnWidths] = useState(initialColumnWidths);
   const requestId = useRef(0);
   const draftInputRefs = useRef(new Map());
   const existingKeys = useMemo(() => new Set(existingRows.map(sourceKey)), [existingRows]);
+  const tableWidth = STOCK_COLUMNS.reduce((sum, column) => sum + (columnWidths[column.key] ?? column.width), 0);
+
+  const resizeColumn = useCallback((event, column) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = columnWidths[column.key] ?? column.width;
+    const table = event.currentTarget.closest('table');
+    const col = [...(table?.querySelectorAll('col[data-column-key]') || [])].find((element) => element.dataset.columnKey === column.key);
+    let nextWidth = startWidth;
+    const move = (pointerEvent) => {
+      nextWidth = Math.max(column.minWidth, Math.min(1000, startWidth + pointerEvent.clientX - startX));
+      if (col) col.style.width = `${nextWidth}px`;
+      if (table) table.style.minWidth = `${tableWidth + nextWidth - startWidth}px`;
+    };
+    const finish = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      setColumnWidths((current) => ({ ...current, [column.key]: nextWidth }));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  }, [columnWidths, tableWidth]);
 
   const load = useCallback(async (nextPage, nextFilters, nextPageSize) => {
     const id = ++requestId.current;
@@ -214,21 +256,12 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
       <Box pos="relative" className={classes.pickerResults}>
         {loading && <Loader className={classes.pickerLoader} size="sm" color="red" />}
         <Box style={{ overflow: 'auto', height: '100%' }}>
-          <Table className={classes.stockPickerTable} stickyHeader highlightOnHover withTableBorder withColumnBorders>
-                        <Table.Thead><Table.Tr>
-              <Table.Th style={{ width: 42 }} />
-              <Table.Th style={{ width: 90 }}>구분</Table.Th>
-              <Table.Th style={{ width: 100 }}>입고일자</Table.Th>
-              <Table.Th style={{ width: 120 }}>매입처</Table.Th>
-              <Table.Th style={{ width: 120 }}>품명</Table.Th>
-              <Table.Th style={{ width: 145 }}>규격</Table.Th>
-              <Table.Th style={{ width: 115 }}>창고</Table.Th>
-              <Table.Th style={{ width: 100 }}>현재고수량</Table.Th>
-              <Table.Th style={{ width: 125 }}>현재고중량(kg)</Table.Th>
-              <Table.Th style={{ width: 130 }}>&#xCD9C;&#xACE0;&#xB2E8;&#xAC00;</Table.Th>
-              <Table.Th style={{ width: 100 }}>출고수량</Table.Th>
-              <Table.Th style={{ width: 125 }}>출고중량(kg)</Table.Th>
-              <Table.Th style={{ width: 120 }}>제품번호</Table.Th>
+          <Table className={classes.stockPickerTable} style={{ width: '100%', minWidth: tableWidth, tableLayout: 'fixed' }} stickyHeader highlightOnHover withTableBorder withColumnBorders>
+            <colgroup>{STOCK_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: columnWidths[column.key] ?? column.width }} />)}</colgroup>
+            <Table.Thead><Table.Tr>
+              {STOCK_COLUMNS.map((column, index) => <Table.Th key={column.key} className={index ? classes.stockPickerHeader : undefined} style={{ width: columnWidths[column.key] ?? column.width }}>
+                {column.label}{index > 0 && <span className={classes.stockPickerResizeHandle} onPointerDown={(event) => resizeColumn(event, column)} role="separator" aria-label={`${column.label} 열 너비 조절`} />}
+              </Table.Th>)}
             </Table.Tr></Table.Thead>
             <Table.Tbody>
               {stocks.map((stock) => {
