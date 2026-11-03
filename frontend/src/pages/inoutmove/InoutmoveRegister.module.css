@@ -70,6 +70,9 @@
 .stockFilters > * { min-width: 86px; flex: 1 1 110px; }
 .stockFilters > :first-child, .stockFilters > :nth-child(2), .stockFilters > :nth-child(4) { flex-basis: 175px; }
 .stockColumnHeader { position: relative; }
+.alreadyAddedStock > td { background: #f1f3f6 !important; color: #9aa5b1 !important; }
+.alreadyAddedStock { cursor: not-allowed !important; }
+.alreadyAddedStock input[type="checkbox"] { cursor: not-allowed; }
 
 @media (max-width: 1150px) {
   .outboundWorkspace { flex-direction: column; }

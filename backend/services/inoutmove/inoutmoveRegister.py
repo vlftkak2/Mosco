@@ -1,7 +1,7 @@
 import logging
 from contextlib import contextmanager
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
 from psycopg2 import IntegrityError
@@ -37,6 +37,7 @@ class TransferStockInput(BaseModel):
     stocksourcetype: str = Field(min_length=1, max_length=20)
     stocksourceno: str = Field(min_length=1, max_length=100)
     stocksourceline: int = Field(gt=0)
+    qty: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
 
     @field_validator("stocksourcetype")
     @classmethod
@@ -79,6 +80,23 @@ def _row_dict(cursor, row):
     return dict(zip((column[0] for column in cursor.description), row))
 
 
+def _calculate_transfer_amount(qty, length, weight, unitprice, unit: str, unit_name: str):
+    if unitprice is None:
+        return None, None, None
+    unit_token = f"{unit or ''} {unit_name or ''}".upper()
+    if "TON" in unit_token or "톤" in unit_token:
+        basis = weight / Decimal("1000")
+    elif "QTY" in unit_token or "수량" in unit_token or unit_token.strip() in {"EA", "PCS", "COUNT"}:
+        basis = qty
+    elif "LENGTH" in unit_token or "길이" in unit_token or unit_token.strip() in {"M", "METER"}:
+        basis = length or Decimal("0")
+    else:
+        basis = weight
+    supplyamt = (basis * Decimal(str(unitprice))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    vat = (supplyamt * Decimal("0.10")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return supplyamt, vat, supplyamt + vat
+
+
 def list_warehouses(companyid: str):
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
@@ -98,7 +116,11 @@ def list_available_stock(
     receiptno: str = "", date_from: date | None = None, date_to: date | None = None,
     thickness: str = "", width: str = "", length: str = "",
 ):
-    where = ["stock.companyid = %s", "(COALESCE(stock.qty, 0) > 0 OR COALESCE(stock.weight, 0) > 0)"]
+    where = [
+        "stock.companyid = %s",
+        "COALESCE(stock.qty, 0) > 0",
+        "COALESCE(stock.weight, 0) > 0",
+    ]
     params: list = [companyid]
     if item_search.strip():
         pattern = f"%{item_search.strip()}%"
@@ -212,11 +234,22 @@ def get_transfer(companyid: str, receiptno: str):
             return None
         header = _row_dict(cursor, row)
         cursor.execute(
-            """SELECT lineno, stocksourcetype, stocksourceno, stocksourceline,
-                      itemcode, itemname, productname, materialname, surfacename, myrtle,
-                      thickness, width, length, qty, qtyunit, weight, created_at, updated_at
-               FROM inoutmove02t
-               WHERE companyid = %s AND receiptno = %s ORDER BY lineno""",
+            """SELECT detail.lineno, detail.stocksourcetype, detail.stocksourceno, detail.stocksourceline,
+                      detail.itemcode, detail.itemname, detail.productname,
+                      detail.materialname, detail.surfacename, detail.myrtle,
+                      detail.thickness, detail.width, detail.length,
+                      detail.qty, detail.qtyunit, detail.weight,
+                      stock.customname AS sourcecustomname,
+                      stock.receiptdate AS sourcereceiptdate,
+                      detail.created_at, detail.updated_at
+               FROM inoutmove02t AS detail
+               LEFT JOIN CurrentStock01t AS stock
+                 ON stock.companyid = detail.companyid
+                AND stock.sourcetype = detail.stocksourcetype
+                AND stock.sourceno = detail.stocksourceno
+                AND stock.sourceline = detail.stocksourceline
+               WHERE detail.companyid = %s AND detail.receiptno = %s
+               ORDER BY detail.lineno""",
             (companyid, receiptno),
         )
         header["items"] = [_row_dict(cursor, detail) for detail in cursor.fetchall()]
@@ -258,6 +291,12 @@ def save_transfer(companyid: str, companyname: str, payload: dict):
             warehouse_names = {str(code).strip(): str(name or code).strip() for code, name in cursor.fetchall()}
             if len(warehouse_names) != 2:
                 raise ValueError("출발 창고와 도착 창고를 현재 회사의 사용 중인 창고에서 선택해 주세요.")
+            cursor.execute(
+                """SELECT code, code_name FROM CodeMaster01t
+                   WHERE companyid = %s AND groupcode = 'PRICE_UNIT'""",
+                (companyid,),
+            )
+            price_unit_names = {str(code).strip(): str(name or "").strip() for code, name in cursor.fetchall()}
             from_code, to_code = payload["fromwarehousecode"], payload["towarehousecode"]
             if from_code == to_code:
                 raise ValueError("출발 창고와 도착 창고는 달라야 합니다.")
@@ -278,12 +317,14 @@ def save_transfer(companyid: str, companyname: str, payload: dict):
             ))
             details = []
             ledger_rows = []
+            stock_transfers = []
             for lineno, item in enumerate(ordered_items, start=1):
                 cursor.execute(
                     """SELECT sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
                               itemcode, itemname, productname, materialcode, materialname,
                               surfacecode, surfacename, myrtle, thickness, width, length,
-                              qty, qtyunit, weight, unit, unitprice, warehousecode, warehousecodename
+                              qty, qtyunit, weight, unit, unitprice, warehousecode, warehousecodename,
+                              originalqty, originalweight
                        FROM CurrentStock01t
                        WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
                        FOR UPDATE""",
@@ -295,9 +336,21 @@ def save_transfer(companyid: str, companyname: str, payload: dict):
                 stock = _row_dict(cursor, row)
                 if stock["warehousecode"] != from_code:
                     raise ValueError(f"{stock['itemname']} 재고의 현재 창고가 선택한 출발 창고와 다릅니다.")
-                qty, weight = Decimal(str(stock["qty"] or 0)), Decimal(str(stock["weight"] or 0))
-                if qty <= 0 and weight <= 0:
-                    raise ValueError(f"{stock['itemname']} 재고 수량이 없어 이전할 수 없습니다.")
+                available_qty = Decimal(str(stock["qty"] or 0))
+                available_weight = Decimal(str(stock["weight"] or 0))
+                qty = Decimal(str(item["qty"]))
+                if available_qty <= 0 or available_weight <= 0:
+                    raise ValueError(f"{stock['itemname']} 재고의 현재고 수량 또는 중량이 없어 이전할 수 없습니다. 현재고를 다시 조회해 주세요.")
+                if qty > available_qty:
+                    raise ValueError(f"{stock['itemname']} 이전 수량이 현재고 수량을 초과했습니다.")
+                weight = (available_weight * qty / available_qty).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+                if weight <= 0:
+                    raise ValueError(f"{stock['itemname']} 이전 중량이 0이 되어 이전할 수 없습니다.")
+                unit_code = str(stock["unit"] or "").strip()
+                supplyamt, vat, unitamt = _calculate_transfer_amount(
+                    qty, Decimal(str(stock["length"] or 0)), weight,
+                    stock["unitprice"], unit_code, price_unit_names.get(unit_code, unit_code),
+                )
 
                 details.append((
                     companyid, companyname, receiptno, lineno,
@@ -306,6 +359,7 @@ def save_transfer(companyid: str, companyname: str, payload: dict):
                     stock["surfacecode"], stock["surfacename"], stock["materialcode"], stock["materialname"], stock["myrtle"],
                     stock["thickness"], stock["width"], stock["length"], qty, stock["qtyunit"], weight,
                 ))
+                stock_transfers.append((lineno, item, stock, qty, weight))
                 for movement_type, movement_line, warehouse_code, warehouse_name in (
                     ("OUT", lineno * 2 - 1, from_code, warehouse_names[from_code]),
                     ("IN", lineno * 2, to_code, warehouse_names[to_code]),
@@ -318,7 +372,7 @@ def save_transfer(companyid: str, companyname: str, payload: dict):
                         stock["myrtle"], payload.get("manager") or None,
                         stock["thickness"], stock["width"], stock["length"], qty,
                         stock["qtyunit"], weight, warehouse_code, warehouse_name,
-                        stock["unit"], stock["unitprice"],
+                        stock["unit"], stock["unitprice"], supplyamt, vat, unitamt,
                     ))
 
             cursor.executemany(
@@ -337,20 +391,37 @@ def save_transfer(companyid: str, companyname: str, payload: dict):
                     thickness, width, length, qty, qtyunit, weight, warehousecode, warehousecodename,
                     unit, unitprice, supplyamt, vat, unitamt)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, NULL, NULL)""",
+                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 ledger_rows,
             )
-            for item in ordered_items:
+            for lineno, item, stock, moved_qty, moved_weight in stock_transfers:
+                movement_line = lineno * 2
                 cursor.execute(
-                    """UPDATE CurrentStock01t SET warehousecode = %s, warehousecodename = %s,
+                    """INSERT INTO CurrentStock01t
+                       (companyid, companyname, customcode, customname, sourcetype, sourceno, sourceline,
+                        receiptdate, itemcode, itemname, productname, materialcode, materialname,
+                        surfacecode, surfacename, myrtle, manager, thickness, width, length,
+                        originalqty, qty, qtyunit, originalweight, weight, unit, unitprice,
+                        warehousecode, warehousecodename)
+                       VALUES (%s, %s, %s, %s, 'INBOUND', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (companyid, companyname, stock["customcode"], stock["customname"], receiptno, movement_line,
+                     payload["receptdate"], stock["itemcode"], stock["itemname"], stock["productname"],
+                     stock["materialcode"], stock["materialname"], stock["surfacecode"], stock["surfacename"],
+                     stock["myrtle"], payload.get("manager") or None, stock["thickness"], stock["width"], stock["length"],
+                     moved_qty, moved_qty, stock["qtyunit"], moved_weight, moved_weight, stock["unit"], stock["unitprice"],
+                     to_code, warehouse_names[to_code]),
+                )
+                cursor.execute(
+                    """UPDATE CurrentStock01t SET qty = qty - %s, weight = weight - %s,
                               updated_at = CURRENT_TIMESTAMP
                        WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
-                         AND warehousecode = %s""",
-                    (to_code, warehouse_names[to_code], companyid, item["stocksourcetype"],
-                     item["stocksourceno"], item["stocksourceline"], from_code),
+                         AND warehousecode = %s AND qty >= %s AND weight >= %s""",
+                    (moved_qty, moved_weight, companyid, item["stocksourcetype"],
+                     item["stocksourceno"], item["stocksourceline"], from_code, moved_qty, moved_weight),
                 )
                 if cursor.rowcount != 1:
-                    raise ValueError("현재고 창고 변경에 실패했습니다. 현재고를 다시 조회해 주세요.")
+                    raise ValueError("현재고 수량 차감에 실패했습니다. 현재고를 다시 조회해 주세요.")
         return {"receiptno": receiptno, "saved_count": len(payload["items"])}
     except ValueError:
         raise
@@ -368,19 +439,18 @@ def delete_transfer(companyid: str, receiptno: str):
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
-            """SELECT receptdate, fromwarehousecode, fromwarehousename, towarehousecode,
-                      towarehousename, created_at
+            """SELECT fromwarehousecode, fromwarehousename, towarehousecode
                FROM inoutmove01t WHERE companyid = %s AND receiptno = %s FOR UPDATE""",
             (companyid, receiptno),
         )
         header_row = cursor.fetchone()
         if not header_row:
             return 0
-        receptdate, from_code, from_name, to_code, to_name, created_at = header_row
+        from_code, from_name, to_code = header_row
         cursor.execute(
             """SELECT lineno, stocksourcetype, stocksourceno, stocksourceline,
                       qty, weight FROM inoutmove02t
-               WHERE companyid = %s AND receiptno = %s ORDER BY stocksourcetype, stocksourceno, stocksourceline
+               WHERE companyid = %s AND receiptno = %s ORDER BY lineno
                FOR UPDATE""",
             (companyid, receiptno),
         )
@@ -396,28 +466,65 @@ def delete_transfer(companyid: str, receiptno: str):
             raise ValueError("재고이전 수불 내역이 완전하지 않아 삭제할 수 없습니다.")
         for lineno, source_type, source_no, source_line, qty, weight in details:
             cursor.execute(
-                """SELECT qty, weight, warehousecode, updated_at FROM CurrentStock01t
+                """SELECT qty, weight, originalqty, originalweight, warehousecode
+                   FROM CurrentStock01t
                    WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
                    FOR UPDATE""",
                 (companyid, source_type, source_no, source_line),
             )
-            stock = cursor.fetchone()
-            if not stock:
+            source_stock = cursor.fetchone()
+            if not source_stock:
                 raise ValueError("이전한 원천 재고가 없어 전표를 안전하게 되돌릴 수 없습니다.")
-            stock_qty, stock_weight, stock_warehouse, stock_updated_at = stock
-            if stock_warehouse != to_code or Decimal(str(stock_qty or 0)) != Decimal(str(qty)) or Decimal(str(stock_weight or 0)) != Decimal(str(weight)):
-                raise ValueError("이전 후 재고가 출고·가공·추가 이동되어 전표를 삭제할 수 없습니다.")
-            if stock_updated_at and created_at and stock_updated_at > created_at:
-                raise ValueError("이전 후 재고가 변경되어 전표를 삭제할 수 없습니다.")
+            source_qty, source_weight, original_qty, original_weight, source_warehouse = source_stock
+
+            moved_stock_line = lineno * 2
             cursor.execute(
-                """UPDATE CurrentStock01t SET warehousecode = %s, warehousecodename = %s,
+                """SELECT qty, weight, warehousecode FROM CurrentStock01t
+                   WHERE companyid = %s AND sourcetype = 'INBOUND' AND sourceno = %s AND sourceline = %s
+                   FOR UPDATE""",
+                (companyid, receiptno, moved_stock_line),
+            )
+            moved_stock = cursor.fetchone()
+            if not moved_stock:
+                # Older transfers moved the original source row between warehouses in place.
+                if (source_warehouse == to_code and Decimal(str(source_qty or 0)) == Decimal(str(qty))
+                        and Decimal(str(source_weight or 0)) == Decimal(str(weight))):
+                    cursor.execute(
+                        """UPDATE CurrentStock01t SET warehousecode = %s, warehousecodename = %s,
+                                  updated_at = CURRENT_TIMESTAMP
+                           WHERE companyid = %s AND sourcetype = %s AND sourceno = %s
+                             AND sourceline = %s AND warehousecode = %s""",
+                        (from_code, from_name, companyid, source_type, source_no, source_line, to_code),
+                    )
+                    if cursor.rowcount != 1:
+                        raise ValueError("현재고를 원래 창고로 되돌리지 못했습니다.")
+                    continue
+                raise ValueError("이전된 입고 현재고가 없어 전표를 안전하게 되돌릴 수 없습니다.")
+            moved_qty, moved_weight, moved_warehouse = moved_stock
+            if (moved_warehouse != to_code or Decimal(str(moved_qty or 0)) != Decimal(str(qty))
+                    or Decimal(str(moved_weight or 0)) != Decimal(str(weight))):
+                raise ValueError("이전된 재고가 출고·가공·추가 이동되어 전표를 삭제할 수 없습니다.")
+            if (source_warehouse != from_code
+                    or Decimal(str(source_qty or 0)) + Decimal(str(qty)) > Decimal(str(original_qty or 0))
+                    or Decimal(str(source_weight or 0)) + Decimal(str(weight)) > Decimal(str(original_weight or 0))):
+                raise ValueError("원천 재고가 변경되어 이전 전 상태로 되돌릴 수 없습니다.")
+
+            cursor.execute(
+                """UPDATE CurrentStock01t SET qty = qty + %s, weight = weight + %s,
                           updated_at = CURRENT_TIMESTAMP
                    WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
                      AND warehousecode = %s""",
-                (from_code, from_name, companyid, source_type, source_no, source_line, to_code),
+                (qty, weight, companyid, source_type, source_no, source_line, from_code),
             )
             if cursor.rowcount != 1:
                 raise ValueError("현재고를 원래 창고로 되돌리지 못했습니다.")
+            cursor.execute(
+                """DELETE FROM CurrentStock01t
+                   WHERE companyid = %s AND sourcetype = 'INBOUND' AND sourceno = %s AND sourceline = %s""",
+                (companyid, receiptno, moved_stock_line),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("이전된 입고 현재고를 삭제하지 못했습니다.")
         cursor.execute("DELETE FROM Iniop01t WHERE companyid = %s AND receiptno = %s AND iniotype IN ('IN', 'OUT')", (companyid, receiptno))
         cursor.execute("DELETE FROM inoutmove01t WHERE companyid = %s AND receiptno = %s", (companyid, receiptno))
         return 1

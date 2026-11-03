@@ -583,6 +583,25 @@ def delete_receipt(companyid: str, receiptno: str):
             return 0
         if str(row[0] or "N").strip().upper() in {"Y", "YES", "확정"}:
             raise ValueError("수불 확정된 입고전표는 삭제할 수 없습니다.")
+        cursor.execute(
+            """SELECT
+                   EXISTS (
+                       SELECT 1 FROM Outbound02t
+                       WHERE companyid = %s AND stocksourcetype = 'INBOUND' AND stocksourceno = %s
+                   )
+                   OR EXISTS (
+                       SELECT 1 FROM Process02t
+                       WHERE companyid = %s AND linetype = 'SOURCE'
+                         AND stocksourcetype = 'INBOUND' AND stocksourceno = %s
+                   )
+                   OR EXISTS (
+                       SELECT 1 FROM inoutmove02t
+                       WHERE companyid = %s AND stocksourcetype = 'INBOUND' AND stocksourceno = %s
+                   )""",
+            (companyid, receiptno, companyid, receiptno, companyid, receiptno),
+        )
+        if cursor.fetchone()[0]:
+            raise ValueError("입고 재고가 출고·가공·재고이전에 사용되어 입고전표를 삭제할 수 없습니다.")
         current_stock_module.reverse_document(cursor, companyid, "IN", receiptno)
         cursor.execute("DELETE FROM Inbound02t WHERE companyid = %s AND receiptno = %s", (companyid, receiptno))
         cursor.execute("DELETE FROM Inbound01t WHERE companyid = %s AND receiptno = %s", (companyid, receiptno))
