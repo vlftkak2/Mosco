@@ -439,7 +439,7 @@ def lookup_stock(companyid: str, items: list[dict]):
 def _current_stock_conditions(companyid, itemcode, itemname, thickness, width, length,
                               warehousecode, warehousecodename, sourcetype="", customname="",
                               include_zero=False, source_lines=False, item_search="",
-                              product_search="", warehouse_search="", date_from=None, date_to=None):
+                              product_search="", warehouse_search="", receipt_search="", date_from=None, date_to=None):
     where = ["stock.companyid = %s"]
     params = [companyid]
     if source_lines:
@@ -457,7 +457,10 @@ def _current_stock_conditions(companyid, itemcode, itemname, thickness, width, l
         if date_to:
             where.append("stock.receiptdate <= %s")
             params.append(date_to)
-    elif date_from or date_to:
+        if receipt_search.strip():
+            where.append("stock.sourceno ILIKE %s")
+            params.append(f"%{receipt_search.strip()}%")
+    elif date_from or date_to or receipt_search.strip():
         # The legacy aggregate table has no source receipt date to filter by.
         where.append("FALSE")
     if item_search.strip():

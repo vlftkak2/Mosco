@@ -16,7 +16,7 @@ const createDefaultFilters = () => {
   const month = now.getMonth();
   const pad = (value) => String(value).padStart(2, '0');
   return {
-    sourcetype: '', customname: '', item_search: '', product_search: '', warehouse_search: '',
+    sourcetype: '', customname: '', item_search: '', product_search: '', warehouse_search: '', receipt_search: '',
     date_from: `${year}-${pad(month + 1)}-01`,
     date_to: `${year}-${pad(month + 1)}-${pad(new Date(year, month + 1, 0).getDate())}`,
   };
@@ -95,6 +95,7 @@ export default function CurrentStockPage() {
         <TextInput label="품목" placeholder="품목코드 또는 품목명" value={inputs.item_search} onChange={(event) => setInputs((current) => ({ ...current, item_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && search()} />
         <TextInput label="제품번호" placeholder="제품번호 검색" value={inputs.product_search} onChange={(event) => setInputs((current) => ({ ...current, product_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && search()} />
         <TextInput label="창고" placeholder="창고코드 또는 창고명" value={inputs.warehouse_search} onChange={(event) => setInputs((current) => ({ ...current, warehouse_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && search()} />
+        <TextInput label="전표" placeholder="전표번호" value={inputs.receipt_search} onChange={(event) => setInputs((current) => ({ ...current, receipt_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && search()} />
         <Select label="잔량 0 표시" data={[{ value: 'N', label: '제외' }, { value: 'Y', label: '포함' }]} value={includeZero ? 'Y' : 'N'} onChange={(value) => { setIncludeZero(value === 'Y'); setPage(1); }} />
       </Stack>
     </Paper>}

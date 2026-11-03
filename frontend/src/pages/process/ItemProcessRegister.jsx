@@ -159,6 +159,8 @@ const DETAIL_COLUMNS = [
   { key: 'weight', label: '중량(KG)', width: 110, minWidth: 80 },
   { key: 'unitprice', label: '단가/KG', width: 100, minWidth: 75 },
   { key: 'amount', label: '가공금액', width: 115, minWidth: 85 },
+  { key: 'sourceReceipt', label: '원천전표', width: 175, minWidth: 120 },
+  { key: 'sourceLine', label: '원천순번', width: 90, minWidth: 70 },
 ];
 function startTableColumnResize(event, columns, widths, setWidths, minTableWidth) {
   event.preventDefault();
@@ -298,9 +300,10 @@ function ProcessMethodCell({ product, options, disabled, onSelect }) {
 }
 
 
-function StockPicker({ opened, onClose, onApply, existingKeys }) {
+function StockPicker({ opened, onClose, onApply, existingKeys, existingWarehouseCode = '' }) {
   const [items, setItems] = useState([]);
   const [selected, setSelected] = useState({});
+  const [selectionWarehouseCode, setSelectionWarehouseCode] = useState(existingWarehouseCode);
   const [query, setQuery] = useState('');
   const [warehouse, setWarehouse] = useState('');
   const [thickness, setThickness] = useState('');
@@ -328,7 +331,7 @@ function StockPicker({ opened, onClose, onApply, existingKeys }) {
 
   useEffect(() => {
     if (!opened) return;
-    setSelected({}); setQuery(''); setWarehouse(''); setThickness(''); setWidth(''); setLength('');
+    setSelected({}); setSelectionWarehouseCode(existingWarehouseCode); setQuery(''); setWarehouse(''); setThickness(''); setWidth(''); setLength('');
     void (async () => {
       setLoading(true);
       try {
@@ -343,12 +346,16 @@ function StockPicker({ opened, onClose, onApply, existingKeys }) {
   const toggle = (row, checked) => {
     const key = sourceKey(row);
     setSelected((current) => ({ ...current, [key]: checked }));
+    if (checked && !selectionWarehouseCode) setSelectionWarehouseCode(row.warehousecode || '');
+    if (!checked && !Object.entries(selected).some(([selectedKey, isSelected]) => selectedKey !== key && isSelected)) {
+      setSelectionWarehouseCode(existingWarehouseCode || '');
+    }
   };
   const apply = () => {
     const chosen = items.filter((row) => selected[sourceKey(row)]);
     const rows = chosen.map((row) => ({ ...row, input_qty: row.qty, input_weight: row.weight }));
     if (!rows.length) return;
-    onApply(rows); onClose();
+    if (onApply(rows) !== false) onClose();
   };
 
   return <Modal opened={opened} onClose={onClose} title={<Text fw={600}>가공 원소재 선택</Text>} size="95%" centered classNames={{ content: classes.modalContent, body: classes.modalBody }} styles={{ content: { height: '96vh', minHeight: 'min(96vh, 360px)', maxHeight: 'calc(100vh - 12px)', display: 'flex', flexDirection: 'column' }, body: { display: 'flex', minHeight: 0, flex: '1 1 auto', flexDirection: 'column', overflow: 'hidden' } }}>
@@ -363,7 +370,7 @@ function StockPicker({ opened, onClose, onApply, existingKeys }) {
         <Table stickyHeader withTableBorder withColumnBorders className={classes.pickerTable}><Table.Thead><Table.Tr>
           <Table.Th /><Table.Th>구분</Table.Th><Table.Th>입고일자</Table.Th><Table.Th>창고</Table.Th><Table.Th>품명</Table.Th><Table.Th>제품명</Table.Th><Table.Th>강종</Table.Th><Table.Th>두께</Table.Th><Table.Th>폭</Table.Th><Table.Th>길이</Table.Th><Table.Th>현재수량</Table.Th><Table.Th>현재중량</Table.Th>
         </Table.Tr></Table.Thead><Table.Tbody>{items.map((row) => {
-          const key = sourceKey(row); const disabled = existingKeys.has(key);
+          const key = sourceKey(row); const disabled = existingKeys.has(key) || Boolean((selectionWarehouseCode || existingWarehouseCode) && row.warehousecode !== (selectionWarehouseCode || existingWarehouseCode));
           return <Table.Tr key={key}><Table.Td><input className={classes.pickerCheckbox} type="checkbox" checked={Boolean(selected[key])} disabled={disabled} onChange={(e) => toggle(row, e.currentTarget.checked)} /></Table.Td>
             <Table.Td>{row.sourcetype === 'OPENING' ? '기초' : row.sourcetype === 'INBOUND' ? '입고' : '가공'}</Table.Td><Table.Td>{String(row.receiptdate || '').slice(0, 10)}</Table.Td><Table.Td>{row.warehousecodename}</Table.Td><Table.Td>{row.itemname}</Table.Td><Table.Td>{row.productname}</Table.Td><Table.Td>{row.materialname || row.myrtle}</Table.Td><Table.Td>{numberText(row.thickness)}</Table.Td><Table.Td>{numberText(row.width)}</Table.Td><Table.Td>{numberText(row.length)}</Table.Td><Table.Td ta="right">{numberText(row.qty)}</Table.Td><Table.Td ta="right">{numberText(row.weight)}</Table.Td>
             </Table.Tr>;
@@ -518,12 +525,17 @@ export default function ItemProcessRegister() {
     }
   }, [fetchDocument, selectedProcessno]);
   const addStocks = (rows) => {
+    const warehouseCode = rows[0]?.warehousecode || '';
+    if (!warehouseCode || rows.some((row) => row.warehousecode !== warehouseCode)) return false;
     const addedSources = rows.map((row) => ({ id: uid(), stock: row, qty: String(row.input_qty), weight: String(row.input_weight), products: [] }));
+    const selectedWarehouse = rows[0];
+    setHeader((current) => ({ ...current, warehousecode: warehouseCode, warehousecodename: selectedWarehouse.warehousecodename || warehouseCode }));
     setSources((current) => [...current, ...addedSources]);
     const addedIds = addedSources.map((source) => source.id);
     setSelectedDetailIds(addedIds);
     selectionAnchorRef.current = addedIds.at(-1) || '';
     lastAddTargetRef.current = addedIds.length ? { sourceId: addedIds.at(-1), parentId: null } : null;
+    return true;
   };
   const allocateProductno = useCallback(async (sourceProductname) => {
     const productdate = header.processdate || today();
@@ -933,20 +945,20 @@ export default function ItemProcessRegister() {
           <Box className={classes.headerGrid}>
             <TextInput label="가공일자" type="date" disabled={readOnly} value={header.processdate} onChange={(e) => setHeader((h) => ({ ...h, processdate: e.currentTarget.value }))} />
             <Select label="가공처" searchable autoSelectOnBlur disabled={readOnly} data={customerData} value={header.customcode || null} onChange={(value) => { const item = options.customers.find((x) => x.code === value); setHeader((h) => ({ ...h, customcode: value || '', customname: item?.name || '' })); }} />
-            <Select label="입고창고" searchable autoSelectOnBlur disabled={readOnly} data={warehouseData} value={header.warehousecode || null} onChange={(value) => { const item = options.warehouses.find((x) => x.code === value); setHeader((h) => ({ ...h, warehousecode: value || '', warehousecodename: item?.name || '' })); }} />
+            <Select label="입고창고" searchable autoSelectOnBlur disabled={readOnly || sources.length > 0} data={warehouseData} value={header.warehousecode || null} onChange={(value) => { const item = options.warehouses.find((x) => x.code === value); setHeader((h) => ({ ...h, warehousecode: value || '', warehousecodename: item?.name || '' })); }} />
             <TextInput label="담당자" disabled={readOnly} value={header.manager} onChange={(e) => setHeader((h) => ({ ...h, manager: e.currentTarget.value }))} />
             <TextInput label="비고" disabled={readOnly} value={header.description} onChange={(e) => setHeader((h) => ({ ...h, description: e.currentTarget.value }))} />
           </Box>
           <Box className={classes.detailViewport}>
             <table className={classes.detailTable} style={{ width: `${detailTableWidth}px`, minWidth: `${detailTableWidth}px` }}><colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{DETAIL_COLUMNS.map((column) => <th key={column.key} className={classes.resizableHeader} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }}>{column.key === 'select' ? detailRowIds.length > 0 && <input type="checkbox" aria-label="상세 전체 선택" checked={allDetailsSelected} disabled={readOnly} onChange={(event) => { setSelectedDetailIds(event.currentTarget.checked ? detailRowIds : []); selectionAnchorRef.current = ''; }} /> : column.label}<span className={classes.columnResizeHandle} data-column-key={column.key} onPointerDown={(event) => startTableColumnResize(event, DETAIL_COLUMNS, detailColumnWidths, setDetailColumnWidths, 1320)} role="separator" aria-label={`${column.label || '선택'} 열 너비 조절`} /></th>)}</tr></thead>
               <tbody>{sources.flatMap((source, sourceIndex) => {
-                const sourceRow = <tr className={classes.sourceRow} key={source.id}><td className={classes.checkCell}><input type="checkbox" aria-label={`원소재 ${sourceIndex + 1} 선택`} checked={selectedDetailIds.includes(source.id)} disabled={readOnly} onChange={(event) => toggleDetailSelection(source.id, event.nativeEvent.shiftKey)} /></td><td className={classes.noCell}><div className={classes.noCellContent}><span className={classes.sourceNoLabel}><span>{sourceIndex + 1}</span><Badge size="xs" variant="light">원소재</Badge></span><ActionIcon size="xs" variant="subtle" color="red" disabled={readOnly} title="가공품 추가" onClick={() => addProduct(source.id)}><IconPlus size={13} /></ActionIcon></div></td><td>재고 연결</td><td></td><td>{source.stock.itemname}</td><td>{source.stock.productname || ''}</td><td>{numberText(source.stock.thickness)}</td><td>{numberText(source.stock.width)}</td><td>{numberText(source.stock.length)}</td><td>{numberText(source.qty)}</td><td>{source.stock.qtyunit}</td><td>{numberText(source.weight)}</td><td>—</td><td>—</td></tr>;
+                const sourceRow = <tr className={classes.sourceRow} key={source.id}><td className={classes.checkCell}><input type="checkbox" aria-label={`원소재 ${sourceIndex + 1} 선택`} checked={selectedDetailIds.includes(source.id)} disabled={readOnly} onChange={(event) => toggleDetailSelection(source.id, event.nativeEvent.shiftKey)} /></td><td className={classes.noCell}><div className={classes.noCellContent}><span className={classes.sourceNoLabel}><span>{sourceIndex + 1}</span><Badge size="xs" variant="light">원소재</Badge></span><ActionIcon size="xs" variant="subtle" color="red" disabled={readOnly} title="가공품 추가" onClick={() => addProduct(source.id)}><IconPlus size={13} /></ActionIcon></div></td><td>재고 연결</td><td></td><td>{source.stock.itemname}</td><td>{source.stock.productname || ''}</td><td>{numberText(source.stock.thickness)}</td><td>{numberText(source.stock.width)}</td><td>{numberText(source.stock.length)}</td><td>{numberText(source.qty)}</td><td>{source.stock.qtyunit}</td><td>{numberText(source.weight)}</td><td>—</td><td>—</td><td>{source.stock.sourceno || ''}</td><td>{source.stock.sourceline ?? ''}</td></tr>;
                 const productRows = orderProducts(source.products).map(({ product, lineNo, isLast, ancestorContinues }) => {
                   const processOptions = options.processes || [];
                   const dimensionRule = options.rules.find((rule) => rule.itemcode === source.stock.itemcode && rule.processid === product.processid);
                   const canEditDimension = (field) => String(dimensionRule?.[`${field}yn`] || '').trim().toUpperCase() === 'Y';
                   const depth = lineNo.length;
-                return <tr key={product.id}><td className={classes.checkCell}><input type="checkbox" aria-label={`가공품 ${lineNo.join('.')} 선택`} checked={selectedDetailIds.includes(product.id)} disabled={readOnly} onChange={(event) => toggleDetailSelection(product.id, event.nativeEvent.shiftKey)} /></td><td className={classes.noCell}><div className={classes.noCellContent}><span className={classes.treeNumber}>{ancestorContinues.map((continues, index) => <span key={`parent-${index}`} className={`${classes.treeGuide} ${continues ? classes.treeGuideContinue : ''}`} />)}<span className={`${classes.treeGuide} ${isLast ? classes.treeGuideLast : classes.treeGuideMiddle}`} /><span>{String(lineNo[depth - 1]).padStart(2, '0')}</span></span><ActionIcon size="xs" variant="subtle" color="red" disabled={readOnly} title="하위 가공 추가" onClick={() => addProduct(source.id, product.id)}><IconPlus size={13} /></ActionIcon></div></td><td>가공품</td><td><ProcessMethodCell product={product} options={processOptions} disabled={readOnly} onSelect={(option) => chooseRule(source, product, option?.processid || null)} /></td><td><input data-detail-field="productname" onKeyDown={handleDetailGridKeyDown} disabled={readOnly} value={product.productname} onChange={(e) => updateProduct(source.id, product.id, 'productname', e.target.value)} /></td><td><input data-detail-field="productno" onKeyDown={handleDetailGridKeyDown} disabled={readOnly} maxLength={150} value={product.productno} onChange={(e) => updateProduct(source.id, product.id, 'productno', e.target.value)} /></td>{['thickness', 'width', 'length'].map((field) => <td key={field}><DetailNumericInput field={field} value={product[field]} disabled={readOnly || !canEditDimension(field)} onCommit={(value) => updateProduct(source.id, product.id, field, value)} /></td>)}<td><DetailNumericInput field="qty" value={product.qty} disabled={readOnly} onCommit={(value) => updateProduct(source.id, product.id, 'qty', value)} /></td><td><input data-detail-field="qtyunit" disabled value={source.stock.qtyunit || product.qtyunit || 'EA'} /></td><td><DetailNumericInput field="weight" value={product.weight} disabled={readOnly} onCommit={(value) => updateProductWeight(source.id, product.id, value)} /></td><td><DetailNumericInput field="unitprice" value={product.unitprice} disabled={readOnly} onCommit={(value) => updateProduct(source.id, product.id, 'unitprice', value)} /></td><td className={readOnly ? classes.readOnlyAmount : classes.computedAmount}>{numberText(num(product.weight) * num(product.unitprice))}</td></tr>;
+                return <tr key={product.id}><td className={classes.checkCell}><input type="checkbox" aria-label={`가공품 ${lineNo.join('.')} 선택`} checked={selectedDetailIds.includes(product.id)} disabled={readOnly} onChange={(event) => toggleDetailSelection(product.id, event.nativeEvent.shiftKey)} /></td><td className={classes.noCell}><div className={classes.noCellContent}><span className={classes.treeNumber}>{ancestorContinues.map((continues, index) => <span key={`parent-${index}`} className={`${classes.treeGuide} ${continues ? classes.treeGuideContinue : ''}`} />)}<span className={`${classes.treeGuide} ${isLast ? classes.treeGuideLast : classes.treeGuideMiddle}`} /><span>{String(lineNo[depth - 1]).padStart(2, '0')}</span></span><ActionIcon size="xs" variant="subtle" color="red" disabled={readOnly} title="하위 가공 추가" onClick={() => addProduct(source.id, product.id)}><IconPlus size={13} /></ActionIcon></div></td><td>가공품</td><td><ProcessMethodCell product={product} options={processOptions} disabled={readOnly} onSelect={(option) => chooseRule(source, product, option?.processid || null)} /></td><td><input data-detail-field="productname" onKeyDown={handleDetailGridKeyDown} disabled={readOnly} value={product.productname} onChange={(e) => updateProduct(source.id, product.id, 'productname', e.target.value)} /></td><td><input data-detail-field="productno" onKeyDown={handleDetailGridKeyDown} disabled={readOnly} maxLength={150} value={product.productno} onChange={(e) => updateProduct(source.id, product.id, 'productno', e.target.value)} /></td>{['thickness', 'width', 'length'].map((field) => <td key={field}><DetailNumericInput field={field} value={product[field]} disabled={readOnly || !canEditDimension(field)} onCommit={(value) => updateProduct(source.id, product.id, field, value)} /></td>)}<td><DetailNumericInput field="qty" value={product.qty} disabled={readOnly} onCommit={(value) => updateProduct(source.id, product.id, 'qty', value)} /></td><td><input data-detail-field="qtyunit" disabled value={source.stock.qtyunit || product.qtyunit || 'EA'} /></td><td><DetailNumericInput field="weight" value={product.weight} disabled={readOnly} onCommit={(value) => updateProductWeight(source.id, product.id, value)} /></td><td><DetailNumericInput field="unitprice" value={product.unitprice} disabled={readOnly} onCommit={(value) => updateProduct(source.id, product.id, 'unitprice', value)} /></td><td className={readOnly ? classes.readOnlyAmount : classes.computedAmount}>{numberText(num(product.weight) * num(product.unitprice))}</td><td></td><td></td></tr>;
                 });
                 return [sourceRow, ...productRows];
               })}</tbody>
@@ -1004,6 +1016,6 @@ export default function ItemProcessRegister() {
         </Group>
       </Stack>
     </Modal>
-    <StockPicker opened={stockOpen} onClose={() => setStockOpen(false)} onApply={addStocks} existingKeys={existingKeys} />
+    <StockPicker opened={stockOpen} onClose={() => setStockOpen(false)} onApply={addStocks} existingKeys={existingKeys} existingWarehouseCode={sources[0]?.stock?.warehousecode || ''} />
   </Box>;
 }

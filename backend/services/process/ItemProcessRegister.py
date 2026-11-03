@@ -774,6 +774,35 @@ def delete_documents(companyid: str, processnos: list[str]):
             output_lines = [row[0] for row in cursor.fetchall()]
             for output_line in output_lines:
                 cursor.execute(
+                    """SELECT
+                           EXISTS (
+                               SELECT 1 FROM Outbound02t
+                               WHERE companyid=%s AND stocksourcetype IN ('INBOUND', 'PROCESS')
+                                 AND stocksourceno=%s AND stocksourceline=%s
+                           )
+                           OR EXISTS (
+                               SELECT 1 FROM Process02t
+                               WHERE companyid=%s AND linetype='SOURCE'
+                                 AND stocksourcetype IN ('INBOUND', 'PROCESS')
+                                 AND stocksourceno=%s AND stocksourceline=%s
+                           )
+                           OR EXISTS (
+                               SELECT 1 FROM inoutmove02t
+                               WHERE companyid=%s AND stocksourcetype IN ('INBOUND', 'PROCESS')
+                                 AND stocksourceno=%s AND stocksourceline=%s
+                           )""",
+                    (
+                        companyid, processno, output_line,
+                        companyid, processno, output_line,
+                        companyid, processno, output_line,
+                    ),
+                )
+                if cursor.fetchone()[0]:
+                    raise ValueError(
+                        f"{processno} 가공품이 출고·재고이전·후속 가공에 사용되어 전표를 삭제할 수 없습니다."
+                    )
+            for output_line in output_lines:
+                cursor.execute(
                     """DELETE FROM CurrentStock01t
                        WHERE companyid=%s AND sourcetype IN ('INBOUND', 'PROCESS')
                          AND sourceno=%s AND sourceline=%s

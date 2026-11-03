@@ -18,6 +18,11 @@ const today = () => {
 };
 const number = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 3 });
 const sourceKey = (row) => `${row.stocksourcetype}\u001f${row.stocksourceno}\u001f${row.stocksourceline}`;
+const stockSourceTypeName = (type, receiptno) => {
+  if (type === 'OPENING') return '기초';
+  if (type === 'PROCESS' || (type === 'INBOUND' && String(receiptno || '').toUpperCase().startsWith('PR'))) return '가공';
+  return '입고';
+};
 const emptyFilters = () => ({ date_from: `${today().slice(0, 7)}-01`, date_to: today(), receiptno: '', warehouse: '' });
 const emptyStockFilters = () => ({ item_search: '', warehouse_search: '', sourcetype: '', date_from: `${today().slice(0, 7)}-01`, date_to: today(), thickness: '', width: '', length: '' });
 const PAGE_SIZE_OPTIONS = [
@@ -43,7 +48,7 @@ const STOCK_COLUMNS = [
 ];
 const initialStockColumnWidths = () => Object.fromEntries(STOCK_COLUMNS.map(({ key, width }) => [key, width]));
 
-function StockPicker({ opened, fromWarehouse, toWarehouse, onClose, onApply }) {
+function StockPicker({ opened, fromWarehouse, toWarehouse, existingKeys, onClose, onApply }) {
   const [inputs, setInputs] = useState(emptyStockFilters);
   const [filters, setFilters] = useState(emptyStockFilters);
   const [items, setItems] = useState([]);
@@ -115,8 +120,12 @@ function StockPicker({ opened, fromWarehouse, toWarehouse, onClose, onApply }) {
     setFilters(next);
     void load(1, next);
   };
-  const toggle = (row, checked) => setSelected((current) => ({ ...current, [sourceKey(row)]: checked }));
-  const selectedItems = items.filter((row) => selected[sourceKey(row)]);
+  const toggle = (row, checked) => {
+    const key = sourceKey(row);
+    if (existingKeys.has(key)) return;
+    setSelected((current) => ({ ...current, [key]: checked }));
+  };
+  const selectedItems = items.filter((row) => selected[sourceKey(row)] && !existingKeys.has(sourceKey(row)));
 
   return <Modal opened={opened} onClose={onClose} title={<Text fw={700}>재고이전</Text>} size="95%" centered classNames={{ content: outboundClasses.receiptFinderModalContent, body: classes.modalBody, header: outboundClasses.receiptFinderModalHeader }}>
     <Stack gap="sm" pt={8}>
@@ -141,9 +150,12 @@ function StockPicker({ opened, fromWarehouse, toWarehouse, onClose, onApply }) {
               {column.label}{index > 0 && <span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeColumn(event, column)} role="separator" aria-label={`${column.label} 열 너비 조절`} />}
             </Table.Th>)}
           </Table.Tr></Table.Thead>
-          <Table.Tbody>{items.map((row) => <Table.Tr key={sourceKey(row)}>
-            <Table.Td><input type="checkbox" checked={Boolean(selected[sourceKey(row)])} disabled={loading} onChange={(event) => toggle(row, event.currentTarget.checked)} aria-label={`${row.itemname} 재고 선택`} /></Table.Td>
-            <Table.Td>{row.stocksourcetype === 'OPENING' ? '기초' : row.stocksourcetype === 'PROCESS' ? '가공' : '입고'}</Table.Td>
+          <Table.Tbody>{items.map((row) => {
+            const rowKey = sourceKey(row);
+            const alreadyAdded = existingKeys.has(rowKey);
+            return <Table.Tr key={rowKey} className={alreadyAdded ? classes.alreadyAddedStock : undefined} aria-disabled={alreadyAdded || undefined}>
+            <Table.Td><input type="checkbox" checked={Boolean(selected[rowKey]) && !alreadyAdded} disabled={loading || alreadyAdded} onChange={(event) => toggle(row, event.currentTarget.checked)} aria-label={`${row.itemname} 재고 선택`} /></Table.Td>
+            <Table.Td>{stockSourceTypeName(row.stocksourcetype, row.stocksourceno)}</Table.Td>
             <Table.Td>{String(row.receiptdate || '').slice(0, 10)}</Table.Td>
             <Table.Td>{row.warehousecodename || row.warehousecode}</Table.Td>
             <Table.Td>{row.itemname}</Table.Td>
@@ -154,7 +166,7 @@ function StockPicker({ opened, fromWarehouse, toWarehouse, onClose, onApply }) {
             <Table.Td ta="right">{number(row.qty)}</Table.Td>
             <Table.Td ta="right">{number(row.weight)}</Table.Td>
             <Table.Td>{row.productname || ''}</Table.Td>
-          </Table.Tr>)}{!items.length && !loading && <Table.Tr><Table.Td colSpan={STOCK_COLUMNS.length} className={classes.empty}>이전할 수 있는 재고가 없습니다.</Table.Td></Table.Tr>}</Table.Tbody>
+          </Table.Tr>;})}{!items.length && !loading && <Table.Tr><Table.Td colSpan={STOCK_COLUMNS.length} className={classes.empty}>이전할 수 있는 재고가 없습니다.</Table.Td></Table.Tr>}</Table.Tbody>
         </Table>
         </Box>
       </Box>
@@ -258,27 +270,35 @@ export default function InoutmoveRegister() {
     const additions = stocks.filter((row) => !existing.has(sourceKey(row)));
     if (additions.length !== stocks.length) notifications.show({ title: '현재고 확인', message: '이미 상세에 추가한 재고는 제외했습니다.', color: 'orange' });
     setHeader((current) => ({ ...current, fromwarehousecode: selectedSourceCode }));
-    setItems((current) => [...current, ...additions]);
+    setItems((current) => [...current, ...additions.map((row) => ({
+      ...row,
+      qty: Number(row.qty || 0),
+      weight: Number(row.weight || 0),
+    }))]);
     setStockOpen(false);
   };
 
-  const saveDocument = async () => {
+  const saveDocument = useCallback(async () => {
     if (!header.fromwarehousecode || !header.towarehousecode || !header.receptdate || !items.length) {
       notifications.show({ title: '필수 항목 확인', message: '이전일자와 현재고를 선택하고 입고 창고를 지정해 주세요.', color: 'orange' }); return;
     }
     if (header.fromwarehousecode === header.towarehousecode) {
       notifications.show({ title: '창고 확인', message: '출발 창고와 도착 창고는 달라야 합니다.', color: 'orange' }); return;
     }
+    const invalidItem = items.find((row) => !Number.isFinite(Number(row.qty)) || Number(row.qty) <= 0);
+    if (invalidItem) {
+      notifications.show({ title: '이전 수량 확인', message: `${invalidItem.itemname}의 이전 수량을 현재고 이내로 입력해 주세요.`, color: 'orange' }); return;
+    }
     setSaving(true);
     try {
-      const payload = { ...header, items: items.map((row) => ({ stocksourcetype: row.stocksourcetype, stocksourceno: row.stocksourceno, stocksourceline: row.stocksourceline })) };
+      const payload = { ...header, items: items.map((row) => ({ stocksourcetype: row.stocksourcetype, stocksourceno: row.stocksourceno, stocksourceline: row.stocksourceline, qty: Number(row.qty) })) };
       const { data } = await axios.post('/api/inoutmove-register/documents', payload, auth());
       notifications.show({ title: '재고이전 저장 완료', message: `${data.receiptno} 전표로 저장했습니다.`, color: 'teal' });
       setFilters(emptyFilters()); setFilterInputs(emptyFilters());
       await loadDocuments(1, emptyFilters()); await selectDocument(data.receiptno);
     } catch (error) { notifications.show({ title: '재고이전 저장 실패', message: error.response?.data?.detail || '저장에 실패했습니다. 변경 사항은 모두 취소했습니다.', color: 'red' }); }
     finally { setSaving(false); }
-  };
+  }, [header, items, loadDocuments, selectDocument]);
 
   const deleteDocument = async () => {
     if (!selectedReceiptno) { setItems((current) => current.filter((row) => !selectedSet.has(sourceKey(row)))); setSelectedIds([]); setDeleteOpen(false); return; }
@@ -348,7 +368,7 @@ export default function InoutmoveRegister() {
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={pageLayout.closeActivePage}>닫기</Button>
     </Group>);
     return () => pageLayout.registerPageRibbon(null);
-  }, [pageLayout, runSearch, loading, addDocument, saving, readOnly, items.length, requestDelete, selectedReceiptno, selectedIds.length, exportDocument]);
+  }, [pageLayout, runSearch, loading, addDocument, saving, readOnly, items.length, requestDelete, selectedReceiptno, selectedIds.length, exportDocument, saveDocument]);
 
   const updateHeader = (field, value) => setHeader((current) => ({ ...current, [field]: value || '' }));
   return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
@@ -371,7 +391,7 @@ export default function InoutmoveRegister() {
             if (listHorizontalRef.current) listHorizontalRef.current.scrollLeft = event.currentTarget.scrollLeft;
           }}>
             <Table stickyHeader withTableBorder withColumnBorders className={`${classes.table} ${classes.listTable}`}>
-              <Table.Thead><Table.Tr>{['이전일자', '출발 창고', '도착 창고', '상세건수', '수량', '중량(KG)', '담당자', '재고이전전표', '비고'].map((name) => <Table.Th key={name}>{name}</Table.Th>)}</Table.Tr></Table.Thead>
+              <Table.Thead><Table.Tr>{['재고이전 일자', '출고 창고', '입고 창고', '상세건수', '수량', '중량(KG)', '담당자', '재고이전전표', '비고'].map((name) => <Table.Th key={name}>{name}</Table.Th>)}</Table.Tr></Table.Thead>
               {!!documents.length && <Table.Tbody>{documents.map((row) => <Table.Tr key={row.receiptno} onClick={() => void selectDocument(row.receiptno)} className={`${classes.clickableRow} ${row.receiptno === selectedReceiptno ? classes.receiptFinderRowActive : ''}`}>
                 <Table.Td>{String(row.receptdate).slice(0, 10)}</Table.Td><Table.Td>{row.fromwarehousename}</Table.Td><Table.Td>{row.towarehousename}</Table.Td>
                 <Table.Td ta="right">{number(row.line_count)}</Table.Td><Table.Td ta="right">{number(row.total_qty)} {row.qtyunit || ''}</Table.Td><Table.Td ta="right">{number(row.total_weight)}</Table.Td>
@@ -409,13 +429,19 @@ export default function InoutmoveRegister() {
             </Box>
             <Box className={`${codeClasses.tableWrap} ${classes.detailViewport}`}>
               <Table stickyHeader withTableBorder withColumnBorders className={`${sharedClasses.table} ${classes.table} ${classes.detailTable}`}>
-                <Table.Thead><Table.Tr><Table.Th className={`${classes.checkColumn} ${codeClasses.checkCol}`}><input type="checkbox" checked={items.length > 0 && selectedIds.length === items.length} onChange={(event) => setSelectedIds(event.currentTarget.checked ? items.map(sourceKey) : [])} disabled={readOnly || !items.length} /></Table.Th>{['No.', '구분', '입고일자', '품명', '제품명', '강종', '두께', '폭', '길이', '수량', '단위', '중량(KG)', '출발 창고', '도착 창고'].map((name) => <Table.Th key={name}>{name}</Table.Th>)}</Table.Tr></Table.Thead>
+                <Table.Thead><Table.Tr><Table.Th className={`${classes.checkColumn} ${codeClasses.checkCol}`}><input type="checkbox" checked={items.length > 0 && selectedIds.length === items.length} onChange={(event) => setSelectedIds(event.currentTarget.checked ? items.map(sourceKey) : [])} disabled={readOnly || !items.length} /></Table.Th>{['No.', '구분', '재고이전 일자', '출고 창고', '입고 창고', '품명', '제품명', '강종', '두께', '폭', '길이', '이전 수량', '단위', '이전 중량(KG)', '매입처', '재고입고일자', '재고구분', '원천전표', '원천순번'].map((name) => <Table.Th key={name}>{name}</Table.Th>)}</Table.Tr></Table.Thead>
                 {!!items.length && <Table.Tbody>{items.map((row, index) => <Table.Tr key={sourceKey(row)} className={selectedSet.has(sourceKey(row)) ? classes.selectedRow : ''}>
                   <Table.Td className={codeClasses.checkCol}><input type="checkbox" checked={selectedSet.has(sourceKey(row))} disabled={readOnly} onChange={(event) => setSelectedIds((current) => event.currentTarget.checked ? [...current, sourceKey(row)] : current.filter((key) => key !== sourceKey(row)))} /></Table.Td>
-                  <Table.Td>{index + 1}</Table.Td><Table.Td>{row.stocksourcetype === 'OPENING' ? '기초' : row.stocksourcetype === 'PROCESS' ? '가공' : '입고'}</Table.Td>
-                  <Table.Td>{String(row.receiptdate || '').slice(0, 10)}</Table.Td><Table.Td>{row.itemname}</Table.Td><Table.Td>{row.productname}</Table.Td><Table.Td>{row.materialname || row.myrtle || ''}</Table.Td>
-                  <Table.Td ta="right">{number(row.thickness)}</Table.Td><Table.Td ta="right">{number(row.width)}</Table.Td><Table.Td ta="right">{number(row.length)}</Table.Td><Table.Td ta="right">{number(row.qty)}</Table.Td><Table.Td>{row.qtyunit}</Table.Td><Table.Td ta="right">{number(row.weight)}</Table.Td>
-                  <Table.Td>{row.fromwarehousename || fromWarehouse}</Table.Td><Table.Td>{row.towarehousename || toWarehouse}</Table.Td>
+                  <Table.Td>{index + 1}</Table.Td><Table.Td>이동</Table.Td>
+                  <Table.Td>{String(header.receptdate || '').slice(0, 10)}</Table.Td><Table.Td>{row.fromwarehousename || fromWarehouse}</Table.Td><Table.Td>{row.towarehousename || toWarehouse}</Table.Td>
+                  <Table.Td>{row.itemname}</Table.Td><Table.Td>{row.productname}</Table.Td><Table.Td>{row.materialname || row.myrtle || ''}</Table.Td>
+                  <Table.Td ta="right">{number(row.thickness)}</Table.Td><Table.Td ta="right">{number(row.width)}</Table.Td><Table.Td ta="right">{number(row.length)}</Table.Td>
+                  <Table.Td ta="right">{number(row.qty)}</Table.Td>
+                  <Table.Td>{row.qtyunit}</Table.Td><Table.Td ta="right">{number(row.weight)}</Table.Td>
+                  <Table.Td>{row.sourcecustomname || row.customname || ''}</Table.Td>
+                  <Table.Td>{String(row.sourcereceiptdate || row.receiptdate || '').slice(0, 10)}</Table.Td>
+                  <Table.Td>{stockSourceTypeName(row.stocksourcetype, row.stocksourceno)}</Table.Td>
+                  <Table.Td>{row.stocksourceno}</Table.Td><Table.Td ta="right">{number(row.stocksourceline)}</Table.Td>
                 </Table.Tr>)}</Table.Tbody>}
               </Table>
               {!items.length && <Box className={inboundClasses.emptyDetailMessage}>{readOnly ? '상세 재고가 없습니다.' : '조회조건의 현재고 조회에서 이전할 재고를 선택하세요.'}</Box>}
@@ -441,6 +467,6 @@ export default function InoutmoveRegister() {
       </Paper>}
     </Box>
     <Modal opened={deleteOpen} onClose={() => !saving && setDeleteOpen(false)} title="재고이전 삭제" centered size="sm"><Stack gap="md"><Text size="sm" c="dimmed">{selectedReceiptno ? `${selectedReceiptno} 전표를 삭제하고 원래 창고로 되돌립니다.` : '선택한 상세 행을 삭제합니다.'}</Text><Group justify="flex-end"><Button variant="default" onClick={() => setDeleteOpen(false)} disabled={saving}>취소</Button><Button color="red" leftSection={<IconTrash size={15} />} onClick={() => void deleteDocument()} loading={saving}>삭제</Button></Group></Stack></Modal>
-    <StockPicker opened={stockOpen} fromWarehouse={fromWarehouse} toWarehouse={toWarehouse} onClose={() => setStockOpen(false)} onApply={applyStocks} />
+    <StockPicker opened={stockOpen} fromWarehouse={fromWarehouse} toWarehouse={toWarehouse} existingKeys={new Set(items.map(sourceKey))} onClose={() => setStockOpen(false)} onApply={applyStocks} />
   </Box>;
 }
