@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import ErpDateInput from '../../components/common/ErpDateInput';
 import * as XLSX from 'xlsx';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper, Popover,
@@ -1924,8 +1925,8 @@ export default function StockStandPage() {
         <Box>
           <Text size="xs" fw={700} mb={5}>{'기준기간'}</Text>
           <Stack gap={6}>
-            <TextInput type="date" aria-label={'기준기간 시작일'} value={dateFrom} onChange={(event) => setDateFrom(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
-            <TextInput type="date" aria-label={'기준기간 종료일'} value={dateTo} onChange={(event) => setDateTo(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+            <ErpDateInput type="date" aria-label={'기준기간 시작일'} value={dateFrom} onChange={(event) => setDateFrom(event.currentTarget.value)} />
+            <ErpDateInput type="date" aria-label={'기준기간 종료일'} value={dateTo} onChange={(event) => setDateTo(event.currentTarget.value)} />
           </Stack>
         </Box>
         <TextInput label={'품목'} placeholder={'품목코드 또는 품목명'} value={searchInput} onChange={(event) => setSearchInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />

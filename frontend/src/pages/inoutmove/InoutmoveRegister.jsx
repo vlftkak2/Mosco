@@ -1,5 +1,6 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import ErpDateInput from '../../components/common/ErpDateInput';
 import { ActionIcon, Box, Button, Group, Loader, Modal, Pagination, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
@@ -47,6 +48,22 @@ const STOCK_COLUMNS = [
   { key: 'productname', label: '제품번호', width: 260, minWidth: 130 },
 ];
 const initialStockColumnWidths = () => Object.fromEntries(STOCK_COLUMNS.map(({ key, width }) => [key, width]));
+
+// Keep fast header text edits local so each keystroke does not rerender the
+// receipt list, detail grid, and stock picker state owned by the page.
+const HeaderTextInput = memo(function HeaderTextInput({ value, disabled, inputRef, onCommit }) {
+  const [draft, setDraft] = useState(value || '');
+
+  useEffect(() => setDraft(value || ''), [value]);
+
+  return <TextInput
+    ref={inputRef}
+    value={draft}
+    disabled={disabled}
+    onChange={(event) => setDraft(event.currentTarget.value)}
+    onBlur={() => onCommit(draft)}
+  />;
+});
 
 function StockPicker({ opened, fromWarehouse, toWarehouse, existingKeys, onClose, onApply }) {
   const [inputs, setInputs] = useState(emptyStockFilters);
@@ -131,8 +148,8 @@ function StockPicker({ opened, fromWarehouse, toWarehouse, existingKeys, onClose
     <Stack gap="sm" pt={8}>
       <Box className={outboundClasses.modalHint}>이전할 현재고를 먼저 선택하세요. 선택한 재고의 출고 창고는 자동 지정되며, 입고 창고는 재고이전 상세에서 입력합니다{toWarehouse ? ` (${toWarehouse})` : ''}.</Box>
       <Group className={classes.stockFilters} align="end" wrap="wrap" gap="xs">
-        <TextInput label="기준일 시작" type="date" value={inputs.date_from} onChange={(event) => setInputs((v) => ({ ...v, date_from: event.currentTarget.value }))} />
-        <TextInput label="기준일 종료" type="date" value={inputs.date_to} onChange={(event) => setInputs((v) => ({ ...v, date_to: event.currentTarget.value }))} />
+        <ErpDateInput label="기준일 시작" type="date" value={inputs.date_from} onChange={(event) => setInputs((v) => ({ ...v, date_from: event.currentTarget.value }))} />
+        <ErpDateInput label="기준일 종료" type="date" value={inputs.date_to} onChange={(event) => setInputs((v) => ({ ...v, date_to: event.currentTarget.value }))} />
         <TextInput label="품목" placeholder="품목코드·품명·제품명" value={inputs.item_search} onChange={(event) => setInputs((v) => ({ ...v, item_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
         <Select label="재고 구분" data={[{ value: '', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }]} value={inputs.sourcetype} onChange={(value) => setInputs((v) => ({ ...v, sourcetype: value || '' }))} />
         <TextInput label="두께" placeholder="두께" value={inputs.thickness} onChange={(event) => setInputs((v) => ({ ...v, thickness: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
@@ -198,6 +215,8 @@ export default function InoutmoveRegister() {
   const [pageSize, setPageSize] = useState(15);
   const listViewportRef = useRef(null);
   const listHorizontalRef = useRef(null);
+  const managerInputRef = useRef(null);
+  const descriptionInputRef = useRef(null);
   const readOnly = Boolean(selectedReceiptno);
   const warehouseData = useMemo(() => warehouses.map((row) => ({ value: row.warehousecode, label: row.warehousecodename })), [warehouses]);
   const fromWarehouse = warehouses.find((row) => row.warehousecode === header.fromwarehousecode)?.warehousecodename || '';
@@ -240,6 +259,12 @@ export default function InoutmoveRegister() {
   const addDocument = useCallback(() => {
     resetDraft();
   }, [resetDraft]);
+
+  const openStockPicker = useCallback(() => {
+    if (saving) return;
+    if (selectedReceiptno) resetDraft();
+    setStockOpen(true);
+  }, [saving, selectedReceiptno, resetDraft]);
 
   const selectDocument = useCallback(async (receiptno) => {
     setLoading(true);
@@ -291,7 +316,12 @@ export default function InoutmoveRegister() {
     }
     setSaving(true);
     try {
-      const payload = { ...header, items: items.map((row) => ({ stocksourcetype: row.stocksourcetype, stocksourceno: row.stocksourceno, stocksourceline: row.stocksourceline, qty: Number(row.qty) })) };
+      const payload = {
+        ...header,
+        manager: managerInputRef.current?.value ?? header.manager,
+        description: descriptionInputRef.current?.value ?? header.description,
+        items: items.map((row) => ({ stocksourcetype: row.stocksourcetype, stocksourceno: row.stocksourceno, stocksourceline: row.stocksourceline, qty: Number(row.qty) })),
+      };
       const { data } = await axios.post('/api/inoutmove-register/documents', payload, auth());
       notifications.show({ title: '재고이전 저장 완료', message: `${data.receiptno} 전표로 저장했습니다.`, color: 'teal' });
       setFilters(emptyFilters()); setFilterInputs(emptyFilters());
@@ -421,11 +451,11 @@ export default function InoutmoveRegister() {
               <Group gap={8} align="center"><Text size="xs" fw={700} c="dimmed">총 수량 {number(totals.qty)} · 총 중량 {number(totals.weight)} KG</Text></Group>
             </Group>
             <Box className={inboundClasses.sharedReceiptFields}>
-              <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>이전일자 *</Text><TextInput type="date" value={header.receptdate} disabled={readOnly} onChange={(event) => updateHeader('receptdate', event.currentTarget.value)} /></Box>
+              <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>이전일자 *</Text><ErpDateInput type="date" value={header.receptdate} disabled={readOnly} onChange={(event) => updateHeader('receptdate', event.currentTarget.value)} /></Box>
               <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>출고 창고 *</Text><Select data={warehouseData} value={header.fromwarehousecode || null} disabled searchable /></Box>
               <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>입고 창고 *</Text><Select data={warehouseData} value={header.towarehousecode || null} disabled={readOnly || !items.length} searchable onChange={(value) => updateHeader('towarehousecode', value)} /></Box>
-              <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>담당자</Text><TextInput value={header.manager} disabled={readOnly} onChange={(event) => updateHeader('manager', event.currentTarget.value)} /></Box>
-              <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>비고</Text><TextInput value={header.description} disabled={readOnly} onChange={(event) => updateHeader('description', event.currentTarget.value)} /></Box>
+              <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>담당자</Text><HeaderTextInput value={header.manager} disabled={readOnly} inputRef={managerInputRef} onCommit={(value) => updateHeader('manager', value)} /></Box>
+              <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>비고</Text><HeaderTextInput value={header.description} disabled={readOnly} inputRef={descriptionInputRef} onCommit={(value) => updateHeader('description', value)} /></Box>
             </Box>
             <Box className={`${codeClasses.tableWrap} ${classes.detailViewport}`}>
               <Table stickyHeader withTableBorder withColumnBorders className={`${sharedClasses.table} ${classes.table} ${classes.detailTable}`}>
@@ -453,14 +483,14 @@ export default function InoutmoveRegister() {
       {filterOpen && <Paper component="aside" className={`${inboundClasses.receiptFilterSidebar} ${classes.outboundFilterSidebar}`} withBorder>
         <Group className={inboundClasses.receiptFilterHeader} justify="space-between" align="center"><Text fw={700}>조회조건</Text><ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon></Group>
         <Stack gap="sm" className={inboundClasses.receiptFilterFields}>
-          <Box><Text size="xs" fw={700} mb={5}>이전기간</Text><Stack gap={6}><TextInput type="date" aria-label="이전기간 시작" value={filterInputs.date_from} onChange={(event) => setFilterInputs((v) => ({ ...v, date_from: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} /><TextInput type="date" aria-label="이전기간 종료" value={filterInputs.date_to} onChange={(event) => setFilterInputs((v) => ({ ...v, date_to: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} /></Stack></Box>
+          <Box><Text size="xs" fw={700} mb={5}>이전기간</Text><Stack gap={6}><ErpDateInput type="date" aria-label="이전기간 시작" value={filterInputs.date_from} onChange={(event) => setFilterInputs((v) => ({ ...v, date_from: event.currentTarget.value }))} /><ErpDateInput type="date" aria-label="이전기간 종료" value={filterInputs.date_to} onChange={(event) => setFilterInputs((v) => ({ ...v, date_to: event.currentTarget.value }))} /></Stack></Box>
           <TextInput label="재고이전전표" placeholder="전표번호" value={filterInputs.receiptno} onChange={(event) => setFilterInputs((v) => ({ ...v, receiptno: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
           <TextInput label="창고" placeholder="출발 또는 도착 창고명" value={filterInputs.warehouse} onChange={(event) => setFilterInputs((v) => ({ ...v, warehouse: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
         </Stack>
         <Box className={outboundClasses.outboundStockLookup}>
           <Text fw={700} size="sm">재고 조회</Text>
           <Text size="xs" c="dimmed">재고를 선택한 뒤 상세에서 입고 창고를 지정합니다.</Text>
-          <Button fullWidth color="red" leftSection={<IconSearch size={15} />} onClick={() => setStockOpen(true)} disabled={saving || readOnly}>
+          <Button fullWidth color="red" leftSection={<IconSearch size={15} />} onClick={openStockPicker} disabled={saving}>
             현재고 조회
           </Button>
         </Box>

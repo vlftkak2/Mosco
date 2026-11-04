@@ -1,0 +1,26 @@
+.dateInput {
+  min-width: 0;
+}
+
+.calendarSlot {
+  position: relative;
+  display: inline-flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+}
+
+.calendarIcon {
+  pointer-events: none;
+}
+
+.calendarPicker {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}

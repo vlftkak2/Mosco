@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import ErpDateInput from '../../components/common/ErpDateInput';
 import { ActionIcon, Box, Group, Loader, Pagination, Paper, Select, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconX } from '@tabler/icons-react';
@@ -51,8 +52,8 @@ export default function IniopStockPage() {
         <Box>
           <Text size="xs" fw={700} mb={5}>재고기간</Text>
           <Stack gap={6}>
-            <TextInput aria-label="재고기간 시작일" type="date" value={inputs.date_from} onChange={(event) => setInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} onKeyDown={(event) => event.key === "Enter" && search()} />
-            <TextInput aria-label="재고기간 종료일" type="date" value={inputs.date_to} onChange={(event) => setInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} onKeyDown={(event) => event.key === "Enter" && search()} />
+            <ErpDateInput aria-label="재고기간 시작일" type="date" value={inputs.date_from} onChange={(event) => setInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
+            <ErpDateInput aria-label="재고기간 종료일" type="date" value={inputs.date_to} onChange={(event) => setInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
           </Stack>
         </Box>
         {fields.map(([key, label]) => <TextInput key={key} label={label} placeholder={key === "customname" ? "거래처명 검색" : key === "item_search" ? "품목코드 또는 품목명" : key === "product_search" ? "제품번호 검색" : "창고코드 또는 창고명"} value={inputs[key] || ""} onChange={(event) => setInputs((current) => ({ ...current, [key]: event.currentTarget.value }))} onKeyDown={(event) => event.key === "Enter" && search()} />)}

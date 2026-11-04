@@ -8,6 +8,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import { IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
+import ErpDateInput from '../../components/common/ErpDateInput';
 import ErpRibbon from '../../components/common/ErpRibbon';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
@@ -943,7 +944,7 @@ export default function ItemProcessRegister() {
         <Paper withBorder className={`${sharedClasses.panel} ${classes.detailPanel}`}>
           <Group className={classes.sectionHeader} justify="space-between"><Group gap={8}><Text className={classes.title}>가공 상세</Text><Badge color="gray" variant="light" className={classes.count}>{selectedProcessno || '신규'} · {sources.length}개 원소재</Badge></Group><Group gap="sm"><Text size="xs" c={Math.abs(totalSourceWeight - totalLeafWeight) <= 0.001 ? 'teal' : 'red'}>투입 {numberText(totalSourceWeight)} KG · 최종제품 {numberText(totalLeafWeight)} KG</Text><Button size="xs" variant="light" color="red" disabled={readOnly} onClick={() => setStockOpen(true)}>현재고 조회</Button></Group></Group>
           <Box className={classes.headerGrid}>
-            <TextInput label="가공일자" type="date" disabled={readOnly} value={header.processdate} onChange={(e) => setHeader((h) => ({ ...h, processdate: e.currentTarget.value }))} />
+            <ErpDateInput label="가공일자" disabled={readOnly} value={header.processdate} onChange={(e) => setHeader((h) => ({ ...h, processdate: e.currentTarget.value }))} />
             <Select label="가공처" searchable autoSelectOnBlur disabled={readOnly} data={customerData} value={header.customcode || null} onChange={(value) => { const item = options.customers.find((x) => x.code === value); setHeader((h) => ({ ...h, customcode: value || '', customname: item?.name || '' })); }} />
             <Select label="입고창고" searchable autoSelectOnBlur disabled={readOnly || sources.length > 0} data={warehouseData} value={header.warehousecode || null} onChange={(value) => { const item = options.warehouses.find((x) => x.code === value); setHeader((h) => ({ ...h, warehousecode: value || '', warehousecodename: item?.name || '' })); }} />
             <TextInput label="담당자" disabled={readOnly} value={header.manager} onChange={(e) => setHeader((h) => ({ ...h, manager: e.currentTarget.value }))} />
@@ -995,8 +996,8 @@ export default function ItemProcessRegister() {
           <Box>
             <Text size="xs" fw={700} mb={5}>가공기간</Text>
             <Stack gap={6}>
-              <TextInput aria-label="가공기간 시작일" type="date" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.currentTarget.value }))} />
-              <TextInput aria-label="가공기간 종료일" type="date" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.currentTarget.value }))} />
+              <ErpDateInput aria-label="가공기간 시작일" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.currentTarget.value }))} />
+              <ErpDateInput aria-label="가공기간 종료일" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.currentTarget.value }))} />
             </Stack>
           </Box>
           <TextInput label="가공처" placeholder="가공처명 입력" value={filters.customer} onChange={(e) => setFilters((f) => ({ ...f, customer: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />

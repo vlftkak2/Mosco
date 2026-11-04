@@ -1,11 +1,12 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import ErpDateInput from '../../components/common/ErpDateInput';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack,
   Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconFileSpreadsheet, IconFilter, IconPlus, IconSearch, IconX } from '@tabler/icons-react';
+import { IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import classes from '../../styles/pages/ItemProcessSearch.module.css';
@@ -186,7 +187,10 @@ export default function ItemProcessSearch() {
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} disabled>추가</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} disabled>복사</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>엑셀</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closeActivePage}>닫기</Button>
       </Group>,
@@ -270,8 +274,8 @@ export default function ItemProcessSearch() {
           </Group>
           <Stack gap="sm" className={classes.filterFields}>
             <Box><Text size="xs" fw={700} mb={5}>가공기간</Text><Stack gap={6}>
-              <TextInput aria-label="가공 시작일" type="date" value={filterInputs.date_from} onChange={(event) => setFilter('date_from', event.currentTarget.value)} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
-              <TextInput aria-label="가공 종료일" type="date" value={filterInputs.date_to} onChange={(event) => setFilter('date_to', event.currentTarget.value)} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+              <ErpDateInput aria-label="가공 시작일" type="date" value={filterInputs.date_from} onChange={(event) => setFilter('date_from', event.currentTarget.value)} />
+              <ErpDateInput aria-label="가공 종료일" type="date" value={filterInputs.date_to} onChange={(event) => setFilter('date_to', event.currentTarget.value)} />
             </Stack></Box>
             {FILTERS.map(({ key, label, placeholder }) => <TextInput key={key} label={label} placeholder={placeholder} value={filterInputs[key]}
               onChange={(event) => setFilter(key, event.currentTarget.value)} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />)}

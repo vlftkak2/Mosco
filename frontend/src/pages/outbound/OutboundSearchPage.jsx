@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import ErpDateInput from '../../components/common/ErpDateInput';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack,
   Table, Text, TextInput,
@@ -226,8 +227,8 @@ export default function OutboundSearchPage() {
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} disabled>추가</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} disabled>복사</Button>
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>EXCEL</Button>
-        <Button className={`${classes.ribbonTool} ${classes.ribbonSave}`} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>엑셀</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closeActivePage}>닫기</Button>
@@ -328,12 +329,10 @@ export default function OutboundSearchPage() {
           <Box>
             <Text size="xs" fw={700} mb={5}>출고기간</Text>
             <Stack gap={6}>
-              <TextInput aria-label="출고 시작일" type="date" value={filterInputs.date_from}
-                onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))}
-                onKeyDown={handleFilterKeyDown} />
-              <TextInput aria-label="출고 종료일" type="date" value={filterInputs.date_to}
-                onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))}
-                onKeyDown={handleFilterKeyDown} />
+              <ErpDateInput aria-label="출고 시작일" type="date" value={filterInputs.date_from}
+                onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
+              <ErpDateInput aria-label="출고 종료일" type="date" value={filterInputs.date_to}
+                onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
             </Stack>
           </Box>
           {FILTERS.map(({ key, label, placeholder }) => (

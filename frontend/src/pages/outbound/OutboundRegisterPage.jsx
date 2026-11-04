@@ -1,5 +1,6 @@
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import ErpDateInput from '../../components/common/ErpDateInput';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper, Popover,
   ScrollArea, Select, Stack, Table, Text, TextInput,
@@ -428,12 +429,34 @@ const OutboundDateSegments = memo(function OutboundDateSegments({ row, disabled,
   };
 
   const handleKeyDown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (event.key !== 'Tab') return;
     const nextIndex = activeSegmentRef.current + (event.shiftKey ? -1 : 1);
     if (nextIndex < 0 || nextIndex > 2) return;
     event.preventDefault();
     event.stopPropagation();
     selectSegment(nextIndex);
+  };
+
+  const handleDateChange = (event) => {
+    const input = event.currentTarget;
+    const raw = input.value;
+    const digitsBeforeCaret = raw.slice(0, input.selectionStart || 0).replace(/\D/g, '').length;
+    const digits = raw.replace(/\D/g, '').slice(0, 8);
+    let formatted = digits;
+    if (digits.length > 6) formatted = `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+    else if (digits.length > 4) formatted = `${digits.slice(0, 4)}-${digits.slice(4)}`;
+    else if (digits.length === 4 && activeSegmentRef.current === 0) formatted = `${digits}-`;
+    else if (digits.length === 6 && activeSegmentRef.current === 1) formatted = `${digits.slice(0, 4)}-${digits.slice(4)}-`;
+    const nextSegment = activeSegmentRef.current === 0 && digitsBeforeCaret >= 4 && digits.length >= 4
+      ? 1
+      : activeSegmentRef.current === 1 && digitsBeforeCaret >= 6 && digits.length >= 6 ? 2 : null;
+    onChange(row.id, 'receptdate', formatted);
+    if (nextSegment !== null) window.requestAnimationFrame(() => selectSegment(nextSegment));
   };
 
   return (
@@ -454,7 +477,7 @@ const OutboundDateSegments = memo(function OutboundDateSegments({ row, disabled,
         const position = event.currentTarget.selectionStart || 0;
         selectSegment(position < 5 ? 0 : position < 8 ? 1 : 2);
       }}
-      onChange={(event) => onChange(row.id, 'receptdate', event.currentTarget.value.replace(/[^\d-]/g, '').slice(0, 10))}
+      onChange={handleDateChange}
       onKeyDown={handleKeyDown}
     />
   );
@@ -1810,7 +1833,7 @@ export default function OutboundRegisterPage() {
           <Box className={inboundClasses.sharedReceiptFields}>
             <Box className={inboundClasses.sharedReceiptField}>
               <Text size="xs" fw={700} mb={4}>출고일자 <span className={codeClasses.required}>*</span></Text>
-              <TextInput type="date" aria-label="출고일자" value={header.receptdate || ''} disabled={saving || locked}
+              <ErpDateInput type="date" aria-label="출고일자" value={header.receptdate || ''} disabled={saving || locked}
                 onChange={(event) => changeReceiptHeader('receptdate', event.currentTarget.value)} />
             </Box>
             <Box className={inboundClasses.sharedReceiptField}>
@@ -1878,12 +1901,10 @@ export default function OutboundRegisterPage() {
             <Box>
               <Text size="xs" fw={700} mb={5}>출고기간</Text>
               <Stack gap={6}>
-                <TextInput type="date" aria-label="출고기간 시작일" value={filterInputs.date_from}
-                  onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))}
-                  onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
-                <TextInput type="date" aria-label="출고기간 종료일" value={filterInputs.date_to}
-                  onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))}
-                  onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+                <ErpDateInput type="date" aria-label="출고기간 시작일" value={filterInputs.date_from}
+                  onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
+                <ErpDateInput type="date" aria-label="출고기간 종료일" value={filterInputs.date_to}
+                  onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
               </Stack>
             </Box>
             <TextInput label="매출처" placeholder="매출처코드 또는 매출처명" value={filterInputs.customer}

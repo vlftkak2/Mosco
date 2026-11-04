@@ -204,8 +204,8 @@ export default function PurchasePage() {
     <Paper className={classes.panel} withBorder>
       <Group justify="space-between" mb="sm"><Title order={5}>매입 전표 조회</Title><Badge color="gray" variant="light">{number(total)}건</Badge></Group>
       <form className={classes.filters} onSubmit={(event) => { event.preventDefault(); setPage(1); setQuery({ ...filters }); }}>
-        <TextInput type="date" label="매입 시작일" value={filters.date_from} onChange={(event) => setFilters({ ...filters, date_from: event.target.value })} />
-        <TextInput type="date" label="매입 종료일" value={filters.date_to} onChange={(event) => setFilters({ ...filters, date_to: event.target.value })} />
+        <TextInput type="date" label="매입 시작일" value={filters.date_from} onChange={(event) => setFilters({ ...filters, date_from: event.target.value })} onKeyDown={(event) => event.key === 'Enter' && event.preventDefault()} />
+        <TextInput type="date" label="매입 종료일" value={filters.date_to} onChange={(event) => setFilters({ ...filters, date_to: event.target.value })} onKeyDown={(event) => event.key === 'Enter' && event.preventDefault()} />
         <TextInput label="매입처" value={filters.customname} onChange={(event) => setFilters({ ...filters, customname: event.target.value })} />
         <TextInput label="매입전표번호" value={filters.purchaseno} onChange={(event) => setFilters({ ...filters, purchaseno: event.target.value })} />
         <Button type="submit" color="red" loading={loading}>조회</Button>
