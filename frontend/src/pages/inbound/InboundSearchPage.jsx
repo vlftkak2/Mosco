@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import ErpDateInput from '../../components/common/ErpDateInput';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack,
   Table, Text, TextInput,
@@ -328,12 +329,10 @@ export default function InboundSearchPage() {
           <Box>
             <Text size="xs" fw={700} mb={5}>입고기간</Text>
             <Stack gap={6}>
-              <TextInput aria-label="입고 시작일" type="date" value={filterInputs.date_from}
-                onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))}
-                onKeyDown={handleFilterKeyDown} />
-              <TextInput aria-label="입고 종료일" type="date" value={filterInputs.date_to}
-                onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))}
-                onKeyDown={handleFilterKeyDown} />
+              <ErpDateInput aria-label="입고 시작일" type="date" value={filterInputs.date_from}
+                onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
+              <ErpDateInput aria-label="입고 종료일" type="date" value={filterInputs.date_to}
+                onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
             </Stack>
           </Box>
           {FILTERS.map(({ key, label, placeholder }) => (

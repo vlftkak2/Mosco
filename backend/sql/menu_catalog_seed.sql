@@ -23,12 +23,13 @@ VALUES
     ('STOCK_HISTORY',           '재고수불현황',      'COMPANY',  TRUE,  17, 'Y'),
     ('STOCK_CURRENT',           '현재고현황',        'COMPANY',  TRUE,  18, 'Y'),
     ('INOUTMOVE_REGISTER',      '재고이전등록',      'COMPANY',  TRUE,  19, 'Y'),
-    ('CUSTOMER_SUPPORT',        '고객지원',          'PLATFORM', FALSE, 20, 'Y'),
+    ('INOUTMOVE_SEARCH',        '재고이전현황',      'COMPANY',  TRUE,  20, 'Y'),
+    ('CUSTOMER_SUPPORT',        '고객지원',          'PLATFORM', FALSE, 21, 'Y'),
 
     -- 플랫폼 관리 화면은 역할로 접근하며 고객사 사용자에게 직접 부여하지 않습니다.
-    ('COMPANY_REGISTRATION',    '고객사등록',        'PLATFORM', FALSE, 21, 'Y'),
-    ('COMPANY_USER_MANAGEMENT', '고객사 계정관리',  'PLATFORM', FALSE, 22, 'Y'),
-    ('USER_MENU_PERMISSION',    '메뉴 권한',         'COMPANY',  FALSE, 23, 'Y')
+    ('COMPANY_REGISTRATION',    '고객사등록',        'PLATFORM', FALSE, 22, 'Y'),
+    ('COMPANY_USER_MANAGEMENT', '고객사 계정관리',  'PLATFORM', FALSE, 23, 'Y'),
+    ('USER_MENU_PERMISSION',    '메뉴 권한',         'COMPANY',  FALSE, 24, 'Y')
 ON CONFLICT (menuid) DO UPDATE SET
     menuname = EXCLUDED.menuname,
     access_scope = EXCLUDED.access_scope,

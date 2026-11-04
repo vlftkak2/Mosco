@@ -119,6 +119,7 @@ const mockdata = [
       { label: '재고수불현황', link: '/IniopStockPage', icon: '', MenuID:'STOCK_HISTORY' },
       { label: '현재고현황', link: '/CurrentStockPage', icon: '', MenuID:'STOCK_CURRENT' },
       { label: '재고이전등록', link: '/InoutmoveRegister', icon: '', MenuID: 'INOUTMOVE_REGISTER' },
+      { label: '재고이전현황', link: '/InoutmoveSearch', icon: '', MenuID: 'INOUTMOVE_SEARCH' },
     ],
   },     
 
@@ -165,6 +166,7 @@ function findMenuLabel(items, path) {
     '/outboundregisterpage': '출고등록',
     '/outboundsearchpage': '출고현황',
     '/inoutmoveregister': '재고이전등록',
+    '/inoutmovesearch': '재고이전현황',
     '/aiorderpage': 'AI 가공솔루션',
     '/aiordermanage': '주문서 관리',
     '/aiorderoptimization': '가공 최적화',
@@ -221,7 +223,7 @@ export default function MainLayout({ children }) {
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
     '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage', '/aiorderconfirmpage',
     '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/aiprocessingstandards', '/itemprocessmaster', '/itemprocessregister', '/itemprocesssearch', '/customersupport',
-    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/company', '/user', '/usermenu',
+    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/company', '/user', '/usermenu',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
   const [pageRibbon, setPageRibbon] = useState(null);
   const registerPageRibbon = useCallback((content) => setPageRibbon(() => content), []);
