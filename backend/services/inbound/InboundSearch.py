@@ -96,6 +96,21 @@ def list_inbound_details(
 
         cursor.execute(
             f"""
+            WITH matched_receipts AS (
+                SELECT DISTINCT h.companyid, h.receiptno
+                FROM Inbound01t AS h
+                JOIN Inbound02t AS d
+                  ON d.companyid = h.companyid
+                 AND d.receiptno = h.receiptno
+                WHERE {where_sql}
+            ), expense_totals AS (
+                SELECT e.companyid, e.receiptno, SUM(e.totalamt) AS other_cost_amount
+                FROM Inbound03t AS e
+                JOIN matched_receipts AS mr
+                  ON mr.companyid = e.companyid
+                 AND mr.receiptno = e.receiptno
+                GROUP BY e.companyid, e.receiptno
+            )
             SELECT h.receiptno, h.receptdate,
                h.customname AS customname,
                d.warehousecodename, d.productname, d.itemname, d.materialname, d.surfacename, d.myrtle,
@@ -103,18 +118,23 @@ def list_inbound_details(
                    CASE WHEN UPPER(BTRIM(COALESCE(d.unit, ''))) LIKE '%%TON%%'
                           OR BTRIM(COALESCE(d.unit, '')) LIKE '%%톤%%'
                         THEN d.weight / 1000 ELSE d.weight END AS weight,
-                   d.unitprice, d.supplyamt, d.vat, d.unitamt, d.qtyunit, d.unit, h.manager,
+                   d.unitprice, d.supplyamt, d.vat, d.unitamt,
+                   COALESCE(et.other_cost_amount, 0) AS other_cost_amount,
+                   d.qtyunit, d.unit, h.manager,
                    COALESCE(NULLIF(BTRIM(h.description), ''), d.description) AS description,
                    d.created_at, d.updated_at
             FROM Inbound01t AS h
             JOIN Inbound02t AS d
               ON d.companyid = h.companyid
              AND d.receiptno = h.receiptno
+            LEFT JOIN expense_totals AS et
+              ON et.companyid = h.companyid
+             AND et.receiptno = h.receiptno
             WHERE {where_sql}
             ORDER BY h.receptdate ASC, h.receiptno ASC, d.lineno
             LIMIT %s OFFSET %s
             """,
-            (*params, page_size, (page - 1) * page_size),
+            (*params, *params, page_size, (page - 1) * page_size),
         )
         rows = [inbound_register_module._row_dict(cursor, row) for row in cursor.fetchall()]
 
@@ -156,7 +176,23 @@ def write_inbound_details_excel(
         "합계금액", "수량단위", "단가기준", "담당자", "비고",
         "등록일자", "수정일자",
     ]
+    headers.insert(19, "\uAE30\uD0C0\uBE44\uC6A9 \uD569\uACC4")
     query = f"""
+        WITH matched_receipts AS (
+            SELECT DISTINCT h.companyid, h.receiptno
+            FROM Inbound01t AS h
+            JOIN Inbound02t AS d
+              ON d.companyid = h.companyid
+             AND d.receiptno = h.receiptno
+            WHERE {where_sql}
+        ), expense_totals AS (
+            SELECT e.companyid, e.receiptno, SUM(e.totalamt) AS other_cost_amount
+            FROM Inbound03t AS e
+            JOIN matched_receipts AS mr
+              ON mr.companyid = e.companyid
+             AND mr.receiptno = e.receiptno
+            GROUP BY e.companyid, e.receiptno
+        )
         SELECT h.receptdate, h.receiptno,
                h.customname, d.warehousecodename, d.productname, d.itemname,
                d.materialname, d.surfacename, d.myrtle,
@@ -164,13 +200,18 @@ def write_inbound_details_excel(
                CASE WHEN UPPER(BTRIM(COALESCE(d.unit, ''))) LIKE '%%TON%%'
                           OR BTRIM(COALESCE(d.unit, '')) LIKE '%%톤%%'
                     THEN d.weight / 1000 ELSE d.weight END AS weight,
-               d.unitprice, d.supplyamt, d.vat, d.unitamt, d.qtyunit, d.unit, h.manager,
+               d.unitprice, d.supplyamt, d.vat, d.unitamt,
+               COALESCE(et.other_cost_amount, 0) AS other_cost_amount,
+               d.qtyunit, d.unit, h.manager,
                COALESCE(NULLIF(BTRIM(h.description), ''), d.description) AS description,
                d.created_at, d.updated_at
         FROM Inbound01t AS h
         JOIN Inbound02t AS d
           ON d.companyid = h.companyid
          AND d.receiptno = h.receiptno
+        LEFT JOIN expense_totals AS et
+          ON et.companyid = h.companyid
+         AND et.receiptno = h.receiptno
         WHERE {where_sql}
         ORDER BY h.receptdate ASC, h.receiptno ASC, d.lineno
     """
@@ -204,18 +245,18 @@ def write_inbound_details_excel(
     worksheet.set_column("H:I", 18)
     worksheet.set_column("J:N", 13, number_format)
     worksheet.set_column("O:O", 15, number_format)
-    worksheet.set_column("P:S", 16, money_format)
-    worksheet.set_column("T:U", 14)
-    worksheet.set_column("V:V", 18)
-    worksheet.set_column("W:W", 30)
-    worksheet.set_column("X:Y", 22, datetime_format)
+    worksheet.set_column("P:T", 16, money_format)
+    worksheet.set_column("U:V", 14)
+    worksheet.set_column("W:W", 18)
+    worksheet.set_column("X:X", 30)
+    worksheet.set_column("Y:Z", 22, datetime_format)
 
     row_number = 1
     try:
         with inbound_register_module._connect() as connection:
             with connection.cursor(name="inbound_search_excel_cursor") as cursor:
                 cursor.itersize = 2000
-                cursor.execute(query, params)
+                cursor.execute(query, (*params, *params))
                 while rows := cursor.fetchmany(2000):
                     for row in rows:
                         worksheet.write_number(row_number, 0, row_number)
@@ -227,7 +268,7 @@ def write_inbound_details_excel(
                                 worksheet.write_datetime(row_number, column_index, excel_datetime, datetime_format)
                             elif column_index == 1 and isinstance(value, date):
                                 worksheet.write_datetime(row_number, column_index, value, date_format)
-                            elif column_index in range(9, 19):
+                            elif column_index in range(9, 20):
                                 numeric_value = float(value)
                                 format_for_value = number_format if column_index in range(9, 15) else money_format
                                 if numeric_value.is_integer():

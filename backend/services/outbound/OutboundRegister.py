@@ -66,6 +66,22 @@ class OutboundDetailInput(BaseModel):
         return self
 
 
+class OutboundExpenseInput(BaseModel):
+    costcode: str = Field(default="", max_length=50)
+    costname: str = Field(min_length=1, max_length=100)
+    supplyamt: Decimal = Field(ge=0, max_digits=15, decimal_places=3)
+    vat: Decimal = Field(ge=0, max_digits=15, decimal_places=3)
+    customcode: str = Field(default="", max_length=100)
+    customname: str = Field(default="", max_length=150)
+    purchaseyn: str = Field(default="N", pattern="^[YN]$")
+    description: str = Field(default="", max_length=500)
+
+    @field_validator("costcode", "costname", "customcode", "customname", "purchaseyn", "description")
+    @classmethod
+    def strip_expense_text(cls, value: str) -> str:
+        return value.strip()
+
+
 class OutboundSaveRequest(BaseModel):
     receiptno: str = Field(default="", max_length=100)
     receptdate: date
@@ -75,6 +91,7 @@ class OutboundSaveRequest(BaseModel):
     description: str = Field(default="", max_length=500)
     is_new: bool = False
     items: list[OutboundDetailInput] = Field(min_length=1, max_length=10000)
+    expenses: list[OutboundExpenseInput] = Field(default_factory=list, max_length=1000)
 
     @field_validator("receiptno", "customcode", "customname", "manager", "description")
     @classmethod
@@ -195,10 +212,17 @@ def list_receipts(
                    STRING_AGG(DISTINCT NULLIF(d.unit, ''), ', ') AS unit,
                    COALESCE(SUM(COALESCE(d.supplyamt, d.unitamt)), 0)::numeric(15, 2) AS supply_amount,
                    COALESCE(SUM(COALESCE(d.vat, ROUND(d.unitamt * 0.10, 2))), 0)::numeric(15, 2) AS vat_amount,
-                   COALESCE(SUM(CASE WHEN d.supplyamt IS NULL THEN d.unitamt + ROUND(d.unitamt * 0.10, 2) ELSE d.unitamt END), 0)::numeric(15, 2) AS total_amount
+                   COALESCE(SUM(CASE WHEN d.supplyamt IS NULL THEN d.unitamt + ROUND(d.unitamt * 0.10, 2) ELSE d.unitamt END), 0)::numeric(15, 2) AS total_amount,
+                   COALESCE(MAX(expenses.other_cost_amount), 0)::numeric(15, 2) AS other_cost_amount
             FROM Outbound01t AS h
             LEFT JOIN Outbound02t AS d
               ON d.companyid = h.companyid AND d.receiptno = h.receiptno
+            LEFT JOIN (
+                SELECT companyid, receiptno, SUM(totalamt) AS other_cost_amount
+                FROM Outbound03t
+                GROUP BY companyid, receiptno
+            ) AS expenses
+              ON expenses.companyid = h.companyid AND expenses.receiptno = h.receiptno
             WHERE {where}
             GROUP BY h.companyid, h.receiptno
             ORDER BY h.receptdate DESC, h.receiptno DESC
@@ -259,6 +283,16 @@ def get_receipt(companyid: str, receiptno: str):
             (companyid, receiptno, companyid, receiptno),
         )
         header["items"] = [_row_dict(cursor, row) for row in cursor.fetchall()]
+        cursor.execute(
+            """SELECT companyid, companyname, receiptno, lineno, costcode, costname,
+                      supplyamt, vat, totalamt, customcode, customname, purchaseyn, description,
+                      created_at, updated_at
+               FROM Outbound03t
+               WHERE companyid = %s AND receiptno = %s
+               ORDER BY lineno""",
+            (companyid, receiptno),
+        )
+        header["expenses"] = [_row_dict(cursor, row) for row in cursor.fetchall()]
     return header
 
 
@@ -379,6 +413,65 @@ def list_available_stock(
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
+def _insert_outbound_expenses(cursor, companyid: str, companyname: str, receiptno: str,
+                              expenses: list[dict]):
+    if not expenses:
+        return
+    normalized = []
+    for index, expense in enumerate(expenses, start=1):
+        costcode = str(expense.get("costcode") or "").strip()
+        costname = str(expense.get("costname") or "").strip()
+        if not costname:
+            raise ValueError(f"{index}행 기타비용 구분을 입력해 주세요.")
+        if costcode:
+            cursor.execute(
+                """SELECT code_name FROM CodeMaster01t
+                   WHERE companyid = %s AND groupcode = 'OTHER_COST' AND code = %s
+                     AND UPPER(BTRIM(use_yn)) = 'Y'
+                   LIMIT 1""",
+                (companyid, costcode),
+            )
+            cost_option = cursor.fetchone()
+            if not cost_option:
+                raise ValueError(f"{index}행 비용 구분 코드가 사용 중이 아닙니다.")
+            if costname.casefold() != str(cost_option[0] or "").strip().casefold():
+                raise ValueError(f"{index}행 비용 구분 코드와 이름이 일치하지 않습니다.")
+        customcode = str(expense.get("customcode") or "").strip()
+        customname = str(expense.get("customname") or "").strip()
+        if customcode:
+            cursor.execute(
+                """SELECT customername FROM customer01t
+                   WHERE companyid = %s AND customercode = %s AND UPPER(BTRIM(useyn)) = 'Y'
+                   LIMIT 1""",
+                (companyid, customcode),
+            )
+            customer = cursor.fetchone()
+            if not customer:
+                raise ValueError(f"{index}행 기타비용 거래처를 찾을 수 없습니다.")
+            actual_name = str(customer[0] or "").strip()
+            if customname and customname.casefold() != actual_name.casefold():
+                raise ValueError(f"{index}행 기타비용 거래처 코드와 이름이 일치하지 않습니다.")
+            customname = actual_name
+        elif customname:
+            raise ValueError(f"{index}: select the expense customer from the list.")
+        supplyamt = Decimal(str(expense.get("supplyamt") or 0))
+        vat = Decimal(str(expense.get("vat") or 0))
+        normalized.append((
+            companyid, companyname, receiptno, index,
+            costcode or None, costname,
+            supplyamt, vat, supplyamt + vat, customcode, customname,
+            str(expense.get("purchaseyn") or "N").strip().upper(),
+            str(expense.get("description") or "").strip() or None,
+        ))
+    cursor.executemany(
+        """INSERT INTO Outbound03t
+           (companyid, companyname, receiptno, lineno, costcode, costname,
+            supplyamt, vat, totalamt, customcode, customname, purchaseyn, description)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+        normalized,
+    )
+
+
 def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
     items = payload["items"]
     default_date = payload.get("receptdate")
@@ -483,6 +576,8 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
             for item in items:
                 group_key = (item["receptdate"], item["customcode"], item["_warehousecode"])
                 grouped_items.setdefault(group_key, []).append(item)
+            if payload.get("expenses") and len(grouped_items) != 1:
+                raise ValueError("기타비용은 하나의 출고전표에 연결해야 합니다. 품목을 한 전표로 저장한 뒤 등록해 주세요.")
 
             created_receipts = []
             for (receptdate, customcode, warehousecode), group_items in grouped_items.items():
@@ -543,6 +638,10 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
                 current_stock_module.record_document(
                     cursor, companyid, companyname, receptdate, "OUT", receiptno, stock_lines,
                     customcode=customcode, customname=customer_name,
+                )
+                _insert_outbound_expenses(
+                    cursor, companyid, companyname, receiptno,
+                    payload.get("expenses") or [],
                 )
                 created_receipts.append({
                     "receiptno": receiptno, "receptdate": receptdate.isoformat(),
@@ -666,6 +765,10 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                     "DELETE FROM Outbound02t WHERE companyid = %s AND receiptno = %s",
                     (companyid, receiptno),
                 )
+                cursor.execute(
+                    "DELETE FROM Outbound03t WHERE companyid = %s AND receiptno = %s",
+                    (companyid, receiptno),
+                )
             else:
                 cursor.execute(
                     """INSERT INTO Outbound01t
@@ -767,6 +870,10 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
             current_stock_module.record_document(
                 cursor, companyid, companyname, payload["receptdate"], "OUT", receiptno, stock_lines,
                 customcode=customcode, customname=customer_name,
+            )
+            _insert_outbound_expenses(
+                cursor, companyid, companyname, receiptno,
+                payload.get("expenses") or [],
             )
         return {"receiptno": receiptno, "saved_count": len(items)}
     except ValueError:

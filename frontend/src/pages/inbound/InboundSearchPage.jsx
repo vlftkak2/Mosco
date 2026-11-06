@@ -25,7 +25,7 @@ const TABLE_COLUMN_WIDTHS = {
   no: 45, receptdate: 100, receiptno: 140, customname: 125, warehousecodename: 110,
   productname: 105, itemname: 125, materialname: 85, surfacename: 75, myrtle: 100,
   thickness: 60, width: 50, length: 60, qty: 70, weight: 80, unitprice: 90,
-  supplyamt: 90, vat: 80, unitamt: 95, qtyunit: 75, unit: 75, manager: 80,
+  supplyamt: 90, vat: 80, unitamt: 95, other_cost_amount: 105, qtyunit: 75, unit: 75, manager: 80,
   description: 120, created_at: 145, updated_at: 145,
 };
 const BASE_TABLE_WIDTH = Object.values(TABLE_COLUMN_WIDTHS).reduce((sum, width) => sum + width, 0);
@@ -34,7 +34,8 @@ const TABLE_COLUMNS = [
   ['warehousecodename', '창고'], ['productname', '제품번호'], ['itemname', '품명'], ['materialname', '강종'],
   ['surfacename', '표면'], ['myrtle', '도금량(g/㎡)'], ['thickness', '두께'], ['width', '폭'], ['length', '길이'],
   ['qty', '수량'], ['weight', '중량'], ['unitprice', '매입단가'], ['supplyamt', '공급가'], ['vat', '부가세'],
-  ['unitamt', '합계금액'], ['qtyunit', '수량단위'], ['unit', '단가기준'], ['manager', '담당자'], ['description', '비고'],
+  ['unitamt', '합계금액'],
+  ['other_cost_amount', '\uAE30\uD0C0\uBE44\uC6A9 \uD569\uACC4'], ['qtyunit', '수량단위'], ['unit', '단가기준'], ['manager', '담당자'], ['description', '비고'],
   ['created_at', '등록일자'], ['updated_at', '수정일자'],
 ].map(([key, label]) => ({ key, label, width: TABLE_COLUMN_WIDTHS[key], minWidth: Math.min(TABLE_COLUMN_WIDTHS[key], 72) }));
 
@@ -278,13 +279,12 @@ export default function InboundSearchPage() {
 
         <Box className={classes.tableWrap}>
           {loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}
-          {items.length ? (
-            <Box className={classes.inboundSearchScroller} style={{ height: '100%', width: '100%' }}>
-              <Table className={classes.statusTable} withTableBorder withColumnBorders highlightOnHover
-                style={{ width: tableWidth, minWidth: tableWidth, tableLayout: 'fixed' }}>
-                <colgroup>{TABLE_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${columnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
-                <Table.Thead><Table.Tr>{TABLE_COLUMNS.map(renderHeader)}</Table.Tr></Table.Thead>
-                <Table.Tbody>{items.map((item, index) => <Table.Tr key={`${item.receiptno}:${item.lineno}`}>
+          <Box className={classes.inboundSearchScroller} style={{ height: '100%', width: '100%' }}>
+            <Table className={classes.statusTable} withTableBorder withColumnBorders highlightOnHover
+              style={{ width: tableWidth, minWidth: tableWidth, tableLayout: 'fixed' }}>
+              <colgroup>{TABLE_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${columnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
+              <Table.Thead><Table.Tr>{TABLE_COLUMNS.map(renderHeader)}</Table.Tr></Table.Thead>
+              <Table.Tbody>{items.length ? items.map((item, index) => <Table.Tr key={`${item.receiptno}:${item.lineno}`}>
                   <Table.Td ta="center">{(page - 1) * pageSize + index + 1}</Table.Td>
                   <Table.Td>{displayDate(item.receptdate)}</Table.Td><Table.Td>{item.receiptno}</Table.Td>
                   <Table.Td>{item.customname}</Table.Td><Table.Td>{item.warehousecodename}</Table.Td>
@@ -300,15 +300,15 @@ export default function InboundSearchPage() {
                   <Table.Td ta="right">{displayNumber(item.supplyamt, 2)}</Table.Td>
                   <Table.Td ta="right">{displayNumber(item.vat, 2)}</Table.Td>
                   <Table.Td ta="right">{displayNumber(item.unitamt, 2)}</Table.Td>
+                  <Table.Td ta="right">{displayNumber(item.other_cost_amount, 2)}</Table.Td>
                   <Table.Td>{item.qtyunit}</Table.Td><Table.Td>{item.unit}</Table.Td>
                   <Table.Td>{item.manager}</Table.Td>
                   <Table.Td>{item.description}</Table.Td>
                   <Table.Td>{displayDateTime(item.created_at)}</Table.Td>
                   <Table.Td>{displayDateTime(item.updated_at)}</Table.Td>
-                </Table.Tr>)}</Table.Tbody>
-              </Table>
-            </Box>
-          ) : !loading && <Box className={classes.emptyState}>표시할 입고 상세 내역이 없습니다.</Box>}
+                </Table.Tr>) : !loading && <Table.Tr><Table.Td colSpan={TABLE_COLUMNS.length} style={{ height: 180, textAlign: 'center', color: '#7c899b' }}>표시할 입고 상세 내역이 없습니다.</Table.Td></Table.Tr>}</Table.Tbody>
+            </Table>
+          </Box>
         </Box>
 
         <Group className={classes.paginationBar} justify="space-between" wrap="wrap">
