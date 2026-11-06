@@ -14,7 +14,9 @@ const STOCK_COLUMNS = [
   { key: 'receiptdate', label: '입고일자', width: 100, minWidth: 90 },
   { key: 'customname', label: '매입처', width: 120, minWidth: 90 },
   { key: 'itemname', label: '품명', width: 120, minWidth: 90 },
-  { key: 'dimension', label: '규격', width: 145, minWidth: 100 },
+  { key: 'thickness', label: '두께', width: 75, minWidth: 60 },
+  { key: 'width', label: '폭', width: 75, minWidth: 60 },
+  { key: 'length', label: '길이', width: 75, minWidth: 60 },
   { key: 'warehouse', label: '창고', width: 115, minWidth: 90 },
   { key: 'currentqty', label: '현재고수량', width: 100, minWidth: 90 },
   { key: 'currentweight', label: '현재고중량(kg)', width: 125, minWidth: 100 },
@@ -41,17 +43,20 @@ const sourceKey = (stock) => [stock.sourcetype || stock.stocksourcetype, stock.s
 const num = (value) => Number(value) || 0;
 const numberText = (value) => num(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
 const cleanDraftNumber = (value) => String(value ?? '').replace(/,/g, '').replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
-const draftNumberText = (value) => {
+const draftNumberText = (value, maximumFractionDigits = Infinity) => {
   const raw = cleanDraftNumber(value);
   if (!raw) return '';
+  if (Number.isFinite(maximumFractionDigits) && !raw.endsWith('.')) {
+    const number = Number(raw);
+    return Number.isFinite(number)
+      ? number.toLocaleString(undefined, { maximumFractionDigits })
+      : '';
+  }
   const [integer, ...decimal] = raw.split('.');
   const grouped = (integer || '0').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return decimal.length ? `${grouped}.${decimal.join('')}` : grouped;
 };
-const dimensionText = (stock) => [stock.thickness, stock.width, stock.length]
-  .filter((value) => value !== null && value !== undefined && String(value).trim() !== '')
-  .map(numberText)
-  .join(' × ');
+const dimensionValue = (value) => value === null || value === undefined || String(value).trim() === '' ? '' : numberText(value);
 const sourceName = (value) => value === 'OPENING' ? '기초' : value === 'INBOUND' ? '입고' : value;
 
 export default function OutboundStockPickerModal({ opened, receiptno = '', existingRows = [], onClose, onApply }) {
@@ -276,17 +281,19 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
                   <Table.Td>{String(stock.receiptdate || '').slice(0, 10)}</Table.Td>
                   <Table.Td>{stock.customname || '자체재고'}</Table.Td>
                   <Table.Td>{stock.itemname}</Table.Td>
-                  <Table.Td>{dimensionText(stock)}</Table.Td>
+                  <Table.Td>{dimensionValue(stock.thickness)}</Table.Td>
+                  <Table.Td>{dimensionValue(stock.width)}</Table.Td>
+                  <Table.Td>{dimensionValue(stock.length)}</Table.Td>
                   <Table.Td>{stock.warehousecodename || stock.warehousecode}</Table.Td>
                   <Table.Td ta="right">{numberText(stock.current_qty)}</Table.Td>
                   <Table.Td ta="right">{numberText(stock.current_weight)}</Table.Td>
                   <Table.Td><input ref={(element) => { const inputKey = `${key}:unitprice`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="text" inputMode="decimal" value={draftNumberText(draft.unitprice)} disabled={alreadyAdded} onChange={(event) => updateUnitPriceDraft(stock, event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'unitprice', event)} /></Table.Td>
                   <Table.Td><input ref={(element) => { const inputKey = `${key}:qty`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="text" inputMode="decimal" value={draftNumberText(draft.qty)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'qty', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'qty', event)} /></Table.Td>
-                  <Table.Td><input ref={(element) => { const inputKey = `${key}:weight`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="text" inputMode="decimal" value={draftNumberText(draft.weight)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'weight', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'weight', event)} /></Table.Td>
+                  <Table.Td><input ref={(element) => { const inputKey = `${key}:weight`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="text" inputMode="decimal" value={draftNumberText(draft.weight, 3)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'weight', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'weight', event)} /></Table.Td>
                   <Table.Td>{stock.productname || ''}</Table.Td>
                 </Table.Tr>;
               })}
-              {!stocks.length && <Table.Tr><Table.Td colSpan={13} className={classes.customerEmpty}>{loading ? '현재고를 조회하고 있습니다.' : '출고 가능한 재고가 없습니다.'}</Table.Td></Table.Tr>}
+              {!stocks.length && <Table.Tr><Table.Td colSpan={15} className={classes.customerEmpty}>{loading ? '현재고를 조회하고 있습니다.' : '출고 가능한 재고가 없습니다.'}</Table.Td></Table.Tr>}
             </Table.Tbody>
           </Table>
         </Box>

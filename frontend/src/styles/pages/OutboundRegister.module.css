@@ -163,6 +163,73 @@
 .customerResultRow { cursor: pointer; }
 .customerResultRow:hover > td { background: #fff5f5; }
 .customerEmpty { height: 120px; color: #7d899a !important; text-align: center !important; }
+.detailTabsBar {
+  display: flex;
+  min-width: 0;
+  min-height: 36px;
+  flex: 0 0 36px;
+  align-items: stretch;
+  gap: 6px;
+  padding: 5px 10px 0;
+  border-bottom: 1px solid #dce3eb;
+  background: #f3f5f8;
+}
+.detailTab,
+.detailTabActive {
+  height: 30px;
+  padding: 0 13px;
+  border: 1px solid #dce3eb;
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+  background: #e9eef4;
+  color: #53657c;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.detailTabActive { background: #fff; color: #f0444f; }
+.detailTab:hover { background: #fff; color: #f0444f; }
+.expenseTabPanel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  overflow: hidden;
+  padding-top: 0;
+}
+.expenseToolbar { min-height: 42px; flex: 0 0 42px; padding: 0 10px; border-bottom: 1px solid #dce3eb; }
+.expenseTabPanel > .expenseTableWrap { width: 100%; height: 0; min-height: 0; flex: 1 1 auto; overflow: hidden; border: 0; }
+.expenseTableWrap :global(table) { width: 100%; }
+.expenseTableWrap :global(thead th) { position: sticky; top: 0; z-index: 2; background: #f0f3f6; color: #42566f; white-space: nowrap; }
+.expenseTableWrap :global(tbody td) { color: #293a52; font-size: 11px; }
+.expenseTableWrap :global(input),
+.expenseTableWrap :global(.mantine-Select-input) { font-size: 11px; }
+.expenseTableWrap :global(.mantine-Input-input) {
+  min-height: 33px !important;
+  height: 33px !important;
+  padding: 0 7px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: #293a52 !important;
+}
+.expenseTableWrap :global(.mantine-Input-input:focus) { outline: 2px solid #4c83d3 !important; outline-offset: -2px; background-color: #fff !important; }
+.expenseTableWrap .newRow :global(input) { background-color: transparent !important; }
+.expenseTableWrap .newRow :global(input:focus) { background-color: #fff !important; }
+.expenseTableWrap .expenseCostInput {
+  height: 33px !important;
+  padding-right: 27px !important;
+  padding-left: 7px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+.expenseTableWrap .expenseCostInput:focus { outline: 2px solid #4c83d3 !important; outline-offset: -2px; background-color: #fff !important; }
 
 @media (max-width: 1120px) {
 }

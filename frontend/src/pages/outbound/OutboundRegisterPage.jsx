@@ -81,6 +81,7 @@ const RECEIPT_COLUMNS = [
   { key: 'supply_amount', label: '공급가', width: 110, minWidth: 110, align: 'right' },
   { key: 'vat_amount', label: '부가세', width: 110, minWidth: 110, align: 'right' },
   { key: 'total_amount', label: '합계금액', width: 110, minWidth: 110, align: 'right' },
+  { key: 'other_cost_amount', label: '기타비용', width: 110, minWidth: 110, align: 'right' },
   { key: 'qtyunit', label: '수량단위', width: 80, minWidth: 80 },
   { key: 'unit', label: '단가기준', width: 80, minWidth: 80 },
   { key: 'receiptno', label: '출고전표', width: 110, minWidth: 110 },
@@ -171,6 +172,245 @@ const formatNumericInput = (value) => {
   const groupedInteger = (integer || '0').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return decimalParts.length ? `${groupedInteger}.${decimalParts.join('')}` : groupedInteger;
 };
+export const makeExpense = (expense = {}) => ({
+  id: expense.id || `expense-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  costcode: expense.costcode || '', costname: expense.costname || '',
+  supplyamt: String(expense.supplyamt ?? ''), vat: String(expense.vat ?? ''),
+  vat_manual: expense.vat_manual ?? false,
+  customcode: expense.customcode || '', customname: expense.customname || '',
+  purchaseyn: expense.purchaseyn || 'N', description: expense.description || '',
+  is_new: expense.is_new ?? true, is_dirty: expense.is_dirty ?? true,
+});
+
+export const ExpenseCostAutocompleteCell = memo(function ExpenseCostAutocompleteCell({ row, options, disabled, onSelect, onDoubleClick, inputRef }) {
+  const [draft, setDraft] = useState(row.costname || '');
+  const [editing, setEditing] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const editedRef = useRef(false);
+  const query = draft.trim().toLocaleLowerCase();
+  const matches = useMemo(() => {
+    if (!query) return showAll ? options.slice(0, 8) : [];
+    return options.filter((option) => `${option.name || ''} ${option.code || ''}`.toLocaleLowerCase().includes(query)).slice(0, 8);
+  }, [options, query, showAll]);
+  const opened = editing && !disabled && matches.length > 0;
+
+  useEffect(() => {
+    if (!editing) setDraft(row.costname || '');
+  }, [row.costcode, row.costname, editing]);
+
+  useEffect(() => {
+    if (editing && document.activeElement !== inputRef?.current) inputRef?.current?.focus();
+  }, [editing, inputRef]);
+
+  const choose = (option) => {
+    onSelect(option);
+    setDraft(option.name || '');
+    setEditing(false);
+    setShowAll(false);
+    setActiveIndex(-1);
+    editedRef.current = false;
+  };
+
+  return <Popover opened={opened} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500} transitionProps={{ duration: 0 }}>
+    <Popover.Target>
+      <div className={classes.customerAutocompleteTarget}>
+        <input ref={inputRef} className={`${codeClasses.cellInput} ${inboundClasses.itemCodePickerInput} ${inboundClasses.itemNameSearchInput} ${classes.customerAutocompleteInput} ${classes.expenseCostInput}`}
+          aria-label="비용 구분" aria-haspopup="listbox" aria-expanded={opened} value={draft} disabled={disabled}
+          onFocus={(event) => { setEditing(true); setShowAll(false); setActiveIndex(-1); event.currentTarget.select(); }}
+          onBlur={() => {
+            const normalized = draft.trim().toLocaleLowerCase();
+            if (!normalized) onSelect(null);
+            else {
+              const exact = options.filter((option) => [option.name, option.code].some((value) => String(value || '').trim().toLocaleLowerCase() === normalized));
+              if (exact.length === 1) choose(exact[0]);
+              else if (editedRef.current) setDraft(row.costname || '');
+            }
+            setEditing(false);
+            setShowAll(false);
+            setActiveIndex(-1);
+          }}
+          onChange={(event) => { setDraft(event.currentTarget.value); setEditing(true); setShowAll(false); setActiveIndex(-1); editedRef.current = true; }}
+          onClick={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            if (!disabled && bounds.right - event.clientX <= 27) { setEditing(true); setShowAll(true); setActiveIndex(-1); }
+          }}
+          onKeyDown={(event) => {
+            if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && opened) {
+              event.preventDefault();
+              setActiveIndex((current) => event.key === 'ArrowDown' ? (current + 1) % matches.length : (current - 1 + matches.length) % matches.length);
+            } else if (event.key === 'Enter' && opened) {
+              event.preventDefault();
+              choose(matches[activeIndex >= 0 ? activeIndex : 0]);
+            } else if (event.key === 'Escape') {
+              event.preventDefault();
+              setDraft(row.costname || '');
+              setEditing(false);
+              setShowAll(false);
+              setActiveIndex(-1);
+            } else if (event.key === 'Tab' && editedRef.current) {
+              const normalized = draft.trim().toLocaleLowerCase();
+              const exact = options.filter((option) => [option.name, option.code].some((value) => String(value || '').trim().toLocaleLowerCase() === normalized));
+              const option = opened && activeIndex >= 0 ? matches[activeIndex] : exact.length === 1 ? exact[0] : null;
+              if (option) choose(option);
+              else if (!normalized) onSelect(null);
+              else setDraft(row.costname || '');
+            }
+          }}
+          onDoubleClick={() => { if (!disabled) onDoubleClick?.(); }} />
+      </div>
+    </Popover.Target>
+    <Popover.Dropdown className={classes.stockCustomerSuggestions}>
+      <div role="listbox" aria-label="비용 구분 검색 결과">
+        {matches.map((option, index) => <button key={option.code} type="button" role="option" aria-selected={index === activeIndex}
+          className={classes.stockCustomerSuggestion} style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(option)}>
+          <span>{option.name || option.code}</span>
+        </button>)}
+      </div>
+    </Popover.Dropdown>
+  </Popover>;
+});
+
+export const ExpenseCustomerAutocompleteCell = memo(function ExpenseCustomerAutocompleteCell({ expenseId, value, disabled, onSelect, onOpenPicker }) {
+  const [draft, setDraft] = useState(value || '');
+  const [editing, setEditing] = useState(false);
+  const [customers, setCustomers] = useState([]);
+  const [customersQuery, setCustomersQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const requestIdRef = useRef(0);
+  const hasEditedRef = useRef(false);
+  const keyboardSelectionRef = useRef(false);
+  const skipBlurCommitRef = useRef(false);
+  const query = String(draft || '').trim();
+  const matches = useMemo(() => {
+    const normalized = query.toLocaleLowerCase();
+    if (!normalized || !customersQuery || !normalized.startsWith(customersQuery.toLocaleLowerCase())) return [];
+    return customers.filter((customer) => [customer.customername, customer.customercode]
+      .some((candidate) => String(candidate || '').toLocaleLowerCase().includes(normalized)));
+  }, [customers, customersQuery, query]);
+  const opened = editing && !disabled && matches.length > 0;
+
+  useEffect(() => {
+    if (!editing || disabled || !query) return undefined;
+    const controller = new AbortController();
+    const requestId = ++requestIdRef.current;
+    const load = async () => {
+      try {
+        const { data } = await axios.get('/api/list', {
+          ...authConfig(),
+          params: { search_keyword: query, status: 'Y', page: 1, page_size: 8, include_total: false },
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted && requestId === requestIdRef.current) {
+          setCustomers(data.data || []);
+          setCustomersQuery(query);
+          setActiveIndex(-1);
+        }
+      } catch { /* 자동완성 실패 시 목록만 닫아 둡니다. */ }
+    };
+    void load();
+    return () => controller.abort();
+  }, [editing, disabled, query]);
+
+  useEffect(() => {
+    if (!editing) setDraft(value || '');
+  }, [editing, value]);
+
+  const choose = (customer) => {
+    requestIdRef.current += 1;
+    hasEditedRef.current = false;
+    keyboardSelectionRef.current = false;
+    onSelect(expenseId, customer);
+    setDraft(customer.customername || '');
+    setEditing(false);
+    setActiveIndex(-1);
+  };
+
+  return <Popover opened={opened} position="bottom-start" width="target" withinPortal shadow="none" offset={0} zIndex={500} transitionProps={{ duration: 0 }}>
+    <Popover.Target>
+      <div className={classes.customerAutocompleteTarget}>
+        <input className={`${codeClasses.cellInput} ${inboundClasses.itemCodePickerInput} ${inboundClasses.itemNameSearchInput} ${classes.customerAutocompleteInput} ${classes.expenseCostInput}`}
+          aria-label="비용 거래처" aria-haspopup="listbox" aria-expanded={opened} value={draft} disabled={disabled}
+          onFocus={(event) => { hasEditedRef.current = false; keyboardSelectionRef.current = false; setEditing(true); setActiveIndex(-1); event.currentTarget.select(); }}
+          onChange={(event) => { hasEditedRef.current = true; keyboardSelectionRef.current = false; setDraft(event.currentTarget.value); setEditing(true); setActiveIndex(-1); }}
+          onBlur={() => {
+            if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
+            const normalized = query.toLocaleLowerCase();
+            const exact = customers.filter((customer) => [customer.customername, customer.customercode]
+              .some((candidate) => String(candidate || '').trim().toLocaleLowerCase() === normalized));
+            if (exact.length === 1) choose(exact[0]);
+            else { setDraft(value || ''); setEditing(false); setActiveIndex(-1); }
+          }}
+          onClick={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            if (!disabled && bounds.right - event.clientX <= 27) onOpenPicker(expenseId);
+          }}
+          onKeyDown={(event) => {
+            if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && opened) {
+              event.preventDefault();
+              keyboardSelectionRef.current = true;
+              setActiveIndex((current) => event.key === 'ArrowDown'
+                ? (current + 1) % matches.length : (current - 1 + matches.length) % matches.length);
+            } else if (event.key === 'Tab' && hasEditedRef.current) {
+              const customer = opened && keyboardSelectionRef.current && activeIndex >= 0 ? matches[activeIndex] : null;
+              skipBlurCommitRef.current = true;
+              if (customer) choose(customer);
+              else { setDraft(''); setEditing(false); setActiveIndex(-1); hasEditedRef.current = false; keyboardSelectionRef.current = false; }
+            } else if (event.key === 'Enter' && opened) {
+              event.preventDefault();
+              choose(matches[activeIndex >= 0 ? activeIndex : 0]);
+            } else if (event.key === 'Escape') {
+              event.preventDefault(); setDraft(value || ''); setEditing(false); setActiveIndex(-1);
+            }
+          }}
+          onDoubleClick={() => { if (!disabled) onOpenPicker(expenseId); }} />
+      </div>
+    </Popover.Target>
+    <Popover.Dropdown className={classes.stockCustomerSuggestions}>
+      <div role="listbox" aria-label="비용 거래처 검색 결과">
+        {matches.map((customer, index) => <button key={customer.customercode} type="button" role="option" aria-selected={index === activeIndex}
+          className={classes.stockCustomerSuggestion} style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(customer)}>
+          <span>{customer.customername}</span>
+        </button>)}
+      </div>
+    </Popover.Dropdown>
+  </Popover>;
+});
+
+export const ExpenseNumericCell = memo(function ExpenseNumericCell({ expenseId, field, value, disabled, onCommit }) {
+  const [draft, setDraft] = useState(formatNumericInput(value));
+  const editingRef = useRef(false);
+  useEffect(() => {
+    if (!editingRef.current) setDraft(formatNumericInput(value));
+  }, [value]);
+  return <input className={`${codeClasses.cellInput} ${inboundClasses.amountInput}`} aria-label={field === 'supplyamt' ? '공급가' : '부가세'}
+    inputMode="decimal" value={draft} disabled={disabled}
+    onFocus={() => { editingRef.current = true; }}
+    onChange={(event) => setDraft(formatNumericInput(event.currentTarget.value))}
+    onBlur={() => {
+      editingRef.current = false;
+      const normalized = cleanNumericInput(draft);
+      setDraft(formatNumericInput(normalized));
+      if (normalized !== cleanNumericInput(value)) onCommit(expenseId, field, normalized);
+    }} />;
+});
+
+export const ExpenseDescriptionCell = memo(function ExpenseDescriptionCell({ expenseId, value, disabled, onCommit }) {
+  const [draft, setDraft] = useState(value || '');
+  const editingRef = useRef(false);
+  useEffect(() => {
+    if (!editingRef.current) setDraft(value || '');
+  }, [value]);
+  return <TextInput size="xs" value={draft} maxLength={500} disabled={disabled}
+    onFocus={() => { editingRef.current = true; }}
+    onChange={(event) => setDraft(event.currentTarget.value)}
+    onBlur={() => {
+      editingRef.current = false;
+      if (draft !== (value || '')) onCommit(expenseId, 'description', draft);
+    }} />;
+});
 
 const PickerModalTitle = ({ title }) => (
   <Group gap={9} wrap="nowrap">
@@ -258,7 +498,7 @@ const CustomerPickerModal = memo(function CustomerPickerModal({ opened, onClose,
           </Table>
         </ScrollArea>
       </Box>
-      <Group justify="space-between"><Text size="xs" c="dimmed">총 {total.toLocaleString()}개 매출처</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / 20))} value={page} onChange={changePage} withEdges color="red" disabled={loading} /></Group>
+      <Group justify="space-between"><Text size="xs" c="dimmed">????? ?? ?? ??? ???? ?????.</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / 20))} value={page} onChange={changePage} withEdges color="red" disabled={loading} /></Group>
     </Stack>
   </Modal>;
 });
@@ -650,7 +890,14 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
     if (key === 'receiptdate') return String(row.receiptdate || '').slice(0, 10);
     if (key === 'qtyunit') return unitOptions.quantity.find((option) => option.code === row.qtyunit)?.name || row.qtyunit || '';
     if (key === 'unit') return unitOptions.price.find((option) => option.code === row.unit)?.name || row.unit || '';
-    if (['current_qty', 'current_weight', 'thickness', 'width', 'length', 'myrtle', 'qty', 'weight', 'unitprice'].includes(key)) return formatNumericInput(row[key] ?? 0);
+    if (key === 'weight') {
+      const rawWeight = cleanNumericInput(row.weight);
+      const weight = Number(rawWeight);
+      return rawWeight && Number.isFinite(weight)
+        ? weight.toLocaleString(undefined, { maximumFractionDigits: 3 })
+        : '';
+    }
+    if (['current_qty', 'current_weight', 'thickness', 'width', 'length', 'myrtle', 'qty', 'unitprice'].includes(key)) return formatNumericInput(row[key] ?? 0);
     if (NUMERIC_FIELDS.has(key)) return formatNumericInput(row[key]);
     return row[key] ?? '';
   };
@@ -741,6 +988,11 @@ export default function OutboundRegisterPage() {
   const [receiptCustomers, setReceiptCustomers] = useState([]);
   const [receiptMetadata, setReceiptMetadata] = useState({ companyid: '', companyname: '', created_at: '', updated_at: '' });
   const [rows, setRows] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [expenseOptions, setExpenseOptions] = useState([]);
+  const [expenseCostPickerId, setExpenseCostPickerId] = useState('');
+  const [selectedExpenseIds, setSelectedExpenseIds] = useState([]);
+  const [detailTab, setDetailTab] = useState('details');
   const [selectedReceiptno, setSelectedReceiptno] = useState('');
   const [subulyn, setSubulyn] = useState('N');
   const [documentDirty, setDocumentDirty] = useState(false);
@@ -764,21 +1016,48 @@ export default function OutboundRegisterPage() {
   const initialReceiptLoadRef = useRef(false);
   const codeInputsRef = useRef(new Map());
   const cellInputsRef = useRef(new Map());
+  const expenseCostInputsRef = useRef(new Map());
+  const pendingExpenseFocusIdRef = useRef('');
   const codeLookupTimersRef = useRef(new Map());
   const masterPasteErrorsRef = useRef(new Map());
   const activeCellRef = useRef(null);
   const pendingCellFocusRef = useRef(null);
   const pendingFocusIdRef = useRef('');
   const selectionAnchorRef = useRef('');
+  const expenseSelectionAnchorRef = useRef('');
   const receiptTableRef = useRef(null);
   const receiptSubtotalRef = useRef(null);
   const receiptHorizontalScrollRef = useRef(null);
+  const expenseTableScrollerRef = useRef(null);
+  const getExpenseCostInputRef = useCallback((id) => {
+    if (!expenseCostInputsRef.current.has(id)) expenseCostInputsRef.current.set(id, { current: null });
+    return expenseCostInputsRef.current.get(id);
+  }, []);
+  useEffect(() => {
+    const expenseId = pendingExpenseFocusIdRef.current;
+    if (!expenseId) return undefined;
+    const frame = requestAnimationFrame(() => {
+      const scroller = expenseTableScrollerRef.current;
+      if (scroller) scroller.scrollTop = scroller.scrollHeight;
+      expenseCostInputsRef.current.get(expenseId)?.current?.focus();
+      pendingExpenseFocusIdRef.current = '';
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [expenses.length]);
   const locked = isReceiptConfirmed(subulyn);
   const readOnly = Boolean(selectedReceiptno) || locked;
   const hasManagerChanges = Boolean(selectedReceiptno) && Boolean(header.manager_dirty);
   const hasNewDetails = useMemo(() => rows.some((row) => row.is_new), [rows]);
-  const hasPendingChanges = useMemo(() => documentDirty || rows.some((row) => row.is_new || row.is_dirty), [documentDirty, rows]);
+  const hasPendingExpenses = useMemo(() => expenses.some((row) => row.is_new || row.is_dirty), [expenses]);
+  const hasPendingChanges = useMemo(() => documentDirty || rows.some((row) => row.is_new || row.is_dirty) || hasPendingExpenses, [documentDirty, rows, hasPendingExpenses]);
+  const expenseTotals = useMemo(() => expenses.reduce((totals, row) => {
+    totals.supply += Number(cleanNumericInput(row.supplyamt)) || 0;
+    totals.vat += Number(cleanNumericInput(row.vat)) || 0;
+    totals.total += (Number(cleanNumericInput(row.supplyamt)) || 0) + (Number(cleanNumericInput(row.vat)) || 0);
+    return totals;
+  }, { supply: 0, vat: 0, total: 0 }), [expenses]);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedExpenseSet = useMemo(() => new Set(selectedExpenseIds), [selectedExpenseIds]);
   const virtuosoContext = useMemo(() => ({ selectedSet }), [selectedSet]);
   const detailTotals = useMemo(() => rows.reduce((totals, row) => {
     const amount = Number(amountOf(row, unitOptions.price)) || 0;
@@ -805,7 +1084,7 @@ export default function OutboundRegisterPage() {
     if (column.key === 'total_weight') {
       const subtotal = receipts.reduce((sum, receipt) => sum + Number(receipt.total_weight || 0), 0);
       values.push(subtotal.toLocaleString(undefined, { maximumFractionDigits: 3 }));
-    } else if (['supply_amount', 'vat_amount', 'total_amount'].includes(column.key)) {
+    } else if (['supply_amount', 'vat_amount', 'total_amount', 'other_cost_amount'].includes(column.key)) {
       const subtotal = receipts.reduce((sum, receipt) => sum + Number(receipt[column.key] || 0), 0);
       values.push(formatWon(String(subtotal)));
     }
@@ -923,15 +1202,87 @@ export default function OutboundRegisterPage() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([loadUnitOptions('PRICE_UNIT'), loadUnitOptions('QTY'), loadUnitOptions('WAREHOUSE')])
-      .then(([price, quantity, warehouse]) => {
-        if (!cancelled) setUnitOptions({ price, quantity, warehouse });
+    Promise.all([loadUnitOptions('PRICE_UNIT'), loadUnitOptions('QTY'), loadUnitOptions('WAREHOUSE'), loadUnitOptions('OTHER_COST')])
+      .then(([price, quantity, warehouse, otherCost]) => {
+        if (!cancelled) {
+          setUnitOptions({ price, quantity, warehouse });
+          setExpenseOptions(otherCost);
+        }
       })
       .catch((error) => {
         if (!cancelled) notifications.show({ title: '단위 코드 조회 실패', message: errorMessage(error), color: 'red' });
       });
     return () => { cancelled = true; };
   }, [loadUnitOptions]);
+
+  const addExpense = useCallback(() => {
+    if (saving || readOnly) return;
+    const expense = makeExpense();
+    setExpenses((current) => [...current, expense]);
+    setDocumentDirty(true);
+    setDetailTab('expenses');
+    pendingExpenseFocusIdRef.current = expense.id;
+  }, [saving, readOnly]);
+
+  const changeExpense = useCallback((id, key, value) => {
+    if (saving || readOnly) return;
+    setExpenses((current) => current.map((expense) => {
+      if (expense.id !== id) return expense;
+      const next = { ...expense, [key]: value, is_dirty: !expense.is_new };
+      if (key === 'supplyamt' && !expense.vat_manual) {
+        const supply = Number(cleanNumericInput(value)) || 0;
+        next.vat = (Math.round((supply * 0.1 + Number.EPSILON) * 100) / 100).toFixed(2);
+      }
+      if (key === 'vat') next.vat_manual = true;
+      if (key === 'costcode') {
+        const option = expenseOptions.find((item) => item.code === value);
+        next.costname = option?.name || '';
+      }
+      if (key === 'customcode') {
+        const customer = receiptCustomers.find((item) => item.customercode === value);
+        next.customname = customer?.customername || '';
+      }
+      return next;
+    }));
+    setDocumentDirty(true);
+  }, [expenseOptions, receiptCustomers, readOnly, saving]);
+
+  const commitExpenseField = useCallback((id, key, value) => {
+    changeExpense(id, key, value);
+  }, [changeExpense]);
+
+  const toggleExpenseSelection = useCallback((id, shiftKey = false) => {
+    if (saving || readOnly) return;
+    setSelectedExpenseIds((current) => {
+      const from = expenses.findIndex((expense) => expense.id === expenseSelectionAnchorRef.current);
+      const to = expenses.findIndex((expense) => expense.id === id);
+      if (shiftKey && from >= 0 && to >= 0) {
+        expenseSelectionAnchorRef.current = id;
+        return [...new Set([...current, ...expenses.slice(Math.min(from, to), Math.max(from, to) + 1).map((expense) => expense.id)])];
+      }
+      expenseSelectionAnchorRef.current = id;
+      return current.includes(id) ? current.filter((value) => value !== id) : [...current, id];
+    });
+  }, [expenses, readOnly, saving]);
+
+  const toggleAllExpenses = useCallback((checked) => {
+    if (saving || readOnly) return;
+    setSelectedExpenseIds(checked ? expenses.map((expense) => expense.id) : []);
+    expenseSelectionAnchorRef.current = '';
+  }, [expenses, readOnly, saving]);
+
+  const removeSelectedExpenses = useCallback(() => {
+    if (saving || readOnly || !selectedExpenseIds.length) return;
+    const selected = new Set(selectedExpenseIds);
+    const remaining = expenses.filter((expense) => !selected.has(expense.id));
+    const removedCount = expenses.length - remaining.length;
+    if (!removedCount) return;
+    setExpenses(remaining);
+    setSelectedExpenseIds([]);
+    expenseSelectionAnchorRef.current = '';
+    setDocumentDirty(true);
+    notifications.show({ title: '선택 행 제거 완료', message: `기타비용 ${removedCount}행을 제거했습니다. 저장하면 반영됩니다.`, color: 'teal' });
+  }, [saving, readOnly, selectedExpenseIds, expenses]);
 
   const openCustomerPicker = useCallback((rowId) => {
     if (!readOnly && !saving) {
@@ -943,6 +1294,16 @@ export default function OutboundRegisterPage() {
 
   const selectCustomer = useCallback((customer) => {
     if (!customerPickerTargetId) return;
+    if (customerPickerTargetId.startsWith('expense::')) {
+      const expenseId = customerPickerTargetId.slice('expense::'.length);
+      setExpenses((current) => current.map((expense) => expense.id === expenseId
+        ? { ...expense, customcode: customer.customercode || '', customname: customer.customername || '', is_dirty: !expense.is_new }
+        : expense));
+      setDocumentDirty(true);
+      setCustomerPickerOpen(false);
+      setCustomerPickerTargetId('');
+      return;
+    }
     setRows((current) => current.map((row) => row.id === customerPickerTargetId
       ? { ...row, customcode: customer.customercode || '', customname: customer.customername || '', is_dirty: !row.is_new }
       : row));
@@ -1027,8 +1388,12 @@ export default function OutboundRegisterPage() {
         updated_at: receipt.updated_at || '',
       });
       setRows(loadedRows);
+      setExpenses((receipt.expenses || []).map((expense) => makeExpense({ ...expense, is_new: false, is_dirty: false })));
+      setSelectedExpenseIds([]);
+      expenseSelectionAnchorRef.current = '';
       setSelectedReceiptno(receipt.receiptno);
       setSubulyn(receipt.subulyn || 'N');
+      setDetailTab('details');
       setDocumentDirty(false);
       setSelectedIds([]);
       selectionAnchorRef.current = '';
@@ -1281,14 +1646,27 @@ export default function OutboundRegisterPage() {
       setHeader({ ...EMPTY_HEADER, receptdate: localDate() });
       setReceiptMetadata({ companyid: '', companyname: '', created_at: '', updated_at: '' });
       setRows([]);
+      setExpenses([]);
+      setSelectedExpenseIds([]);
+      expenseSelectionAnchorRef.current = '';
       setSelectedReceiptno('');
       setSubulyn('N');
+      setDetailTab('details');
       setDocumentDirty(false);
       setSelectedIds([]);
       selectionAnchorRef.current = '';
     }
     setStockPickerOpen(true);
   }, [saving, selectedReceiptno, hasPendingChanges]);
+
+  const handleAddAction = useCallback(() => {
+    if (selectedReceiptno) {
+      addDetail();
+      return;
+    }
+    if (detailTab === 'expenses') addExpense();
+    else addDetail();
+  }, [selectedReceiptno, detailTab, addExpense, addDetail]);
 
   const applyAvailableStocks = useCallback((stocks) => {
     const addedRows = stocks.map((stock) => makeDetail({
@@ -1423,6 +1801,26 @@ export default function OutboundRegisterPage() {
     if (!String(header.customcode || '').trim()) missing.push('매출처');
     if (selectedReceiptno && !header.receiptno.trim()) missing.push('출고전표번호');
     if (!rows.length) missing.push('상세 품목');
+    const invalidExpense = expenses
+      .map((expense, index) => ({
+        index,
+        missing: [
+          !(String(expense.costcode || '').trim() || String(expense.costname || '').trim()) && '비용구분',
+          !String(expense.supplyamt ?? '').trim() && '공급가',
+          !String(expense.vat ?? '').trim() && '부가세',
+        ].filter(Boolean),
+      }))
+      .find(({ missing }) => missing.length > 0);
+    if (invalidExpense) {
+      notifications.show({
+        title: '기타비용 입력 확인',
+        message: `${invalidExpense.index + 1}행 ${invalidExpense.missing.join(', ')} 입력이 필요합니다.`,
+        color: 'orange',
+        position: 'bottom-right',
+      });
+      setDetailTab('expenses');
+      return false;
+    }
     if (missing.length) {
       notifications.show({ title: '필수 항목을 입력해 주세요', message: missing.join(', '), color: 'orange' });
       return false;
@@ -1445,7 +1843,7 @@ export default function OutboundRegisterPage() {
       return false;
     }
     return true;
-  }, [header, rows, selectedReceiptno]);
+  }, [header, rows, selectedReceiptno, expenses]);
 
   const validateDetailMasters = useCallback((sourceRows) => {
     const errors = [];
@@ -1476,7 +1874,7 @@ export default function OutboundRegisterPage() {
   }, [unitOptions]);
 
   const saveDocument = useCallback(async () => {
-    if (selectedReceiptno && hasManagerChanges && !header.other_dirty && !hasNewDetails && !rows.some((row) => row.is_dirty) && !locked) {
+    if (selectedReceiptno && hasManagerChanges && !header.other_dirty && !hasNewDetails && !rows.some((row) => row.is_dirty) && !hasPendingExpenses && !locked) {
       setSaving(true);
       try {
         const { data } = await axios.patch(
@@ -1529,6 +1927,16 @@ export default function OutboundRegisterPage() {
           qty: String(row.qty ?? '').trim(),
           weight: String(row.weight || '').trim(), unitprice: String(row.unitprice || '').trim(),
         })),
+        expenses: expenses.map((expense) => ({
+          costcode: String(expense.costcode || '').trim(),
+          costname: String(expense.costname || '').trim(),
+          supplyamt: cleanNumericInput(expense.supplyamt) || '0',
+          vat: cleanNumericInput(expense.vat) || '0',
+          customcode: String(expense.customcode || '').trim(),
+          customname: String(expense.customname || '').trim(),
+          purchaseyn: expense.purchaseyn === 'Y' ? 'Y' : 'N',
+          description: String(expense.description || '').trim(),
+        })),
       };
       const saveRequest = selectedReceiptno
         ? axios.put('/api/outbound-register/receipts', payload, authConfig())
@@ -1554,7 +1962,7 @@ export default function OutboundRegisterPage() {
     } finally {
       setSaving(false);
     }
-  }, [locked, selectedReceiptno, hasManagerChanges, hasNewDetails, hasPendingChanges, rows, header, unitOptions, validateDetailMasters, validateDocument, loadReceipts, openReceipt]);
+  }, [locked, selectedReceiptno, hasManagerChanges, hasNewDetails, hasPendingExpenses, hasPendingChanges, rows, expenses, header, unitOptions, validateDetailMasters, validateDocument, loadReceipts, openReceipt]);
 
   const exportDocument = useCallback(() => {
     if (!header.receiptno || !rows.length) {
@@ -1645,6 +2053,11 @@ export default function OutboundRegisterPage() {
   }, [saving, selectedIds, rows]);
 
   const requestToolbarDelete = useCallback(() => {
+    if (detailTab === 'expenses') {
+      if (selectedExpenseIds.length) removeSelectedExpenses();
+      else notifications.show({ title: '삭제할 행을 선택해 주세요', message: '기타비용 표에서 삭제할 행을 선택한 뒤 상단 삭제를 눌러 주세요.', color: 'orange' });
+      return;
+    }
     if (!selectedReceiptno) {
       if (selectedIds.length) {
         removeSelectedDraftDetails();
@@ -1658,7 +2071,7 @@ export default function OutboundRegisterPage() {
       return;
     }
     setDeleteOpen(true);
-  }, [selectedReceiptno, selectedIds.length, removeSelectedDraftDetails, hasPendingChanges]);
+  }, [detailTab, selectedExpenseIds.length, removeSelectedExpenses, selectedReceiptno, selectedIds.length, removeSelectedDraftDetails, hasPendingChanges]);
 
   useEffect(() => {
     if (!registerPageRibbon) return undefined;
@@ -1666,17 +2079,17 @@ export default function OutboundRegisterPage() {
       <Group className={inboundClasses.commandRibbon} justify="flex-start" wrap="nowrap" gap={2}>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
         <span className={inboundClasses.ribbonSeparator} />
-        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={addDetail} disabled={saving}>&#xCD94;&#xAC00;</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={handleAddAction} disabled={saving}>&#xCD94;&#xAC00;</Button>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} onClick={copySelectedDetails} disabled>복사</Button>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportDocument} loading={exporting} disabled={!selectedReceiptno || loading || detailLoading || !rows.length}>엑셀</Button>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={() => saveDocument()} loading={saving} disabled={selectedReceiptno ? (locked || detailLoading || !(hasManagerChanges || hasPendingChanges)) : (readOnly || detailLoading)}>저장</Button>
-        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={requestToolbarDelete} disabled={saving || (selectedReceiptno ? locked : !selectedIds.length)}>삭제</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={requestToolbarDelete} disabled={saving || (detailTab === 'expenses' ? (readOnly || !selectedExpenseIds.length) : (selectedReceiptno ? locked : !selectedIds.length))}>삭제</Button>
         <span className={inboundClasses.ribbonSeparator} />
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closeActivePage}>닫기</Button>
       </Group>,
     );
     return () => registerPageRibbon(null);
-  }, [registerPageRibbon, closeActivePage, runSearch, loading, addDetail, copySelectedDetails, readOnly, saving, selectedIds.length, exportDocument, exporting, selectedReceiptno, rows.length, detailLoading, saveDocument, requestToolbarDelete, locked, hasManagerChanges, hasPendingChanges]);
+  }, [registerPageRibbon, closeActivePage, runSearch, loading, handleAddAction, copySelectedDetails, readOnly, saving, selectedIds.length, exportDocument, exporting, selectedReceiptno, rows.length, detailLoading, saveDocument, requestToolbarDelete, locked, hasManagerChanges, hasPendingChanges]);
 
 
   const requestDeleteReceipt = useCallback(async () => {
@@ -1688,7 +2101,7 @@ export default function OutboundRegisterPage() {
       setDeleteOpen(false);
       setHeader({ ...EMPTY_HEADER, receptdate: localDate() });
       setReceiptMetadata({ companyid: '', companyname: '', created_at: '', updated_at: '' });
-      setRows([]); setSelectedReceiptno(''); setSubulyn('N'); setDocumentDirty(false);
+      setRows([]); setExpenses([]); setSelectedExpenseIds([]); expenseSelectionAnchorRef.current = ''; setSelectedReceiptno(''); setSubulyn('N'); setDocumentDirty(false); setDetailTab('details');
       await loadReceipts(page, filters);
     } catch (error) {
       notifications.show({ title: '출고 삭제 실패', message: errorMessage(error), color: 'red' });
@@ -1710,11 +2123,11 @@ export default function OutboundRegisterPage() {
   const tableWidth = headerColumns.reduce((sum, column) => sum + (columnWidths[column.key] ?? column.width), 0);
   const receiptTableWidth = RECEIPT_COLUMNS.reduce((sum, column) => sum + (receiptColumnWidths[column.key] ?? receiptAutoWidths[column.key] ?? column.width), 0);
   const receiptTotals = receipts.reduce((totals, receipt) => {
-    for (const key of ['line_count', 'total_qty', 'total_weight', 'supply_amount', 'vat_amount', 'total_amount']) {
+    for (const key of ['line_count', 'total_qty', 'total_weight', 'supply_amount', 'vat_amount', 'total_amount', 'other_cost_amount']) {
       totals[key] += Number(receipt[key] || 0);
     }
     return totals;
-  }, { line_count: 0, total_qty: 0, total_weight: 0, supply_amount: 0, vat_amount: 0, total_amount: 0 });
+  }, { line_count: 0, total_qty: 0, total_weight: 0, supply_amount: 0, vat_amount: 0, total_amount: 0, other_cost_amount: 0 });
   const receiptCustomerData = receiptCustomers.map((customer) => ({
     value: customer.customercode,
     label: customer.customername || customer.customercode,
@@ -1779,6 +2192,7 @@ export default function OutboundRegisterPage() {
                     <Table.Td ta="right">{formatAmount(String(receipt.supply_amount ?? 0))}</Table.Td>
                     <Table.Td ta="right">{formatAmount(String(receipt.vat_amount ?? 0))}</Table.Td>
                     <Table.Td ta="right" className={classes.receiptFinderAmount}>{formatAmount(String(receipt.total_amount ?? 0))}</Table.Td>
+                    <Table.Td ta="right">{formatAmount(String(receipt.other_cost_amount ?? 0))}</Table.Td>
                     <Table.Td>{receipt.qtyunit || ''}</Table.Td>
                     <Table.Td>{receipt.unit || ''}</Table.Td>
                     <Table.Td>{receipt.receiptno}</Table.Td>
@@ -1798,7 +2212,7 @@ export default function OutboundRegisterPage() {
                     {index === 0 ? '소계' : column.key === 'line_count' ? receiptTotals.line_count.toLocaleString()
                       : column.key === 'total_qty' ? receiptTotals.total_qty.toLocaleString(undefined, { maximumFractionDigits: 3 })
                       : column.key === 'total_weight' ? receiptTotals.total_weight.toLocaleString(undefined, { maximumFractionDigits: 3 })
-                          : ['supply_amount', 'vat_amount', 'total_amount'].includes(column.key) ? formatWon(String(receiptTotals[column.key])) : ''}
+                          : ['supply_amount', 'vat_amount', 'total_amount', 'other_cost_amount'].includes(column.key) ? formatWon(String(receiptTotals[column.key])) : ''}
                   </Table.Td>)}
                 </Table.Tr></Table.Tbody>
               </Table>
@@ -1860,6 +2274,13 @@ export default function OutboundRegisterPage() {
             </Box>
           </Box>
 
+          <Box className={classes.detailTabsBar} role="tablist" aria-label="출고 상세 구분">
+            <button type="button" role="tab" aria-selected={detailTab === 'details'} className={detailTab === 'details' ? classes.detailTabActive : classes.detailTab}
+              onClick={() => setDetailTab('details')}>출고 상세 {rows.length.toLocaleString()}건</button>
+            <button type="button" role="tab" aria-selected={detailTab === 'expenses'} className={detailTab === 'expenses' ? classes.detailTabActive : classes.detailTab}
+              onClick={() => setDetailTab('expenses')}>기타비용 {expenses.length.toLocaleString()}건</button>
+          </Box>
+          {detailTab === 'details' && <>
           <Box ref={detailScrollerRef} className={`${codeClasses.tableWrap} ${(rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? classes.savedDetailScroller : ''} ${!detailLoading && !rows.length ? inboundClasses.emptyDetailWrap : ''}`} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
             {detailLoading ? <Box className={classes.receiptLoading}><Loader size="sm" color="red" /></Box> : rows.length ? (
               (rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? <>
@@ -1889,6 +2310,64 @@ export default function OutboundRegisterPage() {
               {' · '}합계 {formatWon(detailTotals.total.toFixed(2))}
             </Text>
           </Group>
+            </>}
+          {detailTab === 'expenses' && <Box className={classes.expenseTabPanel}>
+              <Box ref={expenseTableScrollerRef} className={`${codeClasses.tableWrap} ${classes.expenseTableWrap} ${expenses.length <= 100 ? classes.savedDetailScroller : ''} ${!expenses.length ? inboundClasses.emptyDetailWrap : ''}`}>
+                <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} withTableBorder withColumnBorders horizontalSpacing="xs" verticalSpacing="xs"
+                  style={{ width: '100%', minWidth: 1120, tableLayout: 'fixed' }}>
+                  <Table.Thead><Table.Tr>
+                    <Table.Th style={{ width: 42 }} ta="center"><input type="checkbox" aria-label="기타비용 전체 선택" disabled={saving || readOnly}
+                      checked={expenses.length > 0 && selectedExpenseIds.length === expenses.length}
+                      onChange={(event) => toggleAllExpenses(event.currentTarget.checked)} /></Table.Th>
+                    <Table.Th style={{ width: 52 }}>No.</Table.Th>
+                    <Table.Th style={{ width: 160 }}>비용 구분</Table.Th>
+                    <Table.Th style={{ width: 145 }} ta="right">공급가</Table.Th>
+                    <Table.Th style={{ width: 135 }} ta="right">부가세</Table.Th>
+                    <Table.Th style={{ width: 145 }} ta="right">합계금액</Table.Th>
+                    <Table.Th style={{ width: 190 }}>거래처</Table.Th>
+                    <Table.Th style={{ width: 105 }}>비용여부</Table.Th>
+                    <Table.Th>비고</Table.Th>
+                  </Table.Tr></Table.Thead>
+                  {expenses.length > 0 && <Table.Tbody>
+                    {expenses.map((expense, index) => {
+                      const supply = Number(cleanNumericInput(expense.supplyamt)) || 0;
+                      const vat = Number(cleanNumericInput(expense.vat)) || 0;
+                      return <Table.Tr key={expense.id} className={[expense.is_new && classes.newRow, selectedExpenseSet.has(expense.id) && classes.selectedRow].filter(Boolean).join(' ')}>
+                        <Table.Td ta="center"><input type="checkbox" aria-label={`기타비용 ${index + 1}행 선택`} checked={selectedExpenseSet.has(expense.id)} disabled={saving || readOnly}
+                          onChange={(event) => toggleExpenseSelection(expense.id, event.nativeEvent.shiftKey)} /></Table.Td>
+                        <Table.Td ta="center">{index + 1}</Table.Td>
+                        <Table.Td><ExpenseCostAutocompleteCell row={expense} options={expenseOptions} disabled={saving || readOnly}
+                          inputRef={getExpenseCostInputRef(expense.id)}
+                          onDoubleClick={() => setExpenseCostPickerId(expense.id)}
+                          onSelect={(option) => changeExpense(expense.id, 'costcode', option?.code || '')} /></Table.Td>
+                        <Table.Td><ExpenseNumericCell expenseId={expense.id} field="supplyamt" value={expense.supplyamt}
+                          disabled={saving || readOnly} onCommit={commitExpenseField} /></Table.Td>
+                        <Table.Td><ExpenseNumericCell expenseId={expense.id} field="vat" value={expense.vat}
+                          disabled={saving || readOnly} onCommit={commitExpenseField} /></Table.Td>
+                        <Table.Td><input className={`${codeClasses.cellInput} ${inboundClasses.amountInput}`} aria-label="합계금액"
+                          value={formatNumericInput(String(supply + vat))} readOnly /></Table.Td>
+                        <Table.Td><ExpenseCustomerAutocompleteCell expenseId={expense.id}
+                          value={expense.customname || ''} disabled={saving || readOnly}
+                          onSelect={(id, customer) => changeExpense(id, 'customcode', customer.customercode || '')}
+                          onOpenPicker={(id) => openCustomerPicker('expense::' + id)} /></Table.Td>
+                        <Table.Td><Select size="xs" data={[{ value: 'N', label: '아니오' }, { value: 'Y', label: '예' }]} value={expense.purchaseyn || 'N'} disabled={saving || readOnly}
+                          onChange={(value) => changeExpense(expense.id, 'purchaseyn', value || 'N')} /></Table.Td>
+                        <Table.Td><ExpenseDescriptionCell expenseId={expense.id} value={expense.description}
+                          disabled={saving || readOnly} onCommit={commitExpenseField} /></Table.Td>
+                      </Table.Tr>;
+                    })}
+                  </Table.Tbody>}
+                </Table>
+                {!expenses.length && <Box className={inboundClasses.emptyDetailMessage}>등록된 기타비용이 없습니다.</Box>}
+              </Box>
+              <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="flex-end" wrap="wrap">
+                <Text size="xs" fw={700}>
+                  총공급가 {formatWon(String(expenseTotals.supply))}
+                  {' · '}부가세 {formatWon(String(expenseTotals.vat))}
+                  {' · '}합계 {formatWon(String(expenseTotals.total))}
+                </Text>
+              </Group>
+            </Box>}
         </Paper>
       </Box>
         </Box>
@@ -1939,6 +2418,17 @@ export default function OutboundRegisterPage() {
 
 
       <CustomerPickerModal opened={customerPickerOpen} onClose={() => { setCustomerPickerOpen(false); setCustomerPickerTargetId('' ); }} onSelect={selectCustomer} />
+      <MasterOptionPickerModal
+        key={expenseCostPickerId || 'expense-cost-closed'}
+        opened={Boolean(expenseCostPickerId)}
+        onClose={() => setExpenseCostPickerId('')}
+        title="비용구분 선택"
+        options={expenseOptions}
+        onSelect={(option) => {
+          if (expenseCostPickerId) changeExpense(expenseCostPickerId, 'costcode', option.code || '');
+          setExpenseCostPickerId('');
+        }}
+      />
       <OutboundStockPickerModal
         opened={stockPickerOpen}
         receiptno={selectedReceiptno}
