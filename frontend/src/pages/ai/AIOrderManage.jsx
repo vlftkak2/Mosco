@@ -1,47 +1,78 @@
-import { useMemo, useState } from 'react';
-import { Box } from '@mantine/core';
-import { IconFileDescription, IconPencil, IconPlayerPlay, IconSearch, IconX } from '@tabler/icons-react';
-import { useNavigate } from 'react-router-dom';
-import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import axios from 'axios';
+import { ActionIcon, Box, Button, Group, Modal as MantineModal, Paper, Select, Stack, Text, TextInput } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import { IconFilter, IconPencil, IconTrash, IconX } from '@tabler/icons-react';
+import { useSearchParams } from 'react-router-dom';
+import ErpDateInput from '../../components/common/ErpDateInput';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import classes from '../../styles/pages/AIOrderRegistry.module.css';
 
-const initialOrders = [
-  {
-    id: 'AI2026102500001', date: '2026-10-25', customer: '동진', receiver: '모스코', due: '2026-11-05', place: '경북 구미시', note: '인식 확인 완료', status: '확정',
-    items: [
-      { name: 'ET', grade: '확인 필요', raw: '0.6 × 55 × C', t: 0.6, w: 55, l: 'C', qty: 1000, unit: 'KG', weight: 1000, stock: '확인 필요', processing: '검토 전', note: '강종 확인 필요' },
-      { name: 'ET', grade: 'ET', raw: '0.6 × 78 × C', t: 0.6, w: 78, l: 'C', qty: 500, unit: 'KG', weight: 500, stock: '미조회', processing: '검토 전', note: '' },
-      { name: 'ET', grade: 'ET', raw: '0.6 × 154 × C', t: 0.6, w: 154, l: 'C', qty: 700, unit: 'KG', weight: 700, stock: '일부 가능', processing: '재고 매칭 완료', note: '' },
-      { name: 'ET', grade: 'ET', raw: '0.6 × 188 × C', t: 0.6, w: 188, l: 'C', qty: 500, unit: 'KG', weight: 500, stock: '미조회', processing: '검토 전', note: '' },
-      { name: 'ET', grade: 'ET', raw: '0.6 × 191 × C', t: 0.6, w: 191, l: 'C', qty: 1000, unit: 'KG', weight: 1000, stock: '미조회', processing: '검토 전', note: '' },
-      { name: 'ET', grade: 'ET', raw: '0.6 × 200 × C', t: 0.6, w: 200, l: 'C', qty: 500, unit: 'KG', weight: 500, stock: '미조회', processing: '검토 전', note: '' },
-      { name: 'ET', grade: 'ET', raw: '0.6 × 210 × C', t: 0.6, w: 210, l: 'C', qty: 300, unit: 'KG', weight: 300, stock: '미조회', processing: '검토 전', note: '' },
-    ],
-  },
-  {
-    id: 'AI2026102500002', date: '2026-10-24', customer: '금영', receiver: '모스코', due: '2026-11-08', place: '경기도 화성시', note: '가공 검토 진행', status: '확정',
-    items: [
-      { name: '몰받이-포스맥(GIX)', grade: 'GIX', raw: '0.45 × 600 × C', t: 0.45, w: 600, l: 'C', qty: 7000, unit: 'KG', weight: 7000, stock: '가공 가능', processing: '가공 검토 중', note: '' },
-      { name: '패드-소재-포스맥(GIX)', grade: 'GIX', raw: '0.78 × 67 × C', t: 0.78, w: 67, l: 'C', qty: 10000, unit: 'KG', weight: 10000, stock: '미조회', processing: '검토 전', note: '' },
-    ],
-  },
+const PAGE_SIZE_OPTIONS = [
+  { value: '15', label: '15개씩' },
+  { value: '50', label: '50개씩' },
+  { value: '100', label: '100개씩' },
+  { value: '200', label: '200개씩' },
 ];
-
+const DETAIL_NAV_FIELDS = ['itemname', 'steelgrade', 'size', 'thickness', 'width', 'length', 'quantity', 'quantity_unit', 'weight_kg', 'notes'];
+const ORDER_COLUMNS = [
+  { key: 'orderdate', label: '주문일자', width: 105, minWidth: 78 },
+  { key: 'orderid', label: '주문번호', width: 175, minWidth: 110 },
+  { key: 'buyer', label: '발주처', width: 105, minWidth: 80 },
+  { key: 'receiver', label: '수신처', width: 100, minWidth: 75 },
+  { key: 'duedate', label: '납기일', width: 105, minWidth: 78 },
+  { key: 'deliverylocation', label: '납품장소', width: 170, minWidth: 100 },
+  { key: 'detailcount', label: '상세건수', width: 80, minWidth: 65 },
+  { key: 'weight', label: '주문중량(KG)', width: 120, minWidth: 90 },
+  { key: 'progress', label: '가공진행', width: 125, minWidth: 85 },
+  { key: 'notes', label: '비고', width: 130, minWidth: 80 },
+];
+const DETAIL_COLUMNS = [
+  { key: 'select', label: '', width: 40, minWidth: 34 },
+  { key: 'lineno', label: '순번', width: 55, minWidth: 42 },
+  { key: 'itemname', label: '품명', width: 150, minWidth: 90 },
+  { key: 'steelgrade', label: '강종', width: 100, minWidth: 65 },
+  { key: 'size', label: '규격 원문', width: 150, minWidth: 90 },
+  { key: 'thickness', label: '두께', width: 75, minWidth: 55 },
+  { key: 'width', label: '폭', width: 75, minWidth: 55 },
+  { key: 'length', label: '길이', width: 75, minWidth: 55 },
+  { key: 'quantity', label: '수량', width: 95, minWidth: 65 },
+  { key: 'quantity_unit', label: '수량단위', width: 85, minWidth: 65 },
+  { key: 'weight_kg', label: '중량(KG)', width: 110, minWidth: 75 },
+  { key: 'stock', label: '재고매칭', width: 115, minWidth: 80 },
+  { key: 'processing', label: '가공상태', width: 125, minWidth: 85 },
+  { key: 'notes', label: '비고', width: 125, minWidth: 80 },
+];
+const createDefaultOrderFilters = (orderNo = '', orderDate = '') => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  const pad = (value) => String(value).padStart(2, '0');
+  return {
+    from: /^\d{4}-\d{2}-\d{2}$/.test(orderDate) ? orderDate : `${year}-${pad(month + 1)}-01`,
+    to: `${year}-${pad(month + 1)}-${pad(new Date(year, month + 1, 0).getDate())}`,
+    customer: '',
+    orderNo,
+  };
+};
+const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
+const dateText = (value) => value ? String(value).slice(0, 10) : '';
 const number = (value) => Number(value || 0).toLocaleString('ko-KR');
-function progression(order) {
-  if (order.status === '취소') return '취소';
-  const states = order.items.map((item) => item.processing);
-  if (states.every((state) => state === '완료')) return '완료';
-  if (states.some((state) => state === '가공 진행 중')) return '가공 진행 중';
-  if (states.some((state) => state === '계획 확정')) return '계획 확정';
-  if (states.some((state) => state === '가공 검토 중')) return '가공 검토 중';
-  if (states.some((state) => state === '재고 매칭 완료')) return '재고 매칭 완료';
-  return '검토 전';
-}
-function Badge({ value }) {
-  const tone = ['확정', '완료', '가공 가능'].includes(value) ? 'green' : value === '취소' ? 'red' : ['확인 필요', '검토 전'].includes(value) ? 'orange' : 'blue';
+const formatNumericValue = (value) => {
+  const raw = String(value ?? '');
+  if (!raw) return '';
+  const [integer, fraction] = raw.split('.');
+  const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return fraction === undefined ? grouped : `${grouped}.${fraction}`;
+};
+const errorMessage = (error, fallback) => {
+  const detail = error?.response?.data?.detail;
+  return typeof detail === 'string' ? detail : fallback;
+};
+
+function Badge({ value, tone = 'blue' }) {
   return <span className={`${classes.badge} ${classes[tone]}`}>{value}</span>;
 }
 
@@ -56,136 +87,484 @@ function Modal({ title, children, actions, onClose }) {
 }
 
 export default function AIOrderManage() {
-  const navigate = useNavigate();
-  const [orders, setOrders] = useState(() => initialOrders.map((order) => ({ ...order, items: order.items.map((item) => ({ ...item })) })));
-  const [selectedId, setSelectedId] = useState(initialOrders[0].id);
-  const [visibleIds, setVisibleIds] = useState(initialOrders.map(({ id }) => id));
-  const [draftFilters, setDraftFilters] = useState({ from: '', to: '', customer: '', orderNo: '', status: '' });
+  const [searchParams] = useSearchParams();
+  const initialOrderId = searchParams.get('orderid')?.trim() || '';
+  const initialOrderDate = searchParams.get('orderdate')?.trim() || '';
+  const [orders, setOrders] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [selectedId, setSelectedId] = useState('');
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [itemDrafts, setItemDrafts] = useState([]);
+  const [selectedItemKeys, setSelectedItemKeys] = useState([]);
+  const nextDraftKey = useRef(1);
+  const itemSelectionAnchor = useRef(null);
+  const ordersScrollRef = useRef(null);
+  const ordersHorizontalScrollRef = useRef(null);
+  const [orderColumnWidths, setOrderColumnWidths] = useState({});
+  const [detailColumnWidths, setDetailColumnWidths] = useState({});
+  const [filterOpen, setFilterOpen] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+  const [applied, setApplied] = useState(() => createDefaultOrderFilters(initialOrderId, initialOrderDate));
+  const [draftFilters, setDraftFilters] = useState(() => createDefaultOrderFilters(initialOrderId, initialOrderDate));
   const [modal, setModal] = useState(null);
-  const [toast, setToast] = useState('');
-  const selectedOrder = orders.find(({ id }) => id === selectedId);
-  const visibleOrders = useMemo(() => orders.filter(({ id }) => visibleIds.includes(id)), [orders, visibleIds]);
-  const detailWeight = (order) => order.items.reduce((sum, item) => sum + item.weight, 0);
-  const notify = (message) => { setToast(message); window.setTimeout(() => setToast(''), 2500); };
-  useErpPageRibbon({ showPrint: false, useSaveColor: false });
+  const selectedOrder = orders.find(({ orderid }) => orderid === selectedId) || null;
+  const detailWeight = useMemo(() => itemDrafts.reduce((sum, item) => {
+    const value = Number(item.weight_kg || 0);
+    return Number.isFinite(value) ? sum + value : sum;
+  }, 0), [itemDrafts]);
+  const syncOrdersHorizontalScroll = (source) => {
+    const left = source.currentTarget.scrollLeft;
+    for (const element of [ordersScrollRef.current, ordersHorizontalScrollRef.current]) {
+      if (element && element !== source.currentTarget && Math.abs(element.scrollLeft - left) > 0.5) {
+        element.scrollLeft = left;
+      }
+    }
+  };
+  const resizeTableColumn = (event, tableType, column) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const columns = tableType === 'orders' ? ORDER_COLUMNS : DETAIL_COLUMNS;
+    const widthState = tableType === 'orders' ? orderColumnWidths : detailColumnWidths;
+    const setWidthState = tableType === 'orders' ? setOrderColumnWidths : setDetailColumnWidths;
+    const minTableWidth = tableType === 'orders' ? 1315 : 1440;
+    const startX = event.clientX;
+    const startWidth = widthState[column.key] ?? column.width;
+    const table = event.currentTarget.closest('table');
+    const widthOf = (item) => widthState[item.key] ?? item.width;
+    const startTableWidth = Math.max(minTableWidth, columns.reduce((sum, item) => sum + widthOf(item), 0), table?.clientWidth || 0);
+    let nextWidth = startWidth;
+    let animationFrame = 0;
 
-  const applySearch = (criteria = draftFilters) => {
-    const result = orders.filter((order) => (!criteria.from || order.date >= criteria.from)
-      && (!criteria.to || order.date <= criteria.to)
-      && order.customer.includes(criteria.customer.trim())
-      && order.id.includes(criteria.orderNo.trim())
-      && (!criteria.status || progression(order) === criteria.status));
-    setVisibleIds(result.map(({ id }) => id));
-    if (!result.some(({ id }) => id === selectedId)) setSelectedId(result[0]?.id || null);
+    const applyWidth = () => {
+      const tableWidth = Math.max(minTableWidth, startTableWidth + nextWidth - startWidth);
+      const targetColumn = table?.querySelector(`col[data-column-key="${column.key}"]`);
+      if (targetColumn) targetColumn.style.width = `${nextWidth}px`;
+      if (table) {
+        table.style.width = `max(100%, ${tableWidth}px)`;
+        table.style.minWidth = `${tableWidth}px`;
+      }
+      if (tableType === 'orders' && ordersHorizontalScrollRef.current?.firstElementChild) {
+        ordersHorizontalScrollRef.current.firstElementChild.style.width = `${Math.max(tableWidth, ordersScrollRef.current?.clientWidth || 0)}px`;
+      }
+    };
+    const move = (pointerEvent) => {
+      nextWidth = Math.max(column.minWidth, Math.min(1200, startWidth + pointerEvent.clientX - startX));
+      if (!animationFrame) {
+        animationFrame = window.requestAnimationFrame(() => {
+          animationFrame = 0;
+          applyWidth();
+        });
+      }
+    };
+    const finish = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      applyWidth();
+      setWidthState((current) => ({ ...current, [column.key]: nextWidth }));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
   };
-  const resetSearch = () => {
-    const empty = { from: '', to: '', customer: '', orderNo: '', status: '' };
-    setDraftFilters(empty); setVisibleIds(orders.map(({ id }) => id)); setSelectedId(orders[0]?.id || null);
-  };
-  const openPreview = () => {
-    if (!selectedOrder) return notify('주문을 선택하세요.');
-    setModal({ type: 'preview' });
-  };
+  const orderTableWidth = Math.max(1315, ORDER_COLUMNS.reduce((sum, column) => sum + (orderColumnWidths[column.key] ?? column.width), 0));
+  const detailTableWidth = Math.max(1440, DETAIL_COLUMNS.reduce((sum, column) => sum + (detailColumnWidths[column.key] ?? column.width), 0));
+
+  useEffect(() => {
+    setSelectedItemKeys([]);
+    const rows = detail?.header?.orderid === selectedId && Array.isArray(detail.items)
+      ? detail.items.map((item) => ({
+        ...item,
+        _rowKey: `saved-${selectedId}-${item.lineno}`,
+        itemname: item.itemname || '',
+        steelgrade: item.steelgrade || '',
+        size: item.size || '',
+        thickness: item.thickness ?? '',
+        width: item.width ?? '',
+        length: item.length ?? '',
+        quantity: item.quantity ?? item.quantity_raw ?? '',
+        quantity_unit: item.quantity_unit || '',
+        weight_kg: item.weight_kg ?? item.weight_raw ?? '',
+        notes: item.notes || '',
+      }))
+      : [];
+    setItemDrafts(rows);
+  }, [selectedId, detail]);
+  const notify = useCallback((message, title, color = 'orange') => {
+    notifications.show({ title, message, color });
+  }, []);
+  const loadOrders = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = Object.fromEntries(Object.entries({
+        start_date: applied.from,
+        end_date: applied.to,
+        buyer: applied.customer,
+        orderid: applied.orderNo,
+      }).filter(([, value]) => value));
+      const { data } = await axios.get('/api/ai-order/confirmed', {
+        ...authConfig(), params: { ...params, page, page_size: pageSize },
+      });
+      const rows = Array.isArray(data?.items) ? data.items : [];
+      setOrders(rows);
+      setTotal(Number(data?.total || 0));
+      setSelectedId((current) => rows.some((row) => row.orderid === current) ? current : (rows[0]?.orderid || ''));
+    } catch (error) {
+      notify(errorMessage(error, '확정 주문을 불러오지 못했습니다. 다시 조회해 주세요.'), '확정 주문 조회 실패', 'red');
+      setOrders([]);
+      setTotal(0);
+      setSelectedId('');
+    } finally {
+      setLoading(false);
+    }
+  }, [applied, page, pageSize, notify]);
+
+  useEffect(() => { void loadOrders(); }, [loadOrders]);
+
+  useEffect(() => {
+    if (!selectedId) { setDetail(null); return undefined; }
+    let active = true;
+    setDetail(null);
+    setDetailLoading(true);
+    axios.get(`/api/ai-order/confirmed/${encodeURIComponent(selectedId)}`, authConfig())
+      .then(({ data }) => { if (active) setDetail(data); })
+      .catch((error) => { if (active) notify(errorMessage(error, '주문 상세를 불러오지 못했습니다.'), '주문 상세 조회 실패', 'red'); })
+      .finally(() => { if (active) setDetailLoading(false); });
+    return () => { active = false; };
+  }, [selectedId, notify]);
+
+  function applySearch(criteria = draftFilters) {
+    if (criteria.from && criteria.to && criteria.from > criteria.to) {
+      notify('주문 시작일은 종료일보다 늦을 수 없습니다.', '날짜 범위 확인');
+      return;
+    }
+    setPage(1);
+    setSelectedId('');
+    setApplied({ ...criteria, customer: criteria.customer.trim(), orderNo: criteria.orderNo.trim() });
+  }
+
   const openEdit = () => {
-    if (!selectedOrder) return notify('주문을 선택하세요.');
-    if (selectedOrder.status === '취소') return notify('취소된 주문은 수정할 수 없습니다.');
-    setModal({ type: 'edit', due: selectedOrder.due, place: selectedOrder.place });
+    if (!selectedOrder) return notify('주문을 먼저 선택해 주세요.', '주문 선택 확인');
+    setModal({ type: 'edit', buyer: selectedOrder.buyer || '', recipient: selectedOrder.recipient || '', orderDate: dateText(selectedOrder.orderdate), due: dateText(selectedOrder.duedate), place: selectedOrder.deliverylocation || '' });
   };
-  const saveEdit = () => {
-    if (!['검토 전', '재고 매칭 완료'].includes(progression(selectedOrder))) return notify('가공 진행상태 확인 및 변경승인이 필요합니다.');
-    if (!modal.due) return notify('납기일을 입력하세요.');
-    setOrders((current) => current.map((order) => order.id === selectedId ? { ...order, due: modal.due, place: modal.place, note: '변경 예시' } : order));
-    setModal(null); notify('화면 데이터에만 변경되었습니다.');
+
+  const saveEdit = async () => {
+    if (!selectedOrder || !modal || saving) return;
+    if (!modal.due) return notify('납기일을 입력해 주세요.', '필수 항목 확인');
+    setSaving(true);
+    try {
+      await axios.put(`/api/ai-order/confirmed/${encodeURIComponent(selectedOrder.orderid)}`, {
+        buyer: modal.buyer.trim() || null,
+        recipient: modal.recipient.trim() || null,
+        order_date: modal.orderDate || null,
+        due_date: modal.due,
+        delivery_location: modal.place.trim() || null,
+      }, authConfig());
+      setModal(null);
+      notify('주문 정보가 저장되었습니다.', '주문 정보 저장 완료', 'teal');
+      await loadOrders();
+      const { data } = await axios.get(`/api/ai-order/confirmed/${encodeURIComponent(selectedOrder.orderid)}`, authConfig());
+      setDetail(data);
+    } catch (error) {
+      notify(errorMessage(error, '주문 정보를 저장하지 못했습니다.'), '주문 정보 저장 실패', 'red');
+    } finally {
+      setSaving(false);
+    }
   };
-  const openCancel = () => {
-    if (!selectedOrder) return notify('주문을 선택하세요.');
-    if (selectedOrder.status === '취소') return notify('이미 취소된 주문입니다.');
-    setModal({ type: 'cancel' });
+
+  const addItemDraft = () => {
+    if (!selectedOrder) return notify('주문을 먼저 선택해 주세요.', '주문 선택 확인');
+    const _rowKey = `new-${selectedId}-${nextDraftKey.current++}`;
+    setItemDrafts((rows) => [...rows, {
+      _rowKey, lineno: null, itemname: '', steelgrade: '', size: '', thickness: '',
+      width: '', length: '', quantity: '', quantity_unit: '', weight_kg: '', notes: '',
+    }]);
   };
-  const cancelOrder = () => {
-    setOrders((current) => current.map((order) => order.id === selectedId ? { ...order, status: '취소', note: '취소 예시' } : order));
-    setModal(null); notify('예시 주문이 취소 상태로 변경되었습니다.');
+
+  const changeItemDraft = (_rowKey, key, value) => {
+    setItemDrafts((rows) => rows.map((row) => row._rowKey === _rowKey ? {
+      ...row,
+      [key]: value,
+      ...(key === 'quantity' ? { quantity_raw: null } : {}),
+      ...(key === 'weight_kg' ? { weight_raw: null } : {}),
+    } : row));
   };
-  const openReview = () => {
-    if (!selectedOrder) return notify('주문을 선택하세요.');
-    setModal({ type: 'review' });
+
+  const toggleItemSelection = (_rowKey, shiftKey = false) => {
+    const index = itemDrafts.findIndex((row) => row._rowKey === _rowKey);
+    setSelectedItemKeys((keys) => {
+      if (shiftKey && itemSelectionAnchor.current !== null) {
+        const start = Math.min(index, itemSelectionAnchor.current);
+        const end = Math.max(index, itemSelectionAnchor.current);
+        const range = itemDrafts.slice(start, end + 1).map((row) => row._rowKey);
+        return [...new Set([...keys, ...range])];
+      }
+      itemSelectionAnchor.current = index;
+      return keys.includes(_rowKey) ? keys.filter((key) => key !== _rowKey) : [...keys, _rowKey];
+    });
   };
-  const moveToOptimization = () => {
-    const unchecked = selectedOrder.items.filter((item) => item.grade === '확인 필요');
-    if (unchecked.length) { notify('확인이 필요한 품목을 먼저 검토하세요.'); return; }
-    navigate('/AIOrderOptimization');
+
+  const toggleAllItemSelection = () => {
+    setSelectedItemKeys((keys) => keys.length === itemDrafts.length ? [] : itemDrafts.map((row) => row._rowKey));
   };
+
+  const deleteSelectedItemDrafts = () => {
+    if (!selectedItemKeys.length) return;
+    const selected = new Set(selectedItemKeys);
+    setItemDrafts((rows) => rows.filter((row) => !selected.has(row._rowKey)));
+    setSelectedItemKeys([]);
+  };
+
+  const requestDelete = () => {
+    if (selectedItemKeys.length) {
+      deleteSelectedItemDrafts();
+      return;
+    }
+    if (!selectedOrder || saving) return;
+    setModal({ type: 'delete-order' });
+  };
+
+  const deleteOrder = async () => {
+    const target = selectedOrder;
+    if (!target || saving) return;
+    setSaving(true);
+    try {
+      await axios.delete(`/api/ai-order/confirmed/${encodeURIComponent(target.orderid)}`, authConfig());
+      setModal(null);
+      setDetail(null);
+      setItemDrafts([]);
+      setSelectedItemKeys([]);
+      notify(`${target.orderid} 주문을 삭제했습니다.`, '주문 삭제 완료', 'teal');
+      await loadOrders();
+    } catch (error) {
+      notify(errorMessage(error, '주문 삭제에 실패했습니다.'), '주문 삭제 실패', 'red');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveItemEdits = async () => {
+    if (!selectedOrder || saving) return;
+    const numericFields = ['thickness', 'width', 'length', 'quantity', 'weight_kg'];
+    const rows = [];
+    const activeDrafts = itemDrafts.filter((row) => row.lineno || ['itemname', 'steelgrade', 'size', 'thickness', 'width', 'length', 'quantity', 'quantity_unit', 'weight_kg', 'notes']
+      .some((key) => String(row[key] ?? '').trim()));
+    for (const row of activeDrafts) {
+      const converted = { ...row };
+      for (const key of numericFields) {
+        const raw = String(row[key] ?? '').replaceAll(',', '').trim();
+        const rawKey = key === 'quantity' ? 'quantity_raw' : key === 'weight_kg' ? 'weight_raw' : null;
+        if (!raw) { converted[key] = null; if (rawKey) converted[rawKey] = null; continue; }
+        if (rawKey && row[rawKey] != null && raw === String(row[rawKey])) {
+          converted[key] = null;
+          continue;
+        }
+        if (!/^\d+(?:\.\d{1,3})?$/.test(raw) || !Number.isFinite(Number(raw))) {
+          return notify(`${row.lineno || itemDrafts.indexOf(row) + 1}행 ${key === 'weight_kg' ? '중량' : key === 'quantity' ? '수량' : key === 'thickness' ? '두께' : key === 'width' ? '폭' : '길이'}은 숫자만 입력해 주세요. 소수점은 셋째 자리까지 가능합니다.`, '숫자 입력 확인');
+        }
+        converted[key] = Number(raw);
+        if (rawKey) converted[rawKey] = null;
+      }
+      rows.push(converted);
+    }
+
+    setSaving(true);
+    try {
+      await axios.put(`/api/ai-order/confirmed/${encodeURIComponent(selectedOrder.orderid)}/items`, { items: rows }, authConfig());
+      setSelectedItemKeys([]);
+      notify('주문 상세가 저장되었습니다.', '주문 상세 저장 완료', 'teal');
+      await loadOrders();
+      const { data } = await axios.get(`/api/ai-order/confirmed/${encodeURIComponent(selectedOrder.orderid)}`, authConfig());
+      setDetail(data);
+    } catch (error) {
+      notify(errorMessage(error, '주문 상세를 저장하지 못했습니다.'), '주문 상세 저장 실패', 'red');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const detailInput = (item, key, numeric = false, displayIndex = 0) => (
+    <input
+      className={classes.editInput}
+      data-detail-row={displayIndex}
+      data-detail-column={DETAIL_NAV_FIELDS.indexOf(key)}
+      value={numeric ? formatNumericValue(item[key]) : item[key] ?? ''}
+      inputMode={numeric ? 'decimal' : undefined}
+      onChange={(event) => {
+        const input = event.currentTarget;
+        const displayValue = input.value;
+        const cursor = input.selectionStart ?? displayValue.length;
+        const value = numeric ? displayValue.replaceAll(',', '') : displayValue;
+        if (numeric && value !== '' && !/^\d*(?:\.\d{0,3})?$/.test(value)) return;
+        changeItemDraft(item._rowKey, key, value);
+        if (numeric) {
+          const rawCursor = displayValue.slice(0, cursor).replaceAll(',', '').length;
+          requestAnimationFrame(() => {
+            const nextCursor = formatNumericValue(value.slice(0, rawCursor)).length;
+            input.setSelectionRange(nextCursor, nextCursor);
+          });
+        }
+      }}
+      onKeyDown={handleDetailGridKeyDown}
+      aria-label={`${displayIndex + 1}행 ${key}`}
+    />
+  );
+
+  function handleDetailGridKeyDown(event) {
+    const input = event.currentTarget;
+    const rowIndex = Number(input.dataset.detailRow);
+    const columnIndex = Number(input.dataset.detailColumn);
+    if (!Number.isInteger(rowIndex) || !Number.isInteger(columnIndex) || columnIndex < 0) return;
+
+    let nextRow = rowIndex;
+    let nextColumn = columnIndex;
+    if (event.key === 'ArrowUp') nextRow -= 1;
+    else if (event.key === 'ArrowDown') nextRow += 1;
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      const hasSelection = input.selectionStart !== input.selectionEnd;
+      const atBoundary = hasSelection
+        ? false
+        : event.key === 'ArrowLeft'
+          ? input.selectionStart === 0
+          : input.selectionEnd === input.value.length;
+      if (!atBoundary) return;
+      nextColumn += event.key === 'ArrowLeft' ? -1 : 1;
+      if (nextColumn < 0) { nextRow -= 1; nextColumn = DETAIL_NAV_FIELDS.length - 1; }
+      if (nextColumn >= DETAIL_NAV_FIELDS.length) { nextRow += 1; nextColumn = 0; }
+    } else return;
+
+    if (nextRow < 0 || nextRow >= itemDrafts.length) return;
+    const nextInput = input.closest('table')?.querySelector(
+      `input[data-detail-row="${nextRow}"][data-detail-column="${nextColumn}"]`,
+    );
+    if (!nextInput) return;
+    event.preventDefault();
+    nextInput.focus();
+  }
+
   const editField = (key, value) => setDraftFilters((current) => ({ ...current, [key]: value }));
+  useErpPageRibbon({
+    showPrint: false,
+    useSaveColor: false,
+    onSearch: () => applySearch(),
+    onAdd: selectedOrder && !detailLoading ? addItemDraft : undefined,
+    onDelete: selectedOrder && !saving ? requestDelete : undefined,
+    onSave: selectedOrder && !saving && !detailLoading ? saveItemEdits : undefined,
+  });
 
   const renderModal = () => {
-    if (!modal) return null;
-    if (modal.type === 'preview') return <Modal title="원본 주문서 확인" onClose={() => setModal(null)} actions={<button type="button" className={classes.button} onClick={() => setModal(null)}>닫기</button>}>
-      <div className={classes.info}>주문번호 <b>{selectedOrder.id}</b> · 발주처 {selectedOrder.customer}<br />AI 주문서 인식에서 보관한 원본 파일을 표시하는 영역입니다.</div>
-      <div className={classes.preview}><IconFileDescription size={34} /><strong>원본 PDF · 이미지 미리보기 영역</strong><small>현재 샘플에는 원본 파일이 연결되지 않았습니다.</small></div>
+    if (!modal || !selectedOrder) return null;
+    if (modal.type === 'delete-order') return <MantineModal opened onClose={() => !saving && setModal(null)} title="주문 삭제" centered size="sm">
+      <Stack gap="md">
+        <Text size="sm" c="dimmed">{selectedOrder.orderid} 주문과 상세 내역을 삭제합니다. 삭제한 주문은 복구할 수 없습니다.</Text>
+        <Group justify="flex-end">
+          <Button variant="default" onClick={() => setModal(null)} disabled={saving}>취소</Button>
+          <Button color="red" leftSection={<IconTrash size={15} />} onClick={() => void deleteOrder()} loading={saving}>삭제</Button>
+        </Group>
+      </Stack>
+    </MantineModal>;
+    if (modal.type === 'edit') return <Modal title="주문 변경" onClose={() => !saving && setModal(null)} actions={<><button type="button" className={classes.button} onClick={() => setModal(null)} disabled={saving}>닫기</button><button type="button" className={`${classes.button} ${classes.primary}`} onClick={() => void saveEdit()} disabled={saving}>{saving ? '저장 중…' : '저장'}</button></>}>
+      <div className={classes.formGrid}>
+        <label className={classes.formGridFull}>주문번호<input value={selectedOrder.orderid} disabled /></label>
+        <label>발주처<input value={modal.buyer} onChange={(event) => setModal((current) => ({ ...current, buyer: event.target.value }))} /></label>
+        <label>수신처<input value={modal.recipient} onChange={(event) => setModal((current) => ({ ...current, recipient: event.target.value }))} /></label>
+        <label>발주일자<input type="date" value={modal.orderDate} onChange={(event) => setModal((current) => ({ ...current, orderDate: event.target.value }))} /></label>
+        <label>납기일자<input type="date" value={modal.due} onChange={(event) => setModal((current) => ({ ...current, due: event.target.value }))} /></label>
+        <label className={classes.formGridFull}>납품장소<input value={modal.place} onChange={(event) => setModal((current) => ({ ...current, place: event.target.value }))} /></label>
+      </div>
     </Modal>;
-    if (modal.type === 'edit') return <Modal title="주문 변경 (UI 예시)" onClose={() => setModal(null)} actions={<><button type="button" className={classes.button} onClick={() => setModal(null)}>닫기</button><button type="button" className={`${classes.button} ${classes.primary}`} onClick={saveEdit}>예시 변경 저장</button></>}>
-      <div className={classes.info}>가공 검토가 진행된 주문은 변경할 수 없습니다. 주문번호와 발주처는 수정할 수 없습니다.</div>
-      <div className={classes.formGrid}><label>발주처<input value={selectedOrder.customer} disabled /></label><label>주문번호<input value={selectedOrder.id} disabled /></label>
-        <label>납기일<input type="date" value={modal.due} onChange={(event) => setModal((current) => ({ ...current, due: event.target.value }))} /></label>
-        <label>납품장소<input value={modal.place} onChange={(event) => setModal((current) => ({ ...current, place: event.target.value }))} /></label></div>
-      <p className={classes.note}>예시 상태만 수정됩니다. 실제 주문이나 DB에는 반영되지 않습니다.</p>
-    </Modal>;
-    if (modal.type === 'cancel') {
-      const blocked = progression(selectedOrder) !== '검토 전';
-      return <Modal title="주문 취소" onClose={() => setModal(null)} actions={<><button type="button" className={classes.button} onClick={() => setModal(null)}>닫기</button>{!blocked && <button type="button" className={`${classes.button} ${classes.dangerButton}`} onClick={cancelOrder}>예시 주문 취소</button>}</>}>
-        <div className={classes.info}><b>{selectedOrder.id}</b> · {selectedOrder.customer}<br />{blocked ? '재고 매칭 또는 가공 검토가 진행된 주문입니다. 이 시안에서는 취소할 수 없습니다.' : '가공 검토 전 주문입니다. 취소하면 주문상태가 취소로 표시됩니다.'}</div>
-      </Modal>;
-    }
-    const unchecked = selectedOrder.items.filter((item) => item.grade === '확인 필요');
-    return <Modal title="가공 검토 요청" onClose={() => setModal(null)} actions={<><button type="button" className={classes.button} onClick={() => setModal(null)}>닫기</button><button type="button" className={`${classes.button} ${classes.primary}`} onClick={moveToOptimization}>가공 최적화 화면 이동</button></>}>
-      <div className={classes.info}>주문번호 <b>{selectedOrder.id}</b><br />발주처 {selectedOrder.customer} · 상세 {selectedOrder.items.length}건</div>
-      <div className={classes.flow}><span>주문 확정</span><b>→</b><span>규격 확인</span><b>→</b><span>재고매칭</span><b>→</b><span>가공 최적화</span></div>
-      {unchecked.length > 0 ? <p className={classes.warning}>강종·규격 확인이 필요한 품목 {unchecked.length}건이 있습니다. 확인 완료 전에는 가공 최적화로 이동할 수 없습니다.</p> : <p className={classes.note}>선택 주문 정보를 기존 가공 최적화 화면으로 전달합니다. 실제 API·계산은 수행하지 않습니다.</p>}
-    </Modal>;
+    return null;
   };
 
-  return <Box className={`${sharedClasses.pageShell} ${classes.root}`}>
-    <main className={classes.page}>
-      <ErpBreadcrumb parent="가공관리" current="주문서 관리" />
-      <div className={classes.toolbar}>
-        <button type="button" className={classes.button} onClick={() => applySearch()}><IconSearch size={15} />조회</button>
-        <span className={classes.separator} />
-        <button type="button" className={classes.button} onClick={openPreview}><IconFileDescription size={15} />원본보기</button>
-        <button type="button" className={classes.button} onClick={openEdit}><IconPencil size={15} />주문변경</button>
-        <button type="button" className={`${classes.button} ${classes.dangerButton}`} onClick={openCancel}>⊘ 주문취소</button>
-        <span className={classes.separator} />
-        <button type="button" className={`${classes.button} ${classes.primary}`} onClick={openReview}><IconPlayerPlay size={15} />가공 검토</button>
-        <span className={classes.toolbarHint}>확정 주문 조회 및 가공 진행 관리 · UI 목업</span>
-      </div>
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const itemCount = Number(selectedOrder?.item_count || 0);
 
-      <section className={`${classes.panel} ${classes.query}`}>
-        <div className={classes.fields}>
-          <label>주문일 시작<input type="date" value={draftFilters.from} onChange={(event) => editField('from', event.target.value)} /></label>
-          <label>주문일 종료<input type="date" value={draftFilters.to} onChange={(event) => editField('to', event.target.value)} /></label>
-          <label>발주처<input value={draftFilters.customer} placeholder="발주처 검색" onChange={(event) => editField('customer', event.target.value)} /></label>
-          <label>주문번호<input value={draftFilters.orderNo} placeholder="주문번호 검색" onChange={(event) => editField('orderNo', event.target.value)} /></label>
-          <label>진행상태<select value={draftFilters.status} onChange={(event) => editField('status', event.target.value)}><option value="">전체</option>{['검토 전', '재고 매칭 완료', '가공 검토 중', '계획 확정', '가공 진행 중', '완료', '취소'].map((status) => <option key={status}>{status}</option>)}</select></label>
+  return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+      <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
+        <Group className={inboundClasses.breadcrumbTrail} gap={7}>
+          <Text component="span" className={inboundClasses.breadcrumbParent}>가공관리</Text>
+          <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
+          <Text component="span" className={inboundClasses.breadcrumbCurrent}>주문관리</Text>
+        </Group>
+        {!filterOpen && <Button className={inboundClasses.receiptFilterToggle} variant="subtle" size="xs"
+          leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
+      </Box>
+
+      <Box className={`${inboundClasses.inboundWorkspace} ${classes.orderWorkspace}`}>
+        <Box className={`${inboundClasses.inboundPrimaryColumn} ${classes.orderPrimaryColumn}`}>
+      <section className={`${classes.panel} ${classes.ordersPanel}`}>
+        <header className={classes.panelHeader}><strong>주문 기본</strong><span className={classes.count}>{number(total)}건</span>{loading && <small>주문을 불러오는 중입니다.</small>}</header>
+        <div ref={ordersScrollRef} className={`${classes.tableScroll} ${classes.ordersScroll}`} onScroll={syncOrdersHorizontalScroll}><table className={classes.ordersTable} style={{ width: `max(100%, ${orderTableWidth}px)`, minWidth: `${orderTableWidth}px` }}><colgroup>{ORDER_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${orderColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{ORDER_COLUMNS.map((column) => <th key={column.key} className={classes.resizableHeader} style={{ width: orderColumnWidths[column.key] ?? column.width }}><span>{column.label}</span><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'orders', column)} role="separator" aria-label={`Resize ${column.label} column`} /></th>)}</tr></thead>
+          <tbody>{orders.length ? orders.map((order) => <tr key={order.orderid} className={order.orderid === selectedId ? classes.selectedRow : ''} onClick={() => setSelectedId(order.orderid)}>
+            <td>{dateText(order.orderdate)}</td><td>{order.orderid}</td><td>{order.buyer || ''}</td><td>{order.recipient || ''}</td><td>{dateText(order.duedate)}</td><td title={order.deliverylocation || ''}>{order.deliverylocation || ''}</td><td className={classes.center}>{number(order.item_count)}</td><td className={classes.numeric}>{number(order.total_weight)}</td><td><Badge value="검토 대기" tone="orange" /></td><td /></tr>
+          ) : <tr><td colSpan="10" className={classes.empty}>{loading ? '주문을 불러오는 중입니다.' : '조회된 확정 주문이 없습니다.'}</td></tr>}</tbody></table></div>
+        <div ref={ordersHorizontalScrollRef} className={classes.ordersHorizontalScroll} onScroll={syncOrdersHorizontalScroll} aria-label="주문 기본 가로 스크롤">
+          <div className={classes.ordersHorizontalContent} style={{ width: `max(100%, ${orderTableWidth}px)` }} />
         </div>
-        <div className={classes.queryActions}><button type="button" className={classes.button} onClick={resetSearch}>초기화</button><button type="button" className={`${classes.button} ${classes.primary}`} onClick={() => applySearch()}>조회</button></div>
-      </section>
-
-      <section className={classes.panel}>
-        <header className={classes.panelHeader}><strong>주문 기본</strong><span className={classes.count}>{visibleOrders.length}건</span><small>행을 선택하면 하단 주문 상세가 표시됩니다.</small></header>
-        <div className={`${classes.tableScroll} ${classes.ordersScroll}`}><table className={classes.ordersTable}><thead><tr>{['주문일자', '주문번호', '발주처', '수신처', '납기일', '납품장소', '상세건수', '주문중량(KG)', '주문상태', '가공진행', '비고'].map((name) => <th key={name}>{name}</th>)}</tr></thead>
-          <tbody>{visibleOrders.length ? visibleOrders.map((order) => <tr key={order.id} className={order.id === selectedId ? classes.selectedRow : ''} onClick={() => setSelectedId(order.id)}>
-            <td>{order.date}</td><td>{order.id}</td><td>{order.customer}</td><td>{order.receiver}</td><td>{order.due}</td><td title={order.place}>{order.place}</td><td className={classes.center}>{order.items.length}</td><td className={classes.numeric}>{number(detailWeight(order))}</td><td><Badge value={order.status} /></td><td><Badge value={progression(order)} /></td><td>{order.note}</td>
-          </tr>) : <tr><td colSpan="11" className={classes.empty}>조회된 주문이 없습니다.</td></tr>}</tbody></table></div>
-        <footer className={classes.panelFooter}><span>총 {visibleOrders.length}건</span><div className={classes.pager}><button disabled>«</button><button disabled>‹</button><b>1</b><button disabled>›</button><button disabled>»</button></div></footer>
+        <footer className={classes.panelFooter}>
+          <Group gap="xs">
+            <Select aria-label="페이지당 표시 건수" data={PAGE_SIZE_OPTIONS} value={String(pageSize)} w={100} size="xs"
+              onChange={(value) => { if (value) { setPageSize(Number(value)); setPage(1); } }} />
+          </Group>
+          <div className={classes.pager}><button type="button" disabled={page <= 1 || loading} onClick={() => setPage(1)}>«</button><button type="button" disabled={page <= 1 || loading} onClick={() => setPage((value) => Math.max(1, value - 1))}>‹</button><b>{page}</b><button type="button" disabled={page >= totalPages || loading} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>›</button><button type="button" disabled={page >= totalPages || loading} onClick={() => setPage(totalPages)}>»</button></div>
+        </footer>
       </section>
 
       <section className={`${classes.panel} ${classes.detailPanel}`}>
-        <header className={classes.panelHeader}><strong>주문 상세</strong><span className={`${classes.count} ${classes.blue}`}>{selectedOrder?.id || '주문을 선택하세요'}</span><small>{selectedOrder ? `${selectedOrder.customer} · ${selectedOrder.items.length}개 품목` : '품목별 가공 상태 관리'}</small></header>
-        <div className={`${classes.tableScroll} ${classes.detailsScroll}`}><table className={classes.detailsTable}><thead><tr>{['순번', '품명', '강종', '규격 원문', '두께', '폭', '길이', '수량', '수량단위', '중량(KG)', '납기일', '재고매칭', '가공상태', '비고'].map((name) => <th key={name}>{name}</th>)}</tr></thead>
-          <tbody>{selectedOrder ? selectedOrder.items.map((item, index) => <tr key={`${selectedOrder.id}-${index}`}><td className={classes.center}>{index + 1}</td><td title={item.name}>{item.name}</td><td>{item.grade === '확인 필요' ? <Badge value="확인 필요" /> : item.grade}</td><td>{item.raw}</td><td className={classes.numeric}>{item.t}</td><td className={classes.numeric}>{number(item.w)}</td><td className={classes.center}>{item.l}</td><td className={classes.numeric}>{number(item.qty)}</td><td>{item.unit}</td><td className={classes.numeric}>{number(item.weight)}</td><td>{selectedOrder.due}</td><td><Badge value={item.stock} /></td><td><Badge value={item.processing} /></td><td title={item.note}>{item.note}</td></tr>) : <tr><td colSpan="14" className={classes.empty}>주문을 선택하세요.</td></tr>}</tbody></table></div>
-        <footer className={classes.panelFooter}><span>총 {selectedOrder?.items.length || 0}건 · 주문중량 {number(selectedOrder ? detailWeight(selectedOrder) : 0)} KG</span><small>규격 확인이 필요한 품목은 가공 최적화 대상에서 제외합니다.</small></footer>
+        <header className={classes.panelHeader}><strong>주문 상세</strong><span className={`${classes.count} ${classes.blue}`}>{selectedOrder?.orderid || '주문을 선택하세요'}</span>
+          <Group className={classes.detailActions} gap={5}>
+            <Button size="compact-xs" variant="filled" color="red" className={classes.detailActionButton} leftSection={<IconPencil size={14} />} onClick={openEdit} disabled={!selectedOrder}>주문변경</Button>
+          </Group>
+        </header>
+        <div className={`${classes.tableScroll} ${classes.detailsScroll}`}><table className={classes.detailsTable} style={{ width: `max(100%, ${detailTableWidth}px)`, minWidth: `${detailTableWidth}px` }}><colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{DETAIL_COLUMNS.map((column) => column.key === 'select' ? <th key={column.key} className={`${classes.checkColumn} ${classes.resizableHeader}`} style={{ width: detailColumnWidths[column.key] ?? column.width }}><input type="checkbox" aria-label="Select all order details" checked={itemDrafts.length > 0 && selectedItemKeys.length === itemDrafts.length} onChange={toggleAllItemSelection} disabled={!itemDrafts.length || detailLoading} /><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'details', column)} role="separator" aria-label="Resize selection column" /></th> : <th key={column.key} className={classes.resizableHeader} style={{ width: detailColumnWidths[column.key] ?? column.width }}><span>{column.label}</span><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'details', column)} role="separator" aria-label={`Resize ${column.label} column`} /></th>)}</tr></thead>
+          <tbody>{itemDrafts.length ? itemDrafts.map((item, index) => <tr key={item._rowKey} className={selectedItemKeys.includes(item._rowKey) ? classes.selectedDetailRow : ''}>
+            <td className={classes.checkColumn}><input type="checkbox" aria-label={`${index + 1}행 선택`} checked={selectedItemKeys.includes(item._rowKey)} onChange={(event) => toggleItemSelection(item._rowKey, event.nativeEvent.shiftKey)} /></td>
+            <td className={`${classes.center} ${classes.detailTextCell}`}>{index + 1}</td>
+            <td title={item.itemname || ''}>{detailInput(item, 'itemname', false, index)}</td>
+            <td>{detailInput(item, 'steelgrade', false, index)}</td>
+            <td>{detailInput(item, 'size', false, index)}</td>
+            <td className={classes.numeric}>{detailInput(item, 'thickness', true, index)}</td>
+            <td className={classes.numeric}>{detailInput(item, 'width', true, index)}</td>
+            <td className={classes.numeric}>{detailInput(item, 'length', true, index)}</td>
+            <td className={classes.numeric}>{detailInput(item, 'quantity', true, index)}</td>
+            <td>{detailInput(item, 'quantity_unit', false, index)}</td>
+            <td className={classes.numeric}>{detailInput(item, 'weight_kg', true, index)}</td>
+            <td className={classes.detailTextCell}>미조회</td><td className={classes.detailTextCell}>검토 대기</td>
+            <td title={item.notes || ''}>{detailInput(item, 'notes', false, index)}</td>
+          </tr>)
+            : <tr><td colSpan="14" className={classes.empty}>{selectedOrder ? (detailLoading ? '상세 품목을 불러오는 중입니다.' : '상세 품목이 없습니다. 행 추가로 품목을 등록하세요.') : '주문을 선택하세요.'}</td></tr>}</tbody></table></div>
+        <footer className={classes.panelFooter}><span>총 {number(selectedOrder ? itemDrafts.length : itemCount)}건 · 주문중량 {number(detailWeight)} KG</span></footer>
       </section>
-    </main>
+        </Box>
+        {filterOpen && <Paper component="aside" className={`${inboundClasses.receiptFilterSidebar} ${classes.orderFilterSidebar}`} withBorder>
+          <Group className={inboundClasses.receiptFilterHeader} justify="space-between" align="center">
+            <Text fw={700}>조회조건</Text>
+            <ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon>
+          </Group>
+          <form className={classes.filterForm} onSubmit={(event) => { event.preventDefault(); applySearch(); }}>
+            <Stack gap="sm" className={inboundClasses.receiptFilterFields}>
+              <Box>
+                <Text size="xs" fw={700} mb={5}>주문일 기간</Text>
+                <Stack gap={6}>
+                  <ErpDateInput aria-label="주문일 시작" value={draftFilters.from}
+                    onChange={(event) => editField('from', event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') applySearch(); }} />
+                  <ErpDateInput aria-label="주문일 종료" value={draftFilters.to}
+                    onChange={(event) => editField('to', event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') applySearch(); }} />
+                </Stack>
+              </Box>
+              <TextInput label="발주처" placeholder="발주처 검색" value={draftFilters.customer}
+                onChange={(event) => editField('customer', event.currentTarget.value)} />
+              <TextInput label="주문번호" placeholder="주문번호 검색" value={draftFilters.orderNo}
+                onChange={(event) => editField('orderNo', event.currentTarget.value)} />
+            </Stack>
+          </form>
+        </Paper>}
+      </Box>
     {renderModal()}
-    {toast && <div className={classes.toast} role="status">{toast}</div>}
   </Box>;
 }

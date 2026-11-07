@@ -117,7 +117,9 @@ def list_orders(companyid, start_date=None, end_date=None, buyer=None, orderid=N
         cur.execute(f"""
             SELECT h.orderid, h.buyer, h.recipient, h.orderdate, h.duedate, h.deliverylocation,
                    h.username, h.useremail, h.created_at,
-                   (SELECT COUNT(*) FROM aiorder02t d WHERE d.companyid=h.companyid AND d.orderid=h.orderid) AS item_count
+                   (SELECT COUNT(*) FROM aiorder02t d WHERE d.companyid=h.companyid AND d.orderid=h.orderid) AS item_count,
+                   (SELECT COALESCE(SUM(d.weight_kg), 0) FROM aiorder02t d
+                    WHERE d.companyid=h.companyid AND d.orderid=h.orderid) AS total_weight
             FROM aiorder01t h WHERE {where}
             ORDER BY h.created_at DESC, h.orderid DESC LIMIT %s OFFSET %s
         """, args + [page_size, (page - 1) * page_size])
@@ -136,6 +138,80 @@ def get_order(companyid, orderid):
             FROM aiorder02t WHERE companyid=%s AND orderid=%s ORDER BY lineno
         """, (companyid, orderid))
         return {"header": as_dict(header), "items": [as_dict(row) for row in cur.fetchall()]}
+
+
+def update_order(companyid, orderid, buyer, recipient, order_date, due_date, delivery_location):
+    """Update editable confirmed-order header fields within the tenant."""
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE aiorder01t
+                SET buyer = %s, recipient = %s, orderdate = %s,
+                    duedate = %s, deliverylocation = %s
+                WHERE companyid = %s AND orderid = %s
+            """, (buyer, recipient, order_date, due_date, delivery_location, companyid, orderid))
+            updated = cur.rowcount > 0
+        conn.commit()
+    return updated
+
+
+def update_order_items(companyid, orderid, items):
+    """Save editable order rows, retaining existing line IDs and appending new IDs."""
+    with connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT orderid, companyname FROM aiorder01t WHERE companyid=%s AND orderid=%s FOR UPDATE",
+                (companyid, orderid),
+            )
+            header = cur.fetchone()
+            if header is None:
+                return False
+
+            cur.execute(
+                "SELECT lineno FROM aiorder02t WHERE companyid=%s AND orderid=%s ORDER BY lineno FOR UPDATE",
+                (companyid, orderid),
+            )
+            existing_lines = [row["lineno"] for row in cur.fetchall()]
+            submitted_lines = [item.lineno for item in items if item.lineno is not None]
+            if len(set(submitted_lines)) != len(submitted_lines) or not set(submitted_lines).issubset(existing_lines):
+                raise ValueError("주문에 포함되지 않은 상세 행이 있습니다. 다시 조회한 뒤 저장해 주세요.")
+
+            removed_lines = set(existing_lines) - set(submitted_lines)
+            if removed_lines:
+                cur.execute(
+                    "DELETE FROM aiorder02t WHERE companyid=%s AND orderid=%s AND lineno = ANY(%s)",
+                    (companyid, orderid, list(removed_lines)),
+                )
+
+            next_lineno = max(existing_lines, default=0)
+
+            for item in items:
+                values = (
+                    item.itemname, item.steelgrade, item.size, item.thickness, item.width,
+                    item.length, item.quantity, item.quantity_unit, item.weight_kg,
+                    item.notes, item.quantity_raw, item.weight_raw,
+                )
+                if item.lineno is None:
+                    next_lineno += 1
+                    cur.execute("""
+                        INSERT INTO aiorder02t
+                            (companyid, companyname, orderid, lineno, itemname, steelgrade, size,
+                             thickness, width, length, quantity, quantity_unit, weight_kg, notes,
+                             quantity_raw, weight_raw)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (companyid, header["companyname"], orderid, next_lineno, *values))
+                else:
+                    cur.execute("""
+                        UPDATE aiorder02t
+                        SET itemname=%s, steelgrade=%s, size=%s, thickness=%s, width=%s,
+                            length=%s, quantity=%s, quantity_unit=%s, weight_kg=%s,
+                            notes=%s, quantity_raw=%s, weight_raw=%s
+                        WHERE companyid=%s AND orderid=%s AND lineno=%s
+                    """, (*values, companyid, orderid, item.lineno))
+                    if cur.rowcount != 1:
+                        raise ValueError("주문 상세 행을 찾을 수 없습니다. 다시 조회한 뒤 저장해 주세요.")
+        conn.commit()
+    return True
 
 
 def cancel_order(companyid, orderid):

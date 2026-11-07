@@ -32,7 +32,6 @@ import AIProcessingStandards from "./pages/ai/AIProcessingStandards";
 import AIOrderOptimization from "./pages/ai/AIOrderOptimization";
 import AIOrderManage from "./pages/ai/AIOrderManage";
 import CustomerSupport from "./pages/system/CustomerSupport";
-import AIOrderConfirmPage from "./pages/ai/AIOrderConfirmPage";
 import Company from "./pages/system/Company";
 import InoutmoveRegister from "./pages/inoutmove/InoutmoveRegister";
 import InoutmoveSearch from "./pages/inoutmove/inoutmoveSearch";
@@ -108,7 +107,6 @@ function App() {
           <Route path="/AIProcessingStandards" element={menuPage('AI_STANDARDS', <AIProcessingStandards />)} />
           <Route path="/AIOrderManage" element={menuPage('AI_ORDER_MANAGEMENT', <AIOrderManage />)} />
           <Route path="/CustomerSupport" element={<RequireAuthority allowed={['MASTER']}><CustomerSupport /></RequireAuthority>} />
-          <Route path="/AIOrderConfirmPage" element={menuPage('AI_ORDER_MANAGEMENT', <AIOrderConfirmPage />)} />
           <Route path="/Company" element={<RequireAuthority allowed={['MASTER']}><Company /></RequireAuthority>} />
 
           </Route>

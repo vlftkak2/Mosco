@@ -50,10 +50,10 @@ from routes.inventory import CurrentStock_routes as CurrentStock_routes
 from routes.inventory import IniopStock_routes as IniopStock_routes
 from routes.inoutmove import inoutmoveRegister_routes as inoutmoveRegister_routes
 from routes.inoutmove import inoutmoveSearch_routes as inoutmoveSearch_routes
-from routes import ReceiptPayment_routes as ReceiptPayment_routes
-from routes import ReceiptPaymentSearch_routes as ReceiptPaymentSearch_routes
+from routes.receiptpayment import ReceiptPayment_routes as ReceiptPayment_routes
+from routes.receiptpayment import ReceiptPaymentSearch_routes as ReceiptPaymentSearch_routes
 from routes.ai import AIOrder_routes as AIOrder_routes
-from routes.ai import AIOrderConfirm_routes as AIOrderConfirm_routes
+from routes.ai import AIOrderManage_routes as AIOrderManage_routes
 
 import uvicorn
 
@@ -154,7 +154,7 @@ app.include_router(ReceiptPaymentSearch_routes.router)
 
 # Isolated AI order recognition test API (does not touch ERP transaction tables).
 app.include_router(AIOrder_routes.router)
-app.include_router(AIOrderConfirm_routes.router)
+app.include_router(AIOrderManage_routes.router)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

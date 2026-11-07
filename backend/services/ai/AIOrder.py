@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import re
-import sqlite3
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
@@ -247,50 +246,17 @@ class AIOrderError(Exception):
         super().__init__(detail)
 
 
-def _usage_db_path() -> Path:
-    configured = Path(os.getenv("AI_ORDER_USAGE_DB_PATH", "instance/ai_order_usage.sqlite3"))
-    # Keep the persistent usage database under backend/instance after this
-    # module is organized into backend/services/ai.
-    backend_root = Path(__file__).resolve().parents[2]
-    return configured if configured.is_absolute() else backend_root / configured
-
-
-def _open_usage_db() -> sqlite3.Connection:
-    path = _usage_db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(path, timeout=30, isolation_level=None)
-    db.execute("PRAGMA busy_timeout = 30000")
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        db.execute("""CREATE TABLE IF NOT EXISTS ai_order_usage (
-        request_hash TEXT PRIMARY KEY,
-        companyid TEXT NOT NULL,
-        user_hash TEXT NOT NULL,
-        usage_day TEXT NOT NULL,
-        usage_month TEXT NOT NULL,
-        status TEXT NOT NULL,
-        model TEXT NOT NULL,
-        reserved_usd REAL NOT NULL DEFAULT 0,
-        estimated_cost_usd REAL NOT NULL DEFAULT 0,
-        input_tokens INTEGER NOT NULL DEFAULT 0,
-        output_tokens INTEGER NOT NULL DEFAULT 0,
-        reasoning_tokens INTEGER NOT NULL DEFAULT 0,
-        cached_input_tokens INTEGER NOT NULL DEFAULT 0,
-        request_id TEXT,
-        created_at TEXT NOT NULL
-        )""")
-        columns = {row[1] for row in db.execute("PRAGMA table_info(ai_order_usage)").fetchall()}
-        if "request_id" not in columns:
-            db.execute("ALTER TABLE ai_order_usage ADD COLUMN request_id TEXT")
-        db.execute("CREATE INDEX IF NOT EXISTS ix_ai_order_usage_month ON ai_order_usage(usage_month, status)")
-        db.execute("CREATE INDEX IF NOT EXISTS ix_ai_order_usage_user_day ON ai_order_usage(companyid, user_hash, usage_day)")
-        db.execute("COMMIT")
-    except Exception:
-        if db.in_transaction:
-            db.execute("ROLLBACK")
-        db.close()
-        raise
-    return db
+def _ai_order_usage_connection():
+    """Open the shared PostgreSQL store for AI quota and concurrency records."""
+    return psycopg2.connect(
+        host=DB_CONFIG["host"],
+        port=DB_CONFIG["port"],
+        dbname=DB_CONFIG["database"],
+        user=DB_CONFIG["user"],
+        password=DB_CONFIG["password"],
+        connect_timeout=5,
+        options="-c statement_timeout=10000 -c lock_timeout=10000",
+    )
 
 
 def _hash_secret(value: str) -> str:
@@ -298,105 +264,149 @@ def _hash_secret(value: str) -> str:
     return hmac.new(secret, value.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-def _reserve_request(companyid: str, user_email: str, idempotency_key: str, request_id: str) -> dict[str, Any]:
+def _reserve_request(
+    companyid: str, companyname: str, user_email: str, idempotency_key: str, request_id: str,
+) -> dict[str, Any]:
     now = datetime.now(SEOUL)
-    day, month = now.date().isoformat(), now.strftime("%Y-%m")
+    day = now.date()
+    month = date(day.year, day.month, 1)
     request_hash = _hash_secret(f"request|{companyid}|{user_email}|{idempotency_key}")
     user_hash = _hash_secret(f"user|{companyid}|{user_email}")
-    db = _open_usage_db()
+    db = _ai_order_usage_connection()
     try:
-        db.execute("BEGIN IMMEDIATE")
-        db.execute("DELETE FROM ai_order_usage WHERE created_at < ?", ((now - timedelta(days=90)).isoformat(),))
-        duplicate = db.execute("SELECT status FROM ai_order_usage WHERE request_hash=?", (request_hash,)).fetchone()
-        if duplicate:
-            raise AIOrderError(status.HTTP_409_CONFLICT, "이미 처리했거나 처리 중인 요청입니다. 재분석은 새 요청으로 실행해주세요.")
-        daily = db.execute(
-            "SELECT COUNT(*) FROM ai_order_usage WHERE companyid=? AND user_hash=? AND usage_day=?",
-            (companyid, user_hash, day),
-        ).fetchone()[0]
-        if daily >= DAILY_LIMIT:
-            raise AIOrderError(status.HTTP_429_TOO_MANY_REQUESTS, f"오늘 분석 한도({DAILY_LIMIT}회)에 도달했습니다.")
-        company_daily = db.execute(
-            "SELECT COUNT(*) FROM ai_order_usage WHERE companyid=? AND usage_day=?",
-            (companyid, day),
-        ).fetchone()[0]
-        if company_daily >= COMPANY_DAILY_LIMIT:
-            raise AIOrderError(status.HTTP_429_TOO_MANY_REQUESTS, f"회사 일일 분석 한도({COMPANY_DAILY_LIMIT}회)에 도달했습니다.")
-        spent = db.execute(
-            "SELECT COALESCE(SUM(CASE WHEN status='complete' THEN estimated_cost_usd ELSE reserved_usd END),0) "
-            "FROM ai_order_usage WHERE usage_month=?",
-            (month,),
-        ).fetchone()[0]
-        if spent + REQUEST_RESERVE_USD > MONTHLY_BUDGET_USD:
-            raise AIOrderError(status.HTTP_429_TOO_MANY_REQUESTS, "이번 달 AI 분석 예산 한도에 도달했습니다.")
-        if COMPANY_MONTHLY_BUDGET_USD > 0:
-            company_spent = db.execute(
-                "SELECT COALESCE(SUM(CASE WHEN status='complete' THEN estimated_cost_usd ELSE reserved_usd END),0) "
-                "FROM ai_order_usage WHERE companyid=? AND usage_month=?",
-                (companyid, month),
-            ).fetchone()[0]
-            if company_spent + REQUEST_RESERVE_USD > COMPANY_MONTHLY_BUDGET_USD:
-                raise AIOrderError(status.HTTP_429_TOO_MANY_REQUESTS, "회사 월간 AI 분석 예산 한도에 도달했습니다.")
-        db.execute(
-            "INSERT INTO ai_order_usage(request_hash,companyid,user_hash,usage_day,usage_month,status,model,reserved_usd,request_id,created_at) "
-            "VALUES(?,?,?,?,?,'queued',?,?,?,?)",
-            (request_hash, companyid, user_hash, day, month, MODEL, REQUEST_RESERVE_USD, request_id, now.isoformat()),
-        )
-        db.execute("COMMIT")
-        return {"request_hash": request_hash, "request_id": request_id, "daily_used": daily + 1,
-                "company_daily_used": company_daily + 1, "month_to_date_usd": spent}
-    except Exception:
-        if db.in_transaction:
-            db.execute("ROLLBACK")
-        raise
+        with db:
+            with db.cursor() as cursor:
+                # Keep the quota check and reservation atomic across all app workers.
+                cursor.execute("SELECT pg_advisory_xact_lock(11901, 1)")
+                cursor.execute("DELETE FROM aiorderusage01t WHERE created_at < %s", (now - timedelta(days=90),))
+
+                cursor.execute("SELECT status FROM aiorderusage01t WHERE request_hash = %s", (request_hash,))
+                if cursor.fetchone():
+                    raise AIOrderError(
+                        status.HTTP_409_CONFLICT,
+                        "이미 처리했거나 처리 중인 요청입니다. 재분석은 새 요청으로 실행해 주세요.",
+                    )
+
+                cursor.execute(
+                    "SELECT COUNT(*) FROM aiorderusage01t WHERE companyid = %s AND user_hash = %s AND usage_day = %s",
+                    (companyid, user_hash, day),
+                )
+                daily = cursor.fetchone()[0]
+                if daily >= DAILY_LIMIT:
+                    raise AIOrderError(
+                        status.HTTP_429_TOO_MANY_REQUESTS,
+                        f"오늘 분석 한도({DAILY_LIMIT}회)에 도달했습니다.",
+                    )
+
+                cursor.execute(
+                    "SELECT COUNT(*) FROM aiorderusage01t WHERE companyid = %s AND usage_day = %s",
+                    (companyid, day),
+                )
+                company_daily = cursor.fetchone()[0]
+                if company_daily >= COMPANY_DAILY_LIMIT:
+                    raise AIOrderError(
+                        status.HTTP_429_TOO_MANY_REQUESTS,
+                        f"회사 일일 분석 한도({COMPANY_DAILY_LIMIT}회)에 도달했습니다.",
+                    )
+
+                cursor.execute(
+                    "SELECT COALESCE(SUM(CASE WHEN status = 'complete' THEN estimated_cost_usd ELSE reserved_usd END), 0) "
+                    "FROM aiorderusage01t WHERE usage_month = %s",
+                    (month,),
+                )
+                spent = float(cursor.fetchone()[0] or 0)
+                if spent + REQUEST_RESERVE_USD > MONTHLY_BUDGET_USD:
+                    raise AIOrderError(
+                        status.HTTP_429_TOO_MANY_REQUESTS,
+                        "이번 달 AI 분석 예산 한도에 도달했습니다.",
+                    )
+
+                if COMPANY_MONTHLY_BUDGET_USD > 0:
+                    cursor.execute(
+                        "SELECT COALESCE(SUM(CASE WHEN status = 'complete' THEN estimated_cost_usd ELSE reserved_usd END), 0) "
+                        "FROM aiorderusage01t WHERE companyid = %s AND usage_month = %s",
+                        (companyid, month),
+                    )
+                    company_spent = float(cursor.fetchone()[0] or 0)
+                    if company_spent + REQUEST_RESERVE_USD > COMPANY_MONTHLY_BUDGET_USD:
+                        raise AIOrderError(
+                            status.HTTP_429_TOO_MANY_REQUESTS,
+                            "회사 월간 AI 분석 예산 한도에 도달했습니다.",
+                        )
+
+                cursor.execute(
+                    """INSERT INTO aiorderusage01t
+                       (request_hash, companyid, companyname, user_hash, usage_day, usage_month,
+                        status, model, reserved_usd, request_id, created_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, 'queued', %s, %s, %s, %s)""",
+                    (
+                        request_hash, companyid, (companyname or "")[:50], user_hash,
+                        day, month, MODEL, REQUEST_RESERVE_USD, request_id, now,
+                    ),
+                )
+        return {
+            "request_hash": request_hash,
+            "request_id": request_id,
+            "daily_used": daily + 1,
+            "company_daily_used": company_daily + 1,
+            "month_to_date_usd": spent,
+        }
     finally:
         db.close()
 
 
 def _claim_analysis_slot(request_hash: str) -> bool:
-    """Atomically promote a queued request when user/company/global slots are available.
-
-    This is shared across workers that point at the same SQLite usage file. For
-    multi-container deployments, that file must be replaced with a shared store.
-    """
-    db = _open_usage_db()
+    """Atomically claim an analysis slot across all app workers and instances."""
+    db = _ai_order_usage_connection()
     try:
-        db.execute("BEGIN IMMEDIATE")
-        row = db.execute(
-            "SELECT companyid,user_hash,status FROM ai_order_usage WHERE request_hash=?",
-            (request_hash,),
-        ).fetchone()
-        if not row or row[2] != "queued":
-            db.execute("ROLLBACK")
-            return False
-        stale_before = (datetime.now(SEOUL) - timedelta(seconds=max(180, REQUEST_TIMEOUT_SECONDS * 2))).isoformat()
-        db.execute(
-            "UPDATE ai_order_usage SET status='failed', reserved_usd=? "
-            "WHERE status='processing' AND created_at < ?",
-            (REQUEST_RESERVE_USD, stale_before),
-        )
-        companyid, user_hash, _ = row
-        user_active = db.execute(
-            "SELECT COUNT(*) FROM ai_order_usage WHERE companyid=? AND user_hash=? AND status='processing'",
-            (companyid, user_hash),
-        ).fetchone()[0]
-        company_active = db.execute(
-            "SELECT COUNT(*) FROM ai_order_usage WHERE companyid=? AND status='processing'",
-            (companyid,),
-        ).fetchone()[0]
-        global_active = db.execute(
-            "SELECT COUNT(*) FROM ai_order_usage WHERE status='processing'",
-        ).fetchone()[0]
-        if user_active >= MAX_CONCURRENT_PER_USER or company_active >= MAX_CONCURRENT_PER_COMPANY or global_active >= MAX_CONCURRENT_GLOBAL:
-            db.execute("COMMIT")
-            return False
-        db.execute("UPDATE ai_order_usage SET status='processing' WHERE request_hash=? AND status='queued'", (request_hash,))
-        db.execute("COMMIT")
-        return True
-    except Exception:
-        if db.in_transaction:
-            db.execute("ROLLBACK")
-        raise
+        with db:
+            with db.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(11901, 1)")
+                cursor.execute(
+                    "SELECT companyid, user_hash, status FROM aiorderusage01t WHERE request_hash = %s FOR UPDATE",
+                    (request_hash,),
+                )
+                row = cursor.fetchone()
+                if not row or row[2] != "queued":
+                    return False
+
+                stale_before = datetime.now(SEOUL) - timedelta(
+                    seconds=max(180, REQUEST_TIMEOUT_SECONDS * 2)
+                )
+                cursor.execute(
+                    "UPDATE aiorderusage01t SET status = 'failed', reserved_usd = %s "
+                    "WHERE status = 'processing' AND created_at < %s",
+                    (REQUEST_RESERVE_USD, stale_before),
+                )
+
+                companyid, user_hash, _ = row
+                cursor.execute(
+                    "SELECT COUNT(*) FROM aiorderusage01t "
+                    "WHERE companyid = %s AND user_hash = %s AND status = 'processing'",
+                    (companyid, user_hash),
+                )
+                user_active = cursor.fetchone()[0]
+                cursor.execute(
+                    "SELECT COUNT(*) FROM aiorderusage01t WHERE companyid = %s AND status = 'processing'",
+                    (companyid,),
+                )
+                company_active = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM aiorderusage01t WHERE status = 'processing'")
+                global_active = cursor.fetchone()[0]
+
+                if (
+                    user_active >= MAX_CONCURRENT_PER_USER
+                    or company_active >= MAX_CONCURRENT_PER_COMPANY
+                    or global_active >= MAX_CONCURRENT_GLOBAL
+                ):
+                    return False
+
+                cursor.execute(
+                    "UPDATE aiorderusage01t SET status = 'processing' "
+                    "WHERE request_hash = %s AND status = 'queued'",
+                    (request_hash,),
+                )
+                return cursor.rowcount == 1
     finally:
         db.close()
 
@@ -424,32 +434,48 @@ def _record_usage(request_hash: str, usage: Any | None, success: bool) -> dict[s
         + output_tokens * OUTPUT_PRICE_PER_MILLION
     ) / 1_000_000
     now = datetime.now(SEOUL)
-    db = _open_usage_db()
+    db = _ai_order_usage_connection()
     try:
-        db.execute("BEGIN IMMEDIATE")
-        reservation = db.execute(
-            "SELECT companyid, usage_month FROM ai_order_usage WHERE request_hash=?",
-            (request_hash,),
-        ).fetchone()
-        db.execute(
-            "UPDATE ai_order_usage SET status=?,estimated_cost_usd=?,reserved_usd=?,input_tokens=?,output_tokens=?,reasoning_tokens=?,cached_input_tokens=? WHERE request_hash=?",
-            ("complete" if success else "failed", cost if success else 0.0,
-             0.0 if success else REQUEST_RESERVE_USD, input_tokens, output_tokens,
-             reasoning_tokens, cached_tokens, request_hash),
-        )
-        month = reservation[1] if reservation else now.strftime("%Y-%m")
-        month_total = db.execute(
-            "SELECT COALESCE(SUM(CASE WHEN status='complete' THEN estimated_cost_usd ELSE reserved_usd END),0) "
-            "FROM ai_order_usage WHERE usage_month=?", (month,),
-        ).fetchone()[0]
-        company_total = 0.0
-        if reservation:
-            company_total = db.execute(
-                "SELECT COALESCE(SUM(CASE WHEN status='complete' THEN estimated_cost_usd ELSE reserved_usd END),0) "
-                "FROM ai_order_usage WHERE companyid=? AND usage_month=?",
-                (reservation[0], month),
-            ).fetchone()[0]
-        db.execute("COMMIT")
+        with db:
+            with db.cursor() as cursor:
+                cursor.execute(
+                    "SELECT companyid, usage_month FROM aiorderusage01t WHERE request_hash = %s FOR UPDATE",
+                    (request_hash,),
+                )
+                reservation = cursor.fetchone()
+                cursor.execute(
+                    """UPDATE aiorderusage01t
+                       SET status = %s, estimated_cost_usd = %s, reserved_usd = %s,
+                           input_tokens = %s, output_tokens = %s, reasoning_tokens = %s,
+                           cached_input_tokens = %s
+                       WHERE request_hash = %s""",
+                    (
+                        "complete" if success else "failed",
+                        cost if success else 0.0,
+                        0.0 if success else REQUEST_RESERVE_USD,
+                        input_tokens,
+                        output_tokens,
+                        reasoning_tokens,
+                        cached_tokens,
+                        request_hash,
+                    ),
+                )
+                month = reservation[1] if reservation else date(now.year, now.month, 1)
+                cursor.execute(
+                    "SELECT COALESCE(SUM(CASE WHEN status = 'complete' THEN estimated_cost_usd ELSE reserved_usd END), 0) "
+                    "FROM aiorderusage01t WHERE usage_month = %s",
+                    (month,),
+                )
+                month_total = float(cursor.fetchone()[0] or 0)
+
+                company_total = 0.0
+                if reservation:
+                    cursor.execute(
+                        "SELECT COALESCE(SUM(CASE WHEN status = 'complete' THEN estimated_cost_usd ELSE reserved_usd END), 0) "
+                        "FROM aiorderusage01t WHERE companyid = %s AND usage_month = %s",
+                        (reservation[0], month),
+                    )
+                    company_total = float(cursor.fetchone()[0] or 0)
     finally:
         db.close()
     return {
@@ -1153,7 +1179,9 @@ async def _analyze_order_document(
     ai_data = data
     preprocessing: list[dict[str, Any]] = []
     request_id = str(uuid.uuid4())
-    request = await asyncio.to_thread(_reserve_request, companyid, user_email, idempotency_key, request_id)
+    request = await asyncio.to_thread(
+        _reserve_request, companyid, companyname, user_email, idempotency_key, request_id
+    )
     request_hash = request["request_hash"]
 
     try:

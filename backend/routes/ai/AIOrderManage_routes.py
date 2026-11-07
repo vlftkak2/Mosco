@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from services.ai import AIOrder as ai_order_module
-from services.ai import AIOrderConfirm as service
+from services.ai import AIOrderManage as service
 import security as security_module
 from security import get_current_user
 
@@ -50,6 +50,35 @@ class ConfirmRequest(BaseModel):
     sourcefilename: str | None = Field(default=None, max_length=255)
     header: Header
     items: list[Line] = Field(min_length=1, max_length=1000)
+
+
+class ConfirmedOrderUpdate(BaseModel):
+    buyer: str | None = Field(default=None, max_length=100)
+    recipient: str | None = Field(default=None, max_length=100)
+    order_date: date | None = None
+    due_date: date
+    delivery_location: str | None = Field(default=None, max_length=500)
+
+
+class ConfirmedItemUpdate(BaseModel):
+    # Existing lines keep their DB identity; null marks a newly added UI row.
+    lineno: int | None = Field(default=None, gt=0)
+    itemname: str | None = Field(default=None, max_length=255)
+    steelgrade: str | None = Field(default=None, max_length=100)
+    size: str | None = None
+    thickness: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
+    width: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
+    length: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
+    quantity: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
+    quantity_unit: str | None = Field(default=None, max_length=30)
+    weight_kg: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
+    notes: str | None = None
+    quantity_raw: str | None = None
+    weight_raw: str | None = None
+
+
+class ConfirmedItemsUpdate(BaseModel):
+    items: list[ConfirmedItemUpdate] = Field(max_length=1000)
 
 
 async def authorized_user(user: dict = Depends(get_current_user)):
@@ -93,6 +122,38 @@ async def get_confirmed(orderid: str, user: dict = Depends(authorized_user)):
     if result is None:
         raise HTTPException(404, "확정 주문을 찾을 수 없습니다.")
     return result
+
+
+@router.put("/{orderid}")
+async def update_confirmed(orderid: str, payload: ConfirmedOrderUpdate, user: dict = Depends(authorized_user)):
+    try:
+        updated = await asyncio.to_thread(
+            service.update_order, user["companyid"], orderid,
+            payload.buyer, payload.recipient, payload.order_date,
+            payload.due_date, payload.delivery_location,
+        )
+    except Exception as exc:
+        logger.exception("Confirmed order update failed company=%s error_type=%s", user["companyid"], type(exc).__name__)
+        raise HTTPException(500, "Confirmed order update failed.") from exc
+    if not updated:
+        raise HTTPException(404, "Confirmed order not found.")
+    return {"orderid": orderid, "updated": True}
+
+
+@router.put("/{orderid}/items")
+async def update_confirmed_items(orderid: str, payload: ConfirmedItemsUpdate, user: dict = Depends(authorized_user)):
+    try:
+        updated = await asyncio.to_thread(
+            service.update_order_items, user["companyid"], orderid, payload.items,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Confirmed order items update failed company=%s error_type=%s", user["companyid"], type(exc).__name__)
+        raise HTTPException(500, "Confirmed order items update failed.") from exc
+    if not updated:
+        raise HTTPException(404, "Confirmed order not found.")
+    return {"orderid": orderid, "updated": True}
 
 
 @router.delete("/{orderid}")
