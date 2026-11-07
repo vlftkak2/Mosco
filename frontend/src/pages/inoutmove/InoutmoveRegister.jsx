@@ -30,6 +30,40 @@ const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' }, { value: '50', label: '50개씩' },
   { value: '100', label: '100개씩' }, { value: '200', label: '200개씩' },
 ];
+const LIST_COLUMNS = [
+  { key: 'receptdate', label: '재고이전 일자', width: 90, minWidth: 90 },
+  { key: 'fromwarehouse', label: '출고 창고', width: 90, minWidth: 90 },
+  { key: 'towarehouse', label: '입고 창고', width: 90, minWidth: 90 },
+  { key: 'line_count', label: '상세건수', width: 70, minWidth: 70 },
+  { key: 'total_qty', label: '수량', width: 75, minWidth: 75 },
+  { key: 'total_weight', label: '중량(KG)', width: 80, minWidth: 80 },
+  { key: 'manager', label: '담당자', width: 80, minWidth: 75 },
+  { key: 'receiptno', label: '재고이전전표', width: 110, minWidth: 110 },
+  { key: 'description', label: '비고', width: 110, minWidth: 90 },
+];
+const DETAIL_COLUMNS = [
+  { key: 'select', label: '', width: 38, minWidth: 38 },
+  { key: 'number', label: 'No.', width: 48, minWidth: 42 },
+  { key: 'move_type', label: '구분', width: 60, minWidth: 52 },
+  { key: 'move_date', label: '재고이전 일자', width: 90, minWidth: 90 },
+  { key: 'from_warehouse', label: '출고 창고', width: 90, minWidth: 90 },
+  { key: 'to_warehouse', label: '입고 창고', width: 90, minWidth: 90 },
+  { key: 'itemname', label: '품명', width: 90, minWidth: 90 },
+  { key: 'productname', label: '제품명', width: 90, minWidth: 90 },
+  { key: 'grade', label: '강종', width: 70, minWidth: 70 },
+  { key: 'thickness', label: '두께', width: 70, minWidth: 70 },
+  { key: 'width', label: '폭', width: 70, minWidth: 70 },
+  { key: 'length', label: '길이', width: 70, minWidth: 70 },
+  { key: 'qty', label: '이전 수량', width: 70, minWidth: 70 },
+  { key: 'qtyunit', label: '단위', width: 50, minWidth: 50 },
+  { key: 'weight', label: '이전 중량(KG)', width: 100, minWidth: 80 },
+  { key: 'customname', label: '매입처', width: 120, minWidth: 90 },
+  { key: 'source_date', label: '재고입고일자', width: 90, minWidth: 90 },
+  { key: 'sourcetype', label: '재고구분', width: 80, minWidth: 65 },
+  { key: 'stocksourceno', label: '원천전표', width: 110, minWidth: 110 },
+  { key: 'stocksourceline', label: '원천순번', width: 90, minWidth: 90 },
+];
+const initialColumnWidths = (columns) => Object.fromEntries(columns.map(({ key, width }) => [key, width]));
 const STOCK_PAGE_SIZE_OPTIONS = [
   { value: '25', label: '25개씩' }, { value: '50', label: '50개씩' }, { value: '100', label: '100개씩' },
 ];
@@ -52,15 +86,22 @@ const initialStockColumnWidths = () => Object.fromEntries(STOCK_COLUMNS.map(({ k
 // Keep fast header text edits local so each keystroke does not rerender the
 // receipt list, detail grid, and stock picker state owned by the page.
 const HeaderTextInput = memo(function HeaderTextInput({ value, disabled, inputRef, onCommit }) {
-  const [draft, setDraft] = useState(value || '');
-
-  useEffect(() => setDraft(value || ''), [value]);
+  const sourceValue = value || '';
+  const [draftState, setDraftState] = useState({ sourceValue, draft: sourceValue });
+  let draft = draftState.draft;
+  if (draftState.sourceValue !== sourceValue) {
+    draft = sourceValue;
+    setDraftState({ sourceValue, draft: sourceValue });
+  }
 
   return <TextInput
     ref={inputRef}
     value={draft}
     disabled={disabled}
-    onChange={(event) => setDraft(event.currentTarget.value)}
+    onChange={(event) => {
+      const nextValue = event.currentTarget.value;
+      setDraftState((current) => ({ ...current, draft: nextValue }));
+    }}
     onBlur={() => onCommit(draft)}
   />;
 });
@@ -213,6 +254,8 @@ export default function InoutmoveRegister() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [pageSize, setPageSize] = useState(15);
+  const [listColumnWidths, setListColumnWidths] = useState(() => initialColumnWidths(LIST_COLUMNS));
+  const [detailColumnWidths, setDetailColumnWidths] = useState(() => initialColumnWidths(DETAIL_COLUMNS));
   const listViewportRef = useRef(null);
   const listHorizontalRef = useRef(null);
   const managerInputRef = useRef(null);
@@ -223,6 +266,56 @@ export default function InoutmoveRegister() {
   const toWarehouse = warehouses.find((row) => row.warehousecode === header.towarehousecode)?.warehousecodename || '';
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const totals = useMemo(() => items.reduce((sum, row) => ({ qty: sum.qty + Number(row.qty || 0), weight: sum.weight + Number(row.weight || 0) }), { qty: 0, weight: 0 }), [items]);
+  const listTableWidth = LIST_COLUMNS.reduce((sum, column) => sum + (listColumnWidths[column.key] ?? column.width), 0);
+  const detailTableWidth = DETAIL_COLUMNS.reduce((sum, column) => sum + (detailColumnWidths[column.key] ?? column.width), 0);
+
+  const resizeGridColumn = useCallback((event, column, widths, setWidths, columns, listTable = false) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = widths[column.key] ?? column.width;
+    const table = event.currentTarget.closest('table');
+    const col = [...(table?.querySelectorAll('col[data-column-key]') || [])].find((element) => element.dataset.columnKey === column.key);
+    const tableWidth = columns.reduce((sum, item) => sum + (widths[item.key] ?? item.width), 0);
+    let nextWidth = startWidth;
+    let animationFrame = 0;
+    const applyWidth = () => {
+      const nextTableWidth = tableWidth + nextWidth - startWidth;
+      if (col) col.style.width = `${nextWidth}px`;
+      if (table) {
+        const renderedWidth = Math.max(table.parentElement?.clientWidth || 0, nextTableWidth);
+        table.style.width = `${renderedWidth}px`;
+        table.style.minWidth = `${nextTableWidth}px`;
+      }
+      if (listTable && listHorizontalRef.current?.firstElementChild) {
+        const viewportWidth = listViewportRef.current?.clientWidth || 0;
+        listHorizontalRef.current.firstElementChild.style.width = `${Math.max(viewportWidth, nextTableWidth)}px`;
+      }
+    };
+    const move = (pointerEvent) => {
+      nextWidth = Math.max(column.minWidth, Math.min(1200, startWidth + pointerEvent.clientX - startX));
+      if (!animationFrame) animationFrame = window.requestAnimationFrame(() => { animationFrame = 0; applyWidth(); });
+    };
+    const finish = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      applyWidth();
+      setWidths((current) => ({ ...current, [column.key]: nextWidth }));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  }, []);
+
+  const renderListHeader = (column) => <Table.Th key={column.key} className={codeClasses.resizableHeader} style={{ position: 'relative', width: listColumnWidths[column.key] ?? column.width }}>
+    <span style={{ whiteSpace: 'nowrap' }}>{column.label}</span><span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeGridColumn(event, column, listColumnWidths, setListColumnWidths, LIST_COLUMNS, true)} role="separator" aria-label={`${column.label} 열 너비 조절`} />
+  </Table.Th>;
+  const renderDetailHeader = (column) => <Table.Th key={column.key} className={codeClasses.resizableHeader} style={{ position: 'relative', width: detailColumnWidths[column.key] ?? column.width }}>
+    {column.key === 'select' ? <input type="checkbox" checked={items.length > 0 && selectedIds.length === items.length} onChange={(event) => setSelectedIds(event.currentTarget.checked ? items.map(sourceKey) : [])} disabled={readOnly || !items.length} /> : <span style={{ whiteSpace: 'nowrap' }}>{column.label}</span>}
+    {column.key !== 'select' && <span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeGridColumn(event, column, detailColumnWidths, setDetailColumnWidths, DETAIL_COLUMNS)} role="separator" aria-label={`${column.label} 열 너비 조절`} />}
+  </Table.Th>;
 
   const loadWarehouses = useCallback(async () => {
     try { const { data } = await axios.get('/api/inoutmove-register/warehouses', auth()); setWarehouses(data.items || []); }
@@ -246,7 +339,12 @@ export default function InoutmoveRegister() {
       notifications.show({ title: '재고이전 조회 실패', message: error.response?.data?.detail || '재고이전 목록을 조회하지 못했습니다.', color: 'red' });
     } finally { setLoading(false); }
   }, [filters, selectedReceiptno, resetDraft, pageSize]);
-  useEffect(() => { void loadWarehouses(); void loadDocuments(1, emptyFilters()); }, [loadWarehouses]);
+  useEffect(() => {
+    void loadWarehouses();
+    void loadDocuments(1, emptyFilters());
+    // Initial load only; interactions load again with their current filter state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadWarehouses]);
 
   const runSearch = useCallback(() => {
     if (filterInputs.date_from && filterInputs.date_to && filterInputs.date_from > filterInputs.date_to) {
@@ -417,23 +515,26 @@ export default function InoutmoveRegister() {
             <Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>재고이전 기본</Text><span className={classes.count}>{total.toLocaleString()}건</span></Group>
             <Text size="xs" c="dimmed">재고이전 전표를 선택하면 상세 내용을 확인할 수 있습니다.</Text>
           </Group>
-          <Box ref={listViewportRef} className={classes.listViewport} onScroll={(event) => {
-            if (listHorizontalRef.current) listHorizontalRef.current.scrollLeft = event.currentTarget.scrollLeft;
-          }}>
-            <Table stickyHeader withTableBorder withColumnBorders className={`${classes.table} ${classes.listTable}`}>
-              <Table.Thead><Table.Tr>{['재고이전 일자', '출고 창고', '입고 창고', '상세건수', '수량', '중량(KG)', '담당자', '재고이전전표', '비고'].map((name) => <Table.Th key={name}>{name}</Table.Th>)}</Table.Tr></Table.Thead>
+          <Box ref={listViewportRef} className={classes.listViewport}>
+            <Table stickyHeader withTableBorder withColumnBorders className={`${classes.table} ${classes.listTable}`}
+              style={{ width: `max(100%, ${listTableWidth}px)`, minWidth: `${listTableWidth}px`, tableLayout: 'fixed' }}>
+              <colgroup>{LIST_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${listColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
+              <Table.Thead><Table.Tr>{LIST_COLUMNS.map(renderListHeader)}</Table.Tr></Table.Thead>
               {!!documents.length && <Table.Tbody>{documents.map((row) => <Table.Tr key={row.receiptno} onClick={() => void selectDocument(row.receiptno)} className={`${classes.clickableRow} ${row.receiptno === selectedReceiptno ? classes.receiptFinderRowActive : ''}`}>
                 <Table.Td>{String(row.receptdate).slice(0, 10)}</Table.Td><Table.Td>{row.fromwarehousename}</Table.Td><Table.Td>{row.towarehousename}</Table.Td>
-                <Table.Td ta="right">{number(row.line_count)}</Table.Td><Table.Td ta="right">{number(row.total_qty)} {row.qtyunit || ''}</Table.Td><Table.Td ta="right">{number(row.total_weight)}</Table.Td>
+                <Table.Td ta="right">{number(row.line_count)}</Table.Td><Table.Td ta="right">{number(row.total_qty)}</Table.Td><Table.Td ta="right">{number(row.total_weight)}</Table.Td>
                 <Table.Td>{row.manager}</Table.Td><Table.Td>{row.receiptno}</Table.Td><Table.Td className={classes.ellipsis}>{row.description}</Table.Td>
               </Table.Tr>)}</Table.Tbody>}
             </Table>
             {!documents.length && <Box className={inboundClasses.topReceiptEmptyMessage}>{loading ? '조회 중입니다.' : '조회된 재고이전 전표가 없습니다.'}</Box>}
           </Box>
           <Box ref={listHorizontalRef} className={inboundClasses.topReceiptHorizontalScroll} onScroll={(event) => {
-            if (listViewportRef.current) listViewportRef.current.scrollLeft = event.currentTarget.scrollLeft;
+            const viewport = listViewportRef.current;
+            if (viewport && Math.abs(viewport.scrollLeft - event.currentTarget.scrollLeft) > 0.5) {
+              viewport.scrollLeft = event.currentTarget.scrollLeft;
+            }
           }} aria-label="재고이전 기본 가로 스크롤">
-            <Box className={inboundClasses.topReceiptHorizontalContent} style={{ width: '1050px' }} />
+            <Box className={inboundClasses.topReceiptHorizontalContent} style={{ width: `max(100%, ${listTableWidth}px)` }} />
           </Box>
           <Group className={inboundClasses.topReceiptPagination} justify="space-between">
             <Group className={inboundClasses.topReceiptPageSize} gap="xs">
@@ -458,8 +559,10 @@ export default function InoutmoveRegister() {
               <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>비고</Text><HeaderTextInput value={header.description} disabled={readOnly} inputRef={descriptionInputRef} onCommit={(value) => updateHeader('description', value)} /></Box>
             </Box>
             <Box className={`${codeClasses.tableWrap} ${classes.detailViewport}`}>
-              <Table stickyHeader withTableBorder withColumnBorders className={`${sharedClasses.table} ${classes.table} ${classes.detailTable}`}>
-                <Table.Thead><Table.Tr><Table.Th className={`${classes.checkColumn} ${codeClasses.checkCol}`}><input type="checkbox" checked={items.length > 0 && selectedIds.length === items.length} onChange={(event) => setSelectedIds(event.currentTarget.checked ? items.map(sourceKey) : [])} disabled={readOnly || !items.length} /></Table.Th>{['No.', '구분', '재고이전 일자', '출고 창고', '입고 창고', '품명', '제품명', '강종', '두께', '폭', '길이', '이전 수량', '단위', '이전 중량(KG)', '매입처', '재고입고일자', '재고구분', '원천전표', '원천순번'].map((name) => <Table.Th key={name}>{name}</Table.Th>)}</Table.Tr></Table.Thead>
+              <Table stickyHeader withTableBorder withColumnBorders className={`${sharedClasses.table} ${classes.table} ${classes.detailTable}`}
+                style={{ width: `max(100%, ${detailTableWidth}px)`, minWidth: `${detailTableWidth}px`, tableLayout: 'fixed' }}>
+                <colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
+                <Table.Thead><Table.Tr>{DETAIL_COLUMNS.map(renderDetailHeader)}</Table.Tr></Table.Thead>
                 {!!items.length && <Table.Tbody>{items.map((row, index) => <Table.Tr key={sourceKey(row)} className={selectedSet.has(sourceKey(row)) ? classes.selectedRow : ''}>
                   <Table.Td className={codeClasses.checkCol}><input type="checkbox" checked={selectedSet.has(sourceKey(row))} disabled={readOnly} onChange={(event) => setSelectedIds((current) => event.currentTarget.checked ? [...current, sourceKey(row)] : current.filter((key) => key !== sourceKey(row)))} /></Table.Td>
                   <Table.Td>{index + 1}</Table.Td><Table.Td>이동</Table.Td>
