@@ -18,6 +18,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 import psycopg2
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from config import DB_CONFIG, JWT_SECRET_KEY  # Loads backend/.env before the AI settings are read.
+import db as _shared_db
 
 logger = logging.getLogger(__name__)
 SEOUL = timezone(timedelta(hours=9), name="KST")
@@ -248,15 +249,8 @@ class AIOrderError(Exception):
 
 def _ai_order_usage_connection():
     """Open the shared PostgreSQL store for AI quota and concurrency records."""
-    return psycopg2.connect(
-        host=DB_CONFIG["host"],
-        port=DB_CONFIG["port"],
-        dbname=DB_CONFIG["database"],
-        user=DB_CONFIG["user"],
-        password=DB_CONFIG["password"],
-        connect_timeout=5,
-        options="-c statement_timeout=10000 -c lock_timeout=10000",
-    )
+    # Shared pool connection with the same 10 s statement/lock limits as before.
+    return _shared_db.open_connection(statement_timeout_ms=10000, lock_timeout_ms=10000)
 
 
 def _hash_secret(value: str) -> str:
@@ -495,14 +489,8 @@ def _record_usage(request_hash: str, usage: Any | None, success: bool) -> dict[s
 
 
 def _ai_order_audit_connection():
-    conn_str = (
-        f"host={DB_CONFIG['host']} port={DB_CONFIG['port']} dbname={DB_CONFIG['database']} "
-        f"user={DB_CONFIG['user']} password={DB_CONFIG['password']}"
-    )
-    connection = psycopg2.connect(conn_str, connect_timeout=5)
-    with connection.cursor() as cursor:
-        cursor.execute("SET statement_timeout = '5s'")
-    return connection
+    # Shared pool connection with the same 5 s statement limit as before.
+    return _shared_db.open_connection(statement_timeout_ms=5000)
 
 
 _AI_ORDER_RULE_TARGET_FIELDS = {

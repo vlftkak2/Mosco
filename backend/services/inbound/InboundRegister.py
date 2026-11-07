@@ -1,3 +1,4 @@
+from psycopg2.extras import execute_values
 import logging
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -5,7 +6,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
 from psycopg2 import IntegrityError
-from psycopg2.pool import ThreadedConnectionPool
+import db as _shared_db
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import DB_CONFIG
@@ -13,30 +14,8 @@ from services.inventory import CurrentStock as current_stock_module
 
 logger = logging.getLogger(__name__)
 
-_CONNECTION_POOL = ThreadedConnectionPool(
-    minconn=1,
-    maxconn=15,
-    host=DB_CONFIG["host"],
-    port=DB_CONFIG["port"],
-    dbname=DB_CONFIG["database"],
-    user=DB_CONFIG["user"],
-    password=DB_CONFIG["password"],
-    connect_timeout=5,
-)
-
-@contextmanager
-def _connect():
-    connection = _CONNECTION_POOL.getconn()
-    try:
-        with connection:
-            yield connection
-    except Exception:
-        _CONNECTION_POOL.putconn(connection, close=True)
-        connection = None
-        raise
-    finally:
-        if connection is not None:
-            _CONNECTION_POOL.putconn(connection)
+# Connections come from the single shared pool (backend/db.py).
+_connect = _shared_db.connect
 
 
 class InboundDetailInput(BaseModel):
@@ -355,12 +334,14 @@ def _insert_inbound_expenses(cursor, companyid: str, companyname: str, receiptno
             str(expense.get("purchaseyn") or "N").strip().upper(),
             str(expense.get("description") or "").strip() or None,
         ))
-    cursor.executemany(
+    execute_values(
+        cursor,
         """INSERT INTO Inbound03t
            (companyid, companyname, receiptno, lineno, costcode, costname,
             supplyamt, vat, totalamt, customcode, customname, purchaseyn, description)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+           VALUES %s""",
         values,
+        page_size=1000,
     )
 
 
@@ -384,7 +365,10 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
         raise ValueError("입고일자를 입력해 주세요.")
     try:
         with _connect() as connection, connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
+            # Shared company stock lock: inbound/outbound saves run concurrently with each other
+            # (stock rows are row-locked), while opening stock / transfer / processing still take
+            # the exclusive lock and therefore never overlap with them (same as before).
+            cursor.execute("SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
             customer_codes = list(dict.fromkeys(item["customcode"] for item in items if item["customcode"]))
             customer_tokens = list(dict.fromkeys(
                 item["customname"].strip().lower() for item in items if not item["customcode"] and item["customname"].strip()
@@ -556,14 +540,16 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                         (item.get("warehousecode") or "").strip() or None,
                         warehouse_names.get((item.get("warehousecode") or "").strip()) or None,
                     ))
-                cursor.executemany(
+                execute_values(
+                    cursor,
                     """INSERT INTO Inbound02t
                        (companyid, companyname, receiptno, lineno, itemcode, itemname, productname,
                         thickness, width, length, materialcode, materialname, surfacecode,
                         surfacename, myrtle, qty, qtyunit, weight, unit, unitprice,
                         supplyamt, vat, unitamt, warehousecode, warehousecodename)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                       VALUES %s""",
                     detail_values,
+                    page_size=1000,
                 )
                 stock_lines = [{
                     **item,
@@ -620,7 +606,10 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
 def update_receipt_manager(companyid: str, receiptno: str, manager: str):
     normalized_manager = (manager or "").strip()
     with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
+        # Shared company stock lock: inbound/outbound saves run concurrently with each other
+        # (stock rows are row-locked), while opening stock / transfer / processing still take
+        # the exclusive lock and therefore never overlap with them (same as before).
+        cursor.execute("SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
             """SELECT COALESCE(subulyn, 'N')
                FROM Inbound01t
@@ -647,6 +636,13 @@ def update_receipt_manager(companyid: str, receiptno: str, manager: str):
         updated_count = cursor.fetchone()[0]
         if not updated_count:
             raise ValueError("담당자를 수정할 입고상세가 없습니다.")
+        # Lock this receipt's stock rows in a fixed order (same order every save uses).
+        cursor.execute(
+            """SELECT 1 FROM CurrentStock01t
+               WHERE companyid = %s AND sourcetype = 'INBOUND' AND sourceno = %s
+               ORDER BY sourceline FOR UPDATE""",
+            (companyid, receiptno),
+        )
         cursor.execute(
             """UPDATE CurrentStock01t
                SET manager = %s, updated_at = CURRENT_TIMESTAMP
@@ -669,7 +665,10 @@ def update_receipt_manager(companyid: str, receiptno: str, manager: str):
 
 def delete_receipt(companyid: str, receiptno: str):
     with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
+        # Shared company stock lock: inbound/outbound saves run concurrently with each other
+        # (stock rows are row-locked), while opening stock / transfer / processing still take
+        # the exclusive lock and therefore never overlap with them (same as before).
+        cursor.execute("SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
             "SELECT COALESCE(subulyn, 'N') FROM Inbound01t WHERE companyid = %s AND receiptno = %s FOR UPDATE",
             (companyid, receiptno),

@@ -4,6 +4,7 @@ import asyncio
 import logging
 from datetime import date
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -79,6 +80,23 @@ class ConfirmedItemUpdate(BaseModel):
 
 class ConfirmedItemsUpdate(BaseModel):
     items: list[ConfirmedItemUpdate] = Field(max_length=1000)
+
+
+class StockSource(BaseModel):
+    sourcetype: Literal["OPENING", "INBOUND", "PROCESS"]
+    sourceno: str = Field(min_length=1, max_length=100)
+    sourceline: int = Field(gt=0)
+
+
+class StockMatchesUpdate(BaseModel):
+    status: Literal["UNREVIEWED", "MATCHED", "NO_STOCK"]
+    sources: list[StockSource] = Field(default_factory=list, max_length=100)
+
+
+class ProcessingStatusUpdate(BaseModel):
+    status: Literal[
+        "REVIEW_PENDING", "PROCESSING_REVIEW", "PROCESSING_DONE", "NOT_REQUIRED", "CANCELLED"
+    ]
 
 
 async def authorized_user(user: dict = Depends(get_current_user)):
@@ -169,8 +187,59 @@ async def cancel_confirmed(orderid: str, user: dict = Depends(authorized_user)):
 
 
 @router.get("/{orderid}/items/{lineno}/stock-candidates")
-async def get_stock_candidates(orderid: str, lineno: int, user: dict = Depends(authorized_user)):
-    result = await asyncio.to_thread(service.stock_candidates, user["companyid"], orderid, lineno)
+async def get_stock_candidates(
+    orderid: str,
+    lineno: int,
+    thickness_from: Decimal | None = Query(default=None, ge=0, le=1000),
+    thickness_to: Decimal | None = Query(default=None, ge=0, le=1000),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    itemname: str | None = Query(default=None, max_length=150),
+    surface: str | None = Query(default=None, max_length=100),
+    width: Decimal | None = Query(default=None, ge=0, le=100000),
+    length: Decimal | None = Query(default=None, ge=0, le=100000),
+    warehouse: str | None = Query(default=None, max_length=100),
+    user: dict = Depends(authorized_user),
+):
+    if thickness_from is not None and thickness_to is not None and thickness_from > thickness_to:
+        raise HTTPException(400, "두께 시작값이 끝값보다 클 수 없습니다.")
+    result = await asyncio.to_thread(
+        service.stock_candidates, user["companyid"], orderid, lineno, thickness_from, thickness_to,
+        page, page_size, itemname, surface, width, length, warehouse,
+    )
     if result is None:
         raise HTTPException(404, "확정 주문 또는 품목을 찾을 수 없습니다.")
     return result
+
+
+@router.put("/{orderid}/items/{lineno}/stock-matches")
+async def update_stock_matches(orderid: str, lineno: int, payload: StockMatchesUpdate, user: dict = Depends(authorized_user)):
+    try:
+        updated = await asyncio.to_thread(
+            service.save_stock_matches, user["companyid"], orderid, lineno,
+            payload.status, payload.sources,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("AI order stock match update failed company=%s error_type=%s", user["companyid"], type(exc).__name__)
+        raise HTTPException(500, "재고매칭 저장에 실패했습니다. 다시 시도해 주세요.") from exc
+    if not updated:
+        raise HTTPException(404, "확정 주문 또는 품목을 찾을 수 없습니다.")
+    return {"orderid": orderid, "lineno": lineno, "status": payload.status, "updated": True}
+
+
+@router.put("/{orderid}/items/{lineno}/processing-status")
+async def update_processing_status(orderid: str, lineno: int, payload: ProcessingStatusUpdate, user: dict = Depends(authorized_user)):
+    try:
+        updated = await asyncio.to_thread(
+            service.update_processing_status, user["companyid"], orderid, lineno, payload.status,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("AI order processing status update failed company=%s error_type=%s", user["companyid"], type(exc).__name__)
+        raise HTTPException(500, "가공상태 저장에 실패했습니다. 다시 시도해 주세요.") from exc
+    if not updated:
+        raise HTTPException(404, "확정 주문 또는 품목을 찾을 수 없습니다.")
+    return {"orderid": orderid, "lineno": lineno, "status": payload.status, "updated": True}

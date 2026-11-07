@@ -10,14 +10,13 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from config import DB_CONFIG
+import db as _shared_db
 
 
 @contextmanager
 def connection():
-    conn = psycopg2.connect(
-        host=DB_CONFIG["host"], port=DB_CONFIG["port"], dbname=DB_CONFIG["database"],
-        user=DB_CONFIG["user"], password=DB_CONFIG["password"], connect_timeout=5,
-    )
+    # Borrowed from the shared pool; close() rolls back anything uncommitted and returns it.
+    conn = _shared_db.open_connection()
     try:
         yield conn
     except Exception:
@@ -119,7 +118,19 @@ def list_orders(companyid, start_date=None, end_date=None, buyer=None, orderid=N
                    h.username, h.useremail, h.created_at,
                    (SELECT COUNT(*) FROM aiorder02t d WHERE d.companyid=h.companyid AND d.orderid=h.orderid) AS item_count,
                    (SELECT COALESCE(SUM(d.weight_kg), 0) FROM aiorder02t d
-                    WHERE d.companyid=h.companyid AND d.orderid=h.orderid) AS total_weight
+                    WHERE d.companyid=h.companyid AND d.orderid=h.orderid) AS total_weight,
+                   COALESCE((SELECT CASE
+                       WHEN COUNT(*) = 0 THEN 'REVIEW_PENDING'
+                        WHEN COUNT(*) FILTER (WHERE d.processing_status <> 'CANCELLED') = 0 THEN 'CANCELLED'
+                        WHEN BOOL_AND(d.processing_status = 'PROCESSING_DONE')
+                             FILTER (WHERE d.processing_status <> 'CANCELLED') THEN 'PROCESSING_DONE'
+                        WHEN BOOL_AND(d.processing_status = 'NOT_REQUIRED')
+                             FILTER (WHERE d.processing_status <> 'CANCELLED') THEN 'NOT_REQUIRED'
+                        WHEN BOOL_OR(d.processing_status = 'PROCESSING_REVIEW')
+                             FILTER (WHERE d.processing_status <> 'CANCELLED') THEN 'PROCESSING_REVIEW'
+                       ELSE 'REVIEW_PENDING' END
+                     FROM aiorder02t d WHERE d.companyid=h.companyid AND d.orderid=h.orderid),
+                     'REVIEW_PENDING') AS progress
             FROM aiorder01t h WHERE {where}
             ORDER BY h.created_at DESC, h.orderid DESC LIMIT %s OFFSET %s
         """, args + [page_size, (page - 1) * page_size])
@@ -134,10 +145,47 @@ def get_order(companyid, orderid):
             return None
         cur.execute("""
             SELECT lineno, itemname, steelgrade, size, thickness, width, length,
-                   quantity, quantity_unit, weight_kg, notes, quantity_raw, weight_raw
+                   quantity, quantity_unit, weight_kg, notes, quantity_raw, weight_raw,
+                   stock_match_status, processing_status
             FROM aiorder02t WHERE companyid=%s AND orderid=%s ORDER BY lineno
         """, (companyid, orderid))
-        return {"header": as_dict(header), "items": [as_dict(row) for row in cur.fetchall()]}
+        items = [as_dict(row) for row in cur.fetchall()]
+        matches = {}
+        cur.execute("""
+            SELECT l.lineno, l.matchlineno, l.stocksourcetype, l.stocksourceno, l.stocksourceline,
+                   s.itemname AS stock_itemname, s.productname AS stock_productname,
+                   s.thickness AS stock_thickness, s.width AS stock_width, s.length AS stock_length,
+                   s.qty AS stock_qty, s.qtyunit AS stock_qtyunit, s.weight AS stock_weight,
+                   s.warehousecodename AS stock_warehouse
+            FROM aiorder03t l
+            LEFT JOIN currentstock01t s
+              ON s.companyid=l.companyid
+             AND s.sourcetype=l.stocksourcetype
+             AND s.sourceno=l.stocksourceno
+             AND s.sourceline=l.stocksourceline
+            WHERE l.companyid=%s AND l.orderid=%s
+            ORDER BY l.lineno, l.matchlineno
+        """, (companyid, orderid))
+        for row in cur.fetchall():
+            match = as_dict(row)
+            matches.setdefault(match["lineno"], []).append({
+                "matchlineno": match["matchlineno"],
+                "sourcetype": match["stocksourcetype"],
+                "sourceno": match["stocksourceno"],
+                "sourceline": match["stocksourceline"],
+                "itemname": match["stock_itemname"],
+                "productname": match["stock_productname"],
+                "thickness": match["stock_thickness"],
+                "width": match["stock_width"],
+                "length": match["stock_length"],
+                "quantity": match["stock_qty"],
+                "quantity_unit": match["stock_qtyunit"],
+                "weight_kg": match["stock_weight"],
+                "warehouse": match["stock_warehouse"],
+            })
+        for item in items:
+            item["stock_matches"] = matches.get(item["lineno"], [])
+        return {"header": as_dict(header), "items": items}
 
 
 def update_order(companyid, orderid, buyer, recipient, order_date, due_date, delivery_location):
@@ -230,6 +278,84 @@ def cancel_order(companyid, orderid):
     return True
 
 
+def save_stock_matches(companyid, orderid, lineno, status, sources):
+    """Replace the stock links and match state for one tenant-owned order line."""
+    status = str(status or "").strip().upper()
+    if status not in {"UNREVIEWED", "MATCHED", "NO_STOCK"}:
+        raise ValueError("재고매칭 상태를 확인해 주세요.")
+    normalized = []
+    for source in sources:
+        source_type = str(source.sourcetype or "").strip().upper()
+        source_no = str(source.sourceno or "").strip()
+        source_line = int(source.sourceline)
+        if source_type not in {"OPENING", "INBOUND", "PROCESS"} or not source_no or source_line <= 0:
+            raise ValueError("선택한 현재고 원천 정보를 확인해 주세요.")
+        normalized.append((source_type, source_no, source_line))
+    if len(normalized) != len(set(normalized)):
+        raise ValueError("같은 현재고를 중복 선택할 수 없습니다.")
+    if status == "MATCHED" and not normalized:
+        raise ValueError("재고 연결을 선택해 주세요.")
+    if status != "MATCHED" and normalized:
+        raise ValueError("재고를 연결할 때만 선택 재고를 전달해 주세요.")
+
+    with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""
+            SELECT companyname FROM aiorder02t
+            WHERE companyid=%s AND orderid=%s AND lineno=%s FOR UPDATE
+        """, (companyid, orderid, lineno))
+        line = cur.fetchone()
+        if not line:
+            return False
+
+        if normalized:
+            tuples_sql = ",".join(["(%s,%s,%s)"] * len(normalized))
+            params = [companyid]
+            for source in normalized:
+                params.extend(source)
+            cur.execute(f"""
+                SELECT sourcetype, sourceno, sourceline
+                FROM currentstock01t
+                WHERE companyid=%s AND (qty > 0 OR weight > 0)
+                  AND (sourcetype, sourceno, sourceline) IN ({tuples_sql})
+                FOR SHARE
+            """, params)
+            available = {(row["sourcetype"], row["sourceno"], int(row["sourceline"])) for row in cur.fetchall()}
+            missing = set(normalized) - available
+            if missing:
+                raise ValueError("현재고가 변경되었거나 사용할 수 없는 재고가 있습니다. 현재고를 다시 조회해 주세요.")
+
+        cur.execute("DELETE FROM aiorder03t WHERE companyid=%s AND orderid=%s AND lineno=%s", (companyid, orderid, lineno))
+        for matchlineno, (source_type, source_no, source_line) in enumerate(normalized, start=1):
+            cur.execute("""
+                INSERT INTO aiorder03t
+                    (companyid, companyname, orderid, lineno, matchlineno,
+                     stocksourcetype, stocksourceno, stocksourceline)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (companyid, line["companyname"], orderid, lineno, matchlineno,
+                  source_type, source_no, source_line))
+        cur.execute("""
+            UPDATE aiorder02t SET stock_match_status=%s, updated_at=CURRENT_TIMESTAMP
+            WHERE companyid=%s AND orderid=%s AND lineno=%s
+        """, (status, companyid, orderid, lineno))
+        conn.commit()
+    return True
+
+
+def update_processing_status(companyid, orderid, lineno, status):
+    allowed = {"REVIEW_PENDING", "PROCESSING_REVIEW", "PROCESSING_DONE", "NOT_REQUIRED", "CANCELLED"}
+    status = str(status or "").strip().upper()
+    if status not in allowed:
+        raise ValueError("가공상태를 확인해 주세요.")
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("""
+            UPDATE aiorder02t SET processing_status=%s, updated_at=CURRENT_TIMESTAMP
+            WHERE companyid=%s AND orderid=%s AND lineno=%s
+        """, (status, companyid, orderid, lineno))
+        updated = cur.rowcount == 1
+        conn.commit()
+    return updated
+
+
 def dimensions(size):
     text = str(size or "").replace(",", "")
     match = re.search(r"(?<![\d.])(\d+(?:\.\d+)?)\s*[xX×*]\s*(\d+(?:\.\d+)?)(?:\s*[xX×*]\s*(\d+(?:\.\d+)?))?", text)
@@ -244,61 +370,113 @@ def form_of(value):
     return None
 
 
-def stock_candidates(companyid, orderid, lineno):
+def _like_pattern(text):
+    """LIKE %text% pattern with the user's text matched literally (\\, %, _ escaped)."""
+    return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+def stock_candidates(companyid, orderid, lineno, thickness_from=None, thickness_to=None, page=1, page_size=50,
+                     itemname=None, surface=None, width=None, length=None, warehouse=None):
+    """Current stock list for the matching modal; the person in charge chooses the rows.
+
+    Optional filters entered in the modal: item name (LIKE %품명%; defaults to the order item
+    name when not sent, empty = no name filter) and thickness from/to (each only when entered).
+    """
     order = get_order(companyid, orderid)
     if not order:
         return None
     item = next((row for row in order["items"] if row["lineno"] == lineno), None)
     if not item:
         return None
-    grade_verified = bool(str(item["steelgrade"] or "").strip())
-    material_name = str(item["steelgrade"] or item["itemname"] or "").strip().upper()
+    order_name = str(item["itemname"] or "").strip()
+    search_name = order_name if itemname is None else str(itemname).strip()
     order_thick = Decimal(str(item["thickness"])) if item["thickness"] is not None else dimensions(item["size"])[0]
     order_width = Decimal(str(item["width"])) if item["width"] is not None else dimensions(item["size"])[1]
     order_length = Decimal(str(item["length"])) if item["length"] is not None else dimensions(item["size"])[2]
-    target_form = form_of(item["itemname"])
-    matches = []
+    page = max(1, int(page or 1))
+    page_size = max(1, min(200, int(page_size or 50)))
+    base = {"orderid": orderid, "lineno": lineno, "page": page, "page_size": page_size,
+            "itemname": search_name,
+            "thickness_from": float(thickness_from) if thickness_from is not None else None,
+            "thickness_to": float(thickness_to) if thickness_to is not None else None}
+    # Only fixed SQL fragments are added here; every value stays a bound parameter.
+    filters = ["s.companyid=%(companyid)s", "(s.qty>0 OR s.weight>0)"]
+    params = {"companyid": companyid}
+    if search_name:
+        filters.append("(s.itemname ILIKE %(pattern)s ESCAPE '\\' OR m.itemname ILIKE %(pattern)s ESCAPE '\\')")
+        params["pattern"] = "%" + search_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    if thickness_from is not None:
+        filters.append("s.thickness >= %(t_from)s")
+        params["t_from"] = thickness_from
+    if thickness_to is not None:
+        filters.append("s.thickness <= %(t_to)s")
+        params["t_to"] = thickness_to
+    surface_text = str(surface or "").strip()
+    if surface_text:
+        filters.append("(s.surfacename ILIKE %(surface)s ESCAPE '\\' OR s.surfacecode ILIKE %(surface)s ESCAPE '\\')")
+        params["surface"] = _like_pattern(surface_text)
+    if width is not None:
+        filters.append("s.width = %(width)s")
+        params["width"] = width
+    if length is not None:
+        filters.append("COALESCE(s.length, 0) = %(length)s")
+        params["length"] = length
+    warehouse_text = str(warehouse or "").strip()
+    if warehouse_text:
+        filters.append("(s.warehousecodename ILIKE %(warehouse)s ESCAPE '\\' OR s.warehousecode ILIKE %(warehouse)s ESCAPE '\\')")
+        params["warehouse"] = _like_pattern(warehouse_text)
+    where_sql = " AND ".join(filters)
     with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
-        # Both the stock and master join are explicitly tenant scoped.
-        cur.execute("""
-            SELECT s.itemcode, s.itemname, s.thickness, s.width, s.length, s.qty, s.qtyunit, s.weight,
+        # Filtered, ordered and paged in the database (tenant scoped on both sides of the join).
+        # Order: same size first, then same thickness, then nearest thickness, then larger quantity.
+        cur.execute(f"""
+            SELECT s.sourcetype AS stocksourcetype, s.sourceno AS stocksourceno,
+                   s.sourceline AS stocksourceline,
+                   s.itemcode, s.itemname, s.productname, s.materialcode, s.materialname,
+                   s.surfacecode, s.surfacename, s.receiptdate,
+                   s.thickness, s.width, s.length, s.qty, s.qtyunit, s.weight,
                    s.warehousecode, s.warehousecodename, m.itemname AS master_itemname,
-                   m.itemtypecode
+                   m.itemtypecode, COUNT(*) OVER () AS total_count
             FROM currentstock01t s LEFT JOIN itemcode01t m
               ON m.companyid=s.companyid AND m.itemcode=s.itemcode
-            WHERE s.companyid=%s AND s.qty>0
-            ORDER BY s.itemcode, s.warehousecode
-        """, (companyid,))
+            WHERE {where_sql}
+            ORDER BY
+              CASE WHEN %(ot)s::numeric IS NOT NULL AND s.thickness = %(ot)s::numeric
+                         AND (%(ow)s::numeric IS NULL OR s.width IS NULL OR s.width = %(ow)s::numeric)
+                         AND (%(ol)s::numeric IS NULL OR s.length IS NULL OR s.length = %(ol)s::numeric) THEN 1
+                   WHEN %(ot)s::numeric IS NOT NULL AND s.thickness = %(ot)s::numeric THEN 2
+                   ELSE 3 END,
+              ABS(s.thickness - COALESCE(%(ot)s::numeric, 0)),
+              s.qty DESC, s.width, s.itemcode, s.warehousecode, s.sourcetype, s.sourceno, s.sourceline
+            LIMIT %(limit)s OFFSET %(offset)s
+        """, {**params, "ot": order_thick, "ow": order_width, "ol": order_length,
+              "limit": page_size, "offset": (page - 1) * page_size})
         rows = cur.fetchall()
-    process_paths = {("COIL", "SKELP"), ("COIL", "SHEET"), ("SKELP", "SHEET"), ("SHEET", "SHEET")}
+        total = rows[0]["total_count"] if rows else 0
+        if not rows and page > 1:
+            # Requested page is past the end (e.g. after narrowing the filters): report the real total.
+            cur.execute(f"""
+                SELECT COUNT(*) AS total_count
+                FROM currentstock01t s LEFT JOIN itemcode01t m
+                  ON m.companyid=s.companyid AND m.itemcode=s.itemcode
+                WHERE {where_sql}
+            """, params)
+            total = cur.fetchone()["total_count"]
+    candidates = []
     for row in rows:
-        name = str(row["master_itemname"] or row["itemname"] or "")
-        if not material_name or not re.search(rf"(?<![A-Z0-9]){re.escape(material_name)}(?![A-Z0-9])", name.upper()):
-            continue
+        row.pop("total_count", None)
         thick, width, length = row["thickness"], row["width"], row["length"]
         row["size"] = " × ".join(format(value.normalize(), "f") for value in (thick, width, length) if value is not None)
-        source_form = form_of(row["itemtypecode"]) or form_of(name)
-        if order_thick is None or thick is None:
-            category, reason = "규격 확인 필요", "품목명 일치 · 재고 규격 확인 필요"
-            priority = 4
-        elif thick == order_thick and all(a is None or b is None or a == b for a, b in ((order_width, width), (order_length, length))):
-            if order_width is not None and width is not None and (order_length is None or length is not None):
-                category, reason, priority = "동일 규격 후보", "품목명과 확인 가능한 규격 치수가 일치", 1
-            else:
-                category, reason, priority = "규격 확인 필요", "품목명·두께 일치 · 폭/길이 확인 필요", 4
-        elif thick == order_thick and width is not None and order_width is not None and width > order_width and (order_length is None or (length is not None and length >= order_length)) and (source_form, target_form) in process_paths:
-            category, reason, priority = "가공 검토 후보", f"{source_form} → {target_form} · 치수상 검토 가능 (설비·공정 확인 필요)", 2
-        elif thick == order_thick and width is not None and order_width is not None and width > order_width and order_length is None and source_form in {"COIL", "SKELP", "SHEET"} and target_form is None:
-            category, reason, priority = "가공 검토 후보", f"{source_form} 재고 폭이 주문 폭보다 큼 · 주문 형태·설비 확인 필요", 2
-        elif (Decimal("0") < abs(thick - order_thick) <= Decimal("0.05")
-              and (order_width is None or (width is not None and width >= order_width))
-              and (order_length is None or (length is not None and length >= order_length))):
-            category, reason, priority = "두께 대체 검토", "품목명 일치 · 두께 차이 ±0.05mm 이내 (승인 필요)", 3
+        same_size = order_thick is not None and thick == order_thick and all(
+            a is None or b is None or a == b for a, b in ((order_width, width), (order_length, length)))
+        if same_size:
+            category, reason, priority = "동일 규격", "주문 두께와 확인 가능한 치수가 일치", 1
+        elif order_thick is not None and thick is not None and thick == order_thick:
+            category, reason, priority = "두께 일치", "주문 두께 일치 · 폭/길이 확인 필요", 2
         else:
-            continue
-        if not grade_verified:
-            reason += " · 주문 강종 미기재"
-        matches.append({**as_dict(row), "category": category, "reason": reason, "priority": priority, "source_form": source_form})
-    matches.sort(key=lambda row: (row["priority"], -float(row["qty"])))
-    return {"orderid": orderid, "lineno": lineno, "candidates": matches[:100], "total_candidates": len(matches),
-            "notice": "후보 조회 전용입니다. 규격·설비·공정·로스율을 검증한 뒤 가공 가능 여부를 판단하세요."}
+            category, priority = "현재고", 3
+            reason = (f"주문 두께와 {format((thick - order_thick).normalize(), '+f')}mm 차이"
+                      if order_thick is not None and thick is not None else "")
+        candidates.append({**as_dict(row), "category": category, "reason": reason, "priority": priority,
+                           "source_form": form_of(row["itemtypecode"]) or form_of(row["master_itemname"] or row["itemname"])})
+    return {**base, "candidates": candidates, "total_candidates": int(total)}

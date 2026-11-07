@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from psycopg2.pool import ThreadedConnectionPool
+import db as _shared_db
 from psycopg2.extras import execute_values
 from pydantic import BaseModel, Field, field_validator
 import xlsxwriter
@@ -13,31 +13,8 @@ from config import DB_CONFIG
 
 logger = logging.getLogger(__name__)
 
-_CONNECTION_POOL = ThreadedConnectionPool(
-    minconn=1,
-    maxconn=15,
-    host=DB_CONFIG["host"],
-    port=DB_CONFIG["port"],
-    dbname=DB_CONFIG["database"],
-    user=DB_CONFIG["user"],
-    password=DB_CONFIG["password"],
-    connect_timeout=5,
-)
-
-
-@contextmanager
-def _connect():
-    connection = _CONNECTION_POOL.getconn()
-    try:
-        with connection:
-            yield connection
-    except Exception:
-        _CONNECTION_POOL.putconn(connection, close=True)
-        connection = None
-        raise
-    finally:
-        if connection is not None:
-            _CONNECTION_POOL.putconn(connection)
+# Connections come from the single shared pool (backend/db.py).
+_connect = _shared_db.connect
 
 
 def _row_dict(cursor, row):
@@ -271,15 +248,13 @@ def record_document(
     price_unit_names = _load_master_names(
         cursor, companyid, "PRICE_UNIT", [line.get("unit") for line in lines],
     )
-    for line_no, movement in enumerate(movements, start=1):
-        line = lines[line_no - 1]
-        source_lineno = int(line.get("lineno") or line_no)
-        movement_date = line.get("receptdate") or iniodate
-        movement_customcode = line.get("customcode") or customcode
-        movement_customname = line.get("customname") or customname
-        source_key = None
-        metadata = line
-        if iniotype == "OUT":
+
+    # All lines are written with a fixed number of statements (instead of 2-3 per line).
+    # Results are identical to the former line-by-line processing; the whole document
+    # still succeeds or fails as one transaction.
+    source_keys = []
+    if iniotype == "OUT":
+        for line in lines:
             source_key = (
                 line.get("stocksourcetype"),
                 line.get("stocksourceno"),
@@ -287,57 +262,215 @@ def record_document(
             )
             if not all(source_key) or source_key[2] <= 0:
                 raise ValueError("출고할 현재고 원천 구분·전표·순번이 필요합니다.")
-            cursor.execute(
-                """SELECT productname, materialcode, materialname, surfacecode, surfacename, myrtle, manager
-                   FROM CurrentStock01t
-                   WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
-                   FOR UPDATE""",
-                (companyid, *source_key),
-            )
-            source_row = cursor.fetchone()
-            if not source_row:
-                raise ValueError("선택한 원천 재고 행을 현재 회사에서 찾을 수 없습니다.")
-            source_metadata = _row_dict(cursor, source_row)
-            metadata = {**line, **source_metadata}
+            source_keys.append(source_key)
+        source_metadata = _lock_source_rows(cursor, companyid, source_keys)
+
+    ledger_rows = []
+    stock_rows = []
+    for line_no, movement in enumerate(movements, start=1):
+        line = lines[line_no - 1]
+        source_lineno = int(line.get("lineno") or line_no)
+        movement_date = line.get("receptdate") or iniodate
+        movement_customcode = line.get("customcode") or customcode
+        movement_customname = line.get("customname") or customname
+        metadata = line
+        quantity_unit_name = quantity_unit_names.get(movement["qtyunit"], movement["qtyunit"])
+        unit_text = str(line.get("unit") or "").strip()
+        price_unit_name = price_unit_names.get(unit_text, unit_text)
+        if iniotype == "OUT":
+            metadata = {**line, **source_metadata[source_keys[line_no - 1]]}
             # Outbound manager belongs to the outbound header. Keep that value
             # for the movement ledger instead of replacing it with the source
             # stock's original manager.
             if "manager" in line:
                 metadata["manager"] = line["manager"]
-        cursor.execute(
-            """INSERT INTO Iniop01t
-                   (companyid, companyname, iniodate, iniotype, receiptno, lineno, customcode, customname,
-                    itemcode, itemname, productname, materialcode, materialname, surfacecode, surfacename,
-                    myrtle, manager, thickness, width, length, qty, qtyunit, weight,
-                    warehousecode, warehousecodename, unit, unitprice, supplyamt, vat, unitamt)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-            (
-                companyid, companyname, movement_date, iniotype, receiptno, source_lineno, movement_customcode, movement_customname or None,
+        ledger_rows.append((
+            companyid, companyname, movement_date, iniotype, receiptno, source_lineno, movement_customcode, movement_customname or None,
+            movement["itemcode"], movement["itemname"],
+            (metadata.get("productname") or "").strip() or None,
+            (metadata.get("materialcode") or "").strip(), (metadata.get("materialname") or "").strip(),
+            (metadata.get("surfacecode") or "").strip() or None,
+            (metadata.get("surfacename") or "").strip() or None,
+            metadata.get("myrtle"), (metadata.get("manager") or "").strip() or None,
+            movement["thickness"], movement["width"], movement["length"], movement["qty"],
+            quantity_unit_name,
+            movement["weight"], movement["warehousecode"],
+            movement["warehousecodename"],
+            price_unit_name or None,
+            line.get("unitprice"), line.get("supplyamt"), line.get("vat"), line.get("unitamt"),
+        ))
+        if iniotype != "OUT":
+            source_type = "OPENING" if iniotype == "ST" else "INBOUND"
+            if not receiptno or source_lineno <= 0:
+                raise ValueError("현재고 원천전표와 상세 순번을 확인해 주세요.")
+            stock_rows.append((
+                companyid, companyname, movement_customcode or None, movement_customname or None,
+                source_type, receiptno, source_lineno, movement_date,
                 movement["itemcode"], movement["itemname"],
-                (metadata.get("productname") or "").strip() or None,
-                (metadata.get("materialcode") or "").strip(), (metadata.get("materialname") or "").strip(),
-                (metadata.get("surfacecode") or "").strip() or None,
-                (metadata.get("surfacename") or "").strip() or None,
-                metadata.get("myrtle"), (metadata.get("manager") or "").strip() or None,
-                movement["thickness"], movement["width"], movement["length"], movement["qty"],
-                quantity_unit_names.get(movement["qtyunit"], movement["qtyunit"]),
-                movement["weight"], movement["warehousecode"],
-                movement["warehousecodename"],
-                price_unit_names.get(str(line.get("unit") or "").strip(), str(line.get("unit") or "").strip()) or None,
-                line.get("unitprice"), line.get("supplyamt"), line.get("vat"), line.get("unitamt"),
+                (line.get("productname") or "").strip() or None,
+                (line.get("materialcode") or "").strip(), (line.get("materialname") or "").strip(),
+                (line.get("surfacecode") or "").strip() or None,
+                (line.get("surfacename") or "").strip() or None,
+                line.get("myrtle"), (line.get("manager") or "").strip() or None,
+                movement["thickness"], movement["width"], movement["length"],
+                movement["qty"], movement["qty"], quantity_unit_name,
+                movement["weight"], movement["weight"], price_unit_name or None,
+                line.get("unitprice"), movement["warehousecode"], movement["warehousecodename"],
+            ))
+
+    execute_values(
+        cursor,
+        """INSERT INTO Iniop01t
+               (companyid, companyname, iniodate, iniotype, receiptno, lineno, customcode, customname,
+                itemcode, itemname, productname, materialcode, materialname, surfacecode, surfacename,
+                myrtle, manager, thickness, width, length, qty, qtyunit, weight,
+                warehousecode, warehousecodename, unit, unitprice, supplyamt, vat, unitamt)
+           VALUES %s""",
+        ledger_rows,
+        page_size=1000,
+    )
+    if iniotype == "OUT":
+        _apply_source_stock_changes(cursor, companyid, source_keys, movements, reverse=False)
+    else:
+        inserted = execute_values(
+            cursor,
+            """INSERT INTO CurrentStock01t
+                   (companyid, companyname, customcode, customname, sourcetype, sourceno, sourceline,
+                    receiptdate, itemcode, itemname, productname, materialcode, materialname,
+                    surfacecode, surfacename, myrtle, manager, thickness, width, length, originalqty, qty, qtyunit,
+                    originalweight, weight, unit, unitprice, warehousecode, warehousecodename)
+               VALUES %s
+               ON CONFLICT (companyid, sourcetype, sourceno, sourceline) DO NOTHING
+               RETURNING sourceline""",
+            stock_rows,
+            page_size=1000,
+            fetch=True,
+        )
+        _raise_first_missing(
+            [row[6] for row in stock_rows], [row[0] for row in inserted],
+            lambda line_no: (
+                f"이미 현재고에 반영된 원천 라인입니다: "
+                f"{'OPENING' if iniotype == 'ST' else 'INBOUND'} / {receiptno} / {line_no}"
             ),
         )
-        if iniotype == "OUT":
-            _change_single_source_stock(cursor, companyid, movement, source_key=source_key)
-        else:
-            _insert_source_stock(
-                cursor, companyid, companyname, "OPENING" if iniotype == "ST" else "INBOUND",
-                receiptno, source_lineno, movement_date, movement_customcode, movement_customname,
-                movement, line,
-                quantity_unit_names.get(movement["qtyunit"], movement["qtyunit"]),
-                price_unit_names.get(str(line.get("unit") or "").strip(), str(line.get("unit") or "").strip()),
-            )
     return len(movements)
+
+
+def _raise_first_missing(expected: list, returned: list, message):
+    """Raise for the first expected key (in document order) that the statement did not affect."""
+    if len(returned) == len(expected):
+        return
+    remaining = list(returned)
+    for key in expected:
+        if key in remaining:
+            remaining.remove(key)
+        else:
+            raise ValueError(message(key))
+    raise ValueError(message(expected[-1]))
+
+
+def _lock_source_rows(cursor, companyid: str, source_keys: list[tuple]) -> dict:
+    """Lock every referenced stock source row once (sorted order) and return its metadata."""
+    unique_keys = sorted(set(source_keys))
+    cursor.execute(
+        """SELECT sourcetype, sourceno, sourceline,
+                  productname, materialcode, materialname, surfacecode, surfacename, myrtle, manager
+           FROM CurrentStock01t
+           WHERE companyid = %s
+             AND (sourcetype, sourceno, sourceline) IN (
+                 SELECT * FROM unnest(%s::varchar[], %s::varchar[], %s::integer[])
+             )
+           ORDER BY sourcetype, sourceno, sourceline
+           FOR UPDATE""",
+        (companyid, [key[0] for key in unique_keys], [key[1] for key in unique_keys],
+         [key[2] for key in unique_keys]),
+    )
+    columns = [column[0] for column in cursor.description]
+    found = {}
+    for row in cursor.fetchall():
+        record = dict(zip(columns, row))
+        key = (record.pop("sourcetype"), record.pop("sourceno"), record.pop("sourceline"))
+        found[key] = record
+    for key in source_keys:
+        if key not in found:
+            raise ValueError("선택한 원천 재고 행을 현재 회사에서 찾을 수 없습니다.")
+    return found
+
+
+def _lock_rows_sorted(cursor, companyid: str, keys: list[tuple]):
+    """Row-lock existing stock source rows in sorted key order (missing rows are ignored)."""
+    if not keys:
+        return
+    unique_keys = sorted(set(keys))
+    cursor.execute(
+        """SELECT 1 FROM CurrentStock01t
+           WHERE companyid = %s
+             AND (sourcetype, sourceno, sourceline) IN (
+                 SELECT * FROM unnest(%s::varchar[], %s::varchar[], %s::integer[])
+             )
+           ORDER BY sourcetype, sourceno, sourceline
+           FOR UPDATE""",
+        (companyid, [key[0] for key in unique_keys], [key[1] for key in unique_keys],
+         [key[2] for key in unique_keys]),
+    )
+
+
+def _apply_source_stock_changes(cursor, companyid: str, source_keys: list[tuple],
+                                movements: list[dict], reverse: bool):
+    """Subtract (or restore) quantities on stock source rows with one statement.
+
+    Several lines may draw from the same source row, so amounts are summed per row first.
+    Because every amount is positive, checking the summed amount once is equivalent to the
+    former line-by-line checks.
+    """
+    totals: dict[tuple, list[Decimal]] = {}
+    for key, movement in zip(source_keys, movements):
+        amount = totals.setdefault(key, [Decimal("0"), Decimal("0")])
+        amount[0] += Decimal(str(movement["qty"]))
+        amount[1] += Decimal(str(movement["weight"]))
+    values = [(key[0], key[1], key[2], qty, weight) for key, (qty, weight) in totals.items()]
+    # Lock the target rows in a fixed (sorted) order first so concurrent saves never deadlock.
+    _lock_rows_sorted(cursor, companyid, list(totals))
+    if reverse:
+        sql = """UPDATE CurrentStock01t AS stock
+                 SET qty = stock.qty + v.qty, weight = stock.weight + v.weight,
+                     updated_at = CURRENT_TIMESTAMP
+                 FROM (VALUES %s) AS v(sourcetype, sourceno, sourceline, qty, weight)
+                 WHERE stock.companyid = {companyid} AND stock.sourcetype = v.sourcetype
+                   AND stock.sourceno = v.sourceno AND stock.sourceline = v.sourceline
+                   AND stock.qty + v.qty <= stock.originalqty
+                   AND stock.weight + v.weight <= stock.originalweight
+                 RETURNING stock.sourcetype, stock.sourceno, stock.sourceline"""
+    else:
+        sql = """UPDATE CurrentStock01t AS stock
+                 SET qty = stock.qty - v.qty,
+                     weight = stock.weight - v.weight,
+                     qtyunit = COALESCE((
+                         SELECT code_name FROM CodeMaster01t
+                         WHERE companyid = stock.companyid AND groupcode = 'QTY'
+                           AND (code = stock.qtyunit OR code_name = stock.qtyunit)
+                         LIMIT 1
+                     ), stock.qtyunit),
+                     unit = COALESCE((
+                         SELECT code_name FROM CodeMaster01t
+                         WHERE companyid = stock.companyid AND groupcode = 'PRICE_UNIT'
+                           AND (code = stock.unit OR code_name = stock.unit)
+                         LIMIT 1
+                     ), stock.unit),
+                     updated_at = CURRENT_TIMESTAMP
+                 FROM (VALUES %s) AS v(sourcetype, sourceno, sourceline, qty, weight)
+                 WHERE stock.companyid = {companyid} AND stock.sourcetype = v.sourcetype
+                   AND stock.sourceno = v.sourceno AND stock.sourceline = v.sourceline
+                   AND stock.qty >= v.qty AND stock.weight >= v.weight
+                 RETURNING stock.sourcetype, stock.sourceno, stock.sourceline"""
+    sql = sql.replace("{companyid}", cursor.mogrify("%s", (companyid,)).decode().replace("%", "%%"))
+    changed = execute_values(
+        cursor, sql, values,
+        template="(%s::varchar, %s::varchar, %s::integer, %s::numeric, %s::numeric)",
+        page_size=1000, fetch=True,
+    )
+    if len(changed) != len(values):
+        raise ValueError("선택된 원천 재고 라인의 잔량 또는 복원 가능 수량을 확인해 주세요.")
 
 
 def reverse_document(cursor, companyid: str, iniotype: str, receiptno: str):
@@ -356,24 +489,40 @@ def reverse_document(cursor, companyid: str, iniotype: str, receiptno: str):
         raise ValueError("삭제할 수불장 내역을 찾을 수 없습니다. 현재고와 수불장을 확인해 주세요.")
     if not _uses_source_lines(cursor):
         raise ValueError("현재고 테이블에 원천 라인 구조가 적용되지 않았습니다.")
-    for movement in movements:
-        if iniotype == "OUT":
-            cursor.execute(
-                """SELECT stocksourcetype, stocksourceno, stocksourceline
-                   FROM Outbound02t
-                   WHERE companyid = %s AND receiptno = %s AND lineno = %s
-                   FOR UPDATE""",
-                (companyid, receiptno, movement["lineno"]),
-            )
-            source_key = cursor.fetchone()
+    # Restore / delete all lines with a fixed number of statements (same result as before).
+    if iniotype == "OUT":
+        cursor.execute(
+            """SELECT lineno, stocksourcetype, stocksourceno, stocksourceline
+               FROM Outbound02t
+               WHERE companyid = %s AND receiptno = %s AND lineno = ANY(%s)
+               ORDER BY lineno
+               FOR UPDATE""",
+            (companyid, receiptno, [movement["lineno"] for movement in movements]),
+        )
+        links = {row[0]: (row[1], row[2], row[3]) for row in cursor.fetchall()}
+        source_keys = []
+        for movement in movements:
+            source_key = links.get(movement["lineno"])
             if not source_key or not all(source_key) or int(source_key[2]) <= 0:
                 raise ValueError("출고 상세에서 원천 재고 연결 정보를 찾을 수 없습니다.")
-            _change_single_source_stock(cursor, companyid, movement, reverse=True, source_key=source_key)
-        else:
-            _delete_source_stock(
-                cursor, companyid, "OPENING" if iniotype == "ST" else "INBOUND",
-                receiptno, movement["lineno"],
-            )
+            source_keys.append((source_key[0], source_key[1], int(source_key[2])))
+        _apply_source_stock_changes(cursor, companyid, source_keys, movements, reverse=True)
+    else:
+        source_type = "OPENING" if iniotype == "ST" else "INBOUND"
+        source_lines = [int(movement["lineno"]) for movement in movements]
+        _lock_rows_sorted(cursor, companyid, [(source_type, receiptno, line_no) for line_no in source_lines])
+        cursor.execute(
+            """DELETE FROM CurrentStock01t
+               WHERE companyid = %s AND sourcetype = %s AND sourceno = %s
+                 AND sourceline = ANY(%s)
+                 AND qty = originalqty AND weight = originalweight
+               RETURNING sourceline""",
+            (companyid, source_type, receiptno, source_lines),
+        )
+        _raise_first_missing(
+            source_lines, [row[0] for row in cursor.fetchall()],
+            lambda line_no: f"출고 이력이 있거나 현재고 원천 라인이 없습니다: {source_type} / {receiptno} / {line_no}",
+        )
     cursor.execute(
         "DELETE FROM Iniop01t WHERE companyid = %s AND iniotype = %s AND receiptno = %s",
         (companyid, iniotype, receiptno),

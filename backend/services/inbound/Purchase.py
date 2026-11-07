@@ -4,29 +4,13 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from psycopg2.extras import RealDictCursor
-from psycopg2.pool import ThreadedConnectionPool
+import db as _shared_db
 from pydantic import BaseModel, Field, model_validator
 
 from config import DB_CONFIG
 
-_pool = ThreadedConnectionPool(1, 10, host=DB_CONFIG['host'], port=DB_CONFIG['port'],
-                              dbname=DB_CONFIG['database'], user=DB_CONFIG['user'],
-                              password=DB_CONFIG['password'], connect_timeout=5)
-
-
-@contextmanager
-def _connect():
-    connection = _pool.getconn()
-    try:
-        with connection:
-            yield connection
-    except Exception:
-        _pool.putconn(connection, close=True)
-        connection = None
-        raise
-    finally:
-        if connection is not None:
-            _pool.putconn(connection)
+# Connections come from the single shared pool (backend/db.py).
+_connect = _shared_db.connect
 
 
 class PurchaseLine(BaseModel):

@@ -1,5 +1,6 @@
 import pyodbc
 import psycopg2
+import db as _shared_db
 from pydantic import BaseModel
 from config import DB_CONFIG
 from fastapi import HTTPException
@@ -27,7 +28,7 @@ def password_change(item: PasswordRequest, companyid: str, email: str):
     conn = None
     try:
         # DB 연결
-        conn = psycopg2.connect(conn_str)
+        conn = _shared_db.open_connection()
         cursor = conn.cursor()
 
         check_query = "SELECT Password FROM User01t WHERE Email=%s AND companyid=%s"

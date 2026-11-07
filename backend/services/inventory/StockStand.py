@@ -1,10 +1,11 @@
+from psycopg2.extras import execute_values
 import logging
 from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from psycopg2 import IntegrityError
-from psycopg2.pool import ThreadedConnectionPool
+import db as _shared_db
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import DB_CONFIG
@@ -12,31 +13,8 @@ from services.inventory import CurrentStock as current_stock_module
 
 logger = logging.getLogger(__name__)
 
-_CONNECTION_POOL = ThreadedConnectionPool(
-    minconn=1,
-    maxconn=10,
-    host=DB_CONFIG["host"],
-    port=DB_CONFIG["port"],
-    dbname=DB_CONFIG["database"],
-    user=DB_CONFIG["user"],
-    password=DB_CONFIG["password"],
-    connect_timeout=5,
-)
-
-
-@contextmanager
-def _connect():
-    connection = _CONNECTION_POOL.getconn()
-    try:
-        with connection:
-            yield connection
-    except Exception:
-        _CONNECTION_POOL.putconn(connection, close=True)
-        connection = None
-        raise
-    finally:
-        if connection is not None:
-            _CONNECTION_POOL.putconn(connection)
+# Connections come from the single shared pool (backend/db.py).
+_connect = _shared_db.connect
 
 
 class StandItemInput(BaseModel):
@@ -442,14 +420,16 @@ def save_stand_items(companyid: str, companyname: str, standdate: date, items: l
                     supplyamt, vat, unitamt, item.get("description", "").strip() or None,
                 ))
                 next_lineno += 1
-            cursor.executemany(
+            execute_values(
+                cursor,
                 """INSERT INTO StandStock01t
                    (companyid, companyname, standdate, lineno, itemcode, itemname, customcode, customname, productname,
                     surfacecode, surfacename, materialcode, materialname, myrtle,
                     thickness, width, length, qty, qtyunit, weight, warehousecode, warehousecodename,
                     unit, unitprice, supplyamt, vat, unitamt, description)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   VALUES %s""",
                 values,
+                page_size=1000,
             )
             opening_receiptno = current_stock_module.next_opening_receiptno(cursor, companyid)
             stock_lines = [{

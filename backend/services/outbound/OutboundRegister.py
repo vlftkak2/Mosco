@@ -1,3 +1,4 @@
+from psycopg2.extras import execute_values
 import logging
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -5,7 +6,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
 from psycopg2 import IntegrityError
-from psycopg2.pool import ThreadedConnectionPool
+import db as _shared_db
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import DB_CONFIG
@@ -13,30 +14,8 @@ from services.inventory import CurrentStock as current_stock_module
 
 logger = logging.getLogger(__name__)
 
-_CONNECTION_POOL = ThreadedConnectionPool(
-    minconn=1,
-    maxconn=15,
-    host=DB_CONFIG["host"],
-    port=DB_CONFIG["port"],
-    dbname=DB_CONFIG["database"],
-    user=DB_CONFIG["user"],
-    password=DB_CONFIG["password"],
-    connect_timeout=5,
-)
-
-@contextmanager
-def _connect():
-    connection = _CONNECTION_POOL.getconn()
-    try:
-        with connection:
-            yield connection
-    except Exception:
-        _CONNECTION_POOL.putconn(connection, close=True)
-        connection = None
-        raise
-    finally:
-        if connection is not None:
-            _CONNECTION_POOL.putconn(connection)
+# Connections come from the single shared pool (backend/db.py).
+_connect = _shared_db.connect
 
 
 class OutboundDetailInput(BaseModel):
@@ -463,14 +442,55 @@ def _insert_outbound_expenses(cursor, companyid: str, companyname: str, receiptn
             str(expense.get("purchaseyn") or "N").strip().upper(),
             str(expense.get("description") or "").strip() or None,
         ))
-    cursor.executemany(
+    execute_values(
+        cursor,
         """INSERT INTO Outbound03t
            (companyid, companyname, receiptno, lineno, costcode, costname,
             supplyamt, vat, totalamt, customcode, customname, purchaseyn, description)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+           VALUES %s""",
         normalized,
+        page_size=1000,
     )
 
+
+
+def _prefetch_source_rows(cursor, companyid: str, items: list[dict]) -> dict:
+    """Lock and load every referenced stock source row with one query (sorted lock order).
+
+    Keys with an invalid source type are skipped so the per-line validation that follows
+    still reports exactly the same error, for the same line, as before.
+    """
+    keys = set()
+    for item in items:
+        try:
+            key = (str(item["stocksourcetype"]).strip().upper(), str(item["stocksourceno"]).strip(),
+                   int(item["stocksourceline"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if key[0] in {"OPENING", "INBOUND", "PROCESS"}:
+            keys.add(key)
+    if not keys:
+        return {}
+    keys = sorted(keys)
+    cursor.execute(
+        """SELECT sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
+                  itemcode, itemname, productname, materialcode, materialname,
+                  surfacecode, surfacename, myrtle, manager, thickness, width, length,
+                  qty, qtyunit, weight, unit, warehousecode, warehousecodename
+           FROM CurrentStock01t
+           WHERE companyid = %s
+             AND (sourcetype, sourceno, sourceline) IN (
+                 SELECT * FROM unnest(%s::varchar[], %s::varchar[], %s::integer[])
+             )
+           ORDER BY sourcetype, sourceno, sourceline
+           FOR UPDATE""",
+        (companyid, [key[0] for key in keys], [key[1] for key in keys], [key[2] for key in keys]),
+    )
+    rows = {}
+    for row in cursor.fetchall():
+        record = _row_dict(cursor, row)
+        rows[(record["sourcetype"], record["sourceno"], record["sourceline"])] = record
+    return rows
 
 def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
     items = payload["items"]
@@ -487,7 +507,10 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
 
     try:
         with _connect() as connection, connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
+            # Shared company stock lock: inbound/outbound saves run concurrently with each other
+            # (stock rows are row-locked), while opening stock / transfer / processing still take
+            # the exclusive lock and therefore never overlap with them (same as before).
+            cursor.execute("SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
             customer_codes = list(dict.fromkeys(item["customcode"] for item in items if item["customcode"]))
             customer_names_input = list(dict.fromkeys(
                 item["customname"].strip().lower() for item in items
@@ -538,25 +561,16 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
             quantity_unit_codes, quantity_unit_names = _load_quantity_unit_maps(cursor, companyid)
             source_cache = {}
             demands = {}
+            prefetched_sources = _prefetch_source_rows(cursor, companyid, items)
             for index, item in enumerate(items, start=1):
                 source_key = (item["stocksourcetype"].strip().upper(), item["stocksourceno"].strip(), int(item["stocksourceline"]))
                 if source_key[0] not in {"OPENING", "INBOUND", "PROCESS"}:
                     raise ValueError(f"{index}행의 원천 재고 구분이 올바르지 않습니다.")
                 if source_key not in source_cache:
-                    cursor.execute(
-                        """SELECT sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
-                                  itemcode, itemname, productname, materialcode, materialname,
-                                  surfacecode, surfacename, myrtle, manager, thickness, width, length,
-                                  qty, qtyunit, weight, unit, warehousecode, warehousecodename
-                           FROM CurrentStock01t
-                           WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
-                           FOR UPDATE""",
-                        (companyid, *source_key),
-                    )
-                    source_row = cursor.fetchone()
+                    source_row = prefetched_sources.get(source_key)
                     if not source_row:
                         raise ValueError(f"{index}행에서 선택한 원천 재고를 현재 회사에서 찾을 수 없습니다.")
-                    source_data = _row_dict(cursor, source_row)
+                    source_data = dict(source_row)
                     source_qtyunit = str(source_data.get("qtyunit") or "").strip()
                     source_data["qtyunit"] = quantity_unit_codes.get(source_qtyunit, source_qtyunit)
                     source_cache[source_key] = source_data
@@ -625,15 +639,16 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
                         "warehousecode": stock["warehousecode"], "warehousecodename": stock["warehousecodename"],
                         "manager": manager or None,
                     })
-                cursor.executemany(
+                execute_values(
+                    cursor,
                     """INSERT INTO Outbound02t
                        (companyid, companyname, receiptno, lineno, stocksourcetype, stocksourceno, stocksourceline,
                         itemcode, itemname, productname, surfacecode, surfacename, materialcode, materialname, myrtle,
                         thickness, width, length, qty, qtyunit, weight, unit, unitprice, supplyamt, vat, unitamt,
                         warehousecode, warehousecodename, description, manager)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                       VALUES %s""",
                     detail_values,
+                    page_size=1000,
                 )
                 current_stock_module.record_document(
                     cursor, companyid, companyname, receptdate, "OUT", receiptno, stock_lines,
@@ -674,7 +689,10 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
     items = payload["items"]
     try:
         with _connect() as connection, connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
+            # Shared company stock lock: inbound/outbound saves run concurrently with each other
+            # (stock rows are row-locked), while opening stock / transfer / processing still take
+            # the exclusive lock and therefore never overlap with them (same as before).
+            cursor.execute("SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
             customcode = (payload.get("customcode") or "").strip()
             supplied_customer_name = (payload.get("customname") or "").strip()
             manager = (payload.get("manager") or "").strip()
@@ -782,6 +800,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
             quantity_unit_codes, quantity_unit_names = _load_quantity_unit_maps(cursor, companyid)
             source_cache = {}
             demands = {}
+            prefetched_sources = _prefetch_source_rows(cursor, companyid, items)
             for index, item in enumerate(items, start=1):
                 source_key = (
                     item["stocksourcetype"].strip().upper(),
@@ -791,20 +810,10 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                 if source_key[0] not in {"OPENING", "INBOUND", "PROCESS"}:
                     raise ValueError(f"{index}행 원천 재고 구분이 올바르지 않습니다.")
                 if source_key not in source_cache:
-                    cursor.execute(
-                        """SELECT sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
-                                  itemcode, itemname, productname, materialcode, materialname,
-                                  surfacecode, surfacename, myrtle, manager, thickness, width, length,
-                                  qty, qtyunit, weight, unit, warehousecode, warehousecodename
-                           FROM CurrentStock01t
-                           WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
-                           FOR UPDATE""",
-                        (companyid, *source_key),
-                    )
-                    source_row = cursor.fetchone()
+                    source_row = prefetched_sources.get(source_key)
                     if not source_row:
                         raise ValueError(f"{index}행 선택한 원천 재고를 현재 회사에서 찾을 수 없습니다.")
-                    source_data = _row_dict(cursor, source_row)
+                    source_data = dict(source_row)
                     source_qtyunit = str(source_data.get("qtyunit") or "").strip()
                     source_data["qtyunit"] = quantity_unit_codes.get(source_qtyunit, source_qtyunit)
                     source_cache[source_key] = source_data
@@ -857,15 +866,16 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                     "warehousecode": stock["warehousecode"], "warehousecodename": stock["warehousecodename"],
                     "manager": manager or None,
                 })
-            cursor.executemany(
+            execute_values(
+                cursor,
                 """INSERT INTO Outbound02t
                    (companyid, companyname, receiptno, lineno, stocksourcetype, stocksourceno, stocksourceline,
                     itemcode, itemname, productname, surfacecode, surfacename, materialcode, materialname, myrtle,
                     thickness, width, length, qty, qtyunit, weight, unit, unitprice, supplyamt, vat, unitamt,
                     warehousecode, warehousecodename, description, manager)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   VALUES %s""",
                 detail_values,
+                page_size=1000,
             )
             current_stock_module.record_document(
                 cursor, companyid, companyname, payload["receptdate"], "OUT", receiptno, stock_lines,
@@ -891,7 +901,10 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
 def update_receipt_manager(companyid: str, receiptno: str, manager: str):
     normalized_manager = (manager or "").strip()
     with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
+        # Shared company stock lock: inbound/outbound saves run concurrently with each other
+        # (stock rows are row-locked), while opening stock / transfer / processing still take
+        # the exclusive lock and therefore never overlap with them (same as before).
+        cursor.execute("SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
             """SELECT COALESCE(subulyn, 'N')
                FROM Outbound01t
@@ -939,7 +952,10 @@ def update_receipt_manager(companyid: str, receiptno: str, manager: str):
 
 def delete_receipt(companyid: str, receiptno: str):
     with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
+        # Shared company stock lock: inbound/outbound saves run concurrently with each other
+        # (stock rows are row-locked), while opening stock / transfer / processing still take
+        # the exclusive lock and therefore never overlap with them (same as before).
+        cursor.execute("SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
             "SELECT COALESCE(subulyn, 'N') FROM Outbound01t WHERE companyid = %s AND receiptno = %s FOR UPDATE",
             (companyid, receiptno),

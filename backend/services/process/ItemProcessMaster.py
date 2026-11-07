@@ -1,7 +1,7 @@
 import logging
 from contextlib import contextmanager
 
-from psycopg2.pool import ThreadedConnectionPool
+import db as _shared_db
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import DB_CONFIG
@@ -9,31 +9,8 @@ from config import DB_CONFIG
 
 logger = logging.getLogger(__name__)
 
-_CONNECTION_POOL = ThreadedConnectionPool(
-    minconn=1,
-    maxconn=15,
-    host=DB_CONFIG["host"],
-    port=DB_CONFIG["port"],
-    dbname=DB_CONFIG["database"],
-    user=DB_CONFIG["user"],
-    password=DB_CONFIG["password"],
-    connect_timeout=5,
-)
-
-
-@contextmanager
-def _connect():
-    connection = _CONNECTION_POOL.getconn()
-    try:
-        with connection:
-            yield connection
-    except Exception:
-        _CONNECTION_POOL.putconn(connection, close=True)
-        connection = None
-        raise
-    finally:
-        if connection is not None:
-            _CONNECTION_POOL.putconn(connection)
+# Connections come from the single shared pool (backend/db.py).
+_connect = _shared_db.connect
 
 
 class ProcessRuleInput(BaseModel):
