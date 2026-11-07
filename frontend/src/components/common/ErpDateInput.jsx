@@ -40,6 +40,7 @@ export default function ErpDateInput({
   label,
   disabled,
   required,
+  placeholder = 'YYYY-MM-DD',
   'aria-label': ariaLabel,
   ...props
 }) {
@@ -191,7 +192,7 @@ export default function ErpDateInput({
       type="text"
       inputMode="numeric"
       autoComplete="off"
-      placeholder="YYYY-MM-DD"
+      placeholder={placeholder}
       value={draft}
       disabled={disabled}
       className={`${classes.dateInput} ${props.className || ''}`}

@@ -17,6 +17,7 @@ import {
   IconTool,
   IconTruckDelivery,
   IconTruckLoading,
+  IconCreditCard,
   IconUser,
   IconUsers,
   IconRobot,
@@ -80,6 +81,16 @@ const mockdata = [
       
       { label: '출고등록', link: '/OutboundRegisterPage', icon: '', MenuID: 'OUTBOUND_REGISTER' },
       { label: '출고현황', link: '/OutboundSearchPage', icon: '', MenuID: 'OUTBOUND_SEARCH' },
+    ],
+  },
+
+  {
+    label: '수금/지급관리',
+    icon: <IconCreditCard size={18} stroke={1.8} />,
+    initiallyOpened: false,
+    links: [
+      { label: '수금/지급 등록', link: '/ReceiptPayment', icon: '', MenuID: 'RECEIPT_PAYMENT' },
+      { label: '수금/지급 현황', link: '/ReceiptPaymentSearch', icon: '', MenuID: 'RECEIPT_PAYMENT_SEARCH' },
     ],
   },  
 
@@ -165,6 +176,8 @@ function findMenuLabel(items, path) {
     '/currentstockpage': '현재고현황',
     '/outboundregisterpage': '출고등록',
     '/outboundsearchpage': '출고현황',
+    '/receiptpayment': '수금/지급 등록',
+    '/receiptpaymentsearch': '수금/지급 현황',
     '/inoutmoveregister': '재고이전등록',
     '/inoutmovesearch': '재고이전현황',
     '/aiorderpage': 'AI 가공솔루션',
@@ -223,7 +236,7 @@ export default function MainLayout({ children }) {
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
     '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage', '/aiorderconfirmpage',
     '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/aiprocessingstandards', '/itemprocessmaster', '/itemprocessregister', '/itemprocesssearch', '/customersupport',
-    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/company', '/user', '/usermenu',
+    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/company', '/user', '/usermenu',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
   const [pageRibbon, setPageRibbon] = useState(null);
   const registerPageRibbon = useCallback((content) => setPageRibbon(() => content), []);
