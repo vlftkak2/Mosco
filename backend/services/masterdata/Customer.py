@@ -1,5 +1,6 @@
 import pyodbc
 import psycopg2
+import db as _shared_db
 from psycopg2.extras import execute_values
 from config import DB_CONFIG
 from datetime import datetime
@@ -79,7 +80,7 @@ def _next_customer_code(cursor, companyid: str) -> str:
 def CustomerNextCode(companyid: str):
     conn = None
     try:
-        conn = psycopg2.connect(conn_str)
+        conn = _shared_db.open_connection()
         with conn.cursor() as cursor:
             code = _next_customer_code(cursor, companyid)
         conn.commit()
@@ -96,7 +97,7 @@ def CustomerNextCode(companyid: str):
 def BankList(companyid: str):
     conn = None
     try:
-        conn = psycopg2.connect(conn_str)
+        conn = _shared_db.open_connection()
         with conn.cursor() as cursor:
             cursor.execute(
                 """
@@ -124,7 +125,7 @@ def CustomerManagerList(companyid: str):
     """Return active employee names available as customer managers."""
     conn = None
     try:
-        conn = psycopg2.connect(conn_str)
+        conn = _shared_db.open_connection()
         with conn.cursor() as cursor:
             cursor.execute(
                 """
@@ -227,7 +228,7 @@ def CustomerCreate(item: CustomModifyRequest):
     conn = None
     try:
         # DB 연결
-        conn = psycopg2.connect(conn_str)
+        conn = _shared_db.open_connection()
         cursor = conn.cursor()
         reference_check = _validate_customer_references(cursor, item)
         if not reference_check["success"]:
@@ -281,7 +282,7 @@ def CustomerBulkCreate(items: List[CustomModifyRequest]):
 
     conn = None
     try:
-        conn = psycopg2.connect(conn_str)
+        conn = _shared_db.open_connection()
         with conn.cursor() as cursor:
             company_ids = {item.companyid for item in items}
             if len(company_ids) != 1:
@@ -345,7 +346,7 @@ def CustomerModify(item: CustomModifyRequest):
     conn = None
     try:
         # DB 연결
-        conn = psycopg2.connect(conn_str)
+        conn = _shared_db.open_connection()
         cursor = conn.cursor()
         reference_check = _validate_customer_references(cursor, item)
         if not reference_check["success"]:
@@ -391,7 +392,7 @@ def CustomerList(
 ):
     conn = None
     try:
-        conn = psycopg2.connect(conn_str)
+        conn = _shared_db.open_connection()
         cursor = conn.cursor()
 
         conditions = ["companyid = %s"]
@@ -450,7 +451,7 @@ def CustomerExport(companyid: str, search_keyword: str = None, status: str = "�
     """Return all customers matching the list filters for spreadsheet export."""
     conn = None
     try:
-        conn = psycopg2.connect(conn_str)
+        conn = _shared_db.open_connection()
         cursor = conn.cursor()
         conditions = ["c.companyid = %s"]
         params = [companyid]

@@ -1,4 +1,5 @@
 import psycopg2
+import db as _shared_db
 from psycopg2.extras import RealDictCursor, execute_values
 from pydantic import BaseModel, Field, field_validator
 
@@ -38,7 +39,8 @@ class UserMenuPermissionInput(BaseModel):
 
 
 def _connect():
-    return psycopg2.connect(conn_str)
+    # Borrow from the shared pool; commit/rollback and return on block exit.
+    return _shared_db.connect()
 
 
 def list_manageable_companies(manager_companyid: str, is_master: bool):

@@ -25,8 +25,6 @@ from contextlib import asynccontextmanager
 
 from routes.auth import login_routes as login_router
 from routes.auth import userpassword_routes as user_routes
-from routes.auth import userinfo_routes as userinfo_routes
-from routes.auth import userauth_routes as userauth_routes
 
 from routes.dashboard import home_dashboard_routes as home_dashboard_routes
 from routes.masterdata import Customer_routes as customer_routes
@@ -93,12 +91,6 @@ app.include_router(login_router.router)
 
 # User Password API
 app.include_router(user_routes.router)
-
-# User Password API
-app.include_router(userinfo_routes.router)
-
-# User Auth API
-app.include_router(userauth_routes.router)
 
 # Home dashboard API
 app.include_router(home_dashboard_routes.router)

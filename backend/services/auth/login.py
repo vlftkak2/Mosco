@@ -1,5 +1,6 @@
 import pyodbc
 import psycopg2
+import db as _shared_db
 from pydantic import BaseModel
 from config import DB_CONFIG
 from security import ACCESS_TOKEN_MINUTES, create_access_token
@@ -24,7 +25,7 @@ def process_login(item: LoginRequest):
     conn = None
     try:
         # DB 연결
-        conn = psycopg2.connect(conn_str)
+        conn = _shared_db.open_connection()
         cursor = conn.cursor()
 
         cursor.execute(

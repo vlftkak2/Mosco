@@ -1,3 +1,4 @@
+from psycopg2.extras import execute_values
 import logging
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -5,32 +6,14 @@ from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
 from psycopg2 import IntegrityError
-from psycopg2.pool import ThreadedConnectionPool
+import db as _shared_db
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import DB_CONFIG
 
 logger = logging.getLogger(__name__)
-_POOL = ThreadedConnectionPool(
-    minconn=1, maxconn=15, host=DB_CONFIG["host"], port=DB_CONFIG["port"],
-    dbname=DB_CONFIG["database"], user=DB_CONFIG["user"],
-    password=DB_CONFIG["password"], connect_timeout=5,
-)
-
-
-@contextmanager
-def _connect():
-    connection = _POOL.getconn()
-    try:
-        with connection:
-            yield connection
-    except Exception:
-        _POOL.putconn(connection, close=True)
-        connection = None
-        raise
-    finally:
-        if connection is not None:
-            _POOL.putconn(connection)
+# Connections come from the single shared pool (backend/db.py).
+_connect = _shared_db.connect
 
 
 class TransferStockInput(BaseModel):
@@ -375,24 +358,27 @@ def save_transfer(companyid: str, companyname: str, payload: dict):
                         stock["unit"], stock["unitprice"], supplyamt, vat, unitamt,
                     ))
 
-            cursor.executemany(
+            execute_values(
+                cursor,
                 """INSERT INTO inoutmove02t
                    (companyid, companyname, receiptno, lineno, stocksourcetype, stocksourceno,
                     stocksourceline, itemcode, itemname, productname, surfacecode, surfacename,
                     materialcode, materialname, myrtle, thickness, width, length, qty, qtyunit, weight)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   VALUES %s""",
                 details,
+                page_size=1000,
             )
-            cursor.executemany(
+            execute_values(
+                cursor,
                 """INSERT INTO Iniop01t
                    (companyid, companyname, iniodate, iniotype, receiptno, lineno,
                     customcode, customname, itemcode, itemname, productname,
                     materialcode, materialname, surfacecode, surfacename, myrtle, manager,
                     thickness, width, length, qty, qtyunit, weight, warehousecode, warehousecodename,
                     unit, unitprice, supplyamt, vat, unitamt)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   VALUES %s""",
                 ledger_rows,
+                page_size=1000,
             )
             for lineno, item, stock, moved_qty, moved_weight in stock_transfers:
                 movement_line = lineno * 2

@@ -7,12 +7,9 @@ import MainLayout, { MenuAccessContext } from "./components/layout/MainLayout";
 import LoginPage from "./components/auth/LoginPage";
 import HomePage from "./pages/dashboard/HomePage";
 
-import UserPage from "./pages/system/UserPage" 
 import User from "./pages/system/User";
 import UserMenu from "./pages/system/UserMenu";
-import UserAuthPage from "./pages/system/UserAuthPage" 
 import DepartmentPage from "./pages/system/DepartmentPage";
-import DepartmentAuthPage from "./pages/system/DepartmentAuthPage";
 import CustomerPage from "./pages/masterdata/CustomerPage";
 import CodeMasterPage from "./pages/masterdata/CodeMasterPage";
 import ItemMaster from "./pages/masterdata/ItemMasterPage";
@@ -79,10 +76,8 @@ function App() {
           <Route path="/HomePage" element={menuPage('HOME', <HomePage />)} />
 
   
-          <Route path="/UserPage" element={<RequireAuthority allowed={['MASTER']}><UserPage /></RequireAuthority>} />
           <Route path="/User" element={<RequireAuthority allowed={['MASTER', 'SUBMASTER']}><User /></RequireAuthority>} />
           <Route path="/UserMenu" element={<RequireAuthority allowed={['MASTER', 'SUBMASTER']}><UserMenu /></RequireAuthority>} />
-          <Route path="/UserAuthPage" element={<RequireAuthority allowed={['MASTER']}><UserAuthPage /></RequireAuthority>} />
           <Route path="/CustomerPage" element={menuPage('DATA_CUSTOMER', <CustomerPage />)} />
           <Route path="/CustomPage" element={menuPage('DATA_CUSTOMER', <CustomerPage />)} />
           <Route path="/CodeMasterPage" element={menuPage('DATA_CODE', <CodeMasterPage />)} />

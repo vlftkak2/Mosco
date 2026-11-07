@@ -24,14 +24,10 @@ _auth_cache_lock = RLock()
 
 
 def _connect():
-    return psycopg2.connect(
-        host=DB_CONFIG["host"],
-        port=DB_CONFIG["port"],
-        dbname=DB_CONFIG["database"],
-        user=DB_CONFIG["user"],
-        password=DB_CONFIG["password"],
-        connect_timeout=5,
-    )
+    # Borrow from the shared pool (backend/db.py); returned when the with-block exits.
+    import db as _shared_db
+
+    return _shared_db.connect()
 
 
 def _load_auth_snapshot(companyid: str, email: str) -> dict | None:
