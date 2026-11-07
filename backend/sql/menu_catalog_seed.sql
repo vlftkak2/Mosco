@@ -29,7 +29,9 @@ VALUES
     -- 플랫폼 관리 화면은 역할로 접근하며 고객사 사용자에게 직접 부여하지 않습니다.
     ('COMPANY_REGISTRATION',    '고객사등록',        'PLATFORM', FALSE, 22, 'Y'),
     ('COMPANY_USER_MANAGEMENT', '고객사 계정관리',  'PLATFORM', FALSE, 23, 'Y'),
-    ('USER_MENU_PERMISSION',    '메뉴 권한',         'COMPANY',  FALSE, 24, 'Y')
+    ('USER_MENU_PERMISSION',    '메뉴 권한',         'COMPANY',  FALSE, 24, 'Y'),
+    ('RECEIPT_PAYMENT',         '수금/지급 등록',       'COMPANY',  TRUE,  25, 'Y'),
+    ('RECEIPT_PAYMENT_SEARCH',  '수금/지급 현황',       'COMPANY',  TRUE,  26, 'Y')
 ON CONFLICT (menuid) DO UPDATE SET
     menuname = EXCLUDED.menuname,
     access_scope = EXCLUDED.access_scope,

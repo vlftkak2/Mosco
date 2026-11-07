@@ -1,0 +1,1033 @@
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import axios from 'axios';
+import * as XLSX from 'xlsx';
+import {
+  ActionIcon, Autocomplete, Badge, Box, Button, Group, Input, Loader, Modal, NumberInput,
+  Pagination, Paper, ScrollArea, Select, Stack, Table, Text, TextInput,
+} from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import {
+  IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus, IconSearch, IconTrash, IconX,
+} from '@tabler/icons-react';
+import ErpDateInput from '../components/common/ErpDateInput';
+import { PageRibbonContext } from '../components/layout/MainLayout';
+import sharedClasses from '../styles/pages/ManagementShared.module.css';
+import codeClasses from '../styles/pages/CodeMasterPage.module.css';
+import inboundClasses from '../styles/pages/InboundRegister.module.css';
+import outboundClasses from '../styles/pages/OutboundRegister.module.css';
+import classes from '../styles/pages/ReceiptPayment.module.css';
+
+const PAGE_SIZE_OPTIONS = [
+  { value: '15', label: '15개씩' }, { value: '50', label: '50개씩' },
+  { value: '100', label: '100개씩' }, { value: '200', label: '200개씩' },
+];
+const TRANSACTION_OPTIONS = [
+  { value: 'RECEIPT', label: '수금' }, { value: 'PAYMENT', label: '지급' },
+];
+const TRANSACTION_FILTER_OPTIONS = [{ value: '', label: '전체' }, ...TRANSACTION_OPTIONS];
+const AMOUNT_FIELDS = [
+  { key: 'cashamt', label: '현금', width: 90 },
+  { key: 'instrumentamt', label: '수표·어음', width: 100 },
+  { key: 'bankamt', label: '은행예금', width: 95 },
+  { key: 'cardamt', label: '카드', width: 85 },
+  { key: 'offsetamt', label: '상계', width: 85 },
+  { key: 'lossamt', label: '잡손실', width: 85 },
+  { key: 'chargeamt', label: '과금', width: 85 },
+];
+const INSTRUMENT_PREFIX_FIELDS = [
+  { key: 'instrumenttype', label: '수표/어음 종류', width: 100, maxLength: 20 },
+  { key: 'instrumentno', label: '수표/어음 번호', width: 140, maxLength: 100 },
+];
+const INSTRUMENT_INFO_FIELDS = [
+  { key: 'issuedate', label: '발행일', width: 100, type: 'date' },
+  { key: 'issuercompany', label: '발행회사', width: 130, maxLength: 150 },
+  { key: 'issuer', label: '발행자', width: 90, maxLength: 100 },
+  { key: 'issuekind', label: '발행구분', width: 90, maxLength: 20 },
+  { key: 'maturitydate', label: '만기일', width: 100, type: 'date' },
+  { key: 'custodyaccount', label: '보관계좌', width: 120, maxLength: 100 },
+  { key: 'custodybank', label: '보관은행', width: 110, maxLength: 100 },
+  { key: 'instrumentstatus', label: '어음처리상태', width: 120, maxLength: 30 },
+];
+const REMAINING_AMOUNT_FIELDS = AMOUNT_FIELDS.filter((field) => !['cashamt', 'instrumentamt'].includes(field.key));
+const DESCRIPTION_FIELD = { key: 'description', label: '비고', width: 180, maxLength: 500 };
+const DETAIL_NAVIGATION_FIELDS = [
+  AMOUNT_FIELDS[0].key,
+  ...INSTRUMENT_PREFIX_FIELDS.map((field) => field.key),
+  AMOUNT_FIELDS[1].key,
+  ...INSTRUMENT_INFO_FIELDS.map((field) => field.key),
+  ...REMAINING_AMOUNT_FIELDS.map((field) => field.key),
+  'description',
+];
+const SUMMARY_COLUMNS = [
+  ['receiptdate', '수금/지급일', 95], ['transactiontype', '구분', 60], ['customname', '거래처', 125],
+  ['line_count', '상세건수', 65], ['cashamt', '현금', 85], ['instrumentamt', '수표·어음', 95],
+  ['bankamt', '은행예금', 85], ['cardamt', '카드', 75], ['totalamt', '합계', 90],
+  ['offsetamt', '상계', 80], ['lossamt', '잡손실', 80], ['chargeamt', '과금', 80], ['receiptno', '전표번호', 135],
+].map(([key, label, width]) => ({ key, label, width }));
+const DETAIL_COLUMN_WIDTHS = [36, 46, AMOUNT_FIELDS[0].width, ...INSTRUMENT_PREFIX_FIELDS.map((field) => field.width), AMOUNT_FIELDS[1].width,
+  ...INSTRUMENT_INFO_FIELDS.map((field) => field.width), ...REMAINING_AMOUNT_FIELDS.map((field) => field.width), 80, DESCRIPTION_FIELD.width];
+const DETAIL_HEADER_LABELS = ['', 'No.', AMOUNT_FIELDS[0].label, ...INSTRUMENT_PREFIX_FIELDS.map((field) => field.label), AMOUNT_FIELDS[1].label,
+  ...INSTRUMENT_INFO_FIELDS.map((field) => field.label), ...REMAINING_AMOUNT_FIELDS.map((field) => field.label), '합계', DESCRIPTION_FIELD.label];
+const AMOUNT_KEYS = AMOUNT_FIELDS.map(({ key }) => key);
+const todayString = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const makeFilters = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return {
+    date_from: `${y}-${m}-01`,
+    date_to: `${y}-${m}-${String(new Date(y, d.getMonth() + 1, 0).getDate()).padStart(2, '0')}`,
+    transactiontype: '', customer: '', receiptno: '',
+  };
+};
+const emptyHeader = () => ({
+  receiptno: '', receiptdate: todayString(), transactiontype: 'RECEIPT',
+  customcode: '', customname: '', manager: '', description: '',
+});
+const makeDetail = (data = {}) => ({
+  id: data.id || `detail-${Date.now()}-${Math.random()}`,
+  cashamt: data.cashamt ?? '', instrumentamt: data.instrumentamt ?? '',
+  instrumenttype: data.instrumenttype ?? '', instrumentno: data.instrumentno ?? '',
+  issuedate: data.issuedate ? String(data.issuedate).slice(0, 10) : '',
+  issuercompany: data.issuercompany ?? '', issuer: data.issuer ?? '', issuekind: data.issuekind ?? '',
+  maturitydate: data.maturitydate ? String(data.maturitydate).slice(0, 10) : '',
+  custodyaccount: data.custodyaccount ?? '', custodybank: data.custodybank ?? '',
+  instrumentstatus: data.instrumentstatus ?? '',
+  bankamt: data.bankamt ?? '', cardamt: data.cardamt ?? '',
+  offsetamt: data.offsetamt ?? '', lossamt: data.lossamt ?? '',
+  chargeamt: data.chargeamt ?? '', description: data.description ?? '',
+});
+const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
+const numeric = (value) => {
+  const parsed = Number(String(value ?? 0).replaceAll(',', ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+const formatted = (value) => numeric(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
+const dateOnly = (value) => value ? String(value).slice(0, 10) : '';
+const totalOf = (row) => ['cashamt', 'instrumentamt', 'bankamt', 'cardamt'].reduce((sum, key) => sum + numeric(row[key]), 0);
+const typeName = (value) => value === 'PAYMENT' ? '지급' : '수금';
+const errorText = (error) => {
+  const detail = error.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) return detail.map((item) => item?.msg || String(item)).join(' · ');
+  return error.message || '요청을 처리하지 못했습니다.';
+};
+
+const ResizableHeaderCell = memo(function ResizableHeaderCell({ index, width, onResize, children, ...props }) {
+  return <Table.Th {...props} className={classes.resizableHeader}>
+    {children}
+    <span className={classes.columnResizeHandle} onPointerDown={(event) => onResize(event, index, width)} role="separator" aria-orientation="vertical" aria-label={`${index + 1}열 너비 조절`} />
+  </Table.Th>;
+});
+
+const ReceiptPaymentSummaryRow = memo(function ReceiptPaymentSummaryRow({ doc, selected, onSelect }) {
+  return <Table.Tr className={selected ? classes.selectedRow : ''} onClick={() => onSelect(doc.receiptno)}>
+    {SUMMARY_COLUMNS.map((column) => {
+      const value = doc[column.key];
+      const money = ['cashamt', 'instrumentamt', 'bankamt', 'cardamt', 'totalamt', 'offsetamt', 'lossamt', 'chargeamt'].includes(column.key);
+      return <Table.Td key={column.key} ta={money || column.key === 'line_count' ? 'right' : undefined} title={String(value ?? '')}>
+        {column.key === 'receiptdate' ? dateOnly(value) : column.key === 'transactiontype' ? typeName(value)
+          : money ? formatted(value) : column.key === 'line_count' ? Number(value || 0).toLocaleString() : value || ''}
+      </Table.Td>;
+    })}
+  </Table.Tr>;
+});
+
+const ReceiptPaymentDetailInputCell = memo(function ReceiptPaymentDetailInputCell({ rowId, rowNumber, field, value, numericInput = false, suggestions, disabled, onUpdate, onOpenPicker }) {
+  const [draft, setDraft] = useState(value ?? '');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const pickerOpenRef = useRef(false);
+  useEffect(() => {
+    if (!numericInput && field.type !== 'date') { setDraft(value ?? ''); setShowSuggestions(false); }
+  }, [field.type, numericInput, value]);
+  const openPicker = () => {
+    if (disabled || !onOpenPicker) return;
+    pickerOpenRef.current = true;
+    setShowSuggestions(false);
+    onOpenPicker(rowId, field.key);
+  };
+  return <Table.Td data-detail-row={rowId} data-detail-field={field.key}>
+    {numericInput
+      ? <NumberInput aria-label={`${rowNumber}행 ${field.label}`} value={value} min={0} allowNegative={false} decimalScale={3} thousandSeparator="," hideControls size="xs" disabled={disabled} placeholder="" onChange={(nextValue) => onUpdate(rowId, field.key, nextValue)} />
+      : field.type === 'date'
+        ? <ErpDateInput aria-label={`${rowNumber}행 ${field.label}`} size="xs" value={value} disabled={disabled} placeholder="" autoComplete="off" onChange={(event) => onUpdate(rowId, field.key, event.currentTarget.value)} />
+        : suggestions
+          ? <Box className={inboundClasses.itemNameSearchTarget} onClick={(event) => {
+            const input = event.currentTarget.querySelector('input');
+            if (input && event.clientX >= input.getBoundingClientRect().right - 28) openPicker();
+          }} onDoubleClick={openPicker}>
+            <Autocomplete aria-label={`${rowNumber}행 ${field.label}`} value={draft} placeholder="" autoComplete="off" data={showSuggestions && draft.trim() ? suggestions : []} limit={8} maxLength={field.maxLength} size="xs" disabled={disabled}
+            classNames={{ input: `${codeClasses.cellInput} ${inboundClasses.itemCodePickerInput} ${inboundClasses.itemNameSearchInput}` }}
+            filter={({ options, search }) => {
+              const query = String(search || '').trim().toLocaleLowerCase();
+              if (!showSuggestions || !query || !Array.isArray(options)) return [];
+              return options.filter((option) => `${option.label || option.value || ''} ${option.code || ''}`
+                .toLocaleLowerCase().includes(query));
+            }}
+            onChange={(nextValue) => { pickerOpenRef.current = false; setDraft(nextValue); setShowSuggestions(Boolean(nextValue.trim())); }}
+            onOptionSubmit={(nextValue) => { pickerOpenRef.current = false; setDraft(nextValue); setShowSuggestions(false); onUpdate(rowId, field.key, nextValue); }}
+            onBlur={() => { setShowSuggestions(false); if (!pickerOpenRef.current && draft !== (value ?? '')) onUpdate(rowId, field.key, draft); pickerOpenRef.current = false; }} /></Box>
+        : <TextInput aria-label={`${rowNumber}행 ${field.label}`} value={draft} placeholder="" autoComplete="off" maxLength={field.maxLength} size="xs" disabled={disabled}
+          onChange={(event) => setDraft(event.currentTarget.value)}
+          onBlur={() => { if (draft !== (value ?? '')) onUpdate(rowId, field.key, draft); }} />}
+  </Table.Td>;
+});
+
+const ReceiptPaymentHeaderTextInput = memo(function ReceiptPaymentHeaderTextInput({ label, value, maxLength, disabled, onCommit }) {
+  const [draft, setDraft] = useState(value ?? '');
+  useEffect(() => setDraft(value ?? ''), [value]);
+  return <TextInput aria-label={label} value={draft} maxLength={maxLength} disabled={disabled}
+    onChange={(event) => setDraft(event.currentTarget.value)}
+    onBlur={() => { if (draft !== (value ?? '')) onCommit(draft); }} />;
+});
+
+const ReceiptPaymentDetailRow = memo(function ReceiptPaymentDetailRow({ row, index, selected, disabled, issuerCompanyOptions, bankOptions, onToggle, onUpdate, onOpenPicker }) {
+  const rowNumber = index + 1;
+  return <Table.Tr className={selected ? classes.detailSelectedRow : ''}>
+    <Table.Td ta="center"><input type="checkbox" aria-label={`${rowNumber}행 선택`} checked={selected} disabled={disabled} onChange={(event) => onToggle(row.id, event.nativeEvent.shiftKey)} /></Table.Td>
+    <Table.Td ta="center">{rowNumber}</Table.Td>
+    <ReceiptPaymentDetailInputCell rowId={row.id} rowNumber={rowNumber} field={AMOUNT_FIELDS[0]} value={row[AMOUNT_FIELDS[0].key]} numericInput disabled={disabled} onUpdate={onUpdate} />
+    {INSTRUMENT_PREFIX_FIELDS.map((field) => <ReceiptPaymentDetailInputCell key={field.key} rowId={row.id} rowNumber={rowNumber} field={field} value={row[field.key]} disabled={disabled} onUpdate={onUpdate} />)}
+    <ReceiptPaymentDetailInputCell rowId={row.id} rowNumber={rowNumber} field={AMOUNT_FIELDS[1]} value={row[AMOUNT_FIELDS[1].key]} numericInput disabled={disabled} onUpdate={onUpdate} />
+    {INSTRUMENT_INFO_FIELDS.map((field) => <ReceiptPaymentDetailInputCell key={field.key} rowId={row.id} rowNumber={rowNumber} field={field} value={row[field.key]}
+      suggestions={field.key === 'issuercompany' ? issuerCompanyOptions : field.key === 'custodybank' ? bankOptions : undefined}
+      onOpenPicker={['issuercompany', 'custodybank'].includes(field.key) ? onOpenPicker : undefined} disabled={disabled} onUpdate={onUpdate} />)}
+    {REMAINING_AMOUNT_FIELDS.map((field) => <ReceiptPaymentDetailInputCell key={field.key} rowId={row.id} rowNumber={rowNumber} field={field} value={row[field.key]} numericInput disabled={disabled} onUpdate={onUpdate} />)}
+    <Table.Td ta="right" className={classes.calculatedAmount}>{formatted(totalOf(row))}</Table.Td>
+    <ReceiptPaymentDetailInputCell rowId={row.id} rowNumber={rowNumber} field={DESCRIPTION_FIELD} value={row.description} disabled={disabled} onUpdate={onUpdate} />
+  </Table.Tr>;
+});
+
+const ReceiptPaymentFilterPanel = memo(function ReceiptPaymentFilterPanel({ initialValues, transactionOptions, onSearch, onClose }) {
+  const [draft, setDraft] = useState(initialValues);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const update = (key, value) => {
+    const next = { ...draftRef.current, [key]: value };
+    draftRef.current = next;
+    setDraft(next);
+  };
+  const submit = () => onSearch({ ...draftRef.current });
+  const searchOnEnter = (event) => { if (event.key === 'Enter') submit(); };
+
+  return <Paper className={`${inboundClasses.receiptFilterSidebar} ${classes.filterPanel}`} withBorder>
+    <Group className={inboundClasses.receiptFilterHeader} justify="space-between"><Text fw={700}>조회조건</Text><ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={onClose}><IconX size={15} /></ActionIcon></Group>
+    <Stack gap="sm" className={`${inboundClasses.receiptFilterFields} ${classes.filters}`}>
+      <Input.Wrapper label="수금/지급 기간"><Stack gap={6}>
+        <ErpDateInput type="date" value={draft.date_from} onChange={(event) => update('date_from', event.currentTarget.value)} />
+        <ErpDateInput type="date" value={draft.date_to} onChange={(event) => update('date_to', event.currentTarget.value)} />
+      </Stack></Input.Wrapper>
+      <Select label="구분" data={transactionOptions} value={draft.transactiontype} onChange={(value) => update('transactiontype', value || '')} />
+      <TextInput label="거래처" placeholder="거래처코드 또는 거래처명" value={draft.customer} onChange={(event) => update('customer', event.currentTarget.value)} onKeyDown={searchOnEnter} />
+      <TextInput label="전표번호" placeholder="전표번호" value={draft.receiptno} onChange={(event) => update('receiptno', event.currentTarget.value)} onKeyDown={searchOnEnter} />
+    </Stack>
+  </Paper>;
+});
+
+const ReceiptCustomerPickerModal = memo(function ReceiptCustomerPickerModal({ opened, onClose, onSelect }) {
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [customers, setCustomers] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const requestRef = useRef(0);
+
+  const load = useCallback(async (nextPage, nextSearch) => {
+    const request = ++requestRef.current;
+    setLoading(true);
+    try {
+      const { data } = await axios.get('/api/list', {
+        ...authConfig(),
+        params: { search_keyword: nextSearch || undefined, status: 'Y', page: nextPage, page_size: 20, include_total: true },
+      });
+      if (request !== requestRef.current) return;
+      setCustomers(data.data || []); setTotal(data.total || 0); setPage(nextPage); setSearch(nextSearch);
+    } catch (error) {
+      if (request === requestRef.current) notifications.show({ title: '거래처 조회 실패', message: errorText(error), color: 'red' });
+    } finally {
+      if (request === requestRef.current) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!opened) return;
+    setSearchInput(''); setCustomers([]); setTotal(0);
+    void load(1, '');
+  }, [opened, load]);
+
+  const runSearch = () => { void load(1, searchInput.trim()); };
+  const select = (customer) => { onSelect(customer); onClose(); };
+  const invalidatePending = () => { requestRef.current += 1; onClose(); };
+
+  return <Modal opened={opened} onClose={invalidatePending} title={<Group gap={9} wrap="nowrap"><Box className={outboundClasses.receiptFinderTitleIcon}><IconSearch size={17} /></Box><Text className={outboundClasses.receiptFinderModalTitle} fw={750}>거래처 선택</Text></Group>}
+    classNames={{ content: outboundClasses.receiptFinderModalContent, header: outboundClasses.receiptFinderModalHeader, title: outboundClasses.receiptFinderModalTitle, close: outboundClasses.receiptFinderModalClose }} centered size={900}>
+    <Stack gap="sm" pt={10}>
+      <Group gap={7} wrap="nowrap">
+        <TextInput className={outboundClasses.customerSearchInput} placeholder="거래처코드 또는 거래처명 검색" value={searchInput}
+          onChange={(event) => setSearchInput(event.currentTarget.value)}
+          onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} leftSection={<IconSearch size={15} />} size="sm" autoFocus />
+        <Button color="red" size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch}>조회</Button>
+      </Group>
+      <Box className={outboundClasses.pickerResults}>
+        {loading && <Loader className={outboundClasses.pickerLoader} size="xs" color="red" aria-label="조회 중" />}
+        <ScrollArea h={420} type="auto" scrollbarSize={6}>
+          <Table className={`${codeClasses.codeTable} ${outboundClasses.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
+            <Table.Thead><Table.Tr><Table.Th className={outboundClasses.customerCodeColumn}>거래처코드</Table.Th><Table.Th className={outboundClasses.customerNameColumn}>거래처명</Table.Th><Table.Th className={outboundClasses.customerRepresentativeColumn}>대표자</Table.Th><Table.Th className={outboundClasses.customerBusinessColumn}>사업자번호</Table.Th></Table.Tr></Table.Thead>
+            <Table.Tbody>
+              {customers.map((customer) => <Table.Tr key={customer.customercode} className={outboundClasses.customerResultRow} onClick={() => select(customer)}>
+                <Table.Td>{customer.customercode}</Table.Td><Table.Td>{customer.customername}</Table.Td><Table.Td>{customer.ceoname || ''}</Table.Td><Table.Td>{customer.businessno || ''}</Table.Td>
+              </Table.Tr>)}
+              {!customers.length && <Table.Tr><Table.Td colSpan={4} className={outboundClasses.customerEmpty}>{loading ? '조회 중입니다.' : '조회된 거래처가 없습니다.'}</Table.Td></Table.Tr>}
+            </Table.Tbody>
+          </Table>
+        </ScrollArea>
+      </Box>
+      <Group justify="space-between"><Text size="xs" c="dimmed">총 {total.toLocaleString()}건</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / 20))} value={page} onChange={(nextPage) => void load(nextPage, search)} withEdges color="red" disabled={loading} /></Group>
+    </Stack>
+  </Modal>;
+});
+
+const ReceiptBankPickerModal = memo(function ReceiptBankPickerModal({ opened, onClose, options, onSelect }) {
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+  const filtered = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    return query ? options.filter((item) => `${item.code} ${item.name}`.toLocaleLowerCase().includes(query)) : options;
+  }, [options, search]);
+  const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => {
+    if (opened) { setSearch(''); setPage(1); }
+  }, [opened]);
+
+  return <Modal opened={opened} onClose={onClose}
+    title={<Group gap={9} wrap="nowrap"><Box className={outboundClasses.receiptFinderTitleIcon}><IconSearch size={17} /></Box><Text className={outboundClasses.receiptFinderModalTitle} fw={750}>은행 선택</Text></Group>}
+    classNames={{ content: outboundClasses.receiptFinderModalContent, header: outboundClasses.receiptFinderModalHeader, title: outboundClasses.receiptFinderModalTitle, close: outboundClasses.receiptFinderModalClose }}
+    centered size={620}>
+    <Stack gap="sm" pt={10}>
+      <TextInput className={outboundClasses.customerSearchInput} placeholder="은행코드 또는 은행명 검색" value={search}
+        onChange={(event) => { setSearch(event.currentTarget.value); setPage(1); }} leftSection={<IconSearch size={15} />} size="sm" autoFocus />
+      <Box className={outboundClasses.pickerResults}>
+        <ScrollArea h={360} type="auto" scrollbarSize={6}>
+          <Table className={`${codeClasses.codeTable} ${outboundClasses.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
+            <Table.Thead><Table.Tr><Table.Th>은행코드</Table.Th><Table.Th>은행명</Table.Th></Table.Tr></Table.Thead>
+            <Table.Tbody>
+              {pageItems.map((item) => <Table.Tr key={item.code} className={outboundClasses.customerResultRow} onClick={() => { onSelect(item); onClose(); }}>
+                <Table.Td>{item.code}</Table.Td><Table.Td>{item.name}</Table.Td>
+              </Table.Tr>)}
+              {!pageItems.length && <Table.Tr><Table.Td colSpan={2} className={outboundClasses.customerEmpty}>조회된 은행이 없습니다.</Table.Td></Table.Tr>}
+            </Table.Tbody>
+          </Table>
+        </ScrollArea>
+      </Box>
+      <Group justify="space-between"><Text size="xs" c="dimmed">총 {filtered.length.toLocaleString()}건</Text>
+        <Pagination size="sm" total={Math.max(1, Math.ceil(filtered.length / pageSize))} value={page} onChange={setPage} withEdges color="red" /></Group>
+    </Stack>
+  </Modal>;
+});
+
+export default function ReceiptPayment() {
+  const ribbon = useContext(PageRibbonContext);
+  const registerRibbon = ribbon?.registerPageRibbon;
+  const closePage = ribbon?.closeActivePage;
+  const [filterOpen, setFilterOpen] = useState(true);
+  const filterInputsRef = useRef(null);
+  if (filterInputsRef.current === null) filterInputsRef.current = makeFilters();
+  const [filters, setFilters] = useState(makeFilters);
+  const [documents, setDocuments] = useState([]);
+  const [header, setHeader] = useState(emptyHeader);
+  const [customers, setCustomers] = useState([]);
+  const [bankOptions, setBankOptions] = useState([]);
+  const [items, setItems] = useState([]);
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+  const [detailPicker, setDetailPicker] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+  const [summaryColumnWidths, setSummaryColumnWidths] = useState(() => SUMMARY_COLUMNS.map((column) => column.width));
+  const [detailColumnWidths, setDetailColumnWidths] = useState(DETAIL_COLUMN_WIDTHS);
+  const [totalRows, setTotalRows] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [selectedRows, setSelectedRows] = useState([]);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const documentsRef = useRef(documents);
+  documentsRef.current = documents;
+  const selectedReceiptRef = useRef('');
+  const detailRequest = useRef(0);
+  const detailCache = useRef(new Map());
+  const detailLoadingRef = useRef(detailLoading);
+  detailLoadingRef.current = detailLoading;
+  const listRequest = useRef(0);
+  const selectionAnchor = useRef(null);
+  const listTableRef = useRef(null);
+  const listSubtotalRef = useRef(null);
+  const listHorizontalScrollRef = useRef(null);
+  const detailTableWrapRef = useRef(null);
+  const pendingDetailFocus = useRef(null);
+  const updateHeaderField = useCallback((field, value) => {
+    setHeader((current) => ({ ...current, [field]: value }));
+  }, []);
+  const summaryTableWidth = summaryColumnWidths.reduce((sum, width) => sum + width, 0);
+  const detailTableWidth = detailColumnWidths.reduce((sum, width) => sum + width, 0);
+  const isSavedDocument = Boolean(header.receiptno);
+  // 신규 전표는 추가 직후 저장 버튼을 활성화하고, 저장된 전표는 읽기 전용으로 표시한다.
+  const canSave = Boolean(!isSavedDocument && items.length > 0);
+  const canExport = header.receiptno ? items.length > 0 : documents.length > 0;
+
+  const startColumnResize = useCallback((event, index, startWidth, widths, setWidths, scope) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const priorUserSelect = document.body.style.userSelect;
+    const priorCursor = document.body.style.cursor;
+    const handle = event.currentTarget;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+    handle.classList.add(classes.columnResizeHandleActive);
+    const nextWidths = [...widths];
+    const getTables = () => scope === 'summary'
+      ? [listTableRef.current?.querySelector('table'), listSubtotalRef.current?.querySelector('table')].filter(Boolean)
+      : [detailTableWrapRef.current?.querySelector('table')].filter(Boolean);
+    const handleMove = (moveEvent) => {
+      const nextWidth = Math.max(54, startWidth + moveEvent.clientX - startX);
+      nextWidths[index] = nextWidth;
+      const totalWidth = nextWidths.reduce((sum, width) => sum + width, 0);
+      getTables().forEach((table) => {
+        const column = table.querySelectorAll('colgroup col')[index];
+        if (column) column.style.width = `${nextWidth}px`;
+        table.style.setProperty('--code-table-min-width', `${totalWidth}px`);
+        if (scope === 'summary' && table === listSubtotalRef.current?.querySelector('table')) {
+          table.style.width = `${totalWidth}px`;
+          table.style.minWidth = `${totalWidth}px`;
+        }
+      });
+      if (scope === 'summary' && listHorizontalScrollRef.current?.firstElementChild) {
+        listHorizontalScrollRef.current.firstElementChild.style.width = `${totalWidth}px`;
+      }
+    };
+    const handleUp = () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleUp);
+      document.body.style.userSelect = priorUserSelect;
+      document.body.style.cursor = priorCursor;
+      handle.classList.remove(classes.columnResizeHandleActive);
+      setWidths(nextWidths);
+    };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
+  }, []);
+
+  const customerOptions = useMemo(() => {
+    const options = customers.map((customer) => ({ value: customer.customercode, label: customer.customername }))
+      .filter((option) => option.value && option.label);
+    if (header.customcode && !options.some((option) => option.value === header.customcode)) {
+      options.unshift({ value: header.customcode, label: header.customname || header.customcode });
+    }
+    return options;
+  }, [customers, header.customcode, header.customname]);
+  const issuerCompanyOptions = useMemo(() => [...new Map(customers
+    .map((customer) => ({ value: String(customer.customername || '').trim(), label: String(customer.customername || '').trim(), code: String(customer.customercode || '').trim() }))
+    .filter((option) => option.value)
+    .map((option) => [option.value, option])).values()], [customers]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadCustomers = async () => {
+      const loadedCustomers = [];
+      let pageNumber = 1;
+      let totalCount = 0;
+      do {
+        const { data } = await axios.get('/api/list', {
+          ...authConfig(),
+          params: { status: 'Y', page: pageNumber, page_size: 200, include_total: true },
+        });
+        loadedCustomers.push(...(data.data || []));
+        totalCount = data.total || 0;
+        pageNumber += 1;
+      } while (loadedCustomers.length < totalCount && pageNumber <= 100);
+      if (!cancelled) setCustomers(loadedCustomers);
+    };
+    void loadCustomers().catch((error) => {
+      if (!cancelled) notifications.show({ title: '거래처 조회 실패', message: errorText(error), color: 'red' });
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadBankOptions = async () => {
+      const items = [];
+      let pageNumber = 1;
+      let totalCount = 0;
+      do {
+        const { data } = await axios.get('/api/code-master/groups/BANK/items', {
+          ...authConfig(), params: { page: pageNumber, page_size: 200, include_total: true },
+        });
+        items.push(...(data.items || []));
+        totalCount = data.total || 0;
+        pageNumber += 1;
+      } while (items.length < totalCount && pageNumber <= 100);
+      if (!cancelled) setBankOptions([...new Map(items.filter((item) => item.use)
+        .map((item) => ({ value: String(item.name || '').trim(), label: String(item.name || '').trim(), code: String(item.code || '').trim(), name: String(item.name || '').trim() }))
+        .filter((item) => item.name)
+        .map((item) => [item.code || item.name, item])).values()]);
+    };
+    void loadBankOptions().catch(() => { if (!cancelled) setBankOptions([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const loadDocuments = useCallback(async (nextPage = 1, query = filters, size = pageSize) => {
+    const request = ++listRequest.current;
+    setLoading(true);
+    try {
+      const { data } = await axios.get('/api/receipt-payment/documents', {
+        ...authConfig(),
+        params: {
+          page: nextPage, page_size: size,
+          date_from: query.date_from || undefined, date_to: query.date_to || undefined,
+          transactiontype: query.transactiontype || undefined, customer: query.customer || undefined,
+          receiptno: query.receiptno || undefined,
+        },
+      });
+      if (request !== listRequest.current) return;
+      setDocuments(data.documents || []);
+      setTotalRows(data.total || 0);
+      setPage(data.page || nextPage);
+    } catch (error) {
+      if (request === listRequest.current) notifications.show({ title: '수금/지급 조회 실패', message: errorText(error), color: 'red' });
+    } finally {
+      if (request === listRequest.current) setLoading(false);
+    }
+  }, [filters, pageSize]);
+
+  useEffect(() => { void loadDocuments(1, filters, pageSize); }, []);
+
+  const openDocument = useCallback(async (receiptno) => {
+    const cachedItems = detailCache.current.get(receiptno);
+    if (selectedReceiptRef.current === receiptno) {
+      if (cachedItems) return;
+      if (detailLoadingRef.current) return;
+    }
+    selectedReceiptRef.current = receiptno;
+    const request = ++detailRequest.current;
+    const summary = documentsRef.current.find((doc) => doc.receiptno === receiptno);
+    if (summary) {
+      setHeader({
+        receiptno: summary.receiptno, receiptdate: dateOnly(summary.receiptdate),
+        transactiontype: summary.transactiontype, customcode: summary.customcode || '',
+        customname: summary.customname || '', manager: summary.manager || '', description: summary.description || '',
+      });
+    }
+    setSelectedRows([]);
+    selectionAnchor.current = null;
+    if (cachedItems) {
+      setItems(cachedItems);
+      detailLoadingRef.current = false;
+      setDetailLoading(false);
+      return;
+    }
+    setItems([]);
+    detailLoadingRef.current = true;
+    setDetailLoading(true);
+    try {
+      const { data } = await axios.get(`/api/receipt-payment/documents/${encodeURIComponent(receiptno)}`, authConfig());
+      if (request !== detailRequest.current) return;
+      const doc = data.document;
+      setHeader({
+        receiptno: doc.receiptno, receiptdate: dateOnly(doc.receiptdate),
+        transactiontype: doc.transactiontype, customcode: doc.customcode,
+        customname: doc.customname, manager: doc.manager || '', description: doc.description || '',
+      });
+      const nextItems = (doc.items || []).map((item) => makeDetail(item));
+      detailCache.current.set(receiptno, nextItems);
+      setItems(nextItems);
+    } catch (error) {
+      if (request === detailRequest.current) notifications.show({ title: '상세 조회 실패', message: errorText(error), color: 'red' });
+    } finally {
+      if (request === detailRequest.current) {
+        detailLoadingRef.current = false;
+        setDetailLoading(false);
+      }
+    }
+  }, []);
+
+  const runSearch = useCallback((inputValues = filterInputsRef.current) => {
+    const next = { ...inputValues };
+    filterInputsRef.current = next;
+    setFilters(next);
+    void loadDocuments(1, next, pageSize);
+  }, [loadDocuments, pageSize]);
+  const closeFilter = useCallback(() => setFilterOpen(false), []);
+
+  const startNew = useCallback(() => {
+    selectedReceiptRef.current = '';
+    detailRequest.current += 1;
+    setHeader(emptyHeader());
+    setItems([makeDetail()]);
+    setSelectedRows([]);
+    selectionAnchor.current = null;
+  }, []);
+
+  const selectDocument = useCallback((receiptno) => { void openDocument(receiptno); }, [openDocument]);
+
+  const chooseCustomer = useCallback((customer) => {
+    setHeader((current) => ({ ...current, customname: customer.customername || '', customcode: customer.customercode || '' }));
+  }, []);
+
+  const updateDetail = useCallback((id, key, value) => {
+    setItems((rows) => rows.map((row) => row.id === id ? { ...row, [key]: value } : row));
+  }, []);
+  const openDetailPicker = useCallback((rowId, field) => setDetailPicker({ rowId, field }), []);
+  const selectDetailCustomer = useCallback((customer) => {
+    if (detailPicker?.rowId) updateDetail(detailPicker.rowId, 'issuercompany', customer.customername || '');
+  }, [detailPicker, updateDetail]);
+  const selectDetailBank = useCallback((bank) => {
+    if (detailPicker?.rowId) updateDetail(detailPicker.rowId, 'custodybank', bank.name || '');
+  }, [detailPicker, updateDetail]);
+  const toggleRow = useCallback((id, shiftKey) => {
+    setSelectedRows((previous) => {
+      const next = new Set(previous);
+      const currentItems = itemsRef.current;
+      const anchorIndex = currentItems.findIndex((row) => row.id === selectionAnchor.current);
+      const currentIndex = currentItems.findIndex((row) => row.id === id);
+      if (shiftKey && anchorIndex >= 0 && currentIndex >= 0) {
+        currentItems.slice(Math.min(anchorIndex, currentIndex), Math.max(anchorIndex, currentIndex) + 1).forEach((row) => next.add(row.id));
+      } else if (next.has(id)) next.delete(id);
+      else next.add(id);
+      selectionAnchor.current = id;
+      return [...next];
+    });
+  }, []);
+
+  const addDetail = useCallback((focusField = null) => {
+    const newRow = makeDetail();
+    if (focusField) pendingDetailFocus.current = { rowId: newRow.id, field: focusField };
+    setItems((rows) => [...rows, newRow]);
+    setSelectedRows([]);
+  }, []);
+  useEffect(() => {
+    const pendingFocus = pendingDetailFocus.current;
+    if (!pendingFocus || !items.some((row) => row.id === pendingFocus.rowId)) return undefined;
+    pendingDetailFocus.current = null;
+    const frame = requestAnimationFrame(() => {
+      const cells = detailTableWrapRef.current?.querySelectorAll('[data-detail-row][data-detail-field]');
+      const firstCell = Array.from(cells || []).find((cell) =>
+        cell.dataset.detailRow === pendingFocus.rowId && cell.dataset.detailField === pendingFocus.field
+      );
+      firstCell?.querySelector('input, textarea, select')?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [items]);
+  const handleDetailTableKeyDown = useCallback((event) => {
+    const input = event.target instanceof HTMLElement ? event.target.closest('input, textarea, select') : null;
+    const cell = input?.closest('[data-detail-row][data-detail-field]');
+    if (!input || !cell || saving || isSavedDocument) return;
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const currentRowIndex = items.findIndex((row) => row.id === cell.dataset.detailRow);
+      const nextRow = items[currentRowIndex + 1];
+      if (nextRow) {
+        const cells = detailTableWrapRef.current?.querySelectorAll('[data-detail-row][data-detail-field]');
+        const nextCell = Array.from(cells || []).find((candidate) =>
+          candidate.dataset.detailRow === nextRow.id && candidate.dataset.detailField === cell.dataset.detailField
+        );
+        nextCell?.querySelector('input, textarea, select')?.focus();
+      } else {
+        addDetail(cell.dataset.detailField);
+      }
+      return;
+    }
+
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      const currentRowIndex = items.findIndex((row) => row.id === cell.dataset.detailRow);
+      const nextRow = items[currentRowIndex + (event.key === 'ArrowUp' ? -1 : 1)];
+      if (!nextRow) return;
+      const cells = detailTableWrapRef.current?.querySelectorAll('[data-detail-row][data-detail-field]');
+      const nextCell = Array.from(cells || []).find((candidate) =>
+        candidate.dataset.detailRow === nextRow.id && candidate.dataset.detailField === cell.dataset.detailField
+      );
+      const nextInput = nextCell?.querySelector('input, textarea, select');
+      if (!nextInput || nextInput.disabled) return;
+      event.preventDefault();
+      nextInput.focus();
+      return;
+    }
+
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    if (input instanceof HTMLInputElement && input.type === 'date') return;
+    let start;
+    let end;
+    try {
+      start = input.selectionStart;
+      end = input.selectionEnd;
+    } catch {
+      return;
+    }
+    if (typeof start !== 'number' || typeof end !== 'number' || start !== end) return;
+    const valueLength = input.value?.length ?? 0;
+    const movingLeft = event.key === 'ArrowLeft';
+    if ((movingLeft && start !== 0) || (!movingLeft && end !== valueLength)) return;
+
+    const fieldIndex = DETAIL_NAVIGATION_FIELDS.indexOf(cell.dataset.detailField);
+    const nextField = DETAIL_NAVIGATION_FIELDS[fieldIndex + (movingLeft ? -1 : 1)];
+    if (!nextField) return;
+    const cells = detailTableWrapRef.current?.querySelectorAll('[data-detail-row][data-detail-field]');
+    const nextCell = Array.from(cells || []).find((candidate) =>
+      candidate.dataset.detailRow === cell.dataset.detailRow && candidate.dataset.detailField === nextField
+    );
+    const nextInput = nextCell?.querySelector('input, textarea, select');
+    if (!nextInput || nextInput.disabled) return;
+    event.preventDefault();
+    nextInput.focus();
+    try {
+      const caret = movingLeft ? (nextInput.value?.length ?? 0) : 0;
+      nextInput.setSelectionRange(caret, caret);
+    } catch {
+      // Date and numeric inputs may not expose a text selection range.
+    }
+  }, [addDetail, isSavedDocument, items, saving]);
+  const handleDetailTablePaste = useCallback((event) => {
+    if (saving || isSavedDocument) return;
+    const text = event.clipboardData?.getData('text/plain') ?? '';
+    if (!text.includes('\t') && !/[\r\n]/.test(text)) return;
+
+    const input = event.target instanceof HTMLElement ? event.target.closest('input, textarea, select') : null;
+    const cell = input?.closest('[data-detail-row][data-detail-field]');
+    if (!cell) return;
+    const startRow = itemsRef.current.findIndex((row) => row.id === cell.dataset.detailRow);
+    const startColumn = DETAIL_NAVIGATION_FIELDS.indexOf(cell.dataset.detailField);
+    if (startRow < 0 || startColumn < 0) return;
+
+    event.preventDefault();
+    const matrix = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    if (matrix.length > 1 && matrix[matrix.length - 1] === '') matrix.pop();
+    const numericKeys = new Set(AMOUNT_KEYS);
+    let invalidNumericCount = 0;
+    const values = matrix.map((line) => line.split('\t').map((value, columnOffset) => {
+      const field = DETAIL_NAVIGATION_FIELDS[startColumn + columnOffset];
+      if (!field) return null;
+      const trimmed = value.trim();
+      if (!numericKeys.has(field) || trimmed === '') return trimmed;
+      const normalized = trimmed.replaceAll(',', '').replace(/\s/g, '');
+      if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized)) {
+        invalidNumericCount += 1;
+        return null;
+      }
+      const amount = Math.round(Number(normalized) * 1000) / 1000;
+      return Number.isFinite(amount) ? String(amount) : null;
+    }));
+
+    setItems((current) => {
+      const next = [...current];
+      while (next.length < startRow + values.length) next.push(makeDetail());
+      values.forEach((line, rowOffset) => {
+        const rowIndex = startRow + rowOffset;
+        const row = { ...next[rowIndex] };
+        line.forEach((value, columnOffset) => {
+          const field = DETAIL_NAVIGATION_FIELDS[startColumn + columnOffset];
+          if (field && value !== null) row[field] = value;
+        });
+        next[rowIndex] = row;
+      });
+      return next;
+    });
+    setSelectedRows([]);
+    if (invalidNumericCount) notifications.show({
+      title: '숫자 입력 확인',
+      message: '금액 칸에 숫자가 아닌 값은 붙여넣지 않았습니다.',
+      color: 'red',
+    });
+  }, [isSavedDocument, saving]);
+  const handleAddAction = useCallback(() => {
+    if (!header.receiptno && items.length > 0) addDetail();
+    else startNew();
+  }, [header.receiptno, items.length, addDetail, startNew]);
+  const deleteSelected = useCallback(() => {
+    if (!selectedRows.length) return false;
+    const selected = new Set(selectedRows);
+    setItems((rows) => rows.filter((row) => !selected.has(row.id)));
+    setSelectedRows([]);
+    selectionAnchor.current = null;
+    return true;
+  }, [selectedRows]);
+
+  const copySelected = useCallback(() => {
+    if (isSavedDocument) return;
+    if (selectedRows.length !== 1) {
+      notifications.show({ title: '복사할 행을 선택해 주세요', message: '상세에서 한 행을 선택한 뒤 복사할 수 있습니다.', color: 'orange' });
+      return;
+    }
+    const source = items.find((row) => row.id === selectedRows[0]);
+    if (source) setItems((rows) => [...rows, makeDetail({ ...source, id: undefined })]);
+    setSelectedRows([]);
+  }, [isSavedDocument, items, selectedRows]);
+
+  const totals = useMemo(() => items.reduce((sum, row) => {
+    AMOUNT_KEYS.forEach((key) => { sum[key] += numeric(row[key]); });
+    sum.totalamt += totalOf(row);
+    return sum;
+  }, { ...Object.fromEntries(AMOUNT_KEYS.map((key) => [key, 0])), totalamt: 0 }), [items]);
+
+  const saveDocument = useCallback(async () => {
+    if (!header.receiptdate || !header.transactiontype || !header.customcode || !header.customname) {
+      notifications.show({ title: '필수 항목을 확인해 주세요', message: '수금/지급일, 구분, 거래처를 선택해 주세요.', color: 'red' });
+      return;
+    }
+    if (!items.length) {
+      notifications.show({ title: '상세 행을 확인해 주세요', message: '금액 상세를 한 행 이상 추가해 주세요.', color: 'red' });
+      return;
+    }
+    if (!items.some((row) => AMOUNT_KEYS.some((key) => numeric(row[key]) > 0))) {
+      notifications.show({ title: '금액을 입력해 주세요', message: '금액 상세에 금액을 하나 이상 입력해 주세요.', color: 'red' });
+      return;
+    }
+    setSaving(true);
+    try {
+      const { data } = await axios.put('/api/receipt-payment/documents', {
+        ...header,
+        items: items.map((row) => ({
+          cashamt: numeric(row.cashamt), instrumentamt: numeric(row.instrumentamt),
+          instrumenttype: row.instrumenttype || '', instrumentno: row.instrumentno || '',
+          issuedate: row.issuedate || null, issuercompany: row.issuercompany || '',
+          issuer: row.issuer || '', issuekind: row.issuekind || '', maturitydate: row.maturitydate || null,
+          custodyaccount: row.custodyaccount || '', custodybank: row.custodybank || '',
+          instrumentstatus: row.instrumentstatus || '',
+          bankamt: numeric(row.bankamt), cardamt: numeric(row.cardamt),
+          offsetamt: numeric(row.offsetamt), lossamt: numeric(row.lossamt),
+          chargeamt: numeric(row.chargeamt), description: row.description || '',
+        })),
+      }, authConfig());
+      notifications.show({ title: '저장 완료', message: `${data.receiptno} 전표를 저장했습니다.`, color: 'teal' });
+      // 입력 중인 임시 상태를 비우고 목록을 갱신한 뒤, 저장된 전표를 다시 선택한다.
+      startNew();
+      await loadDocuments(1, filters, pageSize);
+      await openDocument(data.receiptno);
+    } catch (error) {
+      notifications.show({ title: '저장 실패', message: errorText(error), color: 'red' });
+    } finally {
+      setSaving(false);
+    }
+  }, [filters, header, items, loadDocuments, openDocument, pageSize, startNew]);
+
+  const deleteDocument = useCallback(async () => {
+    if (!header.receiptno) return;
+    setSaving(true);
+    try {
+      await axios.delete(`/api/receipt-payment/documents/${encodeURIComponent(header.receiptno)}`, authConfig());
+      notifications.show({ title: '삭제 완료', message: `${header.receiptno} 전표를 삭제했습니다.`, color: 'teal' });
+      setDeleteOpen(false);
+      startNew();
+      await loadDocuments(page, filters, pageSize);
+    } catch (error) {
+      notifications.show({ title: '삭제 실패', message: errorText(error), color: 'red' });
+    } finally {
+      setSaving(false);
+    }
+  }, [filters, header.receiptno, loadDocuments, page, pageSize, startNew]);
+
+  const deleteAction = useCallback(() => {
+    if (deleteSelected()) return;
+    if (header.receiptno) setDeleteOpen(true);
+    else notifications.show({ title: '삭제할 항목이 없습니다', message: '상세 행을 선택해 주세요.', color: 'orange' });
+  }, [deleteSelected, header.receiptno]);
+
+  const exportExcel = useCallback(() => {
+    const rows = header.receiptno
+      ? items.map((row, index) => ({
+        전표번호: header.receiptno, 수금지급일: header.receiptdate, 구분: typeName(header.transactiontype),
+        거래처: header.customname, 순번: index + 1, 현금: numeric(row.cashamt),
+        수표어음종류: row.instrumenttype, 수표어음번호: row.instrumentno, 수표어음: numeric(row.instrumentamt),
+        발행일: dateOnly(row.issuedate), 발행회사: row.issuercompany, 발행자: row.issuer,
+        발행구분: row.issuekind, 만기일: dateOnly(row.maturitydate), 보관계좌: row.custodyaccount,
+        보관은행: row.custodybank, 어음처리상태: row.instrumentstatus,
+        은행예금: numeric(row.bankamt), 카드: numeric(row.cardamt), 합계: totalOf(row), 상계: numeric(row.offsetamt),
+        잡손실: numeric(row.lossamt), 과금: numeric(row.chargeamt), 비고: row.description,
+      }))
+      : documents.map((row) => ({
+        수금지급일: dateOnly(row.receiptdate), 구분: typeName(row.transactiontype), 거래처: row.customname,
+        상세건수: row.line_count, 현금: numeric(row.cashamt), 수표어음: numeric(row.instrumentamt),
+        은행예금: numeric(row.bankamt), 카드: numeric(row.cardamt), 합계: numeric(row.totalamt),
+        상계: numeric(row.offsetamt), 잡손실: numeric(row.lossamt), 과금: numeric(row.chargeamt), 전표번호: row.receiptno,
+      }));
+    if (!rows.length) {
+      notifications.show({ title: '엑셀 데이터 없음', message: '다운로드할 데이터가 없습니다.', color: 'orange' });
+      return;
+    }
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), '수금지급');
+    XLSX.writeFile(workbook, `수금지급_${todayString()}.xlsx`);
+  }, [documents, header, items]);
+
+  useEffect(() => {
+    if (!registerRibbon) return undefined;
+    registerRibbon(
+      <Group className={inboundClasses.commandRibbon} gap={2} wrap="nowrap">
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading} disabled={loading}>조회</Button>
+        <span className={inboundClasses.ribbonSeparator} />
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={handleAddAction} disabled={saving}>추가</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} onClick={copySelected} disabled={saving || isSavedDocument || selectedRows.length !== 1}>복사</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportExcel} disabled={!canExport}>엑셀</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={saveDocument} loading={saving} disabled={saving || !canSave}>저장</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={deleteAction} disabled={saving || (!header.receiptno && selectedRows.length === 0)}>삭제</Button>
+        <span className={inboundClasses.ribbonSeparator} />
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closePage}>닫기</Button>
+      </Group>,
+    );
+    return () => registerRibbon(null);
+  }, [registerRibbon, closePage, runSearch, loading, handleAddAction, copySelected, isSavedDocument, selectedRows.length, exportExcel, canExport, saveDocument, saving, canSave, deleteAction, header.receiptno]);
+
+  const visibleTotals = useMemo(() => documents.reduce((sum, row) => {
+    sum.line_count += Number(row.line_count || 0);
+    ['cashamt', 'instrumentamt', 'bankamt', 'cardamt', 'totalamt', 'offsetamt', 'lossamt', 'chargeamt'].forEach((key) => { sum[key] += numeric(row[key]); });
+    return sum;
+  }, { line_count: 0, cashamt: 0, instrumentamt: 0, bankamt: 0, cardamt: 0, totalamt: 0, offsetamt: 0, lossamt: 0, chargeamt: 0 }), [documents]);
+  const syncListScroll = (left) => {
+    for (const element of [listTableRef.current, listSubtotalRef.current]) {
+      if (element && Math.abs(element.scrollLeft - left) > 0.5) element.scrollLeft = left;
+    }
+  };
+
+  return (
+    <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+      <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
+        <Group className={inboundClasses.breadcrumbTrail} gap={7}>
+          <Text component="span" className={inboundClasses.breadcrumbParent}>수금/지급관리</Text>
+          <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
+          <Text component="span" className={inboundClasses.breadcrumbCurrent}>수금/지급 등록</Text>
+        </Group>
+        {!filterOpen && (
+          <Button className={inboundClasses.receiptFilterToggle} variant="subtle" size="xs"
+            leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>
+            조회조건
+          </Button>
+        )}
+      </Box>
+      <Box className={`${inboundClasses.inboundWorkspace} ${classes.workspace}`}>
+        <Box className={`${inboundClasses.inboundPrimaryColumn} ${classes.primary}`}>
+          <Paper className={`${sharedClasses.panel} ${inboundClasses.topReceiptPanel} ${classes.listPanel}`} withBorder>
+            <Group className={inboundClasses.topReceiptToolbar} justify="space-between" wrap="nowrap">
+              <Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>수금/지급 기본</Text><Badge variant="light" color="gray">{totalRows.toLocaleString()}건</Badge></Group>
+            </Group>
+            <Box ref={listTableRef} className={`${inboundClasses.topReceiptTable} ${classes.listTableWrap}`}>
+              <Table className={`${sharedClasses.table} ${codeClasses.codeTable} ${classes.table}`} withTableBorder withColumnBorders
+                style={{ width: 'max(100%, var(--code-table-min-width))', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed', '--code-table-min-width': `${summaryTableWidth}px` }}>
+                <colgroup>{SUMMARY_COLUMNS.map((column, index) => <col key={column.key} style={{ width: summaryColumnWidths[index] }} />)}</colgroup>
+                <Table.Thead><Table.Tr>{SUMMARY_COLUMNS.map((column, index) => <ResizableHeaderCell key={column.key} index={index} width={summaryColumnWidths[index]}
+                  onResize={(event, columnIndex, width) => startColumnResize(event, columnIndex, width, summaryColumnWidths, setSummaryColumnWidths, 'summary')}>{column.label}</ResizableHeaderCell>)}</Table.Tr></Table.Thead>
+                <Table.Tbody>
+                  {documents.map((doc) => <ReceiptPaymentSummaryRow key={doc.receiptno} doc={doc}
+                    selected={header.receiptno === doc.receiptno} onSelect={selectDocument} />)}
+                </Table.Tbody>
+              </Table>
+              {!documents.length && <Box className={classes.emptyMessage}>{loading ? <Loader size="sm" color="red" /> : '검색된 수금/지급 전표가 없습니다.'}</Box>}
+            </Box>
+            <Box className={inboundClasses.topReceiptBottom}>
+              {!!documents.length && <Box ref={listSubtotalRef} className={inboundClasses.topReceiptSubtotalViewport}>
+                <Table className={`${inboundClasses.receiptFinderTable} ${inboundClasses.receiptSubtotalTable}`} withTableBorder withColumnBorders
+                  style={{ width: `${summaryTableWidth}px`, minWidth: `${summaryTableWidth}px`, tableLayout: 'fixed' }}>
+                  <colgroup>{SUMMARY_COLUMNS.map((column, index) => <col key={column.key} style={{ width: summaryColumnWidths[index] }} />)}</colgroup>
+                  <Table.Tbody><Table.Tr>
+                    {SUMMARY_COLUMNS.map((column, index) => <Table.Td key={column.key}
+                      className={`${inboundClasses.topReceiptSubtotalCell} ${column.key === 'line_count' || Object.hasOwn(visibleTotals, column.key) ? inboundClasses.topReceiptSubtotalNumber : ''}`}>
+                      {index === 0 ? '소계' : column.key === 'line_count' ? visibleTotals.line_count.toLocaleString()
+                        : Object.hasOwn(visibleTotals, column.key) ? formatted(visibleTotals[column.key]) : ''}
+                    </Table.Td>)}
+                  </Table.Tr></Table.Tbody>
+                </Table>
+              </Box>}
+              <Box ref={listHorizontalScrollRef} className={inboundClasses.topReceiptHorizontalScroll}
+                onScroll={(event) => syncListScroll(event.currentTarget.scrollLeft)} aria-label="수금/지급 기본 가로 스크롤">
+                <Box className={inboundClasses.topReceiptHorizontalContent} style={{ width: `${summaryTableWidth}px` }} />
+              </Box>
+            </Box>
+            <Group className={`${inboundClasses.topReceiptPagination} ${classes.listFooter}`} justify="space-between" wrap="nowrap">
+              <Select className={inboundClasses.topReceiptPageSize} aria-label="페이지당 표시 건수" data={PAGE_SIZE_OPTIONS} value={String(pageSize)} w={100} size="xs"
+                onChange={(value) => { if (value) { const size = Number(value); setPageSize(size); void loadDocuments(1, filters, size); } }} />
+              <Pagination size="sm" total={Math.max(1, Math.ceil(totalRows / pageSize))} value={page} onChange={(value) => void loadDocuments(value, filters, pageSize)} withEdges color="red" disabled={loading || !totalRows} />
+            </Group>
+          </Paper>
+
+          <Paper className={`${sharedClasses.panel} ${inboundClasses.editorPanel} ${classes.detailPanel}`} withBorder>
+            <Group className={classes.detailHeader} justify="space-between" wrap="wrap">
+              <Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>수금/지급 상세</Text><Badge variant="light" color="gray">{items.length}행</Badge>{header.receiptno && <Badge variant="light" color="gray">{header.receiptno}</Badge>}</Group>
+            </Group>
+            <Box className={`${inboundClasses.sharedReceiptFields} ${classes.headerFields}`}>
+              <Box className={inboundClasses.sharedReceiptField}><Text className={classes.fieldLabel}>수금/지급일 <i>*</i></Text><ErpDateInput type="date" value={header.receiptdate} disabled={saving || isSavedDocument} onChange={(event) => setHeader((v) => ({ ...v, receiptdate: event.currentTarget.value }))} /></Box>
+              <Box className={inboundClasses.sharedReceiptField}><Text className={classes.fieldLabel}>구분 <i>*</i></Text><Select data={TRANSACTION_OPTIONS} value={header.transactiontype} disabled={saving || isSavedDocument} onChange={(value) => setHeader((v) => ({ ...v, transactiontype: value || 'RECEIPT' }))} /></Box>
+              <Box className={`${inboundClasses.sharedReceiptField} ${classes.customerField}`}><Text className={classes.fieldLabel}>거래처 <i>*</i></Text>
+                <Box onDoubleClick={() => { if (!saving && !isSavedDocument) setCustomerPickerOpen(true); }}>
+                  <Select searchable autoSelectOnBlur aria-label="거래처" placeholder="" disabled={saving || isSavedDocument}
+                    data={customerOptions} value={header.customcode || null}
+                    onChange={(value) => {
+                      const customer = customers.find((item) => item.customercode === value);
+                      chooseCustomer(customer || {
+                        customercode: value || '',
+                        customername: customerOptions.find((option) => option.value === value)?.label || '',
+                      });
+                    }} />
+                </Box>
+              </Box>
+              <Box className={inboundClasses.sharedReceiptField}><Text className={classes.fieldLabel}>담당자</Text><ReceiptPaymentHeaderTextInput label="담당자" value={header.manager} maxLength={100} disabled={saving || isSavedDocument} onCommit={(value) => updateHeaderField('manager', value)} /></Box>
+              <Box className={`${inboundClasses.sharedReceiptField} ${classes.descriptionField}`}><Text className={classes.fieldLabel}>비고</Text><ReceiptPaymentHeaderTextInput label="비고" value={header.description} maxLength={500} disabled={saving || isSavedDocument} onCommit={(value) => updateHeaderField('description', value)} /></Box>
+            </Box>
+            <Group className={classes.detailToolbar} justify="space-between" wrap="nowrap">
+              <Group gap={8}><Text fw={700}>금액 상세</Text><Badge variant="light" color="gray">{items.length}행</Badge>{selectedRows.length > 0 && <Badge variant="light" color="gray">{selectedRows.length}개 선택</Badge>}</Group>
+            </Group>
+            <Box ref={detailTableWrapRef} className={`${codeClasses.tableWrap} ${classes.detailTableWrap}`} onKeyDown={handleDetailTableKeyDown} onPaste={handleDetailTablePaste}>
+              <Table className={`${sharedClasses.table} ${codeClasses.codeTable} ${classes.table}`} withTableBorder withColumnBorders
+                style={{ width: 'max(100%, var(--code-table-min-width))', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed', '--code-table-min-width': `${detailTableWidth}px` }}>
+                <colgroup>{detailColumnWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+                <Table.Thead><Table.Tr>
+                  {DETAIL_HEADER_LABELS.map((label, index) => <ResizableHeaderCell key={`${label}-${index}`} index={index} width={detailColumnWidths[index]}
+                    ta={index === 0 || index === 1 ? 'center' : undefined}
+                    onResize={(event, columnIndex, width) => startColumnResize(event, columnIndex, width, detailColumnWidths, setDetailColumnWidths, 'detail')}>
+                    {index === 0
+                      ? <input type="checkbox" aria-label="전체 행 선택" checked={items.length > 0 && selectedRows.length === items.length} disabled={!items.length || saving || isSavedDocument} onChange={(event) => setSelectedRows(event.currentTarget.checked ? items.map((row) => row.id) : [])} />
+                      : label}
+                  </ResizableHeaderCell>)}
+                </Table.Tr></Table.Thead>
+                <Table.Tbody>{items.map((row, index) => <ReceiptPaymentDetailRow
+                  key={row.id}
+                  row={row}
+                  index={index}
+                  selected={selectedRows.includes(row.id)}
+                  disabled={saving || isSavedDocument}
+                  issuerCompanyOptions={issuerCompanyOptions}
+                  bankOptions={bankOptions}
+                  onToggle={toggleRow}
+                  onUpdate={updateDetail}
+                  onOpenPicker={openDetailPicker}
+                />)}</Table.Tbody>
+              </Table>
+              {!items.length && <Box className={classes.emptyDetailMessage}>{detailLoading ? <Loader size="sm" color="red" /> : '상단의 추가를 눌러 수금/지급 전표를 등록하세요.'}</Box>}
+            </Box>
+            <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter} ${classes.detailFooter}`} justify="flex-end" wrap="wrap">
+              <Text size="xs" fw={700}>현금 {formatted(totals.cashamt)} · 수표/어음 {formatted(totals.instrumentamt)} · 은행예금 {formatted(totals.bankamt)} · 카드 {formatted(totals.cardamt)} · 합계 {formatted(totals.totalamt)} · 상계 {formatted(totals.offsetamt)} · 잡손실 {formatted(totals.lossamt)} · 과금 {formatted(totals.chargeamt)}</Text>
+            </Group>
+          </Paper>
+        </Box>
+
+        {filterOpen && <ReceiptPaymentFilterPanel initialValues={filterInputsRef.current} transactionOptions={TRANSACTION_FILTER_OPTIONS} onSearch={runSearch} onClose={closeFilter} />}
+      </Box>
+      <Modal opened={deleteOpen} onClose={() => !saving && setDeleteOpen(false)} title="수금/지급 전표 삭제" centered size="sm">
+        <Stack gap="md"><Text size="sm" c="dimmed">{header.receiptno} 전표와 상세 행을 삭제합니다. 삭제한 전표는 복구할 수 없습니다.</Text>
+          <Group justify="flex-end"><Button variant="default" onClick={() => setDeleteOpen(false)} disabled={saving}>취소</Button><Button color="red" leftSection={<IconTrash size={15} />} onClick={() => void deleteDocument()} loading={saving}>삭제</Button></Group>
+        </Stack>
+      </Modal>
+      <ReceiptCustomerPickerModal opened={customerPickerOpen} onClose={() => setCustomerPickerOpen(false)} onSelect={chooseCustomer} />
+      <ReceiptCustomerPickerModal opened={detailPicker?.field === 'issuercompany'} onClose={() => setDetailPicker(null)} onSelect={selectDetailCustomer} />
+      <ReceiptBankPickerModal opened={detailPicker?.field === 'custodybank'} onClose={() => setDetailPicker(null)} options={bankOptions} onSelect={selectDetailBank} />
+    </Box>
+  );
+}

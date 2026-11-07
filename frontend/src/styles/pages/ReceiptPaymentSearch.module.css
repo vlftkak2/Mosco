@@ -1,0 +1,93 @@
+.page {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.workspace { min-height: 0; }
+.contentStack {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  grid-column: 1;
+  grid-row: 1;
+}
+.resultsPanel,
+.detailPanel {
+  position: relative;
+  display: flex !important;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 50% !important;
+  flex-direction: column;
+  overflow: hidden;
+  border-color: #e0e6ef !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+}
+.panelHeading {
+  min-height: 40px;
+  flex: 0 0 auto;
+  padding: 8px 13px;
+  border-bottom: 1px solid #e0e6ef;
+}
+.masterTableArea,
+.detailTableArea {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.tableScroller { width: 100%; height: 100%; }
+.resizableHeader { position: relative; padding-right: 9px !important; }
+.emptyCell {
+  height: 150px;
+  color: #7c899b !important;
+  text-align: center;
+  vertical-align: middle;
+}
+.selectableRow { cursor: pointer; }
+.selectedRow > td { background: #fff0f0 !important; }
+.selectedRow > td:first-child { box-shadow: inset 3px 0 #ff4d55; }
+.receiptBadge { color: #00a987 !important; background: #e5f7f3 !important; }
+.paymentBadge { color: #e17a25 !important; background: #fff2e5 !important; }
+.detailTotals {
+  min-height: 38px;
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-top: 1px solid #e2e7ee;
+  background: #fafbfd;
+  color: #71819a;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+.detailTotals b { margin-left: 4px; color: #25334a; font-weight: 700; }
+.filterSearchButton { min-height: 33px; margin-top: 2px; font-size: 12px; font-weight: 700; }
+.commandRibbon { width: 100%; min-height: 49px; gap: 2px; padding: 0; background: transparent; }
+.ribbonTool { min-height: 35px; height: 35px; padding: 0 11px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: #536174 !important; font-size: 11px; font-weight: 600; gap: 6px; white-space: nowrap; }
+.ribbonTool :global(.mantine-Button-label) { font-size: 11px; }
+.ribbonTool :global(svg) { width: 17px; height: 17px; }
+.ribbonTool:hover:not(:disabled) { border-color: #e1e6ed !important; background: #f2f4f7 !important; color: #f0444c !important; }
+.ribbonSeparator { width: 1px; height: 22px; flex: 0 0 1px; margin: 0 5px; background: #e1e6ed; }
+
+@media (max-width: 1050px) {
+  .contentStack { min-height: 850px; }
+  .resultsPanel, .detailPanel { flex: 1 1 50% !important; min-height: 360px; }
+}
+@media (max-width: 560px) {
+  .page { height: auto; min-height: calc(100dvh - 90px); flex: 0 0 auto; overflow: visible; }
+  .workspace { overflow: visible; }
+  .contentStack { min-height: 0; }
+  .resultsPanel, .detailPanel { min-height: 400px; }
+}
