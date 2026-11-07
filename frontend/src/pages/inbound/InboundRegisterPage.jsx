@@ -1,4 +1,4 @@
-import { memo, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import {
@@ -62,6 +62,62 @@ const isValidDateInput = (value) => {
 };
 const RECEIPT_HEADER_PICKER_ID = '__receipt_header__';
 const EMPTY_HEADER = { receiptno: '', receptdate: localDate(), customcode: '', customname: '', warehousecode: '', warehousecodename: '', manager: '', description: '' };
+
+const InboundExpenseRow = memo(function InboundExpenseRow({
+  expense, index, selected, disabled, options, inputRef,
+  onToggle, onChange, onOpenCustomerPicker, onSetCostPicker,
+}) {
+  const supply = Number(cleanNumericInput(expense.supplyamt)) || 0;
+  const vat = Number(cleanNumericInput(expense.vat)) || 0;
+  const handleCostSelect = useCallback((option) => onChange(expense.id, 'costcode', option?.code || ''), [expense.id, onChange]);
+  const handleCustomerSelect = useCallback((id, customer) => onChange(expense.id, 'customcode', customer.customercode || ''), [expense.id, onChange]);
+  const handleCustomerPicker = useCallback((id) => onOpenCustomerPicker(`expense::${expense.id}`), [expense.id, onOpenCustomerPicker]);
+  const handleToggle = useCallback((event) => onToggle(expense.id, event.nativeEvent.shiftKey), [expense.id, onToggle]);
+  const handleCostPicker = useCallback(() => onSetCostPicker(expense.id), [expense.id, onSetCostPicker]);
+
+  return (
+    <Table.Tr className={[expense.is_new && outboundClasses.newRow, selected && outboundClasses.selectedRow].filter(Boolean).join(' ')}>
+      <Table.Td ta="center"><input type="checkbox" aria-label={`기타비용 ${index + 1}행 선택`} checked={selected} disabled={disabled} onChange={handleToggle} /></Table.Td>
+      <Table.Td ta="center">{index + 1}</Table.Td>
+      <Table.Td><ExpenseCostAutocompleteCell row={expense} options={options} disabled={disabled} inputRef={inputRef}
+        onDoubleClick={handleCostPicker} onSelect={handleCostSelect} /></Table.Td>
+      <Table.Td><ExpenseNumericCell expenseId={expense.id} field="supplyamt" value={expense.supplyamt} disabled={disabled} onCommit={onChange} /></Table.Td>
+      <Table.Td><ExpenseNumericCell expenseId={expense.id} field="vat" value={expense.vat} disabled={disabled} onCommit={onChange} /></Table.Td>
+      <Table.Td><input className={`${codeClasses.cellInput} ${classes.amountInput}`} aria-label="합계금액" value={formatNumericInput(String(supply + vat))} readOnly /></Table.Td>
+      <Table.Td><ExpenseCustomerAutocompleteCell expenseId={expense.id} value={expense.customname || ''} disabled={disabled}
+        onSelect={handleCustomerSelect} onOpenPicker={handleCustomerPicker} /></Table.Td>
+      <Table.Td><Select size="xs" data={[{ value: 'N', label: '아니오' }, { value: 'Y', label: '예' }]} value={expense.purchaseyn || 'N'} disabled={disabled}
+        onChange={(value) => onChange(expense.id, 'purchaseyn', value || 'N')} /></Table.Td>
+      <Table.Td><ExpenseDescriptionCell expenseId={expense.id} value={expense.description} disabled={disabled} onCommit={onChange} /></Table.Td>
+    </Table.Tr>
+  );
+});
+
+const InboundReceiptRows = memo(function InboundReceiptRows({ receipts, selectedReceiptno, onOpenReceipt }) {
+  return receipts.map((receipt) => (
+    <Table.Tr
+      key={receipt.receiptno}
+      className={`${classes.receiptFinderRow} ${selectedReceiptno === receipt.receiptno ? classes.receiptFinderRowActive : ''}`}
+      onClick={() => { void onOpenReceipt(receipt.receiptno, true); }}
+    >
+      <Table.Td>{String(receipt.receptdate || '').slice(0, 10)}</Table.Td>
+      <Table.Td title={receipt.customname || ''}>{receipt.customname || ''}</Table.Td>
+      <Table.Td title={receipt.warehousecodename || ''}>{receipt.warehousecodename || ''}</Table.Td>
+      <Table.Td ta="right">{Number(receipt.line_count || 0).toLocaleString()}</Table.Td>
+      <Table.Td ta="right">{Number(receipt.total_qty || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Table.Td>
+      <Table.Td ta="right">{Number(receipt.total_weight || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Table.Td>
+      <Table.Td ta="right">{formatAmount(String(receipt.supply_amount ?? 0))}</Table.Td>
+      <Table.Td ta="right">{formatAmount(String(receipt.vat_amount ?? 0))}</Table.Td>
+      <Table.Td ta="right" className={classes.receiptFinderAmount}>{formatAmount(String(receipt.total_amount ?? 0))}</Table.Td>
+      <Table.Td ta="right">{formatAmount(String(receipt.other_cost_amount ?? 0))}</Table.Td>
+      <Table.Td>{receipt.qtyunit || ''}</Table.Td>
+      <Table.Td>{receipt.unit || ''}</Table.Td>
+      <Table.Td title={receipt.receiptno || ''}>{receipt.receiptno}</Table.Td>
+      <Table.Td title={receipt.description || ''}>{receipt.description || ''}</Table.Td>
+    </Table.Tr>
+  ));
+});
+
 const DETAIL_FIELDS = [
   { key: 'productname', label: '제품번호', width: 100, minWidth: 95, fixedWidth: true },
   { key: 'itemname', label: '품명', width: 100, minWidth: 100, fixedWidth: true, required: true },
@@ -1147,6 +1203,76 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
   </>;
 });
 
+// Footer totals live in their own component so the deferred re-render triggered by
+// useDeferredValue only repaints this footer instead of the whole register page.
+const InboundDetailSummary = memo(function InboundDetailSummary({ rows, unitOptions }) {
+  const summaryRows = useDeferredValue(rows);
+  const detailSubtotals = useMemo(() => summaryRows.reduce((totals, row) => {
+    totals.qty += Number(cleanNumericInput(row.qty)) || 0;
+    totals.weight += Number(cleanNumericInput(row.weight)) || 0;
+    totals.amount += Number(amountOf(row, unitOptions.price)) || 0;
+    totals.vat += Number(vatOf(row, unitOptions.price)) || 0;
+    totals.total += Number(totalAmountOf(row, unitOptions.price)) || 0;
+    return totals;
+  }, { qty: 0, weight: 0, amount: 0, vat: 0, total: 0 }), [summaryRows, unitOptions.price]);
+  const quantitySummary = useMemo(() => {
+    if (!summaryRows.length) return '0';
+    const totals = new Map();
+    const defaultUnit = unitOptions.quantity.find((option) => option.code === 'EA')?.name || 'EA';
+    summaryRows.forEach((row) => {
+      const unitCode = resolveMasterCode('qtyunit', row.qtyunit, unitOptions);
+      const unit = unitOptions.quantity.find((option) => option.code === unitCode)?.name || row.qtyunit || defaultUnit;
+      const quantity = Number(cleanNumericInput(row.qty)) || 0;
+      totals.set(unit, (totals.get(unit) || 0) + quantity);
+    });
+    return [...totals.entries()].map(([unit, quantity]) => `${quantity.toLocaleString(undefined, { maximumFractionDigits: 3 })}${unit}`).join(', ');
+  }, [summaryRows, unitOptions]);
+  return (
+    <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="space-between" wrap="wrap">
+      <Text size="xs" c="dimmed">엑셀 셀 범위를 붙여넣고 저장할 수 있습니다.</Text>
+      <Text size="xs" fw={700}>
+        총 수량 {quantitySummary} · 총 중량 {detailSubtotals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 })}{summaryRows.length ? 'KG' : ''}
+        {' · '}총공급가 {formatWon(detailSubtotals.amount.toFixed(2))}
+        {' · '}부가세 {formatWon(detailSubtotals.vat.toFixed(2))}
+        {' · '}합계 {formatWon(detailSubtotals.total.toFixed(2))}
+      </Text>
+    </Group>
+  );
+});
+
+const InboundDetailRow = memo(function InboundDetailRow({ row, index, renderCells }) {
+  return (
+    <Table.Tr className={[row.is_new && codeClasses.newRow, row.is_new && classes.newRow].filter(Boolean).join(' ')}>
+      {renderCells(index, row)}
+    </Table.Tr>
+  );
+});
+
+// Mantine <Table> hands a fresh context value to every Table.Td/Th whenever it re-renders,
+// which forces all existing (memoized) rows to re-render on each row add. The table
+// elements are therefore memoized and the row arrays reach the tbody through these
+// contexts, so adding a row only renders the new row.
+const DetailRowsContext = createContext([]);
+const ExpenseRowsContext = createContext({ expenses: [], selectedExpenseSet: new Set() });
+
+const InboundDetailTableRows = memo(function InboundDetailTableRows({ renderCells }) {
+  const rows = useContext(DetailRowsContext);
+  return rows.map((row, index) => <InboundDetailRow key={row.id} row={row} index={index} renderCells={renderCells} />);
+});
+
+const InboundExpenseTableRows = memo(function InboundExpenseTableRows({
+  disabled, options, getInputRef, onToggle, onChange, onOpenCustomerPicker, onSetCostPicker,
+}) {
+  const { expenses, selectedExpenseSet } = useContext(ExpenseRowsContext);
+  if (!expenses.length) return null;
+  return <Table.Tbody>{expenses.map((expense, index) => (
+    <InboundExpenseRow key={expense.id} expense={expense} index={index} selected={selectedExpenseSet.has(expense.id)}
+      disabled={disabled} options={options} inputRef={getInputRef(expense.id)}
+      onToggle={onToggle} onChange={onChange} onOpenCustomerPicker={onOpenCustomerPicker}
+      onSetCostPicker={onSetCostPicker} />
+  ))}</Table.Tbody>;
+});
+
 const VirtualRow = ({ item, className, ...props }) => (
   <Table.Tr {...props} className={[className, item?.is_new && codeClasses.newRow, item?.is_new && classes.newRow].filter(Boolean).join(' ')} />
 );
@@ -1196,7 +1322,11 @@ export default function InboundRegisterPage() {
   const [header, setHeader] = useState(EMPTY_HEADER);
   const [receiptMetadata, setReceiptMetadata] = useState({ companyid: '', companyname: '', created_at: '', updated_at: '' });
   const [rows, setRows] = useState([]);
+  const detailRowsRef = useRef(rows);
+  useLayoutEffect(() => { detailRowsRef.current = rows; }, [rows]);
   const [expenses, setExpenses] = useState([]);
+  const expenseRowsRef = useRef(expenses);
+  useLayoutEffect(() => { expenseRowsRef.current = expenses; }, [expenses]);
   const [expenseOptions, setExpenseOptions] = useState([]);
   const [expenseCostPickerId, setExpenseCostPickerId] = useState('');
   const [selectedExpenseIds, setSelectedExpenseIds] = useState([]);
@@ -1219,7 +1349,6 @@ export default function InboundRegisterPage() {
   const [receiptCustomers, setReceiptCustomers] = useState([]);
   const [unitOptions, setUnitOptions] = useState({ price: [], quantity: [], warehouse: [], material: [], surface: [] });
   const virtuosoRef = useRef(null);
-  const detailScrollerRef = useRef(null);
   const receiptTableRef = useRef(null);
   const receiptSubtotalRef = useRef(null);
   const cellInputsRef = useRef(new Map());
@@ -1228,10 +1357,8 @@ export default function InboundRegisterPage() {
   const activeCellRef = useRef(null);
   const pendingCellFocusRef = useRef(null);
   const pendingFocusIdRef = useRef('');
-  const pendingFocusFieldRef = useRef('');
   const selectionAnchorRef = useRef('');
   const expenseSelectionAnchorRef = useRef('');
-  const expenseTableScrollerRef = useRef(null);
   const pendingExpenseFocusIdRef = useRef('');
   const expenseCostInputsRef = useRef(new Map());
   const locked = isReceiptConfirmed(subulyn);
@@ -1414,7 +1541,6 @@ export default function InboundRegisterPage() {
     const expenseId = pendingExpenseFocusIdRef.current;
     if (!expenseId) return;
     requestAnimationFrame(() => {
-      expenseTableScrollerRef.current?.scrollTo({ top: expenseTableScrollerRef.current.scrollHeight, behavior: 'auto' });
       expenseCostInputsRef.current.get(expenseId)?.current?.focus();
     });
     pendingExpenseFocusIdRef.current = '';
@@ -1453,23 +1579,24 @@ export default function InboundRegisterPage() {
 
   const toggleExpenseSelection = useCallback((id, shiftKey = false) => {
     if (saving || readOnly) return;
+    const currentExpenses = expenseRowsRef.current;
     setSelectedExpenseIds((current) => {
-      const from = expenses.findIndex((expense) => expense.id === expenseSelectionAnchorRef.current);
-      const to = expenses.findIndex((expense) => expense.id === id);
+      const from = currentExpenses.findIndex((expense) => expense.id === expenseSelectionAnchorRef.current);
+      const to = currentExpenses.findIndex((expense) => expense.id === id);
       if (shiftKey && from >= 0 && to >= 0) {
         expenseSelectionAnchorRef.current = id;
-        return [...new Set([...current, ...expenses.slice(Math.min(from, to), Math.max(from, to) + 1).map((expense) => expense.id)])];
+        return [...new Set([...current, ...currentExpenses.slice(Math.min(from, to), Math.max(from, to) + 1).map((expense) => expense.id)])];
       }
       expenseSelectionAnchorRef.current = id;
       return current.includes(id) ? current.filter((value) => value !== id) : [...current, id];
     });
-  }, [saving, readOnly, expenses]);
+  }, [saving, readOnly]);
 
   const toggleAllExpenses = useCallback((checked) => {
     if (saving || readOnly) return;
-    setSelectedExpenseIds(checked ? expenses.map((expense) => expense.id) : []);
+    setSelectedExpenseIds(checked ? expenseRowsRef.current.map((expense) => expense.id) : []);
     expenseSelectionAnchorRef.current = '';
-  }, [saving, readOnly, expenses]);
+  }, [saving, readOnly]);
 
   const removeSelectedExpenses = useCallback(() => {
     if (saving || readOnly || !selectedExpenseIds.length) return;
@@ -1644,6 +1771,12 @@ export default function InboundRegisterPage() {
     }
   }, [hasPendingChanges]);
 
+  // Expense edits also rerender this page. Keep receipt-table callbacks stable so
+  // its memoized rows are not rebuilt while the user is typing in other expenses.
+  const openReceiptRef = useRef(openReceipt);
+  useLayoutEffect(() => { openReceiptRef.current = openReceipt; }, [openReceipt]);
+  const handleOpenReceipt = useCallback((...args) => openReceiptRef.current(...args), []);
+
   const createReceipt = useCallback(() => {
     if (hasPendingChanges) {
       notifications.show({ title: '저장되지 않은 변경사항', message: '현재 입고 내용을 먼저 저장해 주세요.', color: 'orange' });
@@ -1666,14 +1799,13 @@ export default function InboundRegisterPage() {
 
   useEffect(() => {
     if (!pendingFocusIdRef.current) return;
-    const id = pendingFocusIdRef.current;
-    const field = pendingFocusFieldRef.current || 'itemname';
-    const rowIndex = rows.findIndex((row) => row.id === id);
-    if (rowIndex >= 0) requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: rowIndex, align: 'end', behavior: 'auto' }));
-    cellInputsRef.current.get(`${id}:${field}`)?.focus();
+    // Both add and copy append their new row, so avoid scanning the full detail array.
+    const rowIndex = rows.length - 1;
+    // For virtualized rows, scroll first; registerCellInput applies the pending
+    // focus when the target cell mounts. Regular table rows focus in their ref callback.
+    if (rowIndex >= 100) requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: rowIndex, align: 'end', behavior: 'auto' }));
     pendingFocusIdRef.current = '';
-    pendingFocusFieldRef.current = '';
-  }, [rows]);
+  }, [rows.length]);
 
   const registerCellInput = useCallback((id, field, element) => {
     const key = `${id}:${field}`;
@@ -1940,17 +2072,12 @@ export default function InboundRegisterPage() {
       warehousecodename: receiptValues.warehousecodename,
     });
     pendingFocusIdRef.current = row.id;
-    pendingFocusFieldRef.current = 'productname';
     pendingCellFocusRef.current = { key: `${row.id}:productname` };
     setRows((current) => startingNewReceipt ? [row] : [...current, row]);
     if (startingNewReceipt) { setExpenses([]); setSelectedExpenseIds([]); expenseSelectionAnchorRef.current = ''; setDetailTab('details'); }
     setDocumentDirty(true);
     selectionAnchorRef.current = '';
-    requestAnimationFrame(() => {
-      virtuosoRef.current?.scrollToIndex({ index: rows.length, align: 'end', behavior: 'auto' });
-      if (detailScrollerRef.current) detailScrollerRef.current.scrollTop = detailScrollerRef.current.scrollHeight;
-    });
-  }, [saving, selectedReceiptno, createReceipt, readOnly, rows.length, header]);
+  }, [saving, selectedReceiptno, createReceipt, readOnly, header]);
 
   const handleAddAction = useCallback(() => {
     if (selectedReceiptno) { addDetail(); return; }
@@ -1959,21 +2086,22 @@ export default function InboundRegisterPage() {
   }, [selectedReceiptno, detailTab, addExpense, addDetail]);
 
   const toggleSelection = useCallback((id, shiftKey = false) => {
+    const currentRows = detailRowsRef.current;
     setSelectedIds((current) => {
-      const from = rows.findIndex((row) => row.id === selectionAnchorRef.current);
-      const to = rows.findIndex((row) => row.id === id);
+      const from = currentRows.findIndex((row) => row.id === selectionAnchorRef.current);
+      const to = currentRows.findIndex((row) => row.id === id);
       if (shiftKey && from >= 0 && to >= 0) {
         selectionAnchorRef.current = id;
-        return [...new Set([...current, ...rows.slice(Math.min(from, to), Math.max(from, to) + 1).map((row) => row.id)])];
+        return [...new Set([...current, ...currentRows.slice(Math.min(from, to), Math.max(from, to) + 1).map((row) => row.id)])];
       }
       selectionAnchorRef.current = id;
       return current.includes(id) ? current.filter((value) => value !== id) : [...current, id];
     });
-  }, [rows]);
+  }, []);
   const toggleAll = useCallback((checked) => {
-    setSelectedIds(checked ? rows.map((row) => row.id) : []);
+    setSelectedIds(checked ? detailRowsRef.current.map((row) => row.id) : []);
     selectionAnchorRef.current = '';
-  }, [rows]);
+  }, []);
 
   const pasteRange = useCallback((startId, startField, pastedText) => {
     const matrix = pastedText.replace(/\r/g, '').split('\n').filter((line, index, all) => line || index < all.length - 1).map((line) => line.split('\t'));
@@ -2097,6 +2225,12 @@ export default function InboundRegisterPage() {
       });
     }
   }, [rows, readOnly, lookupItemNames, unitOptions]);
+
+  // Keep the per-cell paste handler stable so adding a row does not invalidate
+  // every memoized detail row just because pasteRange captured the latest rows.
+  const pasteRangeRef = useRef(pasteRange);
+  pasteRangeRef.current = pasteRange;
+  const handlePasteRange = useCallback((...args) => pasteRangeRef.current(...args), []);
 
   const deleteSelectedDetails = useCallback(() => {
     if (!selectedIds.length || readOnly) return;
@@ -2402,23 +2536,28 @@ export default function InboundRegisterPage() {
     setDeleteOpen(true);
   }, [detailTab, selectedExpenseIds.length, removeSelectedExpenses, selectedIds.length, readOnly, deleteSelectedDetails, selectedReceiptno, hasPendingChanges]);
 
+  const ribbonActionsRef = useRef({});
+  ribbonActionsRef.current = { runSearch, handleAddAction, copySelectedDetails, exportDocument, saveDocument, requestToolbarDelete, closeActivePage };
+  const invokeRibbonAction = useCallback((action) => ribbonActionsRef.current[action]?.(), []);
+  const hasExportableRows = Boolean(selectedReceiptno && rows.length);
+
   useEffect(() => {
     if (!registerPageRibbon) return undefined;
     registerPageRibbon(
       <Group className={classes.commandRibbon} justify="flex-start" wrap="nowrap" gap={2}>
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconSearch size={15} />} onClick={() => invokeRibbonAction('runSearch')} loading={loading}>조회</Button>
         <span className={classes.ribbonSeparator} />
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={handleAddAction} disabled={saving}>추가</Button>
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} onClick={copySelectedDetails} disabled={readOnly || saving || selectedIds.length !== 1}>복사</Button>
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportDocument} loading={exporting} disabled={!selectedReceiptno || loading || detailLoading || !rows.length}>엑셀</Button>
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={() => saveDocument()} loading={saving} disabled={selectedReceiptno ? (locked || detailLoading || !hasManagerChanges) : (readOnly || detailLoading)}>저장</Button>
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={requestToolbarDelete} disabled={saving || (detailTab === 'expenses' ? (readOnly || !selectedExpenseIds.length) : (locked || (!selectedReceiptno && (!selectedIds.length || readOnly))))}>삭제</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={() => invokeRibbonAction('handleAddAction')} disabled={saving}>추가</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} onClick={() => invokeRibbonAction('copySelectedDetails')} disabled={readOnly || saving || selectedIds.length !== 1}>복사</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={() => invokeRibbonAction('exportDocument')} loading={exporting} disabled={!hasExportableRows || loading || detailLoading}>엑셀</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={() => invokeRibbonAction('saveDocument')} loading={saving} disabled={selectedReceiptno ? (locked || detailLoading || !hasManagerChanges) : (readOnly || detailLoading)}>저장</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={() => invokeRibbonAction('requestToolbarDelete')} disabled={saving || (detailTab === 'expenses' ? (readOnly || !selectedExpenseIds.length) : (locked || (!selectedReceiptno && (!selectedIds.length || readOnly))))}>삭제</Button>
         <span className={classes.ribbonSeparator} />
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closeActivePage}>닫기</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={() => invokeRibbonAction('closeActivePage')}>닫기</Button>
       </Group>,
     );
     return () => registerPageRibbon(null);
-  }, [registerPageRibbon, closeActivePage, runSearch, loading, handleAddAction, copySelectedDetails, readOnly, saving, selectedIds.length, selectedExpenseIds.length, detailTab, exportDocument, exporting, selectedReceiptno, rows.length, detailLoading, saveDocument, requestToolbarDelete, locked, hasManagerChanges]);
+  }, [registerPageRibbon, invokeRibbonAction, loading, saving, readOnly, selectedIds.length, selectedExpenseIds.length, detailTab, exporting, hasExportableRows, detailLoading, selectedReceiptno, locked, hasManagerChanges]);
 
   const requestDeleteReceipt = useCallback(async () => {
     if (!selectedReceiptno || locked) return;
@@ -2440,75 +2579,222 @@ export default function InboundRegisterPage() {
   const rowContent = useCallback((index, row) => (
     <DetailCells row={row} index={index} selected={selectedSet.has(row.id)} disabled={saving || readOnly}
       saved={readOnly} unitOptions={unitOptions}
-      onSelect={toggleSelection} onChange={changeDetail} onPaste={pasteRange}
+      onSelect={toggleSelection} onChange={changeDetail} onPaste={handlePasteRange}
       registerCellInput={registerCellInput} onSelectItem={selectItem} onSelectCustomer={selectCustomerForRow} onSelectWarehouse={selectWarehouse} onSelectGeneralMaster={selectGeneralMaster} onFindItem={openItemPicker}
       onFindCustomer={openCustomerPicker} onFindMaster={openMasterPicker} onFocusCell={setActiveCell} />
-  ), [selectedSet, saving, readOnly, unitOptions, toggleSelection, changeDetail, pasteRange, registerCellInput, selectItem, selectCustomerForRow, selectWarehouse, selectGeneralMaster, openItemPicker, openCustomerPicker, openMasterPicker, setActiveCell]);
+  ), [selectedSet, saving, readOnly, unitOptions, toggleSelection, changeDetail, handlePasteRange, registerCellInput, selectItem, selectCustomerForRow, selectWarehouse, selectGeneralMaster, openItemPicker, openCustomerPicker, openMasterPicker, setActiveCell]);
 
-  const summaryRows = useDeferredValue(rows);
   const allRowsSelected = rows.length > 0 && selectedIds.length === rows.length;
-  const headerColumns = [
+  const headerColumns = useMemo(() => [
     { key: 'select', width: 42, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="상세 전체 선택" checked={allRowsSelected} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
     { key: 'number', width: 58, minWidth: 58, className: codeClasses.numberCol, label: 'No.' },
-    ...DETAIL_FIELDS.map(({ key, label, width, minWidth, required }) => {
-      return { key, width, minWidth: minWidth || width, label: <>{label}{required && <span className={codeClasses.required}> *</span>}</> };
-    }),
-  ];
-  const tableWidth = headerColumns.reduce((sum, column) => sum + (columnWidths[column.key] ?? column.width), 0);
-  const detailSubtotals = useMemo(() => summaryRows.reduce((totals, row) => {
-    totals.qty += Number(cleanNumericInput(row.qty)) || 0;
-    totals.weight += Number(cleanNumericInput(row.weight)) || 0;
-    totals.amount += Number(amountOf(row, unitOptions.price)) || 0;
-    totals.vat += Number(vatOf(row, unitOptions.price)) || 0;
-    totals.total += Number(totalAmountOf(row, unitOptions.price)) || 0;
-    return totals;
-  }, { qty: 0, weight: 0, amount: 0, vat: 0, total: 0 }), [summaryRows, unitOptions.price]);
-  const quantitySummary = useMemo(() => {
-    if (!summaryRows.length) return '0';
-    const totals = new Map();
-    const defaultUnit = unitOptions.quantity.find((option) => option.code === 'EA')?.name || 'EA';
-    summaryRows.forEach((row) => {
-      const unitCode = resolveMasterCode('qtyunit', row.qtyunit, unitOptions);
-      const unit = unitOptions.quantity.find((option) => option.code === unitCode)?.name || row.qtyunit || defaultUnit;
-      const quantity = Number(cleanNumericInput(row.qty)) || 0;
-      totals.set(unit, (totals.get(unit) || 0) + quantity);
-    });
-    return [...totals.entries()].map(([unit, quantity]) => `${quantity.toLocaleString(undefined, { maximumFractionDigits: 3 })}${unit}`).join(', ');
-  }, [summaryRows, unitOptions]);
-  const renderHeader = (column) => (
+    ...DETAIL_FIELDS.map(({ key, label, width, minWidth, required }) => ({
+      key, width, minWidth: minWidth || width,
+      label: <>{label}{required && <span className={codeClasses.required}> *</span>}</>,
+    })),
+  ], [allRowsSelected, toggleAll]);
+  const tableWidth = useMemo(
+    () => headerColumns.reduce((sum, column) => sum + (columnWidths[column.key] ?? column.width), 0),
+    [headerColumns, columnWidths],
+  );
+  const renderHeader = useCallback((column) => (
     <Table.Th key={column.key} className={[codeClasses.resizableHeader, column.className].filter(Boolean).join(' ')} style={{ width: columnWidths[column.key] ?? column.width }}>
       <span style={{ whiteSpace: 'nowrap' }}>{column.label}</span><span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeColumn(event, column.key, column.width, column.minWidth, tableWidth)} role="separator" aria-label={`${column.key} 열 너비 조절`} />
     </Table.Th>
-  );
+  ), [columnWidths, resizeColumn, tableWidth]);
+  const detailHeaderRow = useMemo(() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>, [headerColumns, renderHeader]);
+  const renderDetailHeaderRow = useCallback(() => detailHeaderRow, [detailHeaderRow]);
   const receiptTableWidth = RECEIPT_COLUMNS.reduce((sum, column) => sum + (receiptColumnWidths[column.key] ?? receiptAutoWidths[column.key] ?? column.width), 0);
-  const receiptSubtotals = receipts.reduce((totals, receipt) => {
+  const receiptSubtotals = useMemo(() => receipts.reduce((totals, receipt) => {
     for (const key of ['line_count', 'total_qty', 'total_weight', 'supply_amount', 'vat_amount', 'total_amount', 'other_cost_amount']) {
       totals[key] += Number(receipt[key]) || 0;
     }
     return totals;
-  }, { line_count: 0, total_qty: 0, total_weight: 0, supply_amount: 0, vat_amount: 0, total_amount: 0, other_cost_amount: 0 });
-  const syncReceiptScroll = (left) => {
+  }, { line_count: 0, total_qty: 0, total_weight: 0, supply_amount: 0, vat_amount: 0, total_amount: 0, other_cost_amount: 0 }), [receipts]);
+  const syncReceiptScroll = useCallback((left) => {
     for (const element of [receiptTableRef.current, receiptSubtotalRef.current]) {
       if (element && Math.abs(element.scrollLeft - left) > 0.5) element.scrollLeft = left;
     }
-  };
-  const renderReceiptHeader = (column) => (
+  }, []);
+  const renderReceiptHeader = useCallback((column) => (
     <Table.Th key={column.key} className={codeClasses.resizableHeader} ta={column.align} style={{ width: receiptColumnWidths[column.key] ?? receiptAutoWidths[column.key] ?? column.width }}>
       <span style={{ whiteSpace: 'nowrap' }}>{column.label}</span><span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeReceiptColumn(event, column.key, column.width, column.minWidth)} role="separator" aria-label={`${column.label} 열 너비 조절`} />
     </Table.Th>
-  );
-  const receiptCustomerData = receiptCustomers
-    .map((customer) => ({ value: customer.customercode, label: customer.customername }))
-    .filter((option) => option.value && option.label);
-  if (header.customcode && !receiptCustomerData.some((option) => option.value === header.customcode)) {
-    receiptCustomerData.unshift({ value: header.customcode, label: header.customname || header.customcode });
-  }
-  const receiptWarehouseData = unitOptions.warehouse
-    .map((warehouse) => ({ value: warehouse.code, label: warehouse.name }))
-    .filter((option) => option.value && option.label);
-  if (header.warehousecode && !receiptWarehouseData.some((option) => option.value === header.warehousecode)) {
-    receiptWarehouseData.unshift({ value: header.warehousecode, label: header.warehousecodename || header.warehousecode });
-  }
+  ), [receiptColumnWidths, receiptAutoWidths, resizeReceiptColumn]);
+  const receiptCustomerData = useMemo(() => {
+    const options = receiptCustomers
+      .map((customer) => ({ value: customer.customercode, label: customer.customername }))
+      .filter((option) => option.value && option.label);
+    if (header.customcode && !options.some((option) => option.value === header.customcode)) {
+      options.unshift({ value: header.customcode, label: header.customname || header.customcode });
+    }
+    return options;
+  }, [receiptCustomers, header.customcode, header.customname]);
+  const receiptWarehouseData = useMemo(() => {
+    const options = unitOptions.warehouse
+      .map((warehouse) => ({ value: warehouse.code, label: warehouse.name }))
+      .filter((option) => option.value && option.label);
+    if (header.warehousecode && !options.some((option) => option.value === header.warehousecode)) {
+      options.unshift({ value: header.warehousecode, label: header.warehousecodename || header.warehousecode });
+    }
+    return options;
+  }, [unitOptions.warehouse, header.warehousecode, header.warehousecodename]);
+
+  const closeCustomerPicker = useCallback(() => { setCustomerPickerOpen(false); setCustomerPickerTarget(null); }, []);
+  const closeItemPicker = useCallback(() => setItemPickerTarget(null), []);
+  const closeExpenseCostPicker = useCallback(() => setExpenseCostPickerId(''), []);
+  const selectExpenseCostFromPicker = useCallback((option) => {
+    if (expenseCostPickerId) changeExpense(expenseCostPickerId, 'costcode', option.code || '');
+    setExpenseCostPickerId('');
+  }, [expenseCostPickerId, changeExpense]);
+  const closeMasterPicker = useCallback(() => setMasterPickerTarget(null), []);
+  const masterPickerField = masterPickerTarget?.field;
+  const masterPickerOptions = masterPickerField === 'qtyunit' ? unitOptions.quantity : masterPickerField === 'unit' ? unitOptions.price : masterPickerField === 'material' ? unitOptions.material : masterPickerField === 'surface' ? unitOptions.surface : unitOptions.warehouse;
+  const allExpensesSelected = expenses.length > 0 && selectedExpenseIds.length === expenses.length;
+  const expenseHeader = useMemo(() => (
+    <Table.Thead><Table.Tr>
+      <Table.Th style={{ width: 42 }} ta="center"><input type="checkbox" aria-label="기타비용 전체 선택" disabled={saving || readOnly}
+        checked={allExpensesSelected} onChange={(event) => toggleAllExpenses(event.currentTarget.checked)} /></Table.Th>
+      <Table.Th style={{ width: 52 }}>No.</Table.Th>
+      <Table.Th style={{ width: 160 }}>비용 구분</Table.Th>
+      <Table.Th style={{ width: 145 }} ta="right">공급가</Table.Th>
+      <Table.Th style={{ width: 135 }} ta="right">부가세</Table.Th>
+      <Table.Th style={{ width: 145 }} ta="right">합계금액</Table.Th>
+      <Table.Th style={{ width: 190 }}>거래처</Table.Th>
+      <Table.Th style={{ width: 105 }}>비용여부</Table.Th>
+      <Table.Th>비고</Table.Th>
+    </Table.Tr></Table.Thead>
+  ), [saving, readOnly, allExpensesSelected, toggleAllExpenses]);
+  const detailTable = useMemo(() => (
+    <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
+      style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
+      <Table.Thead>{detailHeaderRow}</Table.Thead>
+      <Table.Tbody><InboundDetailTableRows renderCells={rowContent} /></Table.Tbody>
+    </Table>
+  ), [detailHeaderRow, rowContent]);
+  const expenseRowsValue = useMemo(() => ({ expenses, selectedExpenseSet }), [expenses, selectedExpenseSet]);
+  const expenseTable = useMemo(() => (
+    <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} withTableBorder withColumnBorders horizontalSpacing="xs" verticalSpacing="xs"
+      style={{ width: '100%', minWidth: 1120, tableLayout: 'fixed' }}>
+      {expenseHeader}
+      <InboundExpenseTableRows disabled={saving || readOnly} options={expenseOptions} getInputRef={getExpenseCostInputRef}
+        onToggle={toggleExpenseSelection} onChange={changeExpense} onOpenCustomerPicker={openCustomerPicker}
+        onSetCostPicker={setExpenseCostPickerId} />
+    </Table>
+  ), [expenseHeader, saving, readOnly, expenseOptions, getExpenseCostInputRef, toggleExpenseSelection, changeExpense, openCustomerPicker]);
+  const receiptPanel = useMemo(() => (
+    <Paper className={`${sharedClasses.panel} ${classes.topReceiptPanel}`} withBorder>
+      <Group className={classes.topReceiptToolbar} justify="space-between" wrap="wrap">
+        <Group gap={8}><Text className={classes.sectionTitle} fw={700}>입고 기본</Text><Badge color="gray" variant="light">{total.toLocaleString()}건</Badge></Group>
+      </Group>
+      <Box ref={receiptTableRef} className={classes.topReceiptTable}>
+        <Table className={classes.receiptFinderTable} stickyHeader highlightOnHover withTableBorder withColumnBorders style={{ width: `${receiptTableWidth}px`, minWidth: `${receiptTableWidth}px`, tableLayout: 'fixed' }}>
+          <colgroup>{RECEIPT_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${receiptColumnWidths[column.key] ?? receiptAutoWidths[column.key] ?? column.width}px` }} />)}</colgroup>
+          <Table.Thead><Table.Tr>{RECEIPT_COLUMNS.map(renderReceiptHeader)}</Table.Tr></Table.Thead>
+          <Table.Tbody>
+            <InboundReceiptRows receipts={receipts} selectedReceiptno={selectedReceiptno} onOpenReceipt={handleOpenReceipt} />
+          </Table.Tbody>
+        </Table>
+        {!receipts.length && <Box className={classes.topReceiptEmptyMessage}>{loading ? '조회 중입니다.' : '검색된 입고전표가 없습니다.'}</Box>}
+      </Box>
+      <Box className={classes.topReceiptBottom}>
+        {!!receipts.length && <Box ref={receiptSubtotalRef} className={classes.topReceiptSubtotalViewport}>
+          <Table className={`${classes.receiptFinderTable} ${classes.receiptSubtotalTable}`} withTableBorder withColumnBorders
+            style={{ width: `${receiptTableWidth}px`, minWidth: `${receiptTableWidth}px`, tableLayout: 'fixed' }}>
+            <colgroup>{RECEIPT_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${receiptColumnWidths[column.key] ?? receiptAutoWidths[column.key] ?? column.width}px` }} />)}</colgroup>
+            <Table.Tbody><Table.Tr>
+              {RECEIPT_COLUMNS.map((column, index) => <Table.Td key={column.key} className={`${classes.topReceiptSubtotalCell} ${column.align === 'right' ? classes.topReceiptSubtotalNumber : ''}`} ta={column.align}>
+              {index === 0 ? '소계' : column.key === 'line_count' ? receiptSubtotals.line_count.toLocaleString()
+                : column.key === 'total_qty' || column.key === 'total_weight' ? receiptSubtotals[column.key].toLocaleString(undefined, { maximumFractionDigits: 3 })
+                  : ['supply_amount', 'vat_amount', 'total_amount', 'other_cost_amount'].includes(column.key) ? formatWon(String(receiptSubtotals[column.key])) : ''}
+              </Table.Td>)}
+            </Table.Tr></Table.Tbody>
+          </Table>
+        </Box>}
+        <Box className={classes.topReceiptHorizontalScroll} onScroll={(event) => syncReceiptScroll(event.currentTarget.scrollLeft)} aria-label="입고 기본 가로 스크롤">
+          <Box className={classes.topReceiptHorizontalContent} style={{ width: `max(100%, ${receiptTableWidth}px)` }} />
+        </Box>
+      </Box>
+      <Group className={classes.topReceiptPagination} justify="space-between">
+        <Group className={classes.topReceiptPageSize} gap="xs">
+          <Select aria-label="페이지당 표시 건수" data={PAGE_SIZE_OPTIONS} value={String(pageSize)} w={100} size="xs"
+            onChange={(value) => { if (value) { const nextPageSize = Number(value); setPageSize(nextPageSize); void loadReceipts(1, filters, nextPageSize); } }} />
+        </Group>
+        <Pagination size="sm" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={(value) => loadReceipts(value, filters)} withEdges color="red" disabled={loading || !total} />
+      </Group>
+    </Paper>
+  ), [total, receiptTableWidth, receiptColumnWidths, receiptAutoWidths, renderReceiptHeader, receipts, selectedReceiptno, handleOpenReceipt, loading, receiptSubtotals, syncReceiptScroll, pageSize, loadReceipts, filters, page]);
+  const receiptHeaderFields = useMemo(() => (
+    <Box className={classes.sharedReceiptFields}>
+      <Box className={classes.sharedReceiptField}>
+        <Text size="xs" fw={700} mb={4}>입고일자 <span className={codeClasses.required}>*</span></Text>
+        <ErpDateInput type="date" aria-label="입고일자" value={header.receptdate || ''} disabled={readOnly || saving}
+          onChange={(event) => changeReceiptField('receptdate', event.currentTarget.value)} />
+      </Box>
+      <Box className={classes.sharedReceiptField}>
+        <Text size="xs" fw={700} mb={4}>매입처 <span className={codeClasses.required}>*</span></Text>
+        <Select searchable autoSelectOnBlur aria-label="매입처" placeholder=""
+          disabled={readOnly || saving} data={receiptCustomerData} value={header.customcode || null}
+          onChange={(value) => {
+            const customer = receiptCustomers.find((item) => item.customercode === value);
+            selectReceiptCustomer(RECEIPT_HEADER_PICKER_ID, customer || {
+              customercode: value || '', customername: receiptCustomerData.find((item) => item.value === value)?.label || '',
+            });
+          }} />
+      </Box>
+      <Box className={classes.sharedReceiptField}>
+        <Text size="xs" fw={700} mb={4}>창고 <span className={codeClasses.required}>*</span></Text>
+        <Select searchable autoSelectOnBlur aria-label="창고" placeholder=""
+          disabled={readOnly || saving} data={receiptWarehouseData} value={header.warehousecode || null}
+          onChange={(value) => {
+            const warehouse = unitOptions.warehouse.find((item) => item.code === value);
+            selectReceiptWarehouse(RECEIPT_HEADER_PICKER_ID, warehouse || {
+              code: value || '', name: receiptWarehouseData.find((item) => item.value === value)?.label || '',
+            });
+          }} />
+      </Box>
+      <Box className={classes.sharedReceiptField}>
+        <Text size="xs" fw={700} mb={4}>담당자</Text>
+        <DeferredHeaderTextInput key={`${selectedReceiptno}:manager:${header.manager || ''}`} ariaLabel="담당자" value={header.manager || ''} maxLength={100} disabled={saving || locked} onEditStart={markHeaderTextEdited}
+          onCommit={commitReceiptManager} />
+      </Box>
+      <Box className={classes.sharedReceiptField}>
+        <Text size="xs" fw={700} mb={4}>비고</Text>
+        <DeferredHeaderTextInput key={`${selectedReceiptno}:description:${header.description || ''}`} ariaLabel="입고 비고" value={header.description || ''} maxLength={500} disabled={readOnly || saving} onEditStart={markHeaderTextEdited}
+          onCommit={commitReceiptDescription} />
+      </Box>
+    </Box>
+  ), [header, readOnly, saving, locked, changeReceiptField, receiptCustomerData, receiptCustomers, selectReceiptCustomer, receiptWarehouseData, unitOptions.warehouse, selectReceiptWarehouse, selectedReceiptno, markHeaderTextEdited, commitReceiptManager, commitReceiptDescription]);
+  const filterSidebar = useMemo(() => (
+    <Paper component="aside" className={classes.receiptFilterSidebar} withBorder>
+        <Group className={classes.receiptFilterHeader} justify="space-between" align="center">
+          <Text fw={700}>조회조건</Text>
+          <ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}>
+            <IconX size={16} />
+          </ActionIcon>
+        </Group>
+      <Stack gap="sm" className={classes.receiptFilterFields}>
+        <Box>
+          <Text size="xs" fw={700} mb={5}>입고기간</Text>
+          <Stack gap={6}>
+            <ErpDateInput type="date" aria-label="입고기간 시작일" value={filterInputs.date_from}
+              onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
+            <ErpDateInput type="date" aria-label="입고기간 종료일" value={filterInputs.date_to}
+              onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
+          </Stack>
+        </Box>
+        <TextInput label="매입처" placeholder="매입처코드 또는 매입처명" value={filterInputs.customer}
+          onChange={(event) => setFilterInputs((current) => ({ ...current, customer: event.currentTarget.value }))}
+          onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+        <TextInput label="창고" placeholder="창고코드 또는 창고명" value={filterInputs.warehouse}
+          onChange={(event) => setFilterInputs((current) => ({ ...current, warehouse: event.currentTarget.value }))}
+          onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+        <TextInput label="입고전표번호" placeholder="전표번호" value={filterInputs.receiptno}
+          onChange={(event) => setFilterInputs((current) => ({ ...current, receiptno: event.currentTarget.value }))}
+          onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
+        </Stack>
+    </Paper>
+  ), [filterInputs, runSearch]);
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
@@ -2529,61 +2815,7 @@ export default function InboundRegisterPage() {
       <Box className={`${classes.inboundWorkspace} ${!filterOpen ? classes.inboundWorkspaceExpanded : ''}`}>
         <Box className={classes.inboundPrimaryColumn}>
 
-      <Paper className={`${sharedClasses.panel} ${classes.topReceiptPanel}`} withBorder>
-        <Group className={classes.topReceiptToolbar} justify="space-between" wrap="wrap">
-          <Group gap={8}><Text className={classes.sectionTitle} fw={700}>입고 기본</Text><Badge color="gray" variant="light">{total.toLocaleString()}건</Badge></Group>
-        </Group>
-        <Box ref={receiptTableRef} className={classes.topReceiptTable}>
-          <Table className={classes.receiptFinderTable} stickyHeader highlightOnHover withTableBorder withColumnBorders style={{ width: `${receiptTableWidth}px`, minWidth: `${receiptTableWidth}px`, tableLayout: 'fixed' }}>
-            <colgroup>{RECEIPT_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${receiptColumnWidths[column.key] ?? receiptAutoWidths[column.key] ?? column.width}px` }} />)}</colgroup>
-            <Table.Thead><Table.Tr>{RECEIPT_COLUMNS.map(renderReceiptHeader)}</Table.Tr></Table.Thead>
-            <Table.Tbody>
-              {receipts.map((receipt) => <Table.Tr key={receipt.receiptno} className={`${classes.receiptFinderRow} ${selectedReceiptno === receipt.receiptno ? classes.receiptFinderRowActive : ''}`} onClick={() => { void openReceipt(receipt.receiptno, true); }}>
-                <Table.Td>{String(receipt.receptdate || '').slice(0, 10)}</Table.Td>
-                 <Table.Td title={receipt.customname || ''}>{receipt.customname || ''}</Table.Td>
-                <Table.Td title={receipt.warehousecodename || ''}>{receipt.warehousecodename || ''}</Table.Td>
-                <Table.Td ta="right">{Number(receipt.line_count || 0).toLocaleString()}</Table.Td>
-                <Table.Td ta="right">{Number(receipt.total_qty || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Table.Td>
-                <Table.Td ta="right">{Number(receipt.total_weight || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Table.Td>
-                <Table.Td ta="right">{formatAmount(String(receipt.supply_amount ?? 0))}</Table.Td>
-                <Table.Td ta="right">{formatAmount(String(receipt.vat_amount ?? 0))}</Table.Td>
-                <Table.Td ta="right" className={classes.receiptFinderAmount}>{formatAmount(String(receipt.total_amount ?? 0))}</Table.Td>
-                <Table.Td ta="right">{formatAmount(String(receipt.other_cost_amount ?? 0))}</Table.Td>
-                 <Table.Td>{receipt.qtyunit || ''}</Table.Td>
-                 <Table.Td>{receipt.unit || ''}</Table.Td>
-                <Table.Td title={receipt.receiptno || ''}>{receipt.receiptno}</Table.Td>
-                <Table.Td title={receipt.description || ''}>{receipt.description || ''}</Table.Td>
-              </Table.Tr>)}
-            </Table.Tbody>
-          </Table>
-          {!receipts.length && <Box className={classes.topReceiptEmptyMessage}>{loading ? '조회 중입니다.' : '검색된 입고전표가 없습니다.'}</Box>}
-        </Box>
-        <Box className={classes.topReceiptBottom}>
-          {!!receipts.length && <Box ref={receiptSubtotalRef} className={classes.topReceiptSubtotalViewport}>
-            <Table className={`${classes.receiptFinderTable} ${classes.receiptSubtotalTable}`} withTableBorder withColumnBorders
-              style={{ width: `${receiptTableWidth}px`, minWidth: `${receiptTableWidth}px`, tableLayout: 'fixed' }}>
-              <colgroup>{RECEIPT_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${receiptColumnWidths[column.key] ?? receiptAutoWidths[column.key] ?? column.width}px` }} />)}</colgroup>
-              <Table.Tbody><Table.Tr>
-                {RECEIPT_COLUMNS.map((column, index) => <Table.Td key={column.key} className={`${classes.topReceiptSubtotalCell} ${column.align === 'right' ? classes.topReceiptSubtotalNumber : ''}`} ta={column.align}>
-                {index === 0 ? '소계' : column.key === 'line_count' ? receiptSubtotals.line_count.toLocaleString()
-                  : column.key === 'total_qty' || column.key === 'total_weight' ? receiptSubtotals[column.key].toLocaleString(undefined, { maximumFractionDigits: 3 })
-                    : ['supply_amount', 'vat_amount', 'total_amount', 'other_cost_amount'].includes(column.key) ? formatWon(String(receiptSubtotals[column.key])) : ''}
-                </Table.Td>)}
-              </Table.Tr></Table.Tbody>
-            </Table>
-          </Box>}
-          <Box className={classes.topReceiptHorizontalScroll} onScroll={(event) => syncReceiptScroll(event.currentTarget.scrollLeft)} aria-label="입고 기본 가로 스크롤">
-            <Box className={classes.topReceiptHorizontalContent} style={{ width: `max(100%, ${receiptTableWidth}px)` }} />
-          </Box>
-        </Box>
-        <Group className={classes.topReceiptPagination} justify="space-between">
-          <Group className={classes.topReceiptPageSize} gap="xs">
-            <Select aria-label="페이지당 표시 건수" data={PAGE_SIZE_OPTIONS} value={String(pageSize)} w={100} size="xs"
-              onChange={(value) => { if (value) { const nextPageSize = Number(value); setPageSize(nextPageSize); void loadReceipts(1, filters, nextPageSize); } }} />
-          </Group>
-          <Pagination size="sm" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={(value) => loadReceipts(value, filters)} withEdges color="red" disabled={loading || !total} />
-        </Group>
-      </Paper>
+      {receiptPanel}
 
       <Box className={classes.workspace}>
         <Paper className={`${sharedClasses.panel} ${codeClasses.codePanel} ${classes.editorPanel}`} withBorder>
@@ -2599,45 +2831,7 @@ export default function InboundRegisterPage() {
             </Group>
           </Group>
 
-          <Box className={classes.sharedReceiptFields}>
-            <Box className={classes.sharedReceiptField}>
-              <Text size="xs" fw={700} mb={4}>입고일자 <span className={codeClasses.required}>*</span></Text>
-              <ErpDateInput type="date" aria-label="입고일자" value={header.receptdate || ''} disabled={readOnly || saving}
-                onChange={(event) => changeReceiptField('receptdate', event.currentTarget.value)} />
-            </Box>
-            <Box className={classes.sharedReceiptField}>
-              <Text size="xs" fw={700} mb={4}>매입처 <span className={codeClasses.required}>*</span></Text>
-              <Select searchable autoSelectOnBlur aria-label="매입처" placeholder=""
-                disabled={readOnly || saving} data={receiptCustomerData} value={header.customcode || null}
-                onChange={(value) => {
-                  const customer = receiptCustomers.find((item) => item.customercode === value);
-                  selectReceiptCustomer(RECEIPT_HEADER_PICKER_ID, customer || {
-                    customercode: value || '', customername: receiptCustomerData.find((item) => item.value === value)?.label || '',
-                  });
-                }} />
-            </Box>
-            <Box className={classes.sharedReceiptField}>
-              <Text size="xs" fw={700} mb={4}>창고 <span className={codeClasses.required}>*</span></Text>
-              <Select searchable autoSelectOnBlur aria-label="창고" placeholder=""
-                disabled={readOnly || saving} data={receiptWarehouseData} value={header.warehousecode || null}
-                onChange={(value) => {
-                  const warehouse = unitOptions.warehouse.find((item) => item.code === value);
-                  selectReceiptWarehouse(RECEIPT_HEADER_PICKER_ID, warehouse || {
-                    code: value || '', name: receiptWarehouseData.find((item) => item.value === value)?.label || '',
-                  });
-                }} />
-            </Box>
-            <Box className={classes.sharedReceiptField}>
-              <Text size="xs" fw={700} mb={4}>담당자</Text>
-              <DeferredHeaderTextInput key={`${selectedReceiptno}:manager:${header.manager || ''}`} ariaLabel="담당자" value={header.manager || ''} maxLength={100} disabled={saving || locked} onEditStart={markHeaderTextEdited}
-                onCommit={commitReceiptManager} />
-            </Box>
-            <Box className={classes.sharedReceiptField}>
-              <Text size="xs" fw={700} mb={4}>비고</Text>
-              <DeferredHeaderTextInput key={`${selectedReceiptno}:description:${header.description || ''}`} ariaLabel="입고 비고" value={header.description || ''} maxLength={500} disabled={readOnly || saving} onEditStart={markHeaderTextEdited}
-                onCommit={commitReceiptDescription} />
-            </Box>
-          </Box>
+          {receiptHeaderFields}
 
           <Box className={outboundClasses.detailTabsBar} role="tablist" aria-label="입고 상세 구분">
             <button type="button" role="tab" aria-selected={detailTab === 'details'} className={detailTab === 'details' ? outboundClasses.detailTabActive : outboundClasses.detailTab}
@@ -2646,19 +2840,15 @@ export default function InboundRegisterPage() {
               onClick={() => setDetailTab('expenses')}>기타비용 {expenses.length.toLocaleString()}건</button>
           </Box>
           {detailTab === 'details' && <>
-          <Box ref={detailScrollerRef} className={`${codeClasses.tableWrap} ${(rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? classes.savedDetailScroller : ''} ${!detailLoading && !rows.length ? classes.emptyDetailWrap : ''}`} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
+          <Box className={`${codeClasses.tableWrap} ${(rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? classes.savedDetailScroller : ''} ${!detailLoading && !rows.length ? classes.emptyDetailWrap : ''}`} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
             {detailLoading ? <Box className={classes.receiptLoading}><Loader size="sm" color="red" /></Box> : rows.length ? (
               (rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? <>
-                <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
-                  style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
-                  <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
-                  <Table.Tbody>{rows.map((row, index) => <Table.Tr key={row.id} className={[row.is_new && codeClasses.newRow, row.is_new && classes.newRow].filter(Boolean).join(' ')}>{rowContent(index, row)}</Table.Tr>)}</Table.Tbody>
-                </Table>
-              </> : <TableVirtuoso ref={virtuosoRef} data={rows} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} increaseViewportBy={{ top: 84, bottom: 84 }} fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>} itemContent={rowContent} />
+                <DetailRowsContext.Provider value={rows}>{detailTable}</DetailRowsContext.Provider>
+              </> : <TableVirtuoso ref={virtuosoRef} data={rows} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} increaseViewportBy={{ top: 84, bottom: 84 }} fixedHeaderContent={renderDetailHeaderRow} itemContent={rowContent} />
             ) : (
               <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
                 style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
-                <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
+                <Table.Thead>{detailHeaderRow}</Table.Thead>
               </Table>
             )}
             {!detailLoading && !rows.length && (
@@ -2667,54 +2857,11 @@ export default function InboundRegisterPage() {
               </Box>
             )}
           </Box>
-          <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="space-between" wrap="wrap">
-            <Text size="xs" c="dimmed">엑셀 셀 범위를 붙여넣고 저장할 수 있습니다.</Text>
-            <Text size="xs" fw={700}>
-              총 수량 {quantitySummary} · 총 중량 {detailSubtotals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 })}{rows.length ? 'KG' : ''}
-              {' · '}총공급가 {formatWon(detailSubtotals.amount.toFixed(2))}
-              {' · '}부가세 {formatWon(detailSubtotals.vat.toFixed(2))}
-              {' · '}합계 {formatWon(detailSubtotals.total.toFixed(2))}
-            </Text>
-          </Group>
+          <InboundDetailSummary rows={rows} unitOptions={unitOptions} />
           </>}
           {detailTab === 'expenses' && <Box className={outboundClasses.expenseTabPanel}>
-            <Box ref={expenseTableScrollerRef} className={`${codeClasses.tableWrap} ${outboundClasses.expenseTableWrap} ${expenses.length <= 100 ? classes.savedDetailScroller : ''} ${!expenses.length ? classes.emptyDetailWrap : ''}`}>
-              <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} withTableBorder withColumnBorders horizontalSpacing="xs" verticalSpacing="xs"
-                style={{ width: '100%', minWidth: 1120, tableLayout: 'fixed' }}>
-                <Table.Thead><Table.Tr>
-                  <Table.Th style={{ width: 42 }} ta="center"><input type="checkbox" aria-label="기타비용 전체 선택" disabled={saving || readOnly}
-                    checked={expenses.length > 0 && selectedExpenseIds.length === expenses.length} onChange={(event) => toggleAllExpenses(event.currentTarget.checked)} /></Table.Th>
-                  <Table.Th style={{ width: 52 }}>No.</Table.Th>
-                  <Table.Th style={{ width: 160 }}>비용 구분</Table.Th>
-                  <Table.Th style={{ width: 145 }} ta="right">공급가</Table.Th>
-                  <Table.Th style={{ width: 135 }} ta="right">부가세</Table.Th>
-                  <Table.Th style={{ width: 145 }} ta="right">합계금액</Table.Th>
-                  <Table.Th style={{ width: 190 }}>거래처</Table.Th>
-                  <Table.Th style={{ width: 105 }}>비용여부</Table.Th>
-                  <Table.Th>비고</Table.Th>
-                </Table.Tr></Table.Thead>
-                {expenses.length > 0 && <Table.Tbody>{expenses.map((expense, index) => {
-                  const supply = Number(cleanNumericInput(expense.supplyamt)) || 0;
-                  const vat = Number(cleanNumericInput(expense.vat)) || 0;
-                  return <Table.Tr key={expense.id} className={[expense.is_new && outboundClasses.newRow, selectedExpenseSet.has(expense.id) && outboundClasses.selectedRow].filter(Boolean).join(' ')}>
-                    <Table.Td ta="center"><input type="checkbox" aria-label={`기타비용 ${index + 1}행 선택`} checked={selectedExpenseSet.has(expense.id)} disabled={saving || readOnly}
-                      onChange={(event) => toggleExpenseSelection(expense.id, event.nativeEvent.shiftKey)} /></Table.Td>
-                    <Table.Td ta="center">{index + 1}</Table.Td>
-                    <Table.Td><ExpenseCostAutocompleteCell row={expense} options={expenseOptions} disabled={saving || readOnly}
-                      inputRef={getExpenseCostInputRef(expense.id)} onDoubleClick={() => setExpenseCostPickerId(expense.id)}
-                      onSelect={(option) => changeExpense(expense.id, 'costcode', option?.code || '')} /></Table.Td>
-                    <Table.Td><ExpenseNumericCell expenseId={expense.id} field="supplyamt" value={expense.supplyamt} disabled={saving || readOnly} onCommit={changeExpense} /></Table.Td>
-                    <Table.Td><ExpenseNumericCell expenseId={expense.id} field="vat" value={expense.vat} disabled={saving || readOnly} onCommit={changeExpense} /></Table.Td>
-                    <Table.Td><input className={`${codeClasses.cellInput} ${classes.amountInput}`} aria-label="합계금액" value={formatNumericInput(String(supply + vat))} readOnly /></Table.Td>
-                    <Table.Td><ExpenseCustomerAutocompleteCell expenseId={expense.id} value={expense.customname || ''} disabled={saving || readOnly}
-                      onSelect={(id, customer) => changeExpense(id, 'customcode', customer.customercode || '')}
-                      onOpenPicker={(id) => openCustomerPicker(`expense::${id}`)} /></Table.Td>
-                    <Table.Td><Select size="xs" data={[{ value: 'N', label: '아니오' }, { value: 'Y', label: '예' }]} value={expense.purchaseyn || 'N'} disabled={saving || readOnly}
-                      onChange={(value) => changeExpense(expense.id, 'purchaseyn', value || 'N')} /></Table.Td>
-                    <Table.Td><ExpenseDescriptionCell expenseId={expense.id} value={expense.description} disabled={saving || readOnly} onCommit={changeExpense} /></Table.Td>
-                  </Table.Tr>;
-                })}</Table.Tbody>}
-              </Table>
+            <Box className={`${codeClasses.tableWrap} ${outboundClasses.expenseTableWrap} ${expenses.length <= 100 ? classes.savedDetailScroller : ''} ${!expenses.length ? classes.emptyDetailWrap : ''}`}>
+              <ExpenseRowsContext.Provider value={expenseRowsValue}>{expenseTable}</ExpenseRowsContext.Provider>
               {!expenses.length && <Box className={classes.emptyDetailMessage}>등록된 기타비용이 없습니다.</Box>}
             </Box>
             <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="flex-end" wrap="wrap">
@@ -2725,34 +2872,7 @@ export default function InboundRegisterPage() {
       </Box>
         </Box>
 
-        {filterOpen && <Paper component="aside" className={classes.receiptFilterSidebar} withBorder>
-            <Group className={classes.receiptFilterHeader} justify="space-between" align="center">
-              <Text fw={700}>조회조건</Text>
-              <ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}>
-                <IconX size={16} />
-              </ActionIcon>
-            </Group>
-          <Stack gap="sm" className={classes.receiptFilterFields}>
-            <Box>
-              <Text size="xs" fw={700} mb={5}>입고기간</Text>
-              <Stack gap={6}>
-                <ErpDateInput type="date" aria-label="입고기간 시작일" value={filterInputs.date_from}
-                  onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
-                <ErpDateInput type="date" aria-label="입고기간 종료일" value={filterInputs.date_to}
-                  onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
-              </Stack>
-            </Box>
-            <TextInput label="매입처" placeholder="매입처코드 또는 매입처명" value={filterInputs.customer}
-              onChange={(event) => setFilterInputs((current) => ({ ...current, customer: event.currentTarget.value }))}
-              onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
-            <TextInput label="창고" placeholder="창고코드 또는 창고명" value={filterInputs.warehouse}
-              onChange={(event) => setFilterInputs((current) => ({ ...current, warehouse: event.currentTarget.value }))}
-              onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
-            <TextInput label="입고전표번호" placeholder="전표번호" value={filterInputs.receiptno}
-              onChange={(event) => setFilterInputs((current) => ({ ...current, receiptno: event.currentTarget.value }))}
-              onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
-            </Stack>
-        </Paper>}
+        {filterOpen && filterSidebar}
       </Box>
 
       <Modal opened={deleteOpen} onClose={() => !saving && setDeleteOpen(false)} title="입고전표 삭제" centered size="sm">
@@ -2762,25 +2882,22 @@ export default function InboundRegisterPage() {
         </Stack>
       </Modal>
 
-      <CustomerPickerModal opened={customerPickerOpen} onClose={() => { setCustomerPickerOpen(false); setCustomerPickerTarget(null); }} onSelect={selectCustomer} />
+      <CustomerPickerModal opened={customerPickerOpen} onClose={closeCustomerPicker} onSelect={selectCustomer} />
       <MasterOptionPickerModal
         key={expenseCostPickerId || 'expense-cost-closed'}
         opened={Boolean(expenseCostPickerId)}
-        onClose={() => setExpenseCostPickerId('')}
+        onClose={closeExpenseCostPicker}
         title="비용 구분 선택"
         options={expenseOptions}
-        onSelect={(option) => {
-          if (expenseCostPickerId) changeExpense(expenseCostPickerId, 'costcode', option.code || '');
-          setExpenseCostPickerId('');
-        }}
+        onSelect={selectExpenseCostFromPicker}
       />
-      <ItemPickerModal opened={itemPickerTarget !== null} onClose={() => setItemPickerTarget(null)} onSelect={selectItemFromPicker} />
+      <ItemPickerModal opened={itemPickerTarget !== null} onClose={closeItemPicker} onSelect={selectItemFromPicker} />
       <MasterOptionPickerModal
         key={masterPickerTarget ? `${masterPickerTarget.id}:${masterPickerTarget.field}` : 'closed'}
         opened={Boolean(masterPickerTarget)}
-        onClose={() => setMasterPickerTarget(null)}
-        title={masterPickerTarget?.field === 'qtyunit' ? '수량단위 선택' : masterPickerTarget?.field === 'unit' ? '단가기준 선택' : masterPickerTarget?.field === 'material' ? '강종 선택' : masterPickerTarget?.field === 'surface' ? '표면 선택' : '창고 선택'}
-        options={masterPickerTarget?.field === 'qtyunit' ? unitOptions.quantity : masterPickerTarget?.field === 'unit' ? unitOptions.price : masterPickerTarget?.field === 'material' ? unitOptions.material : masterPickerTarget?.field === 'surface' ? unitOptions.surface : unitOptions.warehouse}
+        onClose={closeMasterPicker}
+        title={masterPickerField === 'qtyunit' ? '수량단위 선택' : masterPickerField === 'unit' ? '단가기준 선택' : masterPickerField === 'material' ? '강종 선택' : masterPickerField === 'surface' ? '표면 선택' : '창고 선택'}
+        options={masterPickerOptions}
         onSelect={selectMasterOption}
       />
     </Box>

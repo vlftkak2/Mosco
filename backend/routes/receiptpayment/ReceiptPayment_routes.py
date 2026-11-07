@@ -3,7 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 import security as security_module
-import ReceiptPayment as receipt_payment_module
+from services.receiptpayment import ReceiptPayment as receipt_payment_module
 
 
 router = APIRouter(

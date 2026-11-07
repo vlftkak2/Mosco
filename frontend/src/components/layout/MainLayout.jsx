@@ -5,6 +5,7 @@ import { LinksGroup } from './MainLayoutLink';
 import classes from '../../styles/layout/MainLayout.module.css';
 import { createContext, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate,useLocation } from 'react-router-dom';
+import { clearAIOrderPageSession } from '../../pages/ai/AIOrderPageSession';
 import { 
   IconAddressBook,
   IconAdjustmentsHorizontal,
@@ -111,11 +112,10 @@ const mockdata = [
     initiallyOpened: false,
     links: [
       { label: 'AI 주문서 인식', link: '/AIOrderPage', icon: '', MenuID: 'AI_ORDER_RECOGNITION' },
-      { label: '주문서 관리(EX)', link: '/AIOrderManage', icon: '', MenuID: 'AI_ORDER_MANAGEMENT' },
+      { label: '주문서 관리', link: '/AIOrderManage', icon: '', MenuID: 'AI_ORDER_MANAGEMENT' },
       { label: '가공 최적화(EX)', link: '/AIOrderOptimization', icon: '', MenuID: 'AI_OPTIMIZATION' },
       { label: '가공기준 관리(EX)', link: '/AIProcessingStandards', icon: '', MenuID: 'AI_STANDARDS' },
 
-      // { label: '가공 진행현황', link: '/AIOrderConfirmPage', icon: '', MenuID: 'AI-ORDER-TEST' },
         
     ],
   },  
@@ -234,7 +234,7 @@ export default function MainLayout({ children }) {
   const isDashboard = String(pathname || '').replace(/\/+$/, '').toLowerCase() === '/homepage';
   const isInboundWorkspace = [
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
-    '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage', '/aiorderconfirmpage',
+    '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage',
     '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/aiprocessingstandards', '/itemprocessmaster', '/itemprocessregister', '/itemprocesssearch', '/customersupport',
     '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/company', '/user', '/usermenu',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
@@ -266,6 +266,9 @@ export default function MainLayout({ children }) {
 
   const closePageTab = useCallback((event, path) => {
     event?.stopPropagation?.();
+    if (String(path || '').replace(/\/+$/, '').toLowerCase() === '/aiorderpage') {
+      clearAIOrderPageSession();
+    }
     const remaining = pageTabs.filter((tab) => tab.path !== path);
     if (!remaining.length) remaining.push({ path: '/HomePage', label: findMenuLabel(mockdata, '/HomePage') });
     setTabState({ pathname, tabs: remaining });
@@ -426,6 +429,7 @@ const handlePasswordChange = async (e) => {
   }, [userInfo, navigate]);
 
   const handleLogout = () =>{
+    clearAIOrderPageSession();
     ['access_token', 'user_name', 'user_email', 'user_company', 'user_companyname', 'user_authority']
       .forEach((key) => localStorage.removeItem(key));
     navigate('/login');

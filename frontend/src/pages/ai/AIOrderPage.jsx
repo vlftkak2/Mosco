@@ -14,6 +14,7 @@ import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
 import dashboardClasses from '../../styles/pages/HomePage.module.css';
 import outboundTableClasses from '../../styles/pages/CodeMasterPage.module.css';
 import classes from '../../styles/pages/AIOrder.module.css';
+import { aiOrderPageSession } from './AIOrderPageSession';
 
 const MAX_FILE_BYTES = 30 * 1024 * 1024;
 const MAX_PDF_PAGES = 10;
@@ -814,11 +815,21 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
 export default function AIOrderPage() {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
-  const activeRequests = useRef(new Set());
-  const abortControllers = useRef(new Map());
+  const activeRequests = useRef(aiOrderPageSession.activeRequests);
+  const abortControllers = useRef(aiOrderPageSession.abortControllers);
   const cacheLookupRequests = useRef(new Set());
-  const [documents, setDocuments] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const [documents, setDocumentsState] = useState(() => aiOrderPageSession.documents);
+  const [selectedId, setSelectedIdState] = useState(() => aiOrderPageSession.selectedId);
+  const setDocuments = useCallback((update) => {
+    const next = typeof update === 'function' ? update(aiOrderPageSession.documents) : update;
+    aiOrderPageSession.documents = next;
+    setDocumentsState(next);
+  }, []);
+  const setSelectedId = useCallback((update) => {
+    const next = typeof update === 'function' ? update(aiOrderPageSession.selectedId) : update;
+    aiOrderPageSession.selectedId = next;
+    setSelectedIdState(next);
+  }, []);
   const [analysisConfirm, setAnalysisConfirm] = useState(null);
   const [validating, setValidating] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
@@ -860,7 +871,8 @@ export default function AIOrderPage() {
         color: 'teal',
       });
       setOrderConfirmTargetId(null);
-      navigate(`/AIOrderConfirmPage?orderid=${encodeURIComponent(data.orderid)}`);
+      const orderDate = String(doc.extraction?.header?.order_date || '').trim();
+      navigate(`/AIOrderManage?orderid=${encodeURIComponent(data.orderid)}&orderdate=${encodeURIComponent(orderDate)}`);
     } catch (error) {
       const detail = error.response?.data?.detail;
       notifications.show({ title: '주문확정 실패', message: typeof detail === 'string' ? detail : '입력값과 서버 상태를 확인해주세요.', color: 'red' });
@@ -1011,8 +1023,6 @@ export default function AIOrderPage() {
       void processDocument(doc);
     }
   }, [documents, processDocument]);
-
-  useEffect(() => () => { abortControllers.current.forEach((controller) => controller.abort()); }, []);
 
   const startBatch = () => {
     const targets = documents.filter(canAnalyzeDocument);
