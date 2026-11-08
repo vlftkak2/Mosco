@@ -260,3 +260,15 @@
 }
 .lazySelectInput:disabled { color: var(--mantine-color-dimmed, #868e96); cursor: not-allowed; opacity: .6; }
 .lazySelectChevron { position: absolute; top: 50%; right: 6px; color: #868e96; transform: translateY(-50%); pointer-events: none; }
+
+/* 결제·할인·부도 처리 */
+.table td.statusSETTLED { color: #0f766e; font-weight: 600; }
+.table td.statusDISCOUNTED { color: #1d4ed8; font-weight: 600; }
+.table td.statusDISHONORED { color: #dc2626; font-weight: 700; }
+.processTableWrap { max-height: 320px; overflow: auto; border: 1px solid #dce2e9; }
+.processTable { width: 100%; border-collapse: collapse; font-size: 12px; }
+.processTable th, .processTable td { height: 32px; padding: 0 8px; border-bottom: 1px solid #e5e9ef; white-space: nowrap; }
+.processTable th { position: sticky; top: 0; background: #f0f3f7; color: #354052; font-size: 11px; text-align: left; }
+.processTable td[data-align='right'] { text-align: right; }
+.processTable tfoot td { background: #f8fafc; font-weight: 700; }
+.processTable :global(.mantine-NumberInput-input) { text-align: right; }

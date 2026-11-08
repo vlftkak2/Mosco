@@ -1,0 +1,33 @@
+/* 매출이익분석 (pages/outbound/GrossProfit.jsx) */
+/* 페이지 루트: 공통 pageShell 이 block 으로 덮어쓰므로 세로 flex 를 강제해 화면 높이를 채운다 */
+.page { display: flex !important; flex-direction: column !important; height: 100%; min-height: 0; }
+
+/* 요약 카드 5개 */
+.cardGrid { display: grid; flex: 0 0 auto; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+.statCard { display: flex; min-width: 0; flex-direction: column; gap: 3px; padding: 10px 14px !important; border-color: #e0e6ef !important; border-radius: 8px !important; background: #fff !important; }
+.statLabel { color: #5d6b80 !important; font-size: 12px !important; font-weight: 600 !important; }
+.statValue { color: #182538 !important; font-size: 18px !important; font-weight: 700 !important; font-variant-numeric: tabular-nums; letter-spacing: -.2px; white-space: nowrap; }
+.statSub { overflow: hidden; color: #7b8798 !important; font-size: 11px !important; text-overflow: ellipsis; white-space: nowrap; }
+.toneGain { color: #182538 !important; }
+.toneLoss { color: #dc2626 !important; }
+
+/* 표 */
+.profitTable tbody td, .profitTable tfoot td { height: 30px; font-variant-numeric: tabular-nums; }
+.profitCell { font-weight: 700; }
+.lossRow > td { color: #dc2626 !important; }
+.marginUp { color: #dc2626; font-weight: 600; white-space: nowrap; }
+.marginDown { color: #1d4ed8; font-weight: 600; white-space: nowrap; }
+.lossRow .marginDown { color: #1d4ed8; }
+.marginNone { color: #a0a9b6; }
+.groupRow { cursor: pointer; }
+.groupRow > td { height: 32px; padding: 0 10px !important; background: #f7f9fc !important; color: #1f4f8f !important; text-align: left !important; }
+.groupRow:hover > td { background: #eef3fa !important; }
+.groupTitle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.groupMeta { margin-left: 8px; color: #6b7a90; font-size: 11px; font-weight: 500; }
+.subtotalRow > td { background: #e8edf3 !important; color: #233148 !important; font-weight: 700; }
+.totalRow > td { position: sticky; bottom: 0; z-index: 2; background: #dfe6ef !important; color: #182538 !important; font-weight: 700; box-shadow: 0 -1px 0 #c8d2de; }
+.emptyCell { height: 160px; color: #7c899b; text-align: center; }
+
+@media (max-width: 1200px) {
+  .cardGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

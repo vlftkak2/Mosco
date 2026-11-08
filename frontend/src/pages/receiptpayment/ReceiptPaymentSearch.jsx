@@ -1,27 +1,40 @@
-import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import XLSX from 'xlsx-js-style';
 import { ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
-import ErpDateInput from '../components/common/ErpDateInput';
-import { PageRibbonContext } from '../components/layout/MainLayout';
-import sharedClasses from '../styles/pages/ManagementShared.module.css';
-import classes from '../styles/pages/InboundSearch.module.css';
-import paymentClasses from '../styles/pages/ReceiptPaymentSearch.module.css';
-import { INSTRUMENT_OPTIONS_BY_FIELD, instrumentLabel } from '../utils/instrumentCodes';
+import ErpDateInput from '../../components/common/ErpDateInput';
+import { PageRibbonContext } from '../../components/layout/MainLayout';
+import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import classes from '../../styles/pages/InboundSearch.module.css';
+import paymentClasses from '../../styles/pages/ReceiptPaymentSearch.module.css';
+import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
+import { INSTRUMENT_OPTIONS_BY_FIELD, INSTRUMENT_TYPE_OPTIONS, instrumentLabel } from '../../utils/instrumentCodes';
 
 const PAGE_SIZE_OPTIONS = [15, 50, 100, 200].map((value) => ({ value: String(value), label: `${value}개씩` }));
 const COLUMNS = [
   ['receiptdate', '수금/지급일', 100], ['transactiontype', '구분', 75], ['customname', '거래처', 100],
   ['cashamt', '현금', 90], ['instrumenttype', '수표/어음 종류', 90], ['instrumentno', '수표/어음 번호', 90],
+  ['instrumentamt', '수표·어음', 95],
   ['issuercompany', '발행회사', 100], ['issuekind', '발행구분', 90], ['maturitydate', '만기일', 80],
-  ['instrumentstatus', '어음처리상태', 90], ['bankamt', '은행예금', 70], ['cardamt', '카드', 70],
+  ['instrumentstatus', '어음처리상태', 90], ['processdate', '처리일', 90], ['discountfee', '할인료', 80], ['processmemo', '처리메모', 130],
+  ['bankamt', '은행예금', 70], ['cardamt', '카드', 70],
   ['offsetamt', '상계', 70], ['lossamt', '잡손실', 70], ['chargeamt', '과금', 70], ['totalamt', '합계', 80],
   ['detail_description', '비고', 130], ['receiptno', '전표번호', 110], ['lineno', '전표순번', 70],
+  ['linked_receiptno', '연결 전표', 115],
   ['created_at', '등록일자', 110], ['updated_at', '수정일자', 110],
   ['created_by', '등록자', 80], ['updated_by', '수정자', 80],
 ].map(([key, label, width]) => ({ key, label, width, minWidth: Math.min(width, 65) }));
-const NUMERIC_COLUMNS = new Set(['cashamt', 'instrumentamt', 'bankamt', 'cardamt', 'offsetamt', 'lossamt', 'chargeamt', 'totalamt']);
+const NUMERIC_COLUMNS = new Set(['cashamt', 'instrumentamt', 'bankamt', 'cardamt', 'offsetamt', 'lossamt', 'chargeamt', 'totalamt', 'discountfee']);
+const DATE_COLUMNS = ['receiptdate', 'issuedate', 'maturitydate', 'processdate'];
+// 발행한 어음(지급·자수)은 처리 전 상태를 '출금 예정'(만기에 통장에서 나갈 돈)으로 보여 준다 (수금/지급 등록과 같음).
+const statusText = (item) => {
+  if (item.transactiontype === 'PAYMENT' && String(item.issuekind || '').toUpperCase() === 'OWN' && !item.instrumentstatus && Number(item.instrumentamt || 0) > 0) return '출금 예정';
+  if (item.instrumentstatus === 'DISHONORED' && (item.source_receiptno || item.linked_receiptno
+    || (item.transactiontype === 'PAYMENT' && String(item.issuekind || '').toUpperCase() === 'OTHER'))) return '부도(배서)'; // 넘겨준 어음의 부도
+  return instrumentLabel('instrumentstatus', item.instrumentstatus);
+};
 
 const makeDefaultFilters = () => {
   const now = new Date();
@@ -32,8 +45,17 @@ const makeDefaultFilters = () => {
     date_from: `${year}-${pad(month + 1)}-01`,
     date_to: `${year}-${pad(month + 1)}-${pad(new Date(year, month + 1, 0).getDate())}`,
     transactiontype: '', customer: '', receiptno: '',
+    instrumentstatus: '', instrumenttype: '', issuekind: '',
   };
 };
+// 내역 탭 증권 조건
+const DETAIL_STATUS_OPTIONS = [
+  { value: '', label: '전체' }, { value: 'HELD', label: '보관' }, { value: 'UNPAID', label: '출금 예정' }, { value: 'ENDORSED', label: '배서' },
+  { value: 'SETTLED', label: '결제' }, { value: 'DISCOUNTED', label: '할인' }, { value: 'DISHONORED', label: '부도' },
+];
+const TRANSACTION_FILTER_OPTIONS = [{ value: '', label: '전체' }, { value: 'RECEIPT', label: '수금' }, { value: 'PAYMENT', label: '지급' }];
+const INSTRUMENT_TYPE_FILTER_OPTIONS = [{ value: '', label: '전체' }, ...INSTRUMENT_TYPE_OPTIONS];
+const ISSUE_KIND_FILTER_OPTIONS = [{ value: '', label: '전체' }, { value: 'OTHER', label: '타수' }, { value: 'OWN', label: '자수' }, { value: 'NONE', label: '빈값' }];
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const displayDate = (value) => value ? String(value).slice(0, 10) : '';
 const displayDateTime = (value) => {
@@ -50,6 +72,50 @@ const formatNumber = (value) => {
   return Number.isFinite(number) ? number.toLocaleString('ko-KR', { maximumFractionDigits: 3 }) : String(value);
 };
 const formatWon = (value) => `${formatNumber(value || 0)}원`;
+
+// 내역 행: Mantine Table.Td 대신 같은 스타일의 일반 td (페이지 이동이 가볍게)
+const renderDetailCell = (item, key) => {
+  if (key === 'transactiontype') return <Badge className={item.transactiontype === 'PAYMENT' ? paymentClasses.paymentBadge : paymentClasses.receiptBadge} variant="light">{item.transactiontype === 'PAYMENT' ? '지급' : '수금'}</Badge>;
+  if (DATE_COLUMNS.includes(key)) return displayDate(item[key]);
+  if (['header_created_at', 'header_updated_at', 'created_at', 'updated_at'].includes(key)) return displayDateTime(item[key]);
+  if (key === 'instrumentstatus') return statusText(item);
+  if (key === 'discountfee') return Number(item.discountfee || 0) > 0 ? formatNumber(item.discountfee) : '';
+  if (NUMERIC_COLUMNS.has(key)) return formatNumber(item[key]);
+  if (INSTRUMENT_OPTIONS_BY_FIELD[key]) return instrumentLabel(key, item[key]);
+  return item[key] ?? '';
+};
+const DetailRow = memo(function DetailRow({ item }) {
+  return <tr className="m_4e7aa4fd mantine-Table-tr" data-with-row-border="true" data-hover="true">
+    {COLUMNS.map((column) => <td key={column.key} className="m_4e7aa4ef mantine-Table-td" data-with-column-border="true"
+      style={NUMERIC_COLUMNS.has(column.key) || column.key === 'lineno' ? { textAlign: 'right' } : undefined}>{renderDetailCell(item, column.key)}</td>)}
+  </tr>;
+});
+
+// 표 머리글: 열 너비가 바뀔 때만 다시 그림
+const DetailTableHead = memo(function DetailTableHead({ columnWidths, onResize }) {
+  return <Table.Thead><Table.Tr>{COLUMNS.map((column) => <Table.Th key={column.key} style={{ width: columnWidths[column.key] ?? column.width, position: 'sticky', top: 0, zIndex: 3 }}>
+    <span>{column.label}</span><span className={classes.columnResizeHandle} role="separator" aria-label={`${column.label} 열 너비 조절`} onPointerDown={(event) => onResize(event, column)} />
+  </Table.Th>)}</Table.Tr></Table.Thead>;
+});
+
+// 조회조건 패널: 입력값이 바뀔 때만 다시 그림 (페이지 이동 때는 그대로)
+const DetailFilterSidebar = memo(function DetailFilterSidebar({ filterInputs, setFilterInputs, onKeyDown, onClose }) {
+  return <Paper component="aside" className={classes.filterSidebar} withBorder>
+    <Group className={classes.filterHeader} justify="space-between" align="center"><Text fw={700}>조회조건</Text><ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={onClose}><IconX size={16} /></ActionIcon></Group>
+    <Stack gap="sm" className={classes.filterFields}>
+      <Box><Text size="xs" fw={700} mb={5}>수금/지급 기간</Text><Stack gap={6}>
+        <ErpDateInput aria-label="수금/지급 시작일" type="date" value={filterInputs.date_from} onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
+        <ErpDateInput aria-label="수금/지급 종료일" type="date" value={filterInputs.date_to} onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
+      </Stack></Box>
+      <Select label="구분" data={TRANSACTION_FILTER_OPTIONS} value={filterInputs.transactiontype} onChange={(value) => setFilterInputs((current) => ({ ...current, transactiontype: value || '' }))} />
+      <TextInput label="거래처" placeholder="거래처코드 또는 거래처명" value={filterInputs.customer} onChange={(event) => setFilterInputs((current) => ({ ...current, customer: event.currentTarget.value }))} onKeyDown={onKeyDown} />
+      <TextInput label="전표번호" placeholder="전표번호" value={filterInputs.receiptno} onChange={(event) => setFilterInputs((current) => ({ ...current, receiptno: event.currentTarget.value }))} onKeyDown={onKeyDown} />
+      <Select label="증권 상태" data={DETAIL_STATUS_OPTIONS} value={filterInputs.instrumentstatus} onChange={(value) => setFilterInputs((current) => ({ ...current, instrumentstatus: value || '' }))} />
+      <Select label="수표/어음 종류" data={INSTRUMENT_TYPE_FILTER_OPTIONS} value={filterInputs.instrumenttype} onChange={(value) => setFilterInputs((current) => ({ ...current, instrumenttype: value || '' }))} />
+      <Select label="발행구분" data={ISSUE_KIND_FILTER_OPTIONS} value={filterInputs.issuekind} onChange={(value) => setFilterInputs((current) => ({ ...current, issuekind: value || '' }))} />
+    </Stack>
+  </Paper>;
+});
 
 export default function ReceiptPaymentSearch() {
   const ribbon = useContext(PageRibbonContext);
@@ -68,8 +134,9 @@ export default function ReceiptPaymentSearch() {
   const [columnWidths, setColumnWidths] = useState({});
   const tableWidth = COLUMNS.reduce((sum, column) => sum + (columnWidths[column.key] ?? column.width), 0);
   const requestIdRef = useRef(0);
+  const closeFilter = useCallback(() => setFilterOpen(false), []);
 
-  const resizeColumn = (event, column) => {
+  const resizeColumnNow = (event, column) => {
     event.preventDefault();
     event.stopPropagation();
     const startX = event.clientX;
@@ -99,6 +166,10 @@ export default function ReceiptPaymentSearch() {
     window.addEventListener('pointerup', finish);
     window.addEventListener('pointercancel', finish);
   };
+
+  const resizeRef = useRef(null);
+  useLayoutEffect(() => { resizeRef.current = resizeColumnNow; });
+  const resizeColumn = useCallback((event, column) => resizeRef.current?.(event, column), []);
 
   const loadItems = useCallback(async (requestedPage, requestedFilters, requestedPageSize) => {
     const requestId = ++requestIdRef.current;
@@ -134,37 +205,47 @@ export default function ReceiptPaymentSearch() {
     if (!items.length || exporting) return;
     setExporting(true);
     try {
-      const header = COLUMNS.map((column) => column.label);
-      const rows = items.map((item, index) => COLUMNS.map((column) => {
+      const rows = items.map((item, index) => Object.fromEntries(COLUMNS.map((column) => [column.label, (() => {
         if (column.key === 'no') return (page - 1) * pageSize + index + 1;
         if (column.key === 'transactiontype') return item.transactiontype === 'PAYMENT' ? '지급' : '수금';
-        if (['receiptdate', 'issuedate', 'maturitydate'].includes(column.key)) return displayDate(item[column.key]);
+        if (DATE_COLUMNS.includes(column.key)) return displayDate(item[column.key]);
         if (['header_created_at', 'header_updated_at', 'created_at', 'updated_at'].includes(column.key)) return displayDateTime(item[column.key]);
+        if (column.key === 'instrumentstatus') return statusText(item);
+        if (column.key === 'discountfee') return Number(item.discountfee || 0) > 0 ? item.discountfee : '';
         if (INSTRUMENT_OPTIONS_BY_FIELD[column.key]) return instrumentLabel(column.key, item[column.key]);
+        if (NUMERIC_COLUMNS.has(column.key)) return Number(item[column.key] || 0);
         return item[column.key] ?? '';
-      }));
-      const csv = [header, ...rows].map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\r\n');
-      const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `수금지급현황_${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.csv`;
-      link.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      })()])));
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      applyExcelHeaderStyle(worksheet, COLUMNS.length);
+      XLSX.utils.book_append_sheet(workbook, worksheet, '수금지급현황');
+      const today = new Date();
+      XLSX.writeFile(workbook, `수금지급현황_${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}.xlsx`);
     } catch {
       notifications.show({ title: '엑셀 다운로드 실패', message: '현재 조회한 내역을 파일로 저장하지 못했습니다.', color: 'red' });
     } finally { setExporting(false); }
   }, [items, exporting, page, pageSize]);
 
+  // 리본: 최신 핸들러는 ref로 호출 → 페이지 이동·조회 중 표시 때문에 리본(레이아웃 전체)을 다시 등록하지 않는다.
+  const ribbonActions = useRef({});
+  useLayoutEffect(() => {
+    ribbonActions.current = {
+      search: () => runSearch(),
+      excel: () => void exportExcel(),
+    };
+  });
+  const excelDisabled = items.length === 0;
   useEffect(() => {
     if (!registerRibbon) return undefined;
     registerRibbon(
       <Group className={classes.commandRibbon} justify="flex-start" wrap="nowrap" gap={2}>
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconSearch size={15} />} onClick={() => ribbonActions.current.search()}>조회</Button>
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} disabled>추가</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} disabled>복사</Button>
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportExcel} loading={exporting} disabled={!items.length || loading}>엑셀</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />}
+          onClick={() => ribbonActions.current.excel()} loading={exporting} disabled={excelDisabled}>엑셀</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
         <span className={classes.ribbonSeparator} />
@@ -172,18 +253,8 @@ export default function ReceiptPaymentSearch() {
       </Group>,
     );
     return () => registerRibbon(null);
-  }, [registerRibbon, closePage, runSearch, loading, exportExcel, exporting, items.length]);
+  }, [registerRibbon, closePage, exporting, excelDisabled]);
 
-  const renderCell = (item, column, index) => {
-    const key = column.key;
-    if (key === 'no') return (page - 1) * pageSize + index + 1;
-    if (key === 'transactiontype') return <Badge className={item.transactiontype === 'PAYMENT' ? paymentClasses.paymentBadge : paymentClasses.receiptBadge} variant="light">{item.transactiontype === 'PAYMENT' ? '지급' : '수금'}</Badge>;
-    if (['receiptdate', 'issuedate', 'maturitydate'].includes(key)) return displayDate(item[key]);
-    if (['header_created_at', 'header_updated_at', 'created_at', 'updated_at'].includes(key)) return displayDateTime(item[key]);
-    if (NUMERIC_COLUMNS.has(key)) return formatNumber(item[key]);
-    if (INSTRUMENT_OPTIONS_BY_FIELD[key]) return instrumentLabel(key, item[key]);
-    return item[key] ?? '';
-  };
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
@@ -213,12 +284,8 @@ export default function ReceiptPaymentSearch() {
             <Box className={classes.inboundSearchScroller} style={{ height: '100%', width: '100%' }}>
               <Table className={classes.statusTable} withTableBorder withColumnBorders highlightOnHover style={{ width: tableWidth, minWidth: tableWidth, tableLayout: 'fixed' }}>
                 <colgroup>{COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${columnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
-                <Table.Thead><Table.Tr>{COLUMNS.map((column) => <Table.Th key={column.key} style={{ width: columnWidths[column.key] ?? column.width, position: 'sticky', top: 0, zIndex: 3 }}>
-                  <span>{column.label}</span><span className={classes.columnResizeHandle} role="separator" aria-label={`${column.label} 열 너비 조절`} onPointerDown={(event) => resizeColumn(event, column)} />
-                </Table.Th>)}</Table.Tr></Table.Thead>
-                <Table.Tbody>{items.length ? items.map((item, index) => <Table.Tr key={`${item.receiptno}:${item.lineno ?? 'empty'}`}>
-                  {COLUMNS.map((column) => <Table.Td key={column.key} ta={column.key === 'no' ? 'center' : NUMERIC_COLUMNS.has(column.key) || column.key === 'lineno' ? 'right' : undefined}>{renderCell(item, column, index)}</Table.Td>)}
-                </Table.Tr>) : !loading && <Table.Tr><Table.Td colSpan={COLUMNS.length} style={{ height: 180, textAlign: 'center', color: '#7c899b' }}>표시할 수금/지급 내역이 없습니다.</Table.Td></Table.Tr>}</Table.Tbody>
+                <DetailTableHead columnWidths={columnWidths} onResize={resizeColumn} />
+                <Table.Tbody>{items.length ? items.map((item) => <DetailRow key={`${item.receiptno}:${item.lineno ?? 'empty'}`} item={item} />) : !loading && <Table.Tr><Table.Td colSpan={COLUMNS.length} style={{ height: 180, textAlign: 'center', color: '#7c899b' }}>표시할 수금/지급 내역이 없습니다.</Table.Td></Table.Tr>}</Table.Tbody>
               </Table>
             </Box>
           </Box>
@@ -228,18 +295,7 @@ export default function ReceiptPaymentSearch() {
           </Group>
         </Paper>
 
-        {filterOpen && <Paper component="aside" className={classes.filterSidebar} withBorder>
-          <Group className={classes.filterHeader} justify="space-between" align="center"><Text fw={700}>조회조건</Text><ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon></Group>
-          <Stack gap="sm" className={classes.filterFields}>
-            <Box><Text size="xs" fw={700} mb={5}>수금/지급 기간</Text><Stack gap={6}>
-              <ErpDateInput aria-label="수금/지급 시작일" type="date" value={filterInputs.date_from} onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
-              <ErpDateInput aria-label="수금/지급 종료일" type="date" value={filterInputs.date_to} onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
-            </Stack></Box>
-            <Select label="구분" data={[{ value: '', label: '전체' }, { value: 'RECEIPT', label: '수금' }, { value: 'PAYMENT', label: '지급' }]} value={filterInputs.transactiontype} onChange={(value) => setFilterInputs((current) => ({ ...current, transactiontype: value || '' }))} />
-            <TextInput label="거래처" placeholder="거래처코드 또는 거래처명" value={filterInputs.customer} onChange={(event) => setFilterInputs((current) => ({ ...current, customer: event.currentTarget.value }))} onKeyDown={handleFilterKeyDown} />
-            <TextInput label="전표번호" placeholder="전표번호" value={filterInputs.receiptno} onChange={(event) => setFilterInputs((current) => ({ ...current, receiptno: event.currentTarget.value }))} onKeyDown={handleFilterKeyDown} />
-          </Stack>
-        </Paper>}
+        {filterOpen && <DetailFilterSidebar filterInputs={filterInputs} setFilterInputs={setFilterInputs} onKeyDown={handleFilterKeyDown} onClose={closeFilter} />}
       </Box>
     </Box>
   );

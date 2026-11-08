@@ -101,6 +101,25 @@ def save_document(
         raise HTTPException(status_code=500, detail="수금/지급 저장 중 오류가 발생했습니다.") from error
 
 
+@router.post("/documents/{receiptno}/instrument-process")
+def process_instruments(
+    receiptno: str,
+    data: receipt_payment_module.InstrumentProcessRequest,
+    user: dict = Depends(security_module.get_current_user),
+):
+    """결제·할인·부도·처리취소 (저장된 전표의 증권 행)."""
+    try:
+        return {"success": True, **receipt_payment_module.process_instruments(
+            user["companyid"], receiptno, data.model_dump(), actor=user.get("email"),
+        )}
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=500, detail="증권 처리 중 오류가 발생했습니다.") from error
+
+
 @router.delete("/documents/{receiptno}")
 def delete_document(receiptno: str, user: dict = Depends(security_module.get_current_user)):
     try:

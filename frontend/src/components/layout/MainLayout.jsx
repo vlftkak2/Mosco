@@ -82,6 +82,7 @@ const mockdata = [
       
       { label: '출고등록', link: '/OutboundRegisterPage', icon: '', MenuID: 'OUTBOUND_REGISTER' },
       { label: '출고현황', link: '/OutboundSearchPage', icon: '', MenuID: 'OUTBOUND_SEARCH' },
+      { label: '매출이익분석', link: '/GrossProfit', icon: '', MenuID: 'GROSS_PROFIT' },
     ],
   },
 
@@ -92,6 +93,7 @@ const mockdata = [
     links: [
       { label: '수금/지급 등록', link: '/ReceiptPayment', icon: '', MenuID: 'RECEIPT_PAYMENT' },
       { label: '수금/지급 현황', link: '/ReceiptPaymentSearch', icon: '', MenuID: 'RECEIPT_PAYMENT_SEARCH' },
+      { label: '수표/어음 현황', link: '/InstrumentStatus', icon: '', MenuID: 'INSTRUMENT_STATUS' },
     ],
   },  
 
@@ -178,6 +180,8 @@ function findMenuLabel(items, path) {
     '/outboundsearchpage': '출고현황',
     '/receiptpayment': '수금/지급 등록',
     '/receiptpaymentsearch': '수금/지급 현황',
+    '/instrumentstatus': '수표/어음 현황',
+    '/grossprofit': '매출이익분석',
     '/inoutmoveregister': '재고이전등록',
     '/inoutmovesearch': '재고이전현황',
     '/aiorderpage': 'AI 가공솔루션',
@@ -236,7 +240,7 @@ export default function MainLayout({ children }) {
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
     '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage',
     '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/aiprocessingstandards', '/itemprocessmaster', '/itemprocessregister', '/itemprocesssearch', '/customersupport',
-    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/company', '/user', '/usermenu',
+    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/instrumentstatus', '/grossprofit', '/company', '/user', '/usermenu',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
   const [pageRibbon, setPageRibbon] = useState(null);
   const registerPageRibbon = useCallback((content) => setPageRibbon(() => content), []);

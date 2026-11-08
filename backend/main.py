@@ -43,6 +43,7 @@ from routes.inbound import InboundSearch_routes as InboundSearch_routes
 from routes.inbound import Purchase_routes as Purchase_routes
 from routes.outbound import OutboundRegister_routes as OutboundRegister_routes
 from routes.outbound import OutboundSearch_routes as OutboundSearch_routes
+from routes.outbound import GrossProfit_routes as GrossProfit_routes
 from routes.inventory import StockStand_routes as StockStand_routes
 from routes.inventory import CurrentStock_routes as CurrentStock_routes
 from routes.inventory import IniopStock_routes as IniopStock_routes
@@ -50,6 +51,7 @@ from routes.inoutmove import inoutmoveRegister_routes as inoutmoveRegister_route
 from routes.inoutmove import inoutmoveSearch_routes as inoutmoveSearch_routes
 from routes.receiptpayment import ReceiptPayment_routes as ReceiptPayment_routes
 from routes.receiptpayment import ReceiptPaymentSearch_routes as ReceiptPaymentSearch_routes
+from routes.receiptpayment import InstrumentStatus_routes as InstrumentStatus_routes
 from routes.ai import AIOrder_routes as AIOrder_routes
 from routes.ai import AIOrderManage_routes as AIOrderManage_routes
 
@@ -126,6 +128,7 @@ app.include_router(OutboundRegister_routes.router)
 
 # Company-scoped outbound status/search API
 app.include_router(OutboundSearch_routes.router)
+app.include_router(GrossProfit_routes.router)  # 매출이익분석
 
 # Company-scoped opening stock API
 app.include_router(StockStand_routes.router)
@@ -143,6 +146,7 @@ app.include_router(inoutmoveSearch_routes.router)
 # Company-scoped receipt/payment entry and status API
 app.include_router(ReceiptPayment_routes.router)
 app.include_router(ReceiptPaymentSearch_routes.router)
+app.include_router(InstrumentStatus_routes.router)  # 수표/어음 현황
 
 # Isolated AI order recognition test API (does not touch ERP transaction tables).
 app.include_router(AIOrder_routes.router)
