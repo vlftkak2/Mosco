@@ -22,7 +22,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import { IconDownload, IconSearch, IconTrash, IconUpload, IconX } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
 import ErpRibbon from '../../components/common/ErpRibbon';
@@ -717,8 +717,9 @@ export default function ItemMaster() {
       setSelectedIds([]);
       notifications.show({ title: '삭제 완료', message: `${selected.length.toLocaleString()}개 품목을 삭제했습니다.`, color: 'teal' });
       return true;
-    } catch {
-      notifications.show({ title: '삭제 실패', message: '품목 삭제 중 오류가 발생했습니다.', color: 'red' });
+    } catch (error) {
+      // 409 = the item is still used by stock / documents; show the server's reason (where it is used).
+      notifications.show({ title: '삭제 실패', message: error.response?.data?.detail || '품목 삭제 중 오류가 발생했습니다.', color: 'red', autoClose: 10000 });
       return false;
     } finally {
       setSaving(false);
@@ -788,10 +789,11 @@ export default function ItemMaster() {
           return shapeOptions.find((option) => option.code === item.itemtypecode)?.name || item.itemtypecodenm || item.itemtypecode || '';
         }
         return item[key] ?? '';
-      }));
-      const sheet = XLSX.utils.aoa_to_sheet([FIELDS.map(({ label }) => label), ...values]);
-      applyExcelHeaderStyle(sheet, FIELDS.length);
-      sheet['!cols'] = FIELDS.map(({ width }) => ({ wch: Math.max(12, Math.round(width / 8)) }));
+      }).concat(item.created_by ?? '', item.updated_by ?? ''));
+      const headers = [...FIELDS.map(({ label }) => label), '등록자', '수정자'];
+      const sheet = XLSX.utils.aoa_to_sheet([headers, ...values]);
+      applyExcelHeaderStyle(sheet, headers.length);
+      sheet['!cols'] = [...FIELDS.map(({ width }) => ({ wch: Math.max(12, Math.round(width / 8)) })), { wch: 14 }, { wch: 14 }];
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, sheet, '품목목록');
       const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');

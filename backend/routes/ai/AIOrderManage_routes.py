@@ -94,9 +94,7 @@ class StockMatchesUpdate(BaseModel):
 
 
 class ProcessingStatusUpdate(BaseModel):
-    status: Literal[
-        "REVIEW_PENDING", "PROCESSING_REVIEW", "PROCESSING_DONE", "NOT_REQUIRED", "CANCELLED"
-    ]
+    status: Literal["PROCESSING_REVIEW", "PROCESSING_DONE", "NOT_REQUIRED"]
 
 
 async def authorized_user(user: dict = Depends(get_current_user)):
@@ -148,7 +146,7 @@ async def update_confirmed(orderid: str, payload: ConfirmedOrderUpdate, user: di
         updated = await asyncio.to_thread(
             service.update_order, user["companyid"], orderid,
             payload.buyer, payload.recipient, payload.order_date,
-            payload.due_date, payload.delivery_location,
+            payload.due_date, payload.delivery_location, user["email"],
         )
     except Exception as exc:
         logger.exception("Confirmed order update failed company=%s error_type=%s", user["companyid"], type(exc).__name__)
@@ -162,7 +160,7 @@ async def update_confirmed(orderid: str, payload: ConfirmedOrderUpdate, user: di
 async def update_confirmed_items(orderid: str, payload: ConfirmedItemsUpdate, user: dict = Depends(authorized_user)):
     try:
         updated = await asyncio.to_thread(
-            service.update_order_items, user["companyid"], orderid, payload.items,
+            service.update_order_items, user["companyid"], orderid, payload.items, user["email"],
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -217,7 +215,7 @@ async def update_stock_matches(orderid: str, lineno: int, payload: StockMatchesU
     try:
         updated = await asyncio.to_thread(
             service.save_stock_matches, user["companyid"], orderid, lineno,
-            payload.status, payload.sources,
+            payload.status, payload.sources, user["email"],
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -233,7 +231,7 @@ async def update_stock_matches(orderid: str, lineno: int, payload: StockMatchesU
 async def update_processing_status(orderid: str, lineno: int, payload: ProcessingStatusUpdate, user: dict = Depends(authorized_user)):
     try:
         updated = await asyncio.to_thread(
-            service.update_processing_status, user["companyid"], orderid, lineno, payload.status,
+            service.update_processing_status, user["companyid"], orderid, lineno, payload.status, user["email"],
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import ErpDateInput from '../../components/common/ErpDateInput';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 import {
-  ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper, Popover,
+  ActionIcon, Badge, Box, Button, Group, Loader, Modal, Notification, Pagination, Paper, Popover,
   ScrollArea, Select, Stack, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -29,6 +29,7 @@ const STOCK_EXCEL_COLUMNS = [
 const STOCK_EXPORT_COLUMNS = [
   ...STOCK_EXCEL_COLUMNS,
   ['created_at', '등록일자'], ['updated_at', '수정일자'],
+  ['created_by', '등록자'], ['updated_by', '수정자'],
 ];
 const STOCK_PAGE_OPTIONS = [
   { value: '15', label: '15개씩' },
@@ -45,6 +46,17 @@ const STOCK_GRID_COLUMNS = [
   ['unitprice', '기초단가'], ['supplyamt', '공급가'], ['vat', '부가세'], ['unitamt', '합계금액'],
   ['unit', '단가기준'], ['qtyunit', '수량단위 *'], ['description', '비고'],
 ];
+// Reasons (from the server's delete_block) why a saved opening-stock line cannot be deleted.
+const DELETE_BLOCK_TEXT = {
+  MISSING: '현재고 원천행을 찾을 수 없습니다',
+  USED: '현재고 수량·중량이 사용되었습니다',
+  OUTBOUND: '출고에 사용되었습니다',
+  PROCESS: '가공에 사용되었습니다',
+  TRANSFER: '재고이전에 사용되었습니다',
+};
+const OPTIONAL_INPUT_FIELDS = new Set(STOCK_GRID_COLUMNS
+  .filter(([key, label]) => GRID_FIELDS.includes(key) && !label.endsWith('*') && key !== 'unitamt')
+  .map(([key]) => key));
 const MASTER_FIELDS = new Set(['qtyunit', 'warehousecode', 'unit', 'materialcode', 'surfacecode']);
 const PRICE_FIELDS = new Set(['unit', 'unitprice']);
 const EDITABLE_PRICE_FIELDS = new Set(['unit', 'unitprice']);
@@ -101,7 +113,9 @@ const makeRow = (values = {}) => ({
   vat_manual: values.vat_manual ?? (values.vat != null && values.vat !== ''),
   unitamt: values.unitamt == null ? '' : String(values.unitamt), description: values.description || '',
   created_at: values.created_at || '', updated_at: values.updated_at || '',
+  created_by: values.created_by || '', updated_by: values.updated_by || '',
   has_movements: Boolean(values.has_movements),
+  delete_block: values.delete_block || '',
 });
 const cleanNumber = (value) => String(value ?? '').replace(/,/g, '').replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
 const numberText = (value) => {
@@ -257,20 +271,29 @@ function ItemPicker({ opened, onClose, onSelect }) {
   </Modal>;
 }
 
+// Tab in an open suggestion list fills: the ↑/↓-highlighted entry, else an exact match of the typed text,
+// else the first suggestion. Returns undefined when nothing applies.
+const pickSuggestionForTab = (list, activeIndex, typed, valuesOf) => {
+  if (!list.length) return undefined;
+  if (activeIndex >= 0 && list[activeIndex]) return list[activeIndex];
+  const normalized = String(typed || '').trim().toLocaleLowerCase();
+  return list.find((entry) => valuesOf(entry).some((value) => String(value || '').trim().toLocaleLowerCase() === normalized)) || list[0];
+};
+
 function ItemNameAutocompleteCell({ row, disabled, registerCellInput, onChange, onSelect, onFindItem, onFocus, onPaste }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(row.itemname || '');
   const [items, setItems] = useState([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   const requestIdRef = useRef(0);
+  const skipBlurCommitRef = useRef(false);
   const query = String(draft || '').trim();
   const opened = editing && !disabled && query.length > 0 && items.length > 0;
+  const idle = !editing || disabled || !query;
+  if (idle && items.length) setItems([]);
 
   useEffect(() => {
-    if (!editing || disabled || !query) {
-      setItems((current) => current.length ? [] : current);
-      return undefined;
-    }
+    if (idle) return undefined;
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       try {
@@ -283,7 +306,7 @@ function ItemNameAutocompleteCell({ row, disabled, registerCellInput, onChange, 
       } catch { /* Keep suggestions closed if lookup fails. */ }
     }, 180);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [editing, disabled, query]);
+  }, [editing, disabled, query, idle]);
 
   const chooseItem = (item) => {
     requestIdRef.current += 1;
@@ -334,15 +357,21 @@ function ItemNameAutocompleteCell({ row, disabled, registerCellInput, onChange, 
           disabled={disabled}
           onPaste={onPaste}
           onFocus={(event) => {
+            skipBlurCommitRef.current = false;
             requestIdRef.current += 1;
             setDraft(row.itemname || '');
             setEditing(true);
             onFocus();
             event.currentTarget.select();
           }}
-          onBlur={() => { void commitExactMatch(); }}
+          onBlur={() => {
+            // A Tab pick already filled the cell; committing the typed text now would undo it.
+            if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
+            void commitExactMatch();
+          }}
           onChange={(event) => {
             const value = event.currentTarget.value;
+            skipBlurCommitRef.current = false;
             setDraft(value);
             setActiveIndex(-1);
             setEditing(true);
@@ -372,6 +401,9 @@ function ItemNameAutocompleteCell({ row, disabled, registerCellInput, onChange, 
               event.preventDefault();
               event.stopPropagation();
               chooseItem(items[activeIndex]);
+            } else if (event.key === 'Tab' && !event.shiftKey && opened) {
+              const item = pickSuggestionForTab(items, activeIndex, draft, (entry) => [entry.itemname, entry.itemcode]);
+              if (item) { skipBlurCommitRef.current = true; chooseItem(item); }
             } else if (event.key === 'Escape' && opened) {
               event.preventDefault();
               event.stopPropagation();
@@ -410,12 +442,20 @@ function CustomerPicker({ opened, onClose, onSelect }) {
   const [page, setPage] = useState(1);
   const [customers, setCustomers] = useState([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  // Each opening is a new session so reopening with the same query shows the loader again (as before).
+  const [openSession, setOpenSession] = useState(0);
+  const [prevOpened, setPrevOpened] = useState(opened);
+  if (prevOpened !== opened) {
+    setPrevOpened(opened);
+    if (opened) setOpenSession((current) => current + 1);
+  }
+  const requestKey = `${openSession}|${query}|${page}`;
+  const [finishedKey, setFinishedKey] = useState('');
+  const loading = opened && finishedKey !== requestKey;
 
   useEffect(() => {
     if (!opened) return undefined;
     let alive = true;
-    setLoading(true);
     axios.get('/api/list', { ...authConfig(), params: { search_keyword: query || undefined, status: 'Y', page, page_size: 20, include_total: true } })
       .then(({ data }) => {
         if (!alive) return;
@@ -423,9 +463,9 @@ function CustomerPicker({ opened, onClose, onSelect }) {
         setTotal(data.total || 0);
       })
       .catch((error) => { if (alive) notifications.show({ title: '거래처 조회 실패', message: errorText(error), color: 'red' }); })
-      .finally(() => { if (alive) setLoading(false); });
+      .finally(() => { if (alive) setFinishedKey(requestKey); });
     return () => { alive = false; };
-  }, [opened, query, page]);
+  }, [opened, query, page, requestKey]);
 
   const search = () => { setPage(1); setQuery(input.trim()); };
   return <Modal opened={opened} onClose={onClose} title={<Group gap={9} wrap="nowrap"><Box className={outboundClasses.receiptFinderTitleIcon}><IconSearch size={17} /></Box><Text fw={750}>{'거래처 선택'}</Text></Group>}
@@ -457,14 +497,14 @@ function CustomerNameAutocompleteCell({ row, disabled, registerCellInput, onChan
   const [customers, setCustomers] = useState([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   const requestIdRef = useRef(0);
+  const skipBlurCommitRef = useRef(false);
   const query = String(draft || '').trim();
   const opened = editing && !disabled && query.length > 0 && customers.length > 0;
+  const idle = !editing || disabled || !query;
+  if (idle && customers.length) setCustomers([]);
 
   useEffect(() => {
-    if (!editing || disabled || !query) {
-      setCustomers((current) => current.length ? [] : current);
-      return undefined;
-    }
+    if (idle) return undefined;
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       try {
@@ -477,7 +517,7 @@ function CustomerNameAutocompleteCell({ row, disabled, registerCellInput, onChan
       } catch { /* Keep suggestions closed if lookup fails. */ }
     }, 220);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [editing, disabled, query]);
+  }, [editing, disabled, query, idle]);
 
   const chooseCustomer = (customer) => {
     requestIdRef.current += 1;
@@ -527,15 +567,20 @@ function CustomerNameAutocompleteCell({ row, disabled, registerCellInput, onChan
           disabled={disabled}
           onPaste={onPaste}
           onFocus={(event) => {
+            skipBlurCommitRef.current = false;
             requestIdRef.current += 1;
             setDraft(row.customname || '');
             setEditing(true);
             onFocus();
             event.currentTarget.select();
           }}
-          onBlur={() => { void commitExactMatch(); }}
+          onBlur={() => {
+            if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
+            void commitExactMatch();
+          }}
           onChange={(event) => {
             const value = event.currentTarget.value;
+            skipBlurCommitRef.current = false;
             setDraft(value);
             setActiveIndex(-1);
             setEditing(true);
@@ -565,6 +610,9 @@ function CustomerNameAutocompleteCell({ row, disabled, registerCellInput, onChan
               event.stopPropagation();
               const customer = customers[activeIndex >= 0 ? activeIndex : 0];
               if (customer) chooseCustomer(customer);
+            } else if (event.key === 'Tab' && !event.shiftKey && opened) {
+              const customer = pickSuggestionForTab(customers, activeIndex, draft, (entry) => [entry.customername, entry.customercode]);
+              if (customer) { skipBlurCommitRef.current = true; chooseCustomer(customer); }
             } else if (event.key === 'Escape' && opened) {
               event.preventDefault();
               event.stopPropagation();
@@ -605,6 +653,7 @@ function MasterNameAutocompleteCell({ row, field, options, disabled, registerCel
   const [draft, setDraft] = useState(getDisplayValue());
   const [activeIndex, setActiveIndex] = useState(-1);
   const pickerOpenRef = useRef(false);
+  const skipBlurCommitRef = useRef(false);
   const query = String(draft || '').trim().toLocaleLowerCase();
   const matches = useMemo(() => editing && !disabled && query
     ? options.filter((option) => `${option.name || ''} ${option.code || ''}`.toLocaleLowerCase().includes(query)).slice(0, 8)
@@ -652,14 +701,18 @@ function MasterNameAutocompleteCell({ row, field, options, disabled, registerCel
           maxLength={100}
           disabled={disabled}
           onFocus={(event) => {
+            skipBlurCommitRef.current = false;
             pickerOpenRef.current = false;
             setDraft(getDisplayValue());
             setEditing(true);
             onFocus();
             event.currentTarget.select();
           }}
-          onBlur={() => { if (!pickerOpenRef.current) commit(); }}
-          onChange={(event) => { setDraft(event.currentTarget.value); setActiveIndex(-1); setEditing(true); }}
+          onBlur={() => {
+            if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
+            if (!pickerOpenRef.current) commit();
+          }}
+          onChange={(event) => { skipBlurCommitRef.current = false; setDraft(event.currentTarget.value); setActiveIndex(-1); setEditing(true); }}
           onClick={(event) => {
             if (event.nativeEvent.offsetX >= event.currentTarget.clientWidth - 28) {
               event.preventDefault();
@@ -691,6 +744,9 @@ function MasterNameAutocompleteCell({ row, field, options, disabled, registerCel
               event.stopPropagation();
               const option = matches[activeIndex >= 0 ? activeIndex : 0];
               if (option) choose(option);
+            } else if (event.key === 'Tab' && !event.shiftKey && opened) {
+              const option = pickSuggestionForTab(matches, activeIndex, draft, (entry) => [entry.name, entry.code]);
+              if (option) { skipBlurCommitRef.current = true; choose(option); }
             } else if (event.key === 'Escape' && opened) {
               event.preventDefault();
               event.stopPropagation();
@@ -758,6 +814,190 @@ function StockMasterPicker({ opened, title, options, onClose, onSelect }) {
   </Modal>;
 }
 
+// One grid row's cells. Memoized so typing in one row (or toggling one checkbox) re-renders only that row;
+// every callback comes from the page's stable `handlers` object, which always calls the latest logic.
+// Same markup as Mantine's <Table.Td> inside a table with column borders, but without reading the Table
+// context: Mantine creates a new context value on every table render, which would re-render every cell.
+const GRID_CELL_CLASS = `${Table.classes.td} mantine-Table-td`;
+const GridCell = ({ className, children, ...props }) => (
+  <td {...props} className={className ? `${GRID_CELL_CLASS} ${className}` : GRID_CELL_CLASS} data-with-column-border="true">{children}</td>
+);
+
+const StockGridRowCells = memo(function StockGridRowCells({ row, rowNumber, isSelected, saving, masters, handlers }) {
+  const saved = Boolean(row.lineno);
+  const renderField = (key) => {
+    const editableSavedPrice = saved && EDITABLE_PRICE_FIELDS.has(key);
+    // New rows: optional input cells are white; required (*) cells keep the new-row tint.
+    const newCellClass = OPTIONAL_INPUT_FIELDS.has(key) ? classes.optionalNewCell : '';
+    const masterKey = MASTER_FIELDS.has(key);
+    const masterOptions = masters[MASTER_KIND[key]] || [];
+    const displayed = key === 'qtyunit' || key === 'unit'
+      ? masterOptions.find((option) => option.code === row[key])?.name || row[key] || ''
+      : key === 'warehousecode' ? row.warehousecodename || row.warehousecode || ''
+        : key === 'materialcode' ? masterOptions.find((option) => option.code === row.materialcode)?.name || row.materialname || row.materialcode || ''
+          : key === 'surfacecode' ? masterOptions.find((option) => option.code === row.surfacecode)?.name || row.surfacename || row.surfacecode || ''
+            : ['supplyamt', 'vat', 'unitamt'].includes(key) ? formatAmount(amounts[key])
+              : ['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice'].includes(key) ? numberText(row[key]) : row[key] ?? '';
+    if (saved && !PRICE_FIELDS.has(key)) return <GridCell key={key} className={outboundClasses.savedCell}>
+      <span className={`${classes.savedValue} ${['supplyamt', 'vat', 'unitamt'].includes(key) ? classes.savedAmountValue : ''}`} title={String(displayed)}>{displayed}</span>
+    </GridCell>;
+    const readOnly = key === 'unitamt';
+    const disabled = saving || (saved && !PRICE_FIELDS.has(key));
+    const pasted = (event) => {
+      if (key === 'unitamt') {
+        event.preventDefault();
+        return;
+      }
+      const text = event.clipboardData.getData('text/plain');
+      if (text.includes('\t') || text.includes('\n')) {
+        event.preventDefault();
+        handlers.pasteRange(row.id, key, text);
+      } else if (masterKey) {
+        event.preventDefault();
+        handlers.updateRow(row.id, key, text.trim());
+      }
+    };
+    if (key === 'standdate') return <GridCell key={key} className={saved ? outboundClasses.savedCell : newCellClass}>
+      <input
+        ref={(element) => handlers.registerCellInput(row.id, key, element)}
+        className={codeClasses.cellInput}
+        aria-label={'기초일자'}
+        data-row-id={row.id}
+        data-field={key}
+        type="text"
+        inputMode="numeric"
+        maxLength={10}
+        placeholder="YYYY-MM-DD"
+        value={row.standdate || ''}
+        disabled={disabled}
+        onFocus={() => handlers.setActiveCell(row.id, key)}
+        onChange={(event) => handlers.updateRow(row.id, key, event.currentTarget.value)}
+        onPaste={pasted}
+      />
+    </GridCell>;
+    if (key === 'customname') return <GridCell key={key} className={saved ? outboundClasses.savedCell : newCellClass}>
+      <CustomerNameAutocompleteCell
+        row={row}
+        disabled={disabled}
+        registerCellInput={handlers.registerCellInput}
+        onChange={handlers.updateRow}
+        onSelect={handlers.selectCustomerForRow}
+        onFindCustomer={handlers.openCustomerPicker}
+        onFocus={() => handlers.setActiveCell(row.id, key)}
+        onPaste={pasted}
+      />
+    </GridCell>;
+    if (key === 'itemname') return <GridCell key={key} className={saved ? outboundClasses.savedCell : newCellClass}>
+      <ItemNameAutocompleteCell
+        row={row}
+        disabled={disabled}
+        registerCellInput={handlers.registerCellInput}
+        onChange={handlers.updateRow}
+        onSelect={handlers.selectItem}
+        onFindItem={handlers.openItemPicker}
+        onFocus={() => handlers.setActiveCell(row.id, key)}
+        onPaste={pasted}
+      />
+    </GridCell>;
+    if (['warehousecode', 'materialcode', 'surfacecode'].includes(key)) return <GridCell key={key} className={saved ? outboundClasses.savedCell : newCellClass}>
+      <MasterNameAutocompleteCell
+        row={row}
+        field={key}
+        options={masterOptions}
+        disabled={disabled}
+        registerCellInput={handlers.registerCellInput}
+        onChange={handlers.updateRow}
+        onFindMaster={handlers.openMasterPicker}
+        onFocus={() => handlers.setActiveCell(row.id, key)}
+        onPaste={pasted}
+      />
+    </GridCell>;
+    if (key === 'unit' || key === 'qtyunit') {
+      const defaultValue = key === 'unit' ? 'KG' : 'EA';
+      const value = resolveMasterCode(key, row[key] || defaultValue, masters) || row[key] || defaultValue;
+      return <GridCell key={key} className={saved ? outboundClasses.savedCell : newCellClass}>
+        <select
+          ref={(element) => handlers.registerCellInput(row.id, key, element)}
+          className={`${codeClasses.cellSelect} ${inboundClasses.priceUnitSelect}`}
+          aria-label={STOCK_GRID_COLUMNS.find(([columnKey]) => columnKey === key)?.[1] || key}
+          data-row-id={row.id}
+          data-field={key}
+          value={value}
+          disabled={disabled}
+          onFocus={() => handlers.setActiveCell(row.id, key)}
+          onPaste={pasted}
+          onChange={(event) => handlers.updateRow(row.id, key, event.currentTarget.value)}
+        >
+          {row[key] && !resolveMasterCode(key, row[key], masters) && <option value={row[key]}>{row[key]}</option>}
+          {masterOptions.map((option) => <option key={option.code} value={option.code}>{option.name || option.code}</option>)}
+        </select>
+      </GridCell>;
+    }
+    return <GridCell key={key} className={saved ? (editableSavedPrice ? classes.savedEditableCell : outboundClasses.savedCell) : newCellClass}>
+      <input
+        ref={(element) => {
+          handlers.registerCellInput(row.id, key, element);
+        }}
+        className={`${codeClasses.cellInput} ${['unitamt', 'supplyamt', 'vat'].includes(key) ? outboundClasses.amountInput : ''} ${key === 'itemcode' || key === 'itemname' || key === 'customname' || masterKey ? outboundClasses.itemCodePickerInput : ''}`}
+        aria-label={STOCK_GRID_COLUMNS.find(([columnKey]) => columnKey === key)?.[1] || key}
+        title={key === 'itemcode' || key === 'itemname' ? '더블클릭하여 품목 선택' : masterKey ? '더블클릭하여 마스터 코드 선택' : undefined}
+        data-row-id={row.id}
+        data-field={key}
+        inputMode={['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat'].includes(key) ? 'decimal' : undefined}
+        value={displayed}
+        placeholder={row.isNew && (key === 'itemcode' || key === 'itemname') ? (key === 'itemcode' ? '품목코드' : '품목명') : ''}
+        readOnly={readOnly || disabled}
+        disabled={disabled}
+        onFocus={() => handlers.setActiveCell(row.id, key)}
+        onClick={(event) => {
+          if (masterKey && !disabled && event.nativeEvent.offsetX >= event.currentTarget.clientWidth - 28) {
+            event.preventDefault();
+            event.stopPropagation();
+            handlers.openMasterPicker(row.id, key);
+          }
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'F2' && !disabled) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (key === 'customname') handlers.openCustomerPicker(row.id);
+            else if (key === 'itemcode' || key === 'itemname') handlers.openItemPicker(row.id);
+            else if (masterKey) handlers.openMasterPicker(row.id, key);
+          }
+        }}
+        onDoubleClick={() => {
+          if (key === 'customname') handlers.openCustomerPicker(row.id);
+          else if (key === 'itemcode' || key === 'itemname') handlers.openItemPicker(row.id);
+          else if (masterKey) handlers.openMasterPicker(row.id, key);
+        }}
+        onPaste={pasted}
+        onBlur={key === 'customname' ? (event) => { void handlers.resolveCustomerName(row.id, event.currentTarget.value); } : key === 'itemcode' || key === 'itemname' ? async (event) => {
+          const itemValue = event.currentTarget.value.trim();
+          if (!itemValue) return;
+          try {
+            const { data } = await axios.get('/api/item-master/items/picker', { ...authConfig(), params: { q: itemValue, page: 1, page_size: 20 } });
+            const normalizedValue = itemValue.toLocaleLowerCase();
+            const match = (data.items || []).find((item) => String(item.itemcode).trim().toLocaleLowerCase() === normalizedValue
+              || String(item.itemname).trim().toLocaleLowerCase() === normalizedValue);
+            if (match) handlers.selectItem(row.id, match);
+          } catch { /* Keep the entered code so validation can identify it on save. */ }
+        } : undefined}
+        onChange={(event) => handlers.updateRow(row.id, key, ['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat'].includes(key) ? cleanNumber(event.currentTarget.value) : event.currentTarget.value)}
+      />
+    </GridCell>;
+  };
+  const amounts = calculateAmounts(row, masters.price);
+
+  return <>
+    <GridCell className={codeClasses.checkCol} title={saved && row.delete_block ? `삭제 불가: ${DELETE_BLOCK_TEXT[row.delete_block] || row.delete_block}` : undefined}>
+      {/* Saved lines can be selected for deletion only while their stock source row is unused. */}
+      <input type="checkbox" checked={isSelected} disabled={saving || (saved && Boolean(row.delete_block))} onChange={(event) => handlers.toggleRowSelection(row.id, event.nativeEvent.shiftKey)} />
+    </GridCell>
+    <GridCell className={`${codeClasses.rowNumber} ${!saved ? classes.newRowNumber : ''}`}>{rowNumber}</GridCell>
+    {GRID_FIELDS.map(renderField)}
+  </>;
+});
+
 export default function StockStandPage() {
   const initialRange = currentMonthRange();
   const [standdate, setStanddate] = useState(localDate);
@@ -786,6 +1026,22 @@ export default function StockStandPage() {
   const [customerPickerId, setCustomerPickerId] = useState('');
   const [masterPickerTarget, setMasterPickerTarget] = useState(null);
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [deleteLinesOpen, setDeleteLinesOpen] = useState(false);
+  // Bottom-right "discard unsaved changes?" confirm (replaces the browser's window.confirm).
+  const [discardMessage, setDiscardMessage] = useState('');
+  const discardResolveRef = useRef(null);
+  const askDiscard = useCallback((action) => new Promise((resolve) => {
+    discardResolveRef.current?.(false);
+    discardResolveRef.current = resolve;
+    setDiscardMessage(`저장하지 않은 변경사항이 있습니다. ${action} 변경 내용이 사라집니다. 계속할까요?`);
+  }), []);
+  const answerDiscard = useCallback((confirmed) => {
+    const resolve = discardResolveRef.current;
+    discardResolveRef.current = null;
+    setDiscardMessage('');
+    resolve?.(confirmed);
+  }, []);
+  useEffect(() => () => discardResolveRef.current?.(false), []);
   const [columnWidths, setColumnWidths] = useState({});
   const uploadInputRef = useRef(null);
   const virtuosoRef = useRef(null);
@@ -811,6 +1067,10 @@ export default function StockStandPage() {
   const visibleRows = hasSavedStock ? rows : rows.slice((page - 1) * pageSize, page * pageSize);
   const pageCount = Math.max(1, Math.ceil(displayRowCount / pageSize));
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const { selectedSavedCount, selectedNewCount } = useMemo(() => rows.reduce((counts, row) => {
+    if (selectedSet.has(row.id)) counts[row.lineno ? 'selectedSavedCount' : 'selectedNewCount'] += 1;
+    return counts;
+  }, { selectedSavedCount: 0, selectedNewCount: 0 }), [rows, selectedSet]);
 
   const resizeColumn = useCallback((event, key, defaultWidth, minWidth, totalWidth) => {
     event.preventDefault();
@@ -836,7 +1096,7 @@ export default function StockStandPage() {
   }, [columnWidths]);
 
   const loadRows = useCallback(async (nextDate = standdate, nextQuery = query, confirmDiscard = true, useRegisteredDate = false, nextPage = page, nextPageSize = pageSize, nextDateFrom = dateFrom, nextDateTo = dateTo, nextWarehouse = warehouseQuery) => {
-    if (confirmDiscard && hasChanges && !window.confirm('저장하지 않은 변경사항이 있습니다. 조회하면 변경 내용이 사라집니다. 계속할까요?')) return;
+    if (confirmDiscard && hasChanges && !(await askDiscard('조회하면'))) return;
     const requestId = ++listRequestIdRef.current;
     loadingMoreRef.current = false;
     setLoadingMoreRows(false);
@@ -872,11 +1132,11 @@ export default function StockStandPage() {
       notifications.show({ title: '기초재고 조회 실패', message: errorText(error), color: 'red' });
       return false;
     } finally { if (requestId === listRequestIdRef.current) setLoading(false); }
-  }, [standdate, query, hasChanges, page, pageSize, dateFrom, dateTo, warehouseQuery]);
+  }, [standdate, query, hasChanges, page, pageSize, dateFrom, dateTo, warehouseQuery, askDiscard]);
 
   const changePage = async (nextPage) => {
     if (nextPage < 1 || nextPage > pageCount || nextPage === page) return;
-    if (hasSavedStock && hasChanges && !window.confirm('저장하지 않은 변경사항이 있습니다. 페이지를 이동하면 변경 내용이 사라집니다. 계속할까요?')) return;
+    if (hasSavedStock && hasChanges && !(await askDiscard('페이지를 이동하면'))) return;
     if (hasSavedStock && !(await loadRows(standdate, query, false, false, nextPage, pageSize))) return;
     setPage(nextPage);
   };
@@ -884,7 +1144,7 @@ export default function StockStandPage() {
   const changePageSize = async (value) => {
     const nextPageSize = Number(value);
     if (!nextPageSize || nextPageSize === pageSize) return;
-    if (hasSavedStock && hasChanges && !window.confirm('저장하지 않은 변경사항이 있습니다. 표시 행 수를 바꾸면 변경 내용이 사라집니다. 계속할까요?')) return;
+    if (hasSavedStock && hasChanges && !(await askDiscard('표시 행 수를 바꾸면'))) return;
     if (hasSavedStock && !(await loadRows(standdate, query, false, false, 1, nextPageSize))) return;
     setPageSize(nextPageSize);
     setPage(1);
@@ -897,7 +1157,7 @@ export default function StockStandPage() {
       notifications.show({ title: '조회 기간 확인', message: '시작일은 종료일보다 늦을 수 없습니다.', color: 'red' });
       return;
     }
-    if (hasChanges && !window.confirm('저장하지 않은 변경사항이 있습니다. 조회하면 변경 내용이 사라집니다. 계속할까요?')) return;
+    if (hasChanges && !(await askDiscard('조회하면'))) return;
     const nextDate = dateTo || dateFrom || standdate;
     if (!(await loadRows(nextDate, nextQuery, false, false, 1, pageSize, dateFrom, dateTo, nextWarehouse))) return;
     setStanddate(nextDate);
@@ -962,7 +1222,8 @@ export default function StockStandPage() {
   const updateRow = useCallback((id, key, value) => {
     const applyToSelected = MASTER_FIELDS.has(key) && selectedIds.length > 1 && selectedSet.has(id);
     setRows((current) => current.map((row) => {
-      if (row.id !== id && !(applyToSelected && selectedSet.has(row.id))) return row;
+      // Bulk master changes apply to selected NEW rows only (saved rows are selectable just for deletion).
+      if (row.id !== id && !(applyToSelected && selectedSet.has(row.id) && !row.lineno)) return row;
       if (row.lineno && !PRICE_FIELDS.has(key)) return row;
       const next = { ...row, [key]: value };
       if (key === 'itemcode') next.itemname = '';
@@ -1010,7 +1271,7 @@ export default function StockStandPage() {
     const source = rows.find((row) => row.id === selectedIds[0]);
     if (!source || source.lineno) return;
     const values = Object.fromEntries(Object.entries(source)
-      .filter(([key]) => !['id', 'lineno', 'isNew', 'has_movements', 'created_at', 'updated_at'].includes(key)));
+      .filter(([key]) => !['id', 'lineno', 'isNew', 'has_movements', 'delete_block', 'created_at', 'updated_at', 'created_by', 'updated_by'].includes(key)));
     const copy = makeRow(values);
     const nextPage = hasSavedStock ? page : Math.ceil((rows.length + 1) / pageSize);
     setRows((current) => [...current, copy]);
@@ -1102,7 +1363,7 @@ export default function StockStandPage() {
       return next;
     }));
     notifications.show({ title: '아래로 채우기 완료', message: `${targetRows.length}개 행에 현재 셀의 값을 복사했습니다.`, color: 'teal' });
-  }, [rows, selectedIds.length, selectedSet, masters.warehouse]);
+  }, [rows, selectedIds.length, selectedSet, masters.warehouse, masters.material, masters.surface]);
 
   const handleTableKeyDown = useCallback((event) => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') {
@@ -1451,7 +1712,7 @@ export default function StockStandPage() {
     } catch (error) {
       notifications.show({ title: '엑셀 업로드 실패', message: errorText(error), color: 'red' });
     } finally { setUploading(false); }
-  }, [hasChanges, masters, hasSavedStock, standdate]);
+  }, [hasChanges, masters]);
 
   const save = async () => {
     let newRows = rows.filter((row) => !row.lineno && hasRowInput(row));
@@ -1643,7 +1904,23 @@ export default function StockStandPage() {
     setSelectedIds(checked ? rows.filter((row) => !row.lineno).map((row) => row.id) : []);
     selectionAnchorRef.current = '';
   };
-  const columns = STOCK_GRID_COLUMNS;
+  const latestRowActionsRef = useRef(null);
+  useLayoutEffect(() => {
+    latestRowActionsRef.current = { updateRow, pasteRange, selectItem, selectCustomerForRow, resolveCustomerName, toggleRowSelection };
+  });
+  const rowHandlers = useMemo(() => ({
+    registerCellInput,
+    setActiveCell: (id, field) => { activeCellRef.current = { id, field }; },
+    updateRow: (...args) => latestRowActionsRef.current.updateRow(...args),
+    pasteRange: (...args) => latestRowActionsRef.current.pasteRange(...args),
+    selectItem: (...args) => latestRowActionsRef.current.selectItem(...args),
+    selectCustomerForRow: (...args) => latestRowActionsRef.current.selectCustomerForRow(...args),
+    resolveCustomerName: (...args) => latestRowActionsRef.current.resolveCustomerName(...args),
+    toggleRowSelection: (...args) => latestRowActionsRef.current.toggleRowSelection(...args),
+    openItemPicker: setItemPickerId,
+    openCustomerPicker: setCustomerPickerId,
+    openMasterPicker: (id, field) => setMasterPickerTarget({ id, field }),
+  }), [registerCellInput]);
   const autoColumnWidths = useMemo(() => Object.fromEntries(STOCK_GRID_COLUMNS.map(([key, label]) => {
     const minWidth = key === 'select' ? 42 : key === 'number' ? 48 : 70;
     const width = fitColumnWidth(label, rows.map((row) => row[key]), GRID_COLUMN_WIDTHS[key], minWidth);
@@ -1668,180 +1945,47 @@ export default function StockStandPage() {
       {column.label}<span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeColumn(event, column.key, column.width, column.minWidth, tableWidth)} role="separator" aria-label={`${column.key} 열 너비 조절`} />
     </Table.Th>
   );
-  const itemContent = (index, row) => {
-    const saved = Boolean(row.lineno);
-    const isSelected = selectedSet.has(row.id);
-    const renderField = (key) => {
-      const editableSavedPrice = saved && EDITABLE_PRICE_FIELDS.has(key);
-      const masterKey = MASTER_FIELDS.has(key);
-      const masterOptions = masters[MASTER_KIND[key]] || [];
-      const displayed = key === 'qtyunit' || key === 'unit'
-        ? masterOptions.find((option) => option.code === row[key])?.name || row[key] || ''
-        : key === 'warehousecode' ? row.warehousecodename || row.warehousecode || ''
-          : key === 'materialcode' ? masterOptions.find((option) => option.code === row.materialcode)?.name || row.materialname || row.materialcode || ''
-            : key === 'surfacecode' ? masterOptions.find((option) => option.code === row.surfacecode)?.name || row.surfacename || row.surfacecode || ''
-              : ['supplyamt', 'vat', 'unitamt'].includes(key) ? formatAmount(amounts[key])
-                : ['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice'].includes(key) ? numberText(row[key]) : row[key] ?? '';
-      if (saved && !PRICE_FIELDS.has(key)) return <Table.Td key={key} className={outboundClasses.savedCell}>
-        <span className={`${classes.savedValue} ${['supplyamt', 'vat', 'unitamt'].includes(key) ? classes.savedAmountValue : ''}`} title={String(displayed)}>{displayed}</span>
-      </Table.Td>;
-      const readOnly = key === 'unitamt';
-      const disabled = saving || (saved && !PRICE_FIELDS.has(key));
-      const pasted = (event) => {
-        if (key === 'unitamt') {
-          event.preventDefault();
-          return;
-        }
-        const text = event.clipboardData.getData('text/plain');
-        if (text.includes('\t') || text.includes('\n')) {
-          event.preventDefault();
-          pasteRange(row.id, key, text);
-        } else if (masterKey) {
-          event.preventDefault();
-          updateRow(row.id, key, text.trim());
-        }
-      };
-      if (key === 'standdate') return <Table.Td key={key} className={saved ? outboundClasses.savedCell : ''}>
-        <input
-          ref={(element) => registerCellInput(row.id, key, element)}
-          className={codeClasses.cellInput}
-          aria-label={'기초일자'}
-          data-row-id={row.id}
-          data-field={key}
-          type="text"
-          inputMode="numeric"
-          maxLength={10}
-          placeholder="YYYY-MM-DD"
-          value={row.standdate || ''}
-          disabled={disabled}
-          onFocus={() => { activeCellRef.current = { id: row.id, field: key }; }}
-          onChange={(event) => updateRow(row.id, key, event.currentTarget.value)}
-          onPaste={pasted}
-        />
-      </Table.Td>;
-      if (key === 'customname') return <Table.Td key={key} className={saved ? outboundClasses.savedCell : ''}>
-        <CustomerNameAutocompleteCell
-          row={row}
-          disabled={disabled}
-          registerCellInput={registerCellInput}
-          onChange={updateRow}
-          onSelect={selectCustomerForRow}
-          onFindCustomer={setCustomerPickerId}
-          onFocus={() => { activeCellRef.current = { id: row.id, field: key }; }}
-          onPaste={pasted}
-        />
-      </Table.Td>;
-      if (key === 'itemname') return <Table.Td key={key} className={saved ? outboundClasses.savedCell : ''}>
-        <ItemNameAutocompleteCell
-          row={row}
-          disabled={disabled}
-          registerCellInput={registerCellInput}
-          onChange={updateRow}
-          onSelect={selectItem}
-          onFindItem={setItemPickerId}
-          onFocus={() => { activeCellRef.current = { id: row.id, field: key }; }}
-          onPaste={pasted}
-        />
-      </Table.Td>;
-      if (['warehousecode', 'materialcode', 'surfacecode'].includes(key)) return <Table.Td key={key} className={saved ? outboundClasses.savedCell : ''}>
-        <MasterNameAutocompleteCell
-          row={row}
-          field={key}
-          options={masterOptions}
-          disabled={disabled}
-          registerCellInput={registerCellInput}
-          onChange={updateRow}
-          onFindMaster={(id, field) => setMasterPickerTarget({ id, field })}
-          onFocus={() => { activeCellRef.current = { id: row.id, field: key }; }}
-          onPaste={pasted}
-        />
-      </Table.Td>;
-      if (key === 'unit' || key === 'qtyunit') {
-        const defaultValue = key === 'unit' ? 'KG' : 'EA';
-        const value = resolveMasterCode(key, row[key] || defaultValue, masters) || row[key] || defaultValue;
-        return <Table.Td key={key} className={saved ? outboundClasses.savedCell : ''}>
-          <select
-            ref={(element) => registerCellInput(row.id, key, element)}
-            className={`${codeClasses.cellSelect} ${inboundClasses.priceUnitSelect}`}
-            aria-label={columns.find(([columnKey]) => columnKey === key)?.[1] || key}
-            data-row-id={row.id}
-            data-field={key}
-            value={value}
-            disabled={disabled}
-            onFocus={() => { activeCellRef.current = { id: row.id, field: key }; }}
-            onPaste={pasted}
-            onChange={(event) => updateRow(row.id, key, event.currentTarget.value)}
-          >
-            {row[key] && !resolveMasterCode(key, row[key], masters) && <option value={row[key]}>{row[key]}</option>}
-            {masterOptions.map((option) => <option key={option.code} value={option.code}>{option.name || option.code}</option>)}
-          </select>
-        </Table.Td>;
-      }
-      return <Table.Td key={key} className={saved ? (editableSavedPrice ? classes.savedEditableCell : outboundClasses.savedCell) : ''}>
-        <input
-          ref={(element) => {
-            registerCellInput(row.id, key, element);
-          }}
-          className={`${codeClasses.cellInput} ${['unitamt', 'supplyamt', 'vat'].includes(key) ? outboundClasses.amountInput : ''} ${key === 'itemcode' || key === 'itemname' || key === 'customname' || masterKey ? outboundClasses.itemCodePickerInput : ''}`}
-          aria-label={columns.find(([columnKey]) => columnKey === key)?.[1] || key}
-          title={key === 'itemcode' || key === 'itemname' ? '더블클릭하여 품목 선택' : masterKey ? '더블클릭하여 마스터 코드 선택' : undefined}
-          data-row-id={row.id}
-          data-field={key}
-          inputMode={['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat'].includes(key) ? 'decimal' : undefined}
-          value={displayed}
-          placeholder={row.isNew && (key === 'itemcode' || key === 'itemname') ? (key === 'itemcode' ? '품목코드' : '품목명') : ''}
-          readOnly={readOnly || disabled}
-          disabled={disabled}
-          onFocus={() => { activeCellRef.current = { id: row.id, field: key }; }}
-          onClick={(event) => {
-            if (masterKey && !disabled && event.nativeEvent.offsetX >= event.currentTarget.clientWidth - 28) {
-              event.preventDefault();
-              event.stopPropagation();
-              setMasterPickerTarget({ id: row.id, field: key });
-            }
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'F2' && !disabled) {
-              event.preventDefault();
-              event.stopPropagation();
-              if (key === 'customname') setCustomerPickerId(row.id);
-              else if (key === 'itemcode' || key === 'itemname') setItemPickerId(row.id);
-              else if (masterKey) setMasterPickerTarget({ id: row.id, field: key });
-            }
-          }}
-          onDoubleClick={() => {
-            if (key === 'customname') setCustomerPickerId(row.id);
-            else if (key === 'itemcode' || key === 'itemname') setItemPickerId(row.id);
-            else if (masterKey) setMasterPickerTarget({ id: row.id, field: key });
-          }}
-          onPaste={pasted}
-          onBlur={key === 'customname' ? (event) => { void resolveCustomerName(row.id, event.currentTarget.value); } : key === 'itemcode' || key === 'itemname' ? async (event) => {
-            const itemValue = event.currentTarget.value.trim();
-            if (!itemValue) return;
-            try {
-              const { data } = await axios.get('/api/item-master/items/picker', { ...authConfig(), params: { q: itemValue, page: 1, page_size: 20 } });
-              const normalizedValue = itemValue.toLocaleLowerCase();
-              const match = (data.items || []).find((item) => String(item.itemcode).trim().toLocaleLowerCase() === normalizedValue
-                || String(item.itemname).trim().toLocaleLowerCase() === normalizedValue);
-              if (match) selectItem(row.id, match);
-            } catch { /* Keep the entered code so validation can identify it on save. */ }
-          } : undefined}
-          onChange={(event) => updateRow(row.id, key, ['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat'].includes(key) ? cleanNumber(event.currentTarget.value) : event.currentTarget.value)}
-        />
-      </Table.Td>;
-    };
-    const amounts = calculateAmounts(row, masters.price);
+  const itemContent = (index, row) => <StockGridRowCells
+    row={row}
+    rowNumber={(page - 1) * pageSize + index + 1}
+    isSelected={selectedSet.has(row.id)}
+    saving={saving}
+    masters={masters}
+    handlers={rowHandlers}
+  />;
 
-    return <>
-      <Table.Td className={codeClasses.checkCol}><input type="checkbox" checked={isSelected} disabled={saving || saved} onChange={(event) => toggleRowSelection(row.id, event.nativeEvent.shiftKey)} /></Table.Td>
-      <Table.Td className={`${codeClasses.rowNumber} ${!saved ? classes.newRowNumber : ''}`}>{(page - 1) * pageSize + index + 1}</Table.Td>
-      {GRID_FIELDS.map(renderField)}
-    </>;
+  const deleteSelectedLines = async () => {
+    const savedRows = rows.filter((row) => row.lineno && selectedSet.has(row.id));
+    if (!savedRows.length || saving) return;
+    const removedIds = new Set(rows.filter((row) => selectedSet.has(row.id)).map((row) => row.id));
+    setSaving(true);
+    try {
+      const { data } = await axios.delete('/api/stock-stand/items', { ...authConfig(), data: { linenos: savedRows.map((row) => row.lineno) } });
+      setDeleteLinesOpen(false);
+      setSelectedIds([]);
+      selectionAnchorRef.current = '';
+      savedRows.forEach((row) => originalRowsRef.current.delete(row.id));
+      const keepsUnsavedInput = rows.some((row) => !row.lineno && !removedIds.has(row.id) && hasRowInput(row));
+      if (keepsUnsavedInput) {
+        // Keep the user's other unsaved input rows: drop the deleted rows locally instead of reloading.
+        setRows((current) => current.filter((row) => !removedIds.has(row.id)));
+        setTotalRows((current) => Math.max(0, current - savedRows.length));
+      } else {
+        const remaining = Math.max(0, totalRows - savedRows.length);
+        const targetPage = Math.min(page, Math.max(1, Math.ceil(remaining / pageSize)));
+        if (await loadRows(standdate, query, false, false, targetPage, pageSize, dateFrom, dateTo, warehouseQuery)) setPage(targetPage);
+      }
+      notifications.show({ title: '기초재고 삭제 완료', message: `${Number(data.deleted_count || savedRows.length).toLocaleString()}건을 삭제했습니다. 현재고·재고수불 내역도 함께 삭제했습니다.`, color: 'teal' });
+    } catch (error) {
+      notifications.show({ title: '기초재고 삭제 실패', message: errorText(error), color: 'red', autoClose: 9000 });
+    } finally { setSaving(false); }
   };
 
   const deleteFromRibbon = () => {
     if (loading || saving || uploading) return;
-    if (selectedIds.some((id) => rows.some((row) => row.id === id && !row.lineno))) {
+    if (selectedSavedCount) {
+      setDeleteLinesOpen(true);
+    } else if (selectedIds.some((id) => rows.some((row) => row.id === id && !row.lineno))) {
       deleteSelectedRows();
     } else if (hasSavedStock) {
       requestDeleteAll();
@@ -1867,22 +2011,22 @@ export default function StockStandPage() {
     <Box className={`${classes.workspace} ${filterOpen ? classes.workspaceWithFilter : ''}`}>
     <Paper className={`${sharedClasses.panel} ${codeClasses.codePanel} ${classes.editorPanel}`} withBorder>
       <Group className={`${sharedClasses.panelHeader} ${codeClasses.codeHeader} ${classes.codeHeader}`} justify="space-between" align="flex-start" wrap="wrap" gap="sm">
-        <Group gap={8} align="center"><Text className={classes.sectionTitle} fw={700}>기초재고등록</Text><Badge color="gray" variant="light">{displayRowCount.toLocaleString()}행</Badge></Group>
+        <Group gap={8} align="center"><Text className={classes.sectionTitle} fw={700}>기초재고등록</Text><Badge color="gray" variant="light">{displayRowCount.toLocaleString()}행</Badge>
+          {/* Shown inline in the header (not as a separate bar) so checking rows never pushes the grid down. */}
+          {selectedNewCount > 1 && <Text size="xs" c="red" fw={600}>마스터 값 변경 시 {selectedNewCount}개 행에 일괄 적용됩니다.</Text>}
+        </Group>
         <Group className={classes.headerActions} gap={7} align="center" wrap="wrap">
           <Button variant="default" size="xs" leftSection={<IconDownload size={15} />} onClick={downloadTemplate} disabled={loading || uploading}>샘플양식</Button>
           <Button variant="light" size="xs" leftSection={<IconUpload size={15} />} onClick={() => uploadInputRef.current?.click()} loading={uploading} disabled={saving || loading}>엑셀 일괄등록</Button>
           <input ref={uploadInputRef} type="file" accept=".xlsx,.xls" onChange={uploadExcel} hidden />
         </Group>
       </Group>
-      {selectedIds.length > 1 && <Group className={`${sharedClasses.toolbar} ${codeClasses.toolbar} ${classes.detailToolbar}`} justify="space-between" wrap="wrap" gap={6}>
-        <Text size="xs" c="red" fw={600}>마스터 값 변경 시 {selectedIds.length}개 행에 일괄 적용됩니다.</Text>
-      </Group>}
       <Box className={`${codeClasses.tableWrap} ${classes.tableViewport} ${hasSavedStock ? classes.savedTableViewport : ''}`} style={{ '--code-table-min-width': `${Math.max(1730, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
         {loading ? <Box className={classes.loading}><Loader color="red" /></Box> : visibleRows.length ? (hasSavedStock ? (
           <Table className={`${sharedClasses.table} ${codeClasses.codeTable} ${classes.table}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
             style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
             <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
-            <Table.Tbody>{visibleRows.map((row, index) => <Table.Tr key={row.id}>{itemContent(index, row)}</Table.Tr>)}</Table.Tbody>
+            <Table.Tbody>{visibleRows.map((row, index) => <Table.Tr key={row.id} className={row.lineno ? undefined : `${codeClasses.newRow} ${classes.newRow}`}>{itemContent(index, row)}</Table.Tr>)}</Table.Tbody>
           </Table>
         ) : (
           <TableVirtuoso
@@ -1952,5 +2096,26 @@ export default function StockStandPage() {
         </Group>
       </Stack>
     </Modal>
+    <Modal opened={deleteLinesOpen} onClose={() => !saving && setDeleteLinesOpen(false)} title="기초재고 선택 삭제" centered size="sm">
+      <Stack gap="md">
+        <Text size="sm" c="dimmed">
+          저장된 기초재고 {selectedSavedCount.toLocaleString()}건을 삭제합니다. 현재고와 재고수불 내역에서도 함께 삭제되며 복구할 수 없습니다.
+          {selectedNewCount > 0 && ` 선택한 신규 입력 행 ${selectedNewCount.toLocaleString()}건도 함께 제거됩니다.`}
+        </Text>
+        <Group justify="flex-end">
+          <Button variant="default" onClick={() => setDeleteLinesOpen(false)} disabled={saving}>취소</Button>
+          <Button color="red" leftSection={<IconTrash size={15} />} onClick={deleteSelectedLines} loading={saving}>삭제</Button>
+        </Group>
+      </Stack>
+    </Modal>
+    {discardMessage && <Box className={classes.discardConfirm} onKeyDown={(event) => { if (event.key === 'Escape') answerDiscard(false); }}>
+      <Notification color="orange" title="저장하지 않은 변경사항" withBorder onClose={() => answerDiscard(false)}>
+        <Text size="sm">{discardMessage}</Text>
+        <Group justify="flex-end" gap={6} mt={10}>
+          <Button size="xs" variant="default" onClick={() => answerDiscard(false)}>취소</Button>
+          <Button size="xs" color="red" onClick={() => answerDiscard(true)} autoFocus>확인</Button>
+        </Group>
+      </Notification>
+    </Box>}
   </Box>;
 }

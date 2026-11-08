@@ -108,11 +108,22 @@
 .table :global(tbody select) { font-size: 11px; }
 .newRow > td { background: #fffbf4 !important; }
 .newRowNumber { background: #fffbf4 !important; }
+/* New rows: optional (non-*) input cells are plain white instead of the new-row tint / gray amount style.
+   Lookup cells (거래처·표면) keep their search-icon style; the calculated 합계금액 stays gray. */
+/* Mantine's highlightOnHover paints the row #f1f3f5 (= the disabled gray); new input rows keep their own colors. */
+.table.table tbody tr.newRow { --tr-hover-bg: transparent; }
+/* (class only set on unsaved rows; doubled .table outranks the `.codeTable tbody tr.newRow > td` tint) */
+.table.table tbody tr > td.optionalNewCell { background: #fff !important; }
+.table.table tbody tr > td.optionalNewCell input:not(:focus):not(:disabled),
+.table.table tbody tr > td.optionalNewCell select:not(:disabled) { background-color: #fff; color: #293a52; }
 .table td input, .table td select { width: 100%; min-width: 0; }
 .savedEditableCell { background: #fff !important; }
 .savedEditableCell :global(input) { background: #fff !important; color: #23344d !important; cursor: text; }
 .savedEditableCell:focus-within { background: #fffaf0 !important; }
 .savedEditableCell:focus-within :global(input) { background: #fffaf0 !important; }
+/* Unsaved-changes confirm: same card as the app's bottom-right notifications. */
+.discardConfirm { position: fixed; z-index: 1000; right: 16px; bottom: 16px; width: min(400px, calc(100vw - 32px)); }
+.discardConfirm :global(.mantine-Notification-root) { box-shadow: 0 8px 28px #1a2b4433; }
 .footer { flex: 0 0 auto; padding: 9px 14px; border-top: 1px solid #e5e9ef; }
 .stockFooter { position: static; z-index: auto; width: 100%; min-width: 0; min-height: 38px; flex: 0 0 auto; align-self: stretch; gap: 8px 16px; margin-top: auto; padding: 5px 12px; background: #fff; }
 .paginationBar { min-width: 0; margin-left: auto; }

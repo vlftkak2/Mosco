@@ -4,6 +4,7 @@ from psycopg2.extras import RealDictCursor
 from pydantic import BaseModel, Field, field_validator
 
 from config import DB_CONFIG
+from services.inventory.CurrentStock import user_name_sql
 
 
 conn_str = (
@@ -111,6 +112,8 @@ def list_companies(q: str = "", plan_code: str = "", company_status: str = "", p
         total = cursor.fetchone()["total"]
         cursor.execute(
             f"""SELECT c.*,
+                       {user_name_sql('c.created_by')} AS created_by_name,
+                       {user_name_sql('c.updated_by')} AS updated_by_name,
                        COUNT(u.email) FILTER (WHERE UPPER(COALESCE(u.useyn, 'N')) = 'Y')::integer AS active_users,
                        COUNT(u.email)::integer AS total_users
                 FROM company01t c
@@ -124,7 +127,7 @@ def list_companies(q: str = "", plan_code: str = "", company_status: str = "", p
         return {"items": list(cursor.fetchall()), "total": total, "page": page, "page_size": page_size}
 
 
-def create_company(data: CompanyInput):
+def create_company(data: CompanyInput, actor: str | None = None):
     with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute("SELECT 1 FROM company01t WHERE LOWER(companyid) = LOWER(%s)", (data.companyid,))
         if cursor.fetchone():
@@ -136,19 +139,19 @@ def create_company(data: CompanyInput):
         cursor.execute(
             """INSERT INTO company01t
                (companyid, companyname, businessno, ceoname, phone, email, zipcode,
-                address1, address2, plan_code, company_status, licensed_seats)
+                address1, address2, plan_code, company_status, licensed_seats, created_by)
                VALUES (%s, %s, NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''),
                        NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''),
-                       %s, %s, %s)
+                       %s, %s, %s, %s)
                RETURNING *""",
             (data.companyid, data.companyname, data.businessno, data.ceoname, data.phone,
              data.email, data.zipcode, data.address1, data.address2, data.plan_code,
-             data.company_status, data.licensed_seats),
+             data.company_status, data.licensed_seats, actor or None),
         )
         return dict(cursor.fetchone())
 
 
-def update_company(companyid: str, data: CompanyInput):
+def update_company(companyid: str, data: CompanyInput, actor: str | None = None):
     with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         if companyid != data.companyid:
             raise ValueError("등록된 고객사 코드는 변경할 수 없습니다.")
@@ -173,12 +176,12 @@ def update_company(companyid: str, data: CompanyInput):
                SET companyid = %s, companyname = %s, businessno = NULLIF(%s, ''), ceoname = NULLIF(%s, ''),
                    phone = NULLIF(%s, ''), email = NULLIF(%s, ''), zipcode = NULLIF(%s, ''),
                    address1 = NULLIF(%s, ''), address2 = NULLIF(%s, ''), plan_code = %s,
-                   company_status = %s, licensed_seats = %s, updatedat = CURRENT_TIMESTAMP
+                   company_status = %s, licensed_seats = %s, updatedat = CURRENT_TIMESTAMP, updated_by = %s
                WHERE companyid = %s
                RETURNING *""",
             (data.companyid, data.companyname, data.businessno, data.ceoname, data.phone, data.email,
              data.zipcode, data.address1, data.address2, data.plan_code,
-             data.company_status, data.licensed_seats, companyid),
+             data.company_status, data.licensed_seats, actor or None, companyid),
         )
         row = cursor.fetchone()
         if not row:

@@ -66,6 +66,7 @@ def save_stand_items(
         saved_count = stock_stand_module.save_stand_items(
             user["companyid"], user.get("companyname") or user["companyid"],
             data.standdate, [item.model_dump() for item in data.items],
+            actor=user.get("email"),
         )
         return {"success": True, "saved_count": saved_count}
     except ValueError as error:
@@ -82,6 +83,7 @@ def update_stand_prices(
     try:
         updated_count = stock_stand_module.update_stand_prices(
             user["companyid"], [item.model_dump() for item in data.items],
+            actor=user.get("email"),
         )
         return {"success": True, "updated_count": updated_count}
     except ValueError as error:
@@ -97,9 +99,12 @@ def delete_stand_items(
     user: dict = Depends(security_module.get_current_user),
 ):
     try:
-        if not data.delete_all:
-            raise ValueError("기초재고는 전체 삭제만 가능합니다.")
-        deleted_count = stock_stand_module.delete_stand_items(user["companyid"])
+        if data.delete_all:
+            deleted_count = stock_stand_module.delete_stand_items(user["companyid"])
+        elif data.linenos:
+            deleted_count = stock_stand_module.delete_stand_lines(user["companyid"], data.linenos)
+        else:
+            raise ValueError("삭제할 기초재고 행을 선택해 주세요.")
         return {"success": True, "deleted_count": deleted_count}
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error

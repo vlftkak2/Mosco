@@ -3,6 +3,7 @@ from contextlib import contextmanager
 
 import psycopg2
 import db as _shared_db
+from services.masterdata import CodeUsage as code_usage_module
 
 from config import DB_CONFIG
 
@@ -47,12 +48,14 @@ def list_groups(companyid: str) -> list[dict]:
         with _connect() as connection, connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT groupcode, groupname, code, code_name,
-                       property1, property2, property3, property4,
-                       sort_order, use_yn, description
-                FROM CodeMaster01t
-                WHERE companyid = %s AND groupcode = ANY(%s)
-                ORDER BY groupcode, sort_order, code
+                SELECT cm.groupcode, cm.groupname, cm.code, cm.code_name,
+                       cm.property1, cm.property2, cm.property3, cm.property4,
+                       cm.sort_order, cm.use_yn, cm.description,
+                       COALESCE((SELECT u.username FROM user01t u WHERE u.email = cm.created_by LIMIT 1), cm.created_by),
+                       COALESCE((SELECT u.username FROM user01t u WHERE u.email = cm.updated_by LIMIT 1), cm.updated_by)
+                FROM CodeMaster01t cm
+                WHERE cm.companyid = %s AND cm.groupcode = ANY(%s)
+                ORDER BY cm.groupcode, cm.sort_order, cm.code
                 """,
                 (companyid, list(GROUP_NAMES)),
             )
@@ -71,7 +74,7 @@ def list_groups(companyid: str) -> list[dict]:
             for code, name, _ in CODE_GROUPS
         }
         for (groupcode, _groupname, code, codename, property1, property2,
-             property3, property4, sortorder, useyn, description) in records:
+             property3, property4, sortorder, useyn, description, created_by, updated_by) in records:
             groups[groupcode]["rows"].append({
                 "id": f"{groupcode}:{code}",
                 "code": code,
@@ -80,6 +83,8 @@ def list_groups(companyid: str) -> list[dict]:
                 "order": sortorder,
                 "use": str(useyn).strip() in (ACTIVE_VALUE, "Y"),
                 "description": description or "",
+                "created_by": created_by or "",
+                "updated_by": updated_by or "",
             })
         return list(groups.values())
     except Exception as error:
@@ -211,7 +216,7 @@ def list_group_items(
         raise CodeMasterDatabaseError from error
 
 
-def save_group(companyid: str, companyname: str, groupcode: str, items: list[dict]) -> bool:
+def save_group(companyid: str, companyname: str, groupcode: str, items: list[dict], actor: str | None = None) -> bool:
     groupname = GROUP_NAMES.get(groupcode)
     if groupname is None:
         return False
@@ -239,14 +244,14 @@ def save_group(companyid: str, companyname: str, groupcode: str, items: list[dic
                         INSERT INTO CodeMaster01t (
                             companyid, companyname, groupcode, groupname, code, code_name,
                             property1, property2, property3, property4,
-                            sort_order, use_yn, description, created_at
+                            sort_order, use_yn, description, created_at, created_by
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                  CURRENT_TIMESTAMP)
+                                  CURRENT_TIMESTAMP, %s)
                         ON CONFLICT (companyid, groupcode, code) DO NOTHING
                         """,
                         (companyid, companyname, groupcode, groupname, code, item["codename"],
                          *properties, item["sortorder"], ACTIVE_VALUE if item.get("use", True) else INACTIVE_VALUE,
-                         item.get("description") or None),
+                         item.get("description") or None, actor or None),
                     )
                     if cursor.rowcount == 0:
                         raise CodeMasterConflictError(f"코드 {code}가 이미 등록되어 있습니다. 다시 조회해 주세요.")
@@ -260,12 +265,12 @@ def save_group(companyid: str, companyname: str, groupcode: str, items: list[dic
                     UPDATE CodeMaster01t
                     SET code_name = %s, {property_column} = %s,
                         sort_order = %s, use_yn = %s, description = %s,
-                        updated_at = CURRENT_TIMESTAMP
+                        updated_at = CURRENT_TIMESTAMP, updated_by = %s
                     WHERE companyid = %s AND groupcode = %s AND code = %s
                     """,
                     (item["codename"], item.get("property") or None, item["sortorder"],
                      ACTIVE_VALUE if item.get("use", True) else INACTIVE_VALUE,
-                     item.get("description") or None, companyid, groupcode, code),
+                     item.get("description") or None, actor or None, companyid, groupcode, code),
                 )
         return True
     except CodeMasterConflictError:
@@ -275,7 +280,7 @@ def save_group(companyid: str, companyname: str, groupcode: str, items: list[dic
         raise CodeMasterDatabaseError from error
 
 
-def save_bulk_items(companyid: str, companyname: str, items: list[dict]) -> int:
+def save_bulk_items(companyid: str, companyname: str, items: list[dict], actor: str | None = None) -> int:
     """Insert a complete bulk upload atomically across all code groups."""
     if not items:
         return 0
@@ -359,15 +364,15 @@ def save_bulk_items(companyid: str, companyname: str, items: list[dict]) -> int:
                     INSERT INTO CodeMaster01t (
                         companyid, companyname, groupcode, groupname, code, code_name,
                         property1, property2, property3, property4,
-                        sort_order, use_yn, description, created_at
+                        sort_order, use_yn, description, created_at, created_by
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                              CURRENT_TIMESTAMP)
+                              CURRENT_TIMESTAMP, %s)
                     ON CONFLICT (companyid, groupcode, code) DO NOTHING
                     """,
                     (
                         companyid, companyname, groupcode, GROUP_NAMES[groupcode], item["code"], item["codename"],
                         *properties, item["sortorder"], ACTIVE_VALUE if item.get("use", True) else INACTIVE_VALUE,
-                        item.get("description") or None,
+                        item.get("description") or None, actor or None,
                     ),
                 )
                 if cursor.rowcount == 0:
@@ -389,11 +394,17 @@ def delete_codes(companyid: str, groupcode: str, codes: list[str]) -> int:
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                 (f"{companyid}:{groupcode}",),
             )
+            # Codes still used by stock / documents cannot be deleted (switch them to 사용중지 instead).
+            usage_error = code_usage_module.common_code_usage_error(cursor, companyid, groupcode, codes)
+            if usage_error:
+                raise CodeMasterConflictError(usage_error)
             cursor.execute(
                 "DELETE FROM CodeMaster01t WHERE companyid = %s AND groupcode = %s AND code = ANY(%s)",
                 (companyid, groupcode, codes),
             )
             return cursor.rowcount
+    except CodeMasterConflictError:
+        raise
     except Exception as error:
         logger.exception("Failed to delete common codes")
         raise CodeMasterDatabaseError from error

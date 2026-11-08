@@ -10,7 +10,8 @@ import {
 import axios from 'axios';
 import { TableVirtuoso } from 'react-virtuoso';
 import { notifications } from '@mantine/notifications';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
+import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import 'dayjs/locale/ko';
 import dayjs from 'dayjs';
 
@@ -105,6 +106,7 @@ const downloadExcel = (data, title) => {
 
   try {
     const worksheet = XLSX.utils.json_to_sheet(data);
+    applyExcelHeaderStyle(worksheet, Object.keys(data[0] || {}).length);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Result");
 

@@ -11,7 +11,7 @@ import {
   IconPlus, IconSearch, IconTrash, IconX,
 } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
@@ -195,9 +195,12 @@ export const ExpenseCostAutocompleteCell = memo(function ExpenseCostAutocomplete
   }, [options, query, showAll]);
   const opened = editing && !disabled && matches.length > 0;
 
-  useEffect(() => {
+  // Same as the former effect on [row.costcode, row.costname, editing], applied during render.
+  const [syncedCost, setSyncedCost] = useState({ costcode: row.costcode, costname: row.costname, editing });
+  if (syncedCost.costcode !== row.costcode || syncedCost.costname !== row.costname || syncedCost.editing !== editing) {
+    setSyncedCost({ costcode: row.costcode, costname: row.costname, editing });
     if (!editing) setDraft(row.costname || '');
-  }, [row.costcode, row.costname, editing]);
+  }
 
   useEffect(() => {
     if (editing && document.activeElement !== inputRef?.current) inputRef?.current?.focus();
@@ -313,9 +316,12 @@ export const ExpenseCustomerAutocompleteCell = memo(function ExpenseCustomerAuto
     return () => controller.abort();
   }, [editing, disabled, query]);
 
-  useEffect(() => {
+  // Same as the former effect on [editing, value], applied during render.
+  const [syncedCustomer, setSyncedCustomer] = useState({ editing, value });
+  if (syncedCustomer.editing !== editing || syncedCustomer.value !== value) {
+    setSyncedCustomer({ editing, value });
     if (!editing) setDraft(value || '');
-  }, [editing, value]);
+  }
 
   const choose = (customer) => {
     requestIdRef.current += 1;
@@ -381,16 +387,19 @@ export const ExpenseCustomerAutocompleteCell = memo(function ExpenseCustomerAuto
 
 export const ExpenseNumericCell = memo(function ExpenseNumericCell({ expenseId, field, value, disabled, onCommit }) {
   const [draft, setDraft] = useState(formatNumericInput(value));
-  const editingRef = useRef(false);
-  useEffect(() => {
-    if (!editingRef.current) setDraft(formatNumericInput(value));
-  }, [value]);
+  const [editing, setEditing] = useState(false);
+  // Same as the former effect on [value]: follow outside changes unless the user is typing.
+  const [syncedValue, setSyncedValue] = useState(value);
+  if (syncedValue !== value) {
+    setSyncedValue(value);
+    if (!editing) setDraft(formatNumericInput(value));
+  }
   return <input className={`${codeClasses.cellInput} ${inboundClasses.amountInput}`} aria-label={field === 'supplyamt' ? '공급가' : '부가세'}
     inputMode="decimal" value={draft} disabled={disabled}
-    onFocus={() => { editingRef.current = true; }}
+    onFocus={() => { setEditing(true); }}
     onChange={(event) => setDraft(formatNumericInput(event.currentTarget.value))}
     onBlur={() => {
-      editingRef.current = false;
+      setEditing(false);
       const normalized = cleanNumericInput(draft);
       setDraft(formatNumericInput(normalized));
       if (normalized !== cleanNumericInput(value)) onCommit(expenseId, field, normalized);
@@ -399,23 +408,27 @@ export const ExpenseNumericCell = memo(function ExpenseNumericCell({ expenseId, 
 
 export const ExpenseDescriptionCell = memo(function ExpenseDescriptionCell({ expenseId, value, disabled, onCommit }) {
   const [draft, setDraft] = useState(value || '');
-  const editingRef = useRef(false);
-  useEffect(() => {
-    if (!editingRef.current) setDraft(value || '');
-  }, [value]);
+  const [editing, setEditing] = useState(false);
+  // Same as the former effect on [value]: follow outside changes unless the user is typing.
+  const [syncedValue, setSyncedValue] = useState(value);
+  if (syncedValue !== value) {
+    setSyncedValue(value);
+    if (!editing) setDraft(value || '');
+  }
   return <TextInput size="xs" value={draft} maxLength={500} disabled={disabled}
-    onFocus={() => { editingRef.current = true; }}
+    onFocus={() => { setEditing(true); }}
     onChange={(event) => setDraft(event.currentTarget.value)}
     onBlur={() => {
-      editingRef.current = false;
+      setEditing(false);
       if (draft !== (value || '')) onCommit(expenseId, 'description', draft);
     }} />;
 });
 
 const OutboundExpenseRow = memo(function OutboundExpenseRow({
-  expense, index, selected, disabled, options, inputRef,
+  expense, index, selected, disabled, options, inputRef, salesCustomerName,
   onToggle, onChange, onOpenCustomerPicker, onSetCostPicker,
 }) {
+  const isCost = expense.purchaseyn === 'Y';
   const supply = Number(cleanNumericInput(expense.supplyamt)) || 0;
   const vat = Number(cleanNumericInput(expense.vat)) || 0;
   const handleCostSelect = useCallback((option) => onChange(expense.id, 'costcode', option?.code || ''), [expense.id, onChange]);
@@ -426,14 +439,15 @@ const OutboundExpenseRow = memo(function OutboundExpenseRow({
 
   return (
     <Table.Tr className={[expense.is_new && classes.newRow, selected && classes.selectedRow].filter(Boolean).join(' ')}>
-      <Table.Td ta="center"><input type="checkbox" aria-label={`기타비용 ${index + 1}행 선택`} checked={selected} disabled={disabled} onChange={handleToggle} /></Table.Td>
+      <Table.Td className={codeClasses.checkCol} ta="center"><input type="checkbox" aria-label={`기타비용 ${index + 1}행 선택`} checked={selected} disabled={disabled} onChange={handleToggle} /></Table.Td>
       <Table.Td ta="center">{index + 1}</Table.Td>
       <Table.Td><ExpenseCostAutocompleteCell row={expense} options={options} disabled={disabled} inputRef={inputRef}
         onDoubleClick={handleCostPicker} onSelect={handleCostSelect} /></Table.Td>
       <Table.Td><ExpenseNumericCell expenseId={expense.id} field="supplyamt" value={expense.supplyamt} disabled={disabled} onCommit={onChange} /></Table.Td>
       <Table.Td><ExpenseNumericCell expenseId={expense.id} field="vat" value={expense.vat} disabled={disabled} onCommit={onChange} /></Table.Td>
       <Table.Td><input className={`${codeClasses.cellInput} ${inboundClasses.amountInput}`} aria-label="합계금액" value={formatNumericInput(String(supply + vat))} readOnly /></Table.Td>
-      <Table.Td><ExpenseCustomerAutocompleteCell expenseId={expense.id} value={expense.customname || ''} disabled={disabled}
+      {/* 거래처: 비용여부 '예'면 입력, '아니오'면 출고 헤더의 매출처를 따라감(비활성) */}
+      <Table.Td><ExpenseCustomerAutocompleteCell expenseId={expense.id} value={isCost ? expense.customname || '' : salesCustomerName || ''} disabled={disabled || !isCost}
         onSelect={handleCustomerSelect} onOpenPicker={handleCustomerPicker} /></Table.Td>
       <Table.Td><Select size="xs" data={[{ value: 'N', label: '아니오' }, { value: 'Y', label: '예' }]} value={expense.purchaseyn || 'N'} disabled={disabled}
         onChange={(value) => onChange(expense.id, 'purchaseyn', value || 'N')} /></Table.Td>
@@ -1008,16 +1022,16 @@ const virtuosoComponents = {
 // which forces all existing (memoized) expense rows to re-render on each row add. The table
 // element is memoized and the expense array reaches the tbody through this context,
 // so adding an expense only renders the new row.
-const ExpenseRowsContext = createContext({ expenses: [], selectedExpenseSet: new Set() });
+const ExpenseRowsContext = createContext({ expenses: [], selectedExpenseSet: new Set(), salesCustomerName: '' });
 
 const OutboundExpenseTableRows = memo(function OutboundExpenseTableRows({
   disabled, options, getInputRef, onToggle, onChange, onOpenCustomerPicker, onSetCostPicker,
 }) {
-  const { expenses, selectedExpenseSet } = useContext(ExpenseRowsContext);
+  const { expenses, selectedExpenseSet, salesCustomerName } = useContext(ExpenseRowsContext);
   if (!expenses.length) return null;
   return <Table.Tbody>{expenses.map((expense, index) => (
     <OutboundExpenseRow key={expense.id} expense={expense} index={index} selected={selectedExpenseSet.has(expense.id)}
-      disabled={disabled} options={options} inputRef={getInputRef(expense.id)}
+      disabled={disabled} options={options} inputRef={getInputRef(expense.id)} salesCustomerName={salesCustomerName}
       onToggle={onToggle} onChange={onChange} onOpenCustomerPicker={onOpenCustomerPicker}
       onSetCostPicker={onSetCostPicker} />
   ))}</Table.Tbody>;
@@ -1853,6 +1867,8 @@ export default function OutboundRegisterPage() {
           !(String(expense.costcode || '').trim() || String(expense.costname || '').trim()) && '비용구분',
           !String(expense.supplyamt ?? '').trim() && '공급가',
           !String(expense.vat ?? '').trim() && '부가세',
+          // 비용여부 '예'는 지급할 거래처가 필수
+          expense.purchaseyn === 'Y' && !(String(expense.customcode || '').trim() || String(expense.customname || '').trim()) && '거래처',
         ].filter(Boolean),
       }))
       .find(({ missing }) => missing.length > 0);
@@ -1862,6 +1878,26 @@ export default function OutboundRegisterPage() {
         message: `${invalidExpense.index + 1}행 ${invalidExpense.missing.join(', ')} 입력이 필요합니다.`,
         color: 'orange',
         position: 'bottom-right',
+      });
+      setDetailTab('expenses');
+      return false;
+    }
+    // 비용여부 '예'는 다른 거래처(운송사 등)에 지급하는 비용: 매출처를 거래처로 쓸 수 없음
+    const salesCode = String(header.customcode || '').trim().toLowerCase();
+    const salesName = String(header.customname || '').trim().toLowerCase();
+    const sameCustomerIndex = expenses.findIndex((expense) => {
+      if (expense.purchaseyn !== 'Y') return false;
+      const code = String(expense.customcode || '').trim().toLowerCase();
+      const name = String(expense.customname || '').trim().toLowerCase();
+      return (salesCode && code === salesCode) || (!code && salesName && name === salesName);
+    });
+    if (sameCustomerIndex >= 0) {
+      notifications.show({
+        title: '기타비용 거래처 확인',
+        message: `${sameCustomerIndex + 1}행: 비용여부 '예'의 거래처는 매출처와 다른 거래처를 입력해 주세요. 매출처 부담이면 '아니오'로 선택해 주세요.`,
+        color: 'orange',
+        position: 'bottom-right',
+        autoClose: 8000,
       });
       setDetailTab('expenses');
       return false;
@@ -1970,18 +2006,23 @@ export default function OutboundRegisterPage() {
           warehousecodename: String(row.warehousecodename || '').trim(),
           unit: resolveMasterCode('unit', row.unit, unitOptions) || String(row.unit || '').trim(),
           qty: String(row.qty ?? '').trim(),
-          weight: String(row.weight || '').trim(), unitprice: String(row.unitprice || '').trim(),
+          weight: String(Number(Number(cleanNumericInput(row.weight)).toFixed(3))),
+          unitprice: String(Number(Number(cleanNumericInput(row.unitprice)).toFixed(2))),
         })),
-        expenses: expenses.map((expense) => ({
+        expenses: expenses.map((expense) => {
+          const isCost = expense.purchaseyn === 'Y';
+          return {
           costcode: String(expense.costcode || '').trim(),
           costname: String(expense.costname || '').trim(),
           supplyamt: cleanNumericInput(expense.supplyamt) || '0',
           vat: cleanNumericInput(expense.vat) || '0',
-          customcode: String(expense.customcode || '').trim(),
-          customname: String(expense.customname || '').trim(),
-          purchaseyn: expense.purchaseyn === 'Y' ? 'Y' : 'N',
+          // 비용여부 '아니오' = 매출처 부담 → 출고 헤더의 매출처로 저장
+          customcode: String((isCost ? expense.customcode : sourceHeader.customcode) || '').trim(),
+          customname: String((isCost ? expense.customname : sourceHeader.customname) || '').trim(),
+          purchaseyn: isCost ? 'Y' : 'N',
           description: String(expense.description || '').trim(),
-        })),
+          };
+        }),
       };
       const saveRequest = selectedReceiptno
         ? axios.put('/api/outbound-register/receipts', payload, authConfig())
@@ -2038,6 +2079,8 @@ export default function OutboundRegisterPage() {
         ]),
         ['상세 등록일자', (row) => formatExcelDateTime(row.created_at)],
         ['상세 수정일자', (row) => formatExcelDateTime(row.updated_at)],
+        ['등록자', (row) => row.created_by ?? ''],
+        ['수정자', (row) => row.updated_by ?? ''],
       ];
       const worksheet = XLSX.utils.aoa_to_sheet([
         exportFields.map(([label]) => label),
@@ -2166,7 +2209,9 @@ export default function OutboundRegisterPage() {
   ), [selectedSet, saving, selectedReceiptno, locked, hasNewDetails, unitOptions, toggleSelection, changeDetail, pasteRange, registerCodeInput, registerCellInput, openMasterPicker, openCustomerPicker, setActiveCell]);
 
   const headerColumns = [
-    { key: 'select', width: 44, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="상세 전체 선택" checked={rows.length > 0 && selectedIds.length === rows.length} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
+    // Disabled when no row checkbox is selectable (same rule as the rows: saving, locked, or saved rows of an opened receipt).
+    { key: 'select', width: 44, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="상세 전체 선택" checked={rows.length > 0 && selectedIds.length === rows.length}
+      disabled={saving || locked || !rows.some((row) => !selectedReceiptno || row.is_new)} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
     { key: 'number', width: 58, minWidth: 48, className: codeClasses.numberCol, label: 'No.' },
     ...DETAIL_FIELDS.map(({ key, label, width, required }) => ({ key, width, minWidth: 70, label: <>{label}{required && <span className={codeClasses.required}> *</span>}</> })),
   ];
@@ -2231,12 +2276,13 @@ export default function OutboundRegisterPage() {
     </Table>
   ), [receiptTableWidth, receiptColumnWidths, receiptAutoWidths, renderReceiptHeader, receipts, selectedReceiptno, handleOpenReceipt]);
   const allExpensesSelected = expenses.length > 0 && selectedExpenseIds.length === expenses.length;
-  const expenseRowsValue = useMemo(() => ({ expenses, selectedExpenseSet }), [expenses, selectedExpenseSet]);
+  const expenseRowsValue = useMemo(() => ({ expenses, selectedExpenseSet, salesCustomerName: header.customname || '' }),
+    [expenses, selectedExpenseSet, header.customname]);
   const expenseTable = useMemo(() => (
     <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} withTableBorder withColumnBorders horizontalSpacing="xs" verticalSpacing="xs"
       style={{ width: '100%', minWidth: 1120, tableLayout: 'fixed' }}>
       <Table.Thead><Table.Tr>
-        <Table.Th style={{ width: 42 }} ta="center"><input type="checkbox" aria-label="기타비용 전체 선택" disabled={saving || readOnly}
+        <Table.Th className={codeClasses.checkCol} style={{ width: 42 }} ta="center"><input type="checkbox" aria-label="기타비용 전체 선택" disabled={saving || readOnly}
           checked={allExpensesSelected}
           onChange={(event) => toggleAllExpenses(event.currentTarget.checked)} /></Table.Th>
         <Table.Th style={{ width: 52 }}>No.</Table.Th>

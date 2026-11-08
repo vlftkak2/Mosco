@@ -8,6 +8,7 @@ import { PageRibbonContext } from '../components/layout/MainLayout';
 import sharedClasses from '../styles/pages/ManagementShared.module.css';
 import classes from '../styles/pages/InboundSearch.module.css';
 import paymentClasses from '../styles/pages/ReceiptPaymentSearch.module.css';
+import { INSTRUMENT_OPTIONS_BY_FIELD, instrumentLabel } from '../utils/instrumentCodes';
 
 const PAGE_SIZE_OPTIONS = [15, 50, 100, 200].map((value) => ({ value: String(value), label: `${value}개씩` }));
 const COLUMNS = [
@@ -18,6 +19,7 @@ const COLUMNS = [
   ['offsetamt', '상계', 70], ['lossamt', '잡손실', 70], ['chargeamt', '과금', 70], ['totalamt', '합계', 80],
   ['detail_description', '비고', 130], ['receiptno', '전표번호', 110], ['lineno', '전표순번', 70],
   ['created_at', '등록일자', 110], ['updated_at', '수정일자', 110],
+  ['created_by', '등록자', 80], ['updated_by', '수정자', 80],
 ].map(([key, label, width]) => ({ key, label, width, minWidth: Math.min(width, 65) }));
 const NUMERIC_COLUMNS = new Set(['cashamt', 'instrumentamt', 'bankamt', 'cardamt', 'offsetamt', 'lossamt', 'chargeamt', 'totalamt']);
 
@@ -138,6 +140,7 @@ export default function ReceiptPaymentSearch() {
         if (column.key === 'transactiontype') return item.transactiontype === 'PAYMENT' ? '지급' : '수금';
         if (['receiptdate', 'issuedate', 'maturitydate'].includes(column.key)) return displayDate(item[column.key]);
         if (['header_created_at', 'header_updated_at', 'created_at', 'updated_at'].includes(column.key)) return displayDateTime(item[column.key]);
+        if (INSTRUMENT_OPTIONS_BY_FIELD[column.key]) return instrumentLabel(column.key, item[column.key]);
         return item[column.key] ?? '';
       }));
       const csv = [header, ...rows].map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\r\n');
@@ -178,6 +181,7 @@ export default function ReceiptPaymentSearch() {
     if (['receiptdate', 'issuedate', 'maturitydate'].includes(key)) return displayDate(item[key]);
     if (['header_created_at', 'header_updated_at', 'created_at', 'updated_at'].includes(key)) return displayDateTime(item[key]);
     if (NUMERIC_COLUMNS.has(key)) return formatNumber(item[key]);
+    if (INSTRUMENT_OPTIONS_BY_FIELD[key]) return instrumentLabel(key, item[key]);
     return item[key] ?? '';
   };
 

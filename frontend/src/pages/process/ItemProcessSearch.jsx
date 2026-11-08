@@ -28,6 +28,7 @@ const COLUMNS = [
   ['unitamt', '합계금액', 120], ['processno', '가공전표', 160],
   ['manager', '담당자', 100], ['description', '비고', 180],
   ['createdat', '등록일자', 145], ['updatedat', '수정일자', 145],
+  ['created_by', '등록자', 90], ['updated_by', '수정자', 90],
 ].map(([key, label, width]) => ({ key, label, width, minWidth: Math.min(width, 68) }));
 
 const makeDefaultFilters = () => {
@@ -255,6 +256,7 @@ export default function ItemProcessSearch() {
                   <Table.Td>{item.processno}</Table.Td>
                   <Table.Td>{item.manager}</Table.Td><Table.Td>{item.description}</Table.Td>
                   <Table.Td>{displayDateTime(item.createdat)}</Table.Td><Table.Td>{displayDateTime(item.updatedat)}</Table.Td>
+                  <Table.Td>{item.created_by || ''}</Table.Td><Table.Td>{item.updated_by || ''}</Table.Td>
                 </Table.Tr>)}</Table.Tbody>
               </Table>
             </Box> : !loading && <Box className={classes.emptyState}>조회된 가공 내역이 없습니다.</Box>}

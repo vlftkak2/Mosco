@@ -72,6 +72,7 @@ def save_document(
     try:
         result = receipt_payment_module.save_document(
             user["companyid"], user.get("companyname") or user["companyid"], data.model_dump(),
+            actor=user.get("email"),
         )
         return {"success": True, **result}
     except ValueError as error:

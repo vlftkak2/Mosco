@@ -43,6 +43,11 @@ const sourceKey = (stock) => [stock.sourcetype || stock.stocksourcetype, stock.s
 const num = (value) => Number(value) || 0;
 const numberText = (value) => num(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
 const cleanDraftNumber = (value) => String(value ?? '').replace(/,/g, '').replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
+// The API accepts qty/weight with 3 decimals and unit prices with 2, so extra digits are not typed in.
+const limitFraction = (value, digits) => {
+  const [whole, fraction] = cleanDraftNumber(value).split('.');
+  return fraction === undefined ? whole : `${whole}.${fraction.slice(0, digits)}`;
+};
 const draftNumberText = (value, maximumFractionDigits = Infinity) => {
   const raw = cleanDraftNumber(value);
   if (!raw) return '';
@@ -161,7 +166,7 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
   const updateDraft = (stock, field, value) => {
     const key = sourceKey(stock);
     const limit = remaining(stock);
-    const nextValue = Math.max(0, num(cleanDraftNumber(value)));
+    const nextValue = Math.max(0, num(limitFraction(value, 3)));
     setDrafts((current) => {
       const previous = current[key] || {
         qty: String(Math.min(1, limit.qty)),
@@ -181,7 +186,7 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
     const key = sourceKey(stock);
     setDrafts((current) => ({
       ...current,
-      [key]: { ...(current[key] || getDraft(stock)), unitprice: cleanDraftNumber(value) },
+      [key]: { ...(current[key] || getDraft(stock)), unitprice: limitFraction(value, 2) },
     }));
   };
 
@@ -222,14 +227,11 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
     const result = [];
     for (const stock of chosen) {
       const key = sourceKey(stock);
-      const receiptWarehouse = receiptno ? String(existingRows[0]?.warehousecode || '').trim() : '';
-      if (receiptWarehouse && String(stock.warehousecode || '').trim() !== receiptWarehouse) {
-        notifications.show({ title: '창고가 다른 재고입니다', message: `${stock.itemname}: 선택한 출고전표와 같은 창고의 재고만 추가할 수 있습니다.`, color: 'orange' });
-        return;
-      }
       const draft = drafts[key] || getDraft(stock);
-      const qty = num(draft.qty);
-      const weight = num(draft.weight);
+      // The DB/API keep qty and weight at 3 decimals; proportional weights (e.g. 1000 / 3)
+      // would otherwise carry long fractions and be rejected on save.
+      const qty = Number(num(draft.qty).toFixed(3));
+      const weight = Number(num(draft.weight).toFixed(3));
       const unitpriceText = String(draft.unitprice ?? '').trim();
       const unitprice = Number(unitpriceText);
       const limit = remaining(stock);

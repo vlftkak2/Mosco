@@ -25,13 +25,15 @@ import classes from '../../styles/pages/Company.module.css';
 const PAGE_SIZE = 30;
 let postcodeScriptPromise;
 const COMPANY_COLUMNS = [
-  { key: 'companyid', label: '고객사코드', width: '13%' },
-  { key: 'companyname', label: '고객사명', width: '19%' },
-  { key: 'plan_code', label: '서비스유형', width: '12%' },
-  { key: 'company_status', label: '이용상태', width: '12%' },
-  { key: 'licensed_seats', label: '허용계정', width: '10%' },
-  { key: 'createdat', label: '등록일자', width: '17%' },
-  { key: 'updatedat', label: '수정일자', width: '17%' },
+  { key: 'companyid', label: '고객사코드', width: '11%' },
+  { key: 'companyname', label: '고객사명', width: '17%' },
+  { key: 'plan_code', label: '서비스유형', width: '10%' },
+  { key: 'company_status', label: '이용상태', width: '10%' },
+  { key: 'licensed_seats', label: '허용계정', width: '8%' },
+  { key: 'createdat', label: '등록일자', width: '13%' },
+  { key: 'updatedat', label: '수정일자', width: '13%' },
+  { key: 'created_by', label: '등록자', width: '9%' },
+  { key: 'updated_by', label: '수정자', width: '9%' },
 ];
 const PLAN_OPTIONS = [
   { value: 'BASIC', label: '기본형' },
@@ -404,9 +406,11 @@ export default function Company() {
                     <Table.Td>{Number(company.licensed_seats || 0).toLocaleString('ko-KR')}</Table.Td>
                     <Table.Td>{formatDate(company.createdat)}</Table.Td>
                     <Table.Td>{formatDate(company.updatedat)}</Table.Td>
+                    <Table.Td>{company.created_by_name || company.created_by || ''}</Table.Td>
+                    <Table.Td>{company.updated_by_name || company.updated_by || ''}</Table.Td>
                   </Table.Tr>
                 )) : (
-                  <Table.Tr><Table.Td colSpan={7} className={classes.empty}>{loading ? '조회 중...' : '등록된 고객사가 없습니다.'}</Table.Td></Table.Tr>
+                  <Table.Tr><Table.Td colSpan={COMPANY_COLUMNS.length} className={classes.empty}>{loading ? '조회 중...' : '등록된 고객사가 없습니다.'}</Table.Td></Table.Tr>
                 )}
               </Table.Tbody>
             </Table>
@@ -468,6 +472,8 @@ export default function Company() {
               <TextInput className={classes.fullWidth} label="상세주소" value={draft.address2} onChange={(event) => updateDraft('address2', event.currentTarget.value)} maxLength={300} />
               <TextInput label="등록일시" value={formatDateTime(draft.createdat)} readOnly disabled />
               <TextInput label="수정일시" value={formatDateTime(draft.updatedat)} readOnly disabled />
+              <TextInput label="등록자" value={draft.created_by_name || draft.created_by || ''} readOnly disabled />
+              <TextInput label="수정자" value={draft.updated_by_name || draft.updated_by || ''} readOnly disabled />
             </div>
           </ScrollArea>
         </Paper>

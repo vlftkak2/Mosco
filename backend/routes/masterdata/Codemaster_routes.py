@@ -174,6 +174,7 @@ def save_code_group(
             companyname=user.get("companyname") or user["companyid"],
             groupcode=groupcode,
             items=[item.model_dump() for item in data.items],
+            actor=user.get("email"),
         )
         if not saved:
             raise HTTPException(status_code=404, detail="공통코드 그룹을 찾을 수 없습니다.")
@@ -197,6 +198,7 @@ def save_bulk_codes(
             companyid=user["companyid"],
             companyname=user.get("companyname") or user["companyid"],
             items=[item.model_dump() for item in data.items],
+            actor=user.get("email"),
         )
     except code_master_module.CodeMasterConflictError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error

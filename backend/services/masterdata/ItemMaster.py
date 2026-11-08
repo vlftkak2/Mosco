@@ -3,6 +3,7 @@ from contextlib import contextmanager
 
 from psycopg2 import IntegrityError
 import db as _shared_db
+from services.masterdata import CodeUsage as code_usage_module
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import DB_CONFIG
@@ -134,10 +135,21 @@ def export_items(companyid: str, query: str = ""):
         params.extend((pattern, pattern))
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
-            f"SELECT {_SELECT_COLUMNS} FROM ItemCode01t WHERE {where} ORDER BY itemcode",
+            f"""
+            SELECT {_SELECT_COLUMNS},
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = ItemCode01t.created_by LIMIT 1), created_by),
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = ItemCode01t.updated_by LIMIT 1), updated_by)
+            FROM ItemCode01t WHERE {where} ORDER BY itemcode
+            """,
             params,
         )
-        return [_row_to_item(row) for row in cursor.fetchall()]
+        items = []
+        for row in cursor.fetchall():
+            item = _row_to_item(row[:-2])
+            item["created_by"] = row[-2] or ""
+            item["updated_by"] = row[-1] or ""
+            items.append(item)
+        return items
 
 
 def lookup_items(companyid: str, itemcodes: list[str]):
@@ -217,7 +229,7 @@ def suggest_active_items(companyid: str, query: str, limit: int = 8):
         ]
 
 
-def save_items(companyid: str, companyname: str, items: list[dict]) -> int:
+def save_items(companyid: str, companyname: str, items: list[dict], actor: str | None = None) -> int:
     try:
         with _connect() as connection, connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"item:{companyid}",))
@@ -280,9 +292,9 @@ def save_items(companyid: str, companyname: str, items: list[dict]) -> int:
                     if code in existing_shapes:
                         raise ValueError(f"이미 등록된 품목코드입니다: {code}")
                     cursor.execute(
-                        f"INSERT INTO ItemCode01t (companyid, companyname, {_SELECT_COLUMNS}) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                        (companyid, companyname, code, *values),
+                        f"INSERT INTO ItemCode01t (companyid, companyname, {_SELECT_COLUMNS}, created_by) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                        (companyid, companyname, code, *values, actor or None),
                     )
                     existing_shapes[code] = shape_code
                     existing_shape_names[code] = values[2] or ""
@@ -293,10 +305,11 @@ def save_items(companyid: str, companyname: str, items: list[dict]) -> int:
                         """
                         UPDATE ItemCode01t SET
                             itemname = %s, itemtypecode = %s, itemtypecodenm = %s,
-                            use_yn = %s, description = %s, updated_at = CURRENT_TIMESTAMP
+                            use_yn = %s, description = %s, updated_at = CURRENT_TIMESTAMP,
+                            updated_by = %s
                         WHERE companyid = %s AND itemcode = %s
                         """,
-                        (*values, companyid, code),
+                        (*values, actor or None, companyid, code),
                     )
         return len(items)
     except (ValueError, IntegrityError):
@@ -310,6 +323,10 @@ def delete_items(companyid: str, itemcodes: list[str]) -> int:
     if not itemcodes:
         return 0
     with _connect() as connection, connection.cursor() as cursor:
+        # Items still used by stock / documents cannot be deleted (switch them to 사용중지 instead).
+        usage_error = code_usage_module.item_code_usage_error(cursor, companyid, itemcodes)
+        if usage_error:
+            raise ValueError(usage_error)
         cursor.execute(
             "DELETE FROM ItemCode01t WHERE companyid = %s AND itemcode = ANY(%s)",
             (companyid, itemcodes),

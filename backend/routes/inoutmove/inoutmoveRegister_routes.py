@@ -84,6 +84,7 @@ def create_document(data: transfer_module.TransferSaveRequest, user: dict = Depe
     try:
         return {"success": True, **transfer_module.save_transfer(
             user["companyid"], user.get("companyname") or user["companyid"], data.model_dump(),
+            actor=user.get("email"),
         )}
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -94,7 +95,7 @@ def create_document(data: transfer_module.TransferSaveRequest, user: dict = Depe
 @router.delete("/documents/{receiptno}")
 def delete_document(receiptno: str, user: dict = Depends(security_module.get_current_user)):
     try:
-        deleted = transfer_module.delete_transfer(user["companyid"], receiptno)
+        deleted = transfer_module.delete_transfer(user["companyid"], receiptno, actor=user.get("email"))
         if not deleted:
             raise HTTPException(status_code=404, detail="재고이전 전표를 찾을 수 없습니다.")
         return {"success": True, "deleted_count": deleted}

@@ -78,22 +78,22 @@ def confirm_order(companyid, companyname, username, email, payload):
             cur.execute("""
                 INSERT INTO aiorder01t
                     (companyid, companyname, orderid, analysis_request_id, username, useremail,
-                     buyer, recipient, orderdate, duedate, deliverylocation, sourcefilename)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     buyer, recipient, orderdate, duedate, deliverylocation, sourcefilename, created_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (companyid, companyname, orderid, request_id, username, email,
                   h.buyer, h.recipient, h.order_date, h.due_date, h.delivery_location,
-                  payload.sourcefilename))
+                  payload.sourcefilename, email or None))
             for lineno, item in enumerate(payload.items, start=1):
                 cur.execute("""
                     INSERT INTO aiorder02t
                         (companyid, companyname, orderid, lineno, itemname, steelgrade, size,
                          thickness, width, length, quantity, quantity_unit, weight_kg, notes,
-                         quantity_raw, weight_raw)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                         quantity_raw, weight_raw, created_by)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (companyid, companyname, orderid, lineno, item.source_product_name,
                       item.steel_grade, item.spec_raw, item.thickness, item.width, item.length,
                       item.quantity, item.quantity_unit, item.weight_kg, item.notes,
-                      item.quantity_raw, item.weight_raw))
+                      item.quantity_raw, item.weight_raw, email or None))
         conn.commit()
     return {"orderid": orderid, "already_confirmed": False}
 
@@ -115,22 +115,21 @@ def list_orders(companyid, start_date=None, end_date=None, buyer=None, orderid=N
         total = cur.fetchone()["total"]
         cur.execute(f"""
             SELECT h.orderid, h.buyer, h.recipient, h.orderdate, h.duedate, h.deliverylocation,
-                   h.username, h.useremail, h.created_at,
+                   h.username, h.useremail, h.created_at, h.updated_at,
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = COALESCE(h.created_by, h.useremail) LIMIT 1),
+                            COALESCE(h.created_by, h.useremail)) AS created_by,
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = h.updated_by LIMIT 1), h.updated_by) AS updated_by,
                    (SELECT COUNT(*) FROM aiorder02t d WHERE d.companyid=h.companyid AND d.orderid=h.orderid) AS item_count,
                    (SELECT COALESCE(SUM(d.weight_kg), 0) FROM aiorder02t d
                     WHERE d.companyid=h.companyid AND d.orderid=h.orderid) AS total_weight,
                    COALESCE((SELECT CASE
-                       WHEN COUNT(*) = 0 THEN 'REVIEW_PENDING'
-                        WHEN COUNT(*) FILTER (WHERE d.processing_status <> 'CANCELLED') = 0 THEN 'CANCELLED'
-                        WHEN BOOL_AND(d.processing_status = 'PROCESSING_DONE')
-                             FILTER (WHERE d.processing_status <> 'CANCELLED') THEN 'PROCESSING_DONE'
-                        WHEN BOOL_AND(d.processing_status = 'NOT_REQUIRED')
-                             FILTER (WHERE d.processing_status <> 'CANCELLED') THEN 'NOT_REQUIRED'
-                        WHEN BOOL_OR(d.processing_status = 'PROCESSING_REVIEW')
-                             FILTER (WHERE d.processing_status <> 'CANCELLED') THEN 'PROCESSING_REVIEW'
-                       ELSE 'REVIEW_PENDING' END
+                       WHEN COUNT(*) = 0 THEN 'PROCESSING_REVIEW'
+                       WHEN BOOL_OR(d.processing_status = 'PROCESSING_REVIEW') THEN 'PROCESSING_REVIEW'
+                       WHEN BOOL_OR(d.processing_status = 'PROCESSING_DONE') THEN 'PROCESSING_DONE'
+                       WHEN BOOL_AND(d.processing_status = 'NOT_REQUIRED') THEN 'NOT_REQUIRED'
+                       ELSE 'PROCESSING_REVIEW' END
                      FROM aiorder02t d WHERE d.companyid=h.companyid AND d.orderid=h.orderid),
-                     'REVIEW_PENDING') AS progress
+                     'PROCESSING_REVIEW') AS progress
             FROM aiorder01t h WHERE {where}
             ORDER BY h.created_at DESC, h.orderid DESC LIMIT %s OFFSET %s
         """, args + [page_size, (page - 1) * page_size])
@@ -143,10 +142,17 @@ def get_order(companyid, orderid):
         header = cur.fetchone()
         if not header:
             return None
+        header = dict(header)
+        cur.execute("""SELECT COALESCE((SELECT username FROM user01t WHERE email = %(c)s LIMIT 1), %(c)s) AS created_by_name,
+                              COALESCE((SELECT username FROM user01t WHERE email = %(u)s LIMIT 1), %(u)s) AS updated_by_name""",
+                    {"c": header.get("created_by") or header.get("useremail"), "u": header.get("updated_by")})
+        header.update(cur.fetchone())
         cur.execute("""
             SELECT lineno, itemname, steelgrade, size, thickness, width, length,
                    quantity, quantity_unit, weight_kg, notes, quantity_raw, weight_raw,
-                   stock_match_status, processing_status
+                   stock_match_status, processing_status, created_at, updated_at,
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = aiorder02t.created_by LIMIT 1), aiorder02t.created_by) AS created_by,
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = aiorder02t.updated_by LIMIT 1), aiorder02t.updated_by) AS updated_by
             FROM aiorder02t WHERE companyid=%s AND orderid=%s ORDER BY lineno
         """, (companyid, orderid))
         items = [as_dict(row) for row in cur.fetchall()]
@@ -188,22 +194,23 @@ def get_order(companyid, orderid):
         return {"header": as_dict(header), "items": items}
 
 
-def update_order(companyid, orderid, buyer, recipient, order_date, due_date, delivery_location):
+def update_order(companyid, orderid, buyer, recipient, order_date, due_date, delivery_location, actor=None):
     """Update editable confirmed-order header fields within the tenant."""
     with connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE aiorder01t
                 SET buyer = %s, recipient = %s, orderdate = %s,
-                    duedate = %s, deliverylocation = %s
+                    duedate = %s, deliverylocation = %s,
+                    updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, updated_by)
                 WHERE companyid = %s AND orderid = %s
-            """, (buyer, recipient, order_date, due_date, delivery_location, companyid, orderid))
+            """, (buyer, recipient, order_date, due_date, delivery_location, actor or None, companyid, orderid))
             updated = cur.rowcount > 0
         conn.commit()
     return updated
 
 
-def update_order_items(companyid, orderid, items):
+def update_order_items(companyid, orderid, items, actor=None):
     """Save editable order rows, retaining existing line IDs and appending new IDs."""
     with connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -245,19 +252,24 @@ def update_order_items(companyid, orderid, items):
                         INSERT INTO aiorder02t
                             (companyid, companyname, orderid, lineno, itemname, steelgrade, size,
                              thickness, width, length, quantity, quantity_unit, weight_kg, notes,
-                             quantity_raw, weight_raw)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (companyid, header["companyname"], orderid, next_lineno, *values))
+                             quantity_raw, weight_raw, created_by)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (companyid, header["companyname"], orderid, next_lineno, *values, actor or None))
                 else:
                     cur.execute("""
                         UPDATE aiorder02t
                         SET itemname=%s, steelgrade=%s, size=%s, thickness=%s, width=%s,
                             length=%s, quantity=%s, quantity_unit=%s, weight_kg=%s,
-                            notes=%s, quantity_raw=%s, weight_raw=%s
+                            notes=%s, quantity_raw=%s, weight_raw=%s,
+                            updated_at=CURRENT_TIMESTAMP, updated_by=COALESCE(%s, updated_by)
                         WHERE companyid=%s AND orderid=%s AND lineno=%s
-                    """, (*values, companyid, orderid, item.lineno))
+                    """, (*values, actor or None, companyid, orderid, item.lineno))
                     if cur.rowcount != 1:
                         raise ValueError("주문 상세 행을 찾을 수 없습니다. 다시 조회한 뒤 저장해 주세요.")
+            cur.execute(
+                "UPDATE aiorder01t SET updated_at=CURRENT_TIMESTAMP, updated_by=COALESCE(%s, updated_by) WHERE companyid=%s AND orderid=%s",
+                (actor or None, companyid, orderid),
+            )
         conn.commit()
     return True
 
@@ -278,7 +290,7 @@ def cancel_order(companyid, orderid):
     return True
 
 
-def save_stock_matches(companyid, orderid, lineno, status, sources):
+def save_stock_matches(companyid, orderid, lineno, status, sources, actor=None):
     """Replace the stock links and match state for one tenant-owned order line."""
     status = str(status or "").strip().upper()
     if status not in {"UNREVIEWED", "MATCHED", "NO_STOCK"}:
@@ -317,40 +329,54 @@ def save_stock_matches(companyid, orderid, lineno, status, sources):
                 FROM currentstock01t
                 WHERE companyid=%s AND (qty > 0 OR weight > 0)
                   AND (sourcetype, sourceno, sourceline) IN ({tuples_sql})
-                FOR SHARE
+                ORDER BY sourcetype, sourceno, sourceline
+                FOR UPDATE
             """, params)
             available = {(row["sourcetype"], row["sourceno"], int(row["sourceline"])) for row in cur.fetchall()}
             missing = set(normalized) - available
             if missing:
                 raise ValueError("현재고가 변경되었거나 사용할 수 없는 재고가 있습니다. 현재고를 다시 조회해 주세요.")
 
+        if normalized:
+            tuples_sql = ",".join(["(%s,%s,%s)"] * len(normalized))
+            source_params = [value for source in normalized for value in source]
+            cur.execute(f"""
+                SELECT 1 FROM aiorder03t
+                WHERE companyid=%s
+                  AND NOT (orderid=%s AND lineno=%s)
+                  AND (stocksourcetype, stocksourceno, stocksourceline) IN ({tuples_sql})
+                LIMIT 1
+            """, [companyid, orderid, lineno, *source_params])
+            if cur.fetchone():
+                raise ValueError("선택한 현재고는 다른 주문 품목에 이미 연결되어 있습니다. 다른 현재고를 선택해 주세요.")
+
         cur.execute("DELETE FROM aiorder03t WHERE companyid=%s AND orderid=%s AND lineno=%s", (companyid, orderid, lineno))
         for matchlineno, (source_type, source_no, source_line) in enumerate(normalized, start=1):
             cur.execute("""
                 INSERT INTO aiorder03t
                     (companyid, companyname, orderid, lineno, matchlineno,
-                     stocksourcetype, stocksourceno, stocksourceline)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                     stocksourcetype, stocksourceno, stocksourceline, created_by)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (companyid, line["companyname"], orderid, lineno, matchlineno,
-                  source_type, source_no, source_line))
+                  source_type, source_no, source_line, actor or None))
         cur.execute("""
-            UPDATE aiorder02t SET stock_match_status=%s, updated_at=CURRENT_TIMESTAMP
+            UPDATE aiorder02t SET stock_match_status=%s, updated_at=CURRENT_TIMESTAMP, updated_by=COALESCE(%s, updated_by)
             WHERE companyid=%s AND orderid=%s AND lineno=%s
-        """, (status, companyid, orderid, lineno))
+        """, (status, actor or None, companyid, orderid, lineno))
         conn.commit()
     return True
 
 
-def update_processing_status(companyid, orderid, lineno, status):
-    allowed = {"REVIEW_PENDING", "PROCESSING_REVIEW", "PROCESSING_DONE", "NOT_REQUIRED", "CANCELLED"}
+def update_processing_status(companyid, orderid, lineno, status, actor=None):
+    allowed = {"PROCESSING_REVIEW", "PROCESSING_DONE", "NOT_REQUIRED"}
     status = str(status or "").strip().upper()
     if status not in allowed:
         raise ValueError("가공상태를 확인해 주세요.")
     with connection() as conn, conn.cursor() as cur:
         cur.execute("""
-            UPDATE aiorder02t SET processing_status=%s, updated_at=CURRENT_TIMESTAMP
+            UPDATE aiorder02t SET processing_status=%s, updated_at=CURRENT_TIMESTAMP, updated_by=COALESCE(%s, updated_by)
             WHERE companyid=%s AND orderid=%s AND lineno=%s
-        """, (status, companyid, orderid, lineno))
+        """, (status, actor or None, companyid, orderid, lineno))
         updated = cur.rowcount == 1
         conn.commit()
     return updated
@@ -436,7 +462,16 @@ def stock_candidates(companyid, orderid, lineno, thickness_from=None, thickness_
                    s.surfacecode, s.surfacename, s.receiptdate,
                    s.thickness, s.width, s.length, s.qty, s.qtyunit, s.weight,
                    s.warehousecode, s.warehousecodename, m.itemname AS master_itemname,
-                   m.itemtypecode, COUNT(*) OVER () AS total_count
+                   m.itemtypecode,
+                   EXISTS (
+                     SELECT 1 FROM aiorder03t linked
+                     WHERE linked.companyid=s.companyid
+                       AND linked.stocksourcetype=s.sourcetype
+                       AND linked.stocksourceno=s.sourceno
+                       AND linked.stocksourceline=s.sourceline
+                       AND NOT (linked.orderid=%(orderid)s AND linked.lineno=%(lineno)s)
+                   ) AS matched_elsewhere,
+                   COUNT(*) OVER () AS total_count
             FROM currentstock01t s LEFT JOIN itemcode01t m
               ON m.companyid=s.companyid AND m.itemcode=s.itemcode
             WHERE {where_sql}
@@ -449,7 +484,8 @@ def stock_candidates(companyid, orderid, lineno, thickness_from=None, thickness_
               ABS(s.thickness - COALESCE(%(ot)s::numeric, 0)),
               s.qty DESC, s.width, s.itemcode, s.warehousecode, s.sourcetype, s.sourceno, s.sourceline
             LIMIT %(limit)s OFFSET %(offset)s
-        """, {**params, "ot": order_thick, "ow": order_width, "ol": order_length,
+        """, {**params, "orderid": orderid, "lineno": lineno,
+              "ot": order_thick, "ow": order_width, "ol": order_length,
               "limit": page_size, "offset": (page - 1) * page_size})
         rows = cur.fetchall()
         total = rows[0]["total_count"] if rows else 0

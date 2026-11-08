@@ -28,6 +28,13 @@
 .receiptFinderRowActive > td { background: #fceff0 !important; }
 .receiptFinderRowActive > td:first-child { box-shadow: inset 3px 0 #f0444c; }
 .detailTable .selectedRow > td { background: #e8f1ff !important; }
+/* Saved document: detail rows shown disabled (same gray as saved rows in 입고/출고등록). */
+.detailTable .savedRow > td { background: #f1f3f5 !important; color: #8b95a3 !important; }
+/* Selection column: no side padding / default checkbox margin, so the 16px checkbox fits the 38px column
+   (the overflow used to render as an ellipsis "dot" next to the box). Header box = same red 16px box as rows. */
+.detailTable th.checkCell,
+.detailTable td.checkCell { padding: 0 !important; text-align: center !important; text-overflow: clip !important; }
+.detailTable .checkCell input[type="checkbox"] { margin: 0; }
 .listViewport,
 .detailViewport {
   scrollbar-width: thin;

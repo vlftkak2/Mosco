@@ -835,7 +835,7 @@ export default function AIOrderPage() {
   const [uploadProgress, setUploadProgress] = useState(null);
   const [confirmingId, setConfirmingId] = useState(null);
   const [orderConfirmTargetId, setOrderConfirmTargetId] = useState(null);
-  const updateDocument = useCallback((id, updater) => setDocuments((current) => current.map((doc) => doc.id === id ? (typeof updater === 'function' ? updater(doc) : { ...doc, ...updater }) : doc)), []);
+  const updateDocument = useCallback((id, updater) => setDocuments((current) => current.map((doc) => doc.id === id ? (typeof updater === 'function' ? updater(doc) : { ...doc, ...updater }) : doc)), [setDocuments]);
   const selectedDoc = documents.find((doc) => doc.id === selectedId) || documents[0] || null;
   const orderConfirmTarget = documents.find((doc) => doc.id === orderConfirmTargetId) || null;
   const requestOrderConfirmation = (doc) => {
@@ -1013,7 +1013,7 @@ export default function AIOrderPage() {
       cacheLookupRequests.current.delete(doc.id);
       updateDocument(doc.id, { cacheChecking: false });
     }
-  }, [updateDocument]);
+  }, [updateDocument, setSelectedId]);
 
   useEffect(() => {
     const queue = documents.filter((doc) => doc.status === 'queued' && !activeRequests.current.has(doc.id));

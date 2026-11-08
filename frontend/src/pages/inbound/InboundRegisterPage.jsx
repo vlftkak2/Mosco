@@ -11,7 +11,7 @@ import {
   IconFilter, IconSearch, IconTrash, IconX,
 } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
@@ -77,7 +77,7 @@ const InboundExpenseRow = memo(function InboundExpenseRow({
 
   return (
     <Table.Tr className={[expense.is_new && outboundClasses.newRow, selected && outboundClasses.selectedRow].filter(Boolean).join(' ')}>
-      <Table.Td ta="center"><input type="checkbox" aria-label={`기타비용 ${index + 1}행 선택`} checked={selected} disabled={disabled} onChange={handleToggle} /></Table.Td>
+      <Table.Td className={codeClasses.checkCol} ta="center"><input type="checkbox" aria-label={`기타비용 ${index + 1}행 선택`} checked={selected} disabled={disabled} onChange={handleToggle} /></Table.Td>
       <Table.Td ta="center">{index + 1}</Table.Td>
       <Table.Td><ExpenseCostAutocompleteCell row={expense} options={options} disabled={disabled} inputRef={inputRef}
         onDoubleClick={handleCostPicker} onSelect={handleCostSelect} /></Table.Td>
@@ -2464,6 +2464,8 @@ export default function InboundRegisterPage() {
         ]),
         ['등록일자', (row) => formatExcelDateTime(row.created_at)],
         ['수정일자', (row) => formatExcelDateTime(row.updated_at)],
+        ['등록자', (row) => row.created_by ?? ''],
+        ['수정자', (row) => row.updated_by ?? ''],
       ];
       const worksheet = XLSX.utils.aoa_to_sheet([
         exportFields.map(([label]) => label),
@@ -2585,14 +2587,16 @@ export default function InboundRegisterPage() {
   ), [selectedSet, saving, readOnly, unitOptions, toggleSelection, changeDetail, handlePasteRange, registerCellInput, selectItem, selectCustomerForRow, selectWarehouse, selectGeneralMaster, openItemPicker, openCustomerPicker, openMasterPicker, setActiveCell]);
 
   const allRowsSelected = rows.length > 0 && selectedIds.length === rows.length;
+  const noDetailRows = rows.length === 0;
   const headerColumns = useMemo(() => [
-    { key: 'select', width: 42, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="상세 전체 선택" checked={allRowsSelected} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
+    // Disabled exactly like the row checkboxes (saved receipt = read-only), plus when there are no rows.
+    { key: 'select', width: 42, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="상세 전체 선택" checked={allRowsSelected} disabled={saving || readOnly || noDetailRows} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
     { key: 'number', width: 58, minWidth: 58, className: codeClasses.numberCol, label: 'No.' },
     ...DETAIL_FIELDS.map(({ key, label, width, minWidth, required }) => ({
       key, width, minWidth: minWidth || width,
       label: <>{label}{required && <span className={codeClasses.required}> *</span>}</>,
     })),
-  ], [allRowsSelected, toggleAll]);
+  ], [allRowsSelected, toggleAll, saving, readOnly, noDetailRows]);
   const tableWidth = useMemo(
     () => headerColumns.reduce((sum, column) => sum + (columnWidths[column.key] ?? column.width), 0),
     [headerColumns, columnWidths],
@@ -2653,7 +2657,7 @@ export default function InboundRegisterPage() {
   const allExpensesSelected = expenses.length > 0 && selectedExpenseIds.length === expenses.length;
   const expenseHeader = useMemo(() => (
     <Table.Thead><Table.Tr>
-      <Table.Th style={{ width: 42 }} ta="center"><input type="checkbox" aria-label="기타비용 전체 선택" disabled={saving || readOnly}
+      <Table.Th className={codeClasses.checkCol} style={{ width: 42 }} ta="center"><input type="checkbox" aria-label="기타비용 전체 선택" disabled={saving || readOnly}
         checked={allExpensesSelected} onChange={(event) => toggleAllExpenses(event.currentTarget.checked)} /></Table.Th>
       <Table.Th style={{ width: 52 }}>No.</Table.Th>
       <Table.Th style={{ width: 160 }}>비용 구분</Table.Th>

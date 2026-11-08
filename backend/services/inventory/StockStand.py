@@ -94,11 +94,37 @@ class StandItemResolveRequest(BaseModel):
 
 
 class StandDeleteRequest(BaseModel):
-    delete_all: bool
+    delete_all: bool = False
+    linenos: list[int] = Field(default_factory=list, max_length=10000)
 
 
 def _dict_row(cursor, row):
     return dict(zip((column[0] for column in cursor.description), row))
+
+
+# Why an opening-stock line can no longer be deleted on its own (NULL = deletable).
+# `s` = StandStock01t row, `cs` = its CurrentStock01t source row (OPENING / sourceline = lineno).
+# A line is deletable only while its stock source row is untouched and referenced nowhere.
+_DELETE_BLOCK_SQL = """CASE
+    WHEN cs.companyid IS NULL THEN 'MISSING'
+    WHEN cs.qty <> cs.originalqty OR cs.weight <> cs.originalweight THEN 'USED'
+    WHEN EXISTS (SELECT 1 FROM Outbound02t o
+                 WHERE o.companyid = cs.companyid AND o.stocksourcetype = cs.sourcetype
+                   AND o.stocksourceno = cs.sourceno AND o.stocksourceline = cs.sourceline) THEN 'OUTBOUND'
+    WHEN EXISTS (SELECT 1 FROM Process02t pr
+                 WHERE pr.companyid = cs.companyid AND pr.linetype = 'SOURCE' AND pr.stocksourcetype = cs.sourcetype
+                   AND pr.stocksourceno = cs.sourceno AND pr.stocksourceline = cs.sourceline) THEN 'PROCESS'
+    WHEN EXISTS (SELECT 1 FROM inoutmove02t m
+                 WHERE m.companyid = cs.companyid AND m.stocksourcetype = cs.sourcetype
+                   AND m.stocksourceno = cs.sourceno AND m.stocksourceline = cs.sourceline) THEN 'TRANSFER'
+END"""
+_DELETE_BLOCK_TEXT = {
+    "MISSING": "현재고 원천행을 찾을 수 없습니다",
+    "USED": "현재고 수량·중량이 사용되었습니다",
+    "OUTBOUND": "출고에 사용되었습니다",
+    "PROCESS": "가공에 사용되었습니다",
+    "TRANSFER": "재고이전에 사용되었습니다",
+}
 
 
 def list_stand_items(
@@ -148,6 +174,8 @@ def list_stand_items(
                s.myrtle, s.thickness, s.width, s.length, s.qty, s.qtyunit, s.weight,
                s.warehousecode, s.warehousecodename, s.unit, s.unitprice,
                s.supplyamt, s.vat, s.unitamt, s.description, s.created_at, s.updated_at,
+               {current_stock_module.user_name_sql('s.created_by')} AS created_by,
+               {current_stock_module.user_name_sql('s.updated_by')} AS updated_by,
                (
                    EXISTS (
                        SELECT 1 FROM Inbound01t h
@@ -160,10 +188,13 @@ def list_stand_items(
                        WHERE h.companyid = s.companyid AND h.receptdate >= s.standdate
                          AND d.itemcode = s.itemcode AND COALESCE(d.warehousecode, '') = s.warehousecode
                    )
-               ) AS has_movements
+               ) AS has_movements,
+               {_DELETE_BLOCK_SQL} AS delete_block
         FROM StandStock01t s
         JOIN page_keys p
           ON p.companyid = s.companyid AND p.standdate = s.standdate AND p.lineno = s.lineno
+        LEFT JOIN CurrentStock01t cs
+          ON cs.companyid = s.companyid AND cs.sourcetype = 'OPENING' AND cs.sourceline = s.lineno
         ORDER BY s.lineno
     """
     with _connect() as connection, connection.cursor() as cursor:
@@ -305,7 +336,7 @@ def _calculate_amounts(qty, length, weight, unitprice, unit: str, price_units: d
     return supply, tax, supply + tax
 
 
-def save_stand_items(companyid: str, companyname: str, standdate: date, items: list[dict]):
+def save_stand_items(companyid: str, companyname: str, standdate: date, items: list[dict], actor: str | None = None):
     try:
         with _connect() as connection, connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
@@ -418,6 +449,7 @@ def save_stand_items(companyid: str, companyname: str, standdate: date, items: l
                     item.get("qty"), item["qtyunit"].strip(), item["weight"],
                     warehousecode, codes["WAREHOUSE"][warehousecode], unit or None, item.get("unitprice"),
                     supplyamt, vat, unitamt, item.get("description", "").strip() or None,
+                    actor or None,
                 ))
                 next_lineno += 1
             execute_values(
@@ -426,7 +458,7 @@ def save_stand_items(companyid: str, companyname: str, standdate: date, items: l
                    (companyid, companyname, standdate, lineno, itemcode, itemname, customcode, customname, productname,
                     surfacecode, surfacename, materialcode, materialname, myrtle,
                     thickness, width, length, qty, qtyunit, weight, warehousecode, warehousecodename,
-                    unit, unitprice, supplyamt, vat, unitamt, description)
+                    unit, unitprice, supplyamt, vat, unitamt, description, created_by)
                    VALUES %s""",
                 values,
                 page_size=1000,
@@ -456,6 +488,7 @@ def save_stand_items(companyid: str, companyname: str, standdate: date, items: l
             } for index, (item, amounts) in enumerate(zip(items, calculated_amounts))]
             current_stock_module.record_document(
                 cursor, companyid, companyname, standdate, "ST", opening_receiptno, stock_lines,
+                created_by=actor,
             )
         return len(items)
     except ValueError:
@@ -468,7 +501,7 @@ def save_stand_items(companyid: str, companyname: str, standdate: date, items: l
         raise
 
 
-def update_stand_prices(companyid: str, items: list[dict]):
+def update_stand_prices(companyid: str, items: list[dict], actor: str | None = None):
     linenos = [item["lineno"] for item in items]
     if len(linenos) != len(set(linenos)):
         raise ValueError("같은 기초재고 행이 여러 번 포함되어 있습니다.")
@@ -503,25 +536,85 @@ def update_stand_prices(companyid: str, items: list[dict]):
         cursor.executemany(
             """UPDATE StandStock01t
                SET unit = NULLIF(%s, ''), unitprice = %s, supplyamt = %s, vat = %s, unitamt = %s,
-                   updated_at = CURRENT_TIMESTAMP
+                   updated_at = CURRENT_TIMESTAMP, updated_by = %s
                WHERE companyid = %s AND lineno = %s""",
             [(
                 item["unit"], item["unitprice"],
                 *_calculate_amounts(*stock_values[item["lineno"]], item["unitprice"], item["unit"], active_price_units),
-                companyid, item["lineno"],
+                actor or None, companyid, item["lineno"],
             ) for item in items],
         )
         if current_stock_module._uses_source_lines(cursor):
             for item in items:
                 cursor.execute(
                     """UPDATE CurrentStock01t
-                       SET unit = NULLIF(%s, ''), unitprice = %s, updated_at = CURRENT_TIMESTAMP
+                       SET unit = NULLIF(%s, ''), unitprice = %s, updated_at = CURRENT_TIMESTAMP,
+                           updated_by = COALESCE(%s, updated_by)
                        WHERE companyid = %s AND sourcetype = 'OPENING' AND sourceline = %s""",
-                    (active_price_units[item["unit"]], item["unitprice"], companyid, item["lineno"]),
+                    (active_price_units[item["unit"]], item["unitprice"], actor or None, companyid, item["lineno"]),
                 )
                 if cursor.rowcount != 1:
                     raise ValueError(f"기초재고 현재고 원천 라인을 찾을 수 없습니다: {item['lineno']}")
     return len(items)
+
+
+def delete_stand_lines(companyid: str, linenos: list[int]):
+    """Delete selected opening-stock lines whose stock source row was never used.
+
+    Each line is removed from StandStock01t, its CurrentStock01t source row and its Iniop01t (ST) ledger row
+    in one transaction; if any selected line is in use, nothing is deleted.
+    """
+    targets = sorted({int(lineno) for lineno in linenos if int(lineno) > 0})
+    if not targets:
+        raise ValueError("삭제할 기초재고 행을 선택해 주세요.")
+    with _connect() as connection, connection.cursor() as cursor:
+        # Same exclusive company stock lock as save / full delete: inbound, outbound, transfer and
+        # processing cannot draw from these rows while they are checked and deleted.
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
+        cursor.execute(
+            f"""SELECT s.lineno, s.itemname, s.productname, cs.sourceno, {_DELETE_BLOCK_SQL} AS delete_block
+                FROM StandStock01t s
+                LEFT JOIN CurrentStock01t cs
+                  ON cs.companyid = s.companyid AND cs.sourcetype = 'OPENING' AND cs.sourceline = s.lineno
+                WHERE s.companyid = %s AND s.lineno = ANY(%s)
+                ORDER BY s.lineno
+                FOR UPDATE OF s""",
+            (companyid, targets),
+        )
+        rows = cursor.fetchall()
+        if len(rows) != len(targets):
+            raise ValueError("삭제할 기초재고 행을 찾을 수 없습니다. 목록을 새로고침해 주세요.")
+        blocked = [
+            f"{productname or itemname}: {_DELETE_BLOCK_TEXT.get(block, block)}"
+            for _lineno, itemname, productname, _sourceno, block in rows if block
+        ]
+        if blocked:
+            raise ValueError("사용된 기초재고는 삭제할 수 없습니다. " + " / ".join(blocked[:5])
+                             + (f" 외 {len(blocked) - 5}건" if len(blocked) > 5 else ""))
+
+        cursor.execute(
+            """DELETE FROM CurrentStock01t
+               WHERE companyid = %s AND sourcetype = 'OPENING' AND sourceline = ANY(%s)
+                 AND qty = originalqty AND weight = originalweight
+               RETURNING sourceline""",
+            (companyid, targets),
+        )
+        if len(cursor.fetchall()) != len(targets):
+            raise ValueError("현재고 원천행이 변경되어 삭제하지 못했습니다. 목록을 새로고침해 주세요.")
+        ledger_keys = [(sourceno, lineno) for lineno, _itemname, _productname, sourceno, _block in rows]
+        cursor.execute(
+            """DELETE FROM Iniop01t
+               WHERE companyid = %s AND iniotype = 'ST'
+                 AND (receiptno, lineno) IN (SELECT * FROM unnest(%s::varchar[], %s::integer[]))""",
+            (companyid, [key[0] for key in ledger_keys], [key[1] for key in ledger_keys]),
+        )
+        if cursor.rowcount != len(targets):
+            raise ValueError("재고수불 기초재고 내역이 맞지 않아 삭제하지 못했습니다. 관리자에게 문의해 주세요.")
+        cursor.execute(
+            "DELETE FROM StandStock01t WHERE companyid = %s AND lineno = ANY(%s)",
+            (companyid, targets),
+        )
+        return cursor.rowcount
 
 
 def delete_stand_items(companyid: str):

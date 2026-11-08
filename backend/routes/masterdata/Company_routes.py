@@ -26,9 +26,8 @@ def get_companies(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_company(data: company_module.CompanyInput, user: dict = Depends(require_master)):
-    del user
     try:
-        return {"success": True, "item": company_module.create_company(data)}
+        return {"success": True, "item": company_module.create_company(data, actor=user.get("email"))}
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -36,7 +35,7 @@ def create_company(data: company_module.CompanyInput, user: dict = Depends(requi
 @router.put("/{companyid}")
 def update_company(companyid: str, data: company_module.CompanyInput, user: dict = Depends(require_master)):
     try:
-        item = company_module.update_company(companyid, data)
+        item = company_module.update_company(companyid, data, actor=user.get("email"))
         security_module.invalidate_user_access_cache(companyid)
         return {"success": True, "item": item}
     except LookupError as error:

@@ -230,6 +230,15 @@
   box-shadow: none !important;
 }
 .expenseTableWrap .expenseCostInput:focus { outline: 2px solid #4c83d3 !important; outline-offset: -2px; background-color: #fff !important; }
+/* Disabled lookup cells (e.g. 거래처 when 비용여부 = 아니오) use the normal disabled look; the transparent
+   rules above would otherwise hide it. */
+.expenseTableWrap .expenseCostInput:disabled,
+.expenseTableWrap .newRow input.expenseCostInput:disabled {
+  background-color: #f1f3f5 !important;
+  background-image: none !important;
+  color: #8b95a3 !important;
+  cursor: not-allowed !important;
+}
 
 @media (max-width: 1120px) {
 }

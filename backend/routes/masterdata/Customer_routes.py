@@ -52,7 +52,7 @@ def create_customer(
 ):
     data.companyid = user["companyid"]
     data.companyname = user.get("companyname") or user["companyid"]
-    result = customer_module.CustomerCreate(data)
+    result = customer_module.CustomerCreate(data, actor=user.get("email"))
     
     # 실패했을 경우 401 에러
     if not result["success"]:
@@ -70,7 +70,7 @@ def bulk_create_customers(
     for customer in data.customers:
         customer.companyid = user["companyid"]
         customer.companyname = companyname
-    result = customer_module.CustomerBulkCreate(data.customers)
+    result = customer_module.CustomerBulkCreate(data.customers, actor=user.get("email"))
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
     return result
@@ -84,7 +84,7 @@ def update_customer(
     user: dict = Depends(security_module.get_current_user),
 ):
     data.companyid = user["companyid"]
-    result = customer_module.CustomerModify(data)
+    result = customer_module.CustomerModify(data, actor=user.get("email"))
     
     # 실패했을 경우 401 에러
     if not result["success"]:

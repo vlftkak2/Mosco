@@ -16,7 +16,7 @@ import '@mantine/dates/styles.css';
 import { notifications } from '@mantine/notifications';
 import { useForm } from '@mantine/form'; // 추가
 import { TableVirtuoso } from 'react-virtuoso';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 import { ResponsiveContainer,LineChart,Line,LabelList, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { modals } from '@mantine/modals';
 
