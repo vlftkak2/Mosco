@@ -130,6 +130,8 @@ export default function CurrentStockPage() {
           { key: 'unit', label: '단가기준', width: 75, minWidth: 65, render: (item) => item.unit || '' },
           { key: 'created_at', label: '등록일자', width: 145, minWidth: 130, render: (item) => timestampText(item.created_at) },
           { key: 'updated_at', label: '수정일자', width: 145, minWidth: 130, render: (item) => timestampText(item.updated_at) },
+          { key: 'created_by', label: '등록자', width: 90, minWidth: 70, render: (item) => item.created_by || '' },
+          { key: 'updated_by', label: '수정자', width: 90, minWidth: 70, render: (item) => item.updated_by || '' },
         ]} /> : <Box className={classes.emptyState}>조회된 현재고가 없습니다.</Box>}
       </Box>
       <Group className={classes.paginationBar} justify="space-between" wrap="wrap"><Group gap="xs"><Text size="xs" c="dimmed">총 {total.toLocaleString()}건</Text><Select size="xs" w={105} data={PAGE_OPTIONS} value={String(pageSize)} onChange={(value) => { setPageSize(Number(value)); setPage(1); }} /></Group><Pagination size="sm" color="red" value={page} onChange={setPage} total={Math.max(1, Math.ceil(total / pageSize))} withEdges /></Group>

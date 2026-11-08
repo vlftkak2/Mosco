@@ -223,7 +223,7 @@ def _validate_customer_batch_references(cursor, items: List[CustomModifyRequest]
 
 
 # 거래처 등록
-def CustomerCreate(item: CustomModifyRequest):
+def CustomerCreate(item: CustomModifyRequest, actor: str | None = None):
 
     conn = None
     try:
@@ -250,14 +250,15 @@ def CustomerCreate(item: CustomModifyRequest):
             INSERT INTO customer01t (
                 companyid, companyname, customercode, customername, businessno,
                 corporationno, ceoname, tradetype, businesstype, industry, manager,
-                zipcode, address, phone, fax, email, bankcode, accountno, useyn, remark
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                zipcode, address, phone, fax, email, bankcode, accountno, useyn, remark, createdby
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         cursor.execute(query, (
             item.companyid, item.companyname, customercode, item.customername,
             item.businessno, item.corporationno, item.ceoname, item.tradetype,
             item.businesstype, item.industry, item.manager, item.zipcode, item.address, item.phone,
             item.fax, item.email, item.bankcode or None, item.accountno, _db_useyn(item.useryn), item.remark,
+            actor or None,
         ))
 
         conn.commit()
@@ -275,7 +276,7 @@ def CustomerCreate(item: CustomModifyRequest):
             conn.close() 
 
 
-def CustomerBulkCreate(items: List[CustomModifyRequest]):
+def CustomerBulkCreate(items: List[CustomModifyRequest], actor: str | None = None):
     """Insert a customer batch in one database operation and one transaction."""
     if not items:
         return {"success": False, "message": "등록할 거래처가 없습니다."}
@@ -319,14 +320,15 @@ def CustomerBulkCreate(items: List[CustomModifyRequest]):
                 INSERT INTO customer01t
                     (companyid, companyname, customercode, customername, businessno,
                      corporationno, ceoname, tradetype, businesstype, industry, manager,
-                     zipcode, address, phone, fax, email, bankcode, accountno, useyn, remark)
+                     zipcode, address, phone, fax, email, bankcode, accountno, useyn, remark, createdby)
                 VALUES %s
             """
             values = [
                 (item.companyid, item.companyname, assigned_code, item.customername,
                  item.businessno, item.corporationno, item.ceoname, item.tradetype,
                  item.businesstype, item.industry, item.manager, item.zipcode, item.address, item.phone,
-                 item.fax, item.email, item.bankcode or None, item.accountno, _db_useyn(item.useryn), item.remark)
+                 item.fax, item.email, item.bankcode or None, item.accountno, _db_useyn(item.useryn), item.remark,
+                 actor or None)
                 for item, assigned_code in zip(items, assigned_codes)
             ]
             execute_values(cursor, query, values, page_size=1000)
@@ -341,7 +343,7 @@ def CustomerBulkCreate(items: List[CustomModifyRequest]):
             conn.close()
             
 # 거래처 수정
-def CustomerModify(item: CustomModifyRequest):
+def CustomerModify(item: CustomModifyRequest, actor: str | None = None):
 
     conn = None
     try:
@@ -358,14 +360,14 @@ def CustomerModify(item: CustomModifyRequest):
             SET customername=%s, businessno=%s, corporationno=%s, ceoname=%s,
                 tradetype=%s, businesstype=%s, industry=%s, manager=%s,
                 zipcode=%s, address=%s, phone=%s, fax=%s, email=%s, bankcode=%s, accountno=%s,
-                useyn=%s, remark=%s, updatedat=NOW()
+                useyn=%s, remark=%s, updatedat=NOW(), updatedby=%s
             WHERE companyid=%s AND customercode=%s
         """
         cursor.execute(query, (
             item.customername, item.businessno, item.corporationno, item.ceoname,
             item.tradetype, item.businesstype, item.industry, item.manager,
             item.zipcode, item.address, item.phone, item.fax, item.email, item.bankcode or None, item.accountno,
-            _db_useyn(item.useryn), item.remark, item.companyid, item.customercode,
+            _db_useyn(item.useryn), item.remark, actor or None, item.companyid, item.customercode,
         ))
              
         conn.commit()
@@ -466,7 +468,9 @@ def CustomerExport(companyid: str, search_keyword: str = None, status: str = "�
             params.append(tradetype)
 
         cursor.execute(
-            f"""SELECT c.*, b.code_name AS bankname
+            f"""SELECT c.*, b.code_name AS bankname,
+                       COALESCE((SELECT u.username FROM user01t u WHERE u.email = c.createdby LIMIT 1), c.createdby) AS createdbyname,
+                       COALESCE((SELECT u.username FROM user01t u WHERE u.email = c.updatedby LIMIT 1), c.updatedby) AS updatedbyname
                 FROM customer01t AS c
                 LEFT JOIN CodeMaster01t AS b
                   ON b.companyid = c.companyid

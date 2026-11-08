@@ -25,7 +25,7 @@ export default function ResizableVirtualTable({ data, columns, computeItemKey, r
       animationFrame: 0,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
-  }, [columns, tableWidth, widths]);
+  }, [tableWidth, widths]);
   const moveResize = useCallback((event) => {
     if (!resizing.current) return;
     const active = resizing.current;

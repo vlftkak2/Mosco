@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 import db as _shared_db
+from services.inventory.CurrentStock import user_name_sql
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import DB_CONFIG
@@ -283,7 +284,11 @@ def list_documents(
     processno: str = "",
     iteminfo: str = "",
     productinfo: str = "",
+    page: int | None = None,
+    page_size: int | None = None,
 ):
+    """Process document list. Without `page` it returns every matching document (list, as before);
+    with `page`/`page_size` it returns {"items", "total", "page", "page_size"} for one page."""
     where = ["h.companyid = %s"]
     params: list = [companyid]
     if date_from:
@@ -317,10 +322,19 @@ def list_documents(
             "AND (d.itemname ILIKE %s OR UPPER(d.productname) = UPPER(%s)))"
         )
         params.extend((f"%{normalized_productinfo}%", normalized_productinfo))
+    paged = page is not None and page_size is not None
+    limit_sql = "LIMIT %s OFFSET %s" if paged else ""
+    page_params = [page_size, (page - 1) * page_size] if paged else []
     with _connect() as connection, connection.cursor() as cursor:
+        total = None
+        if paged:
+            cursor.execute(f"SELECT COUNT(*) FROM Process01t h WHERE {' AND '.join(where)}", params)
+            total = cursor.fetchone()[0]
         cursor.execute(
-            f"""SELECT h.processno, h.customname, h.warehousecodename, h.description,
+            f"""SELECT h.processno, h.processdate, h.customname, h.warehousecodename, h.description,
                        h.createdat, h.updatedat,
+                       {user_name_sql('h.created_by')} AS created_by,
+                       {user_name_sql('h.updated_by')} AS updated_by,
                        COALESCE(summary.detail_count, 0) AS detail_count,
                        COALESCE(summary.qty, 0) AS qty,
                        COALESCE(summary.weight, 0) AS weight,
@@ -369,16 +383,22 @@ def list_documents(
                     WHERE d.companyid=h.companyid AND d.processno=h.processno
                 ) summary ON TRUE
                 WHERE {' AND '.join(where)}
-                ORDER BY h.processdate DESC,h.processno DESC""", params,
+                ORDER BY h.processdate DESC,h.processno DESC
+                {limit_sql}""", [*params, *page_params],
         )
-        return [_row_dict(cursor, row) for row in cursor.fetchall()]
+        items = [_row_dict(cursor, row) for row in cursor.fetchall()]
+    if not paged:
+        return items
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 def get_document(companyid: str, processno: str):
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
-            """SELECT processno,processdate,customcode,customname,warehousecode,warehousecodename,
-                      manager,subulyn,description,createdat,updatedat
+            f"""SELECT processno,processdate,customcode,customname,warehousecode,warehousecodename,
+                      manager,subulyn,description,createdat,updatedat,
+                      {user_name_sql('Process01t.created_by')} AS created_by,
+                      {user_name_sql('Process01t.updated_by')} AS updated_by
                FROM Process01t WHERE companyid=%s AND processno=%s""",
             (companyid, processno),
         )
@@ -387,11 +407,13 @@ def get_document(companyid: str, processno: str):
             return None
         header = _row_dict(cursor, row)
         cursor.execute(
-            """SELECT lineno,linetype,levelno,parentlineno,sourcelineno,stocksourcetype,stocksourceno,
+            f"""SELECT lineno,linetype,levelno,parentlineno,sourcelineno,stocksourcetype,stocksourceno,
                       stocksourceline,sourcewarehousecode,sourcewarehousecodename,itemcode,itemname,
                       productname,materialcode,materialname,surfacecode,surfacename,myrtle,thickness,width,
                       length,qty,qtyunit,weight,processid,processcodename,unit,unitprice,supplyamt,vat,
-                      unitamt,description
+                      unitamt,description,createdat,updatedat,
+                      {user_name_sql('Process02t.created_by')} AS created_by,
+                      {user_name_sql('Process02t.updated_by')} AS updated_by
                FROM Process02t WHERE companyid=%s AND processno=%s ORDER BY lineno""",
             (companyid, processno),
         )
@@ -426,7 +448,7 @@ def get_document(companyid: str, processno: str):
     return {"header": header, "sources": sources}
 
 
-def _restore_document_for_edit(cursor, companyid: str, processno: str):
+def _restore_document_for_edit(cursor, companyid: str, processno: str, actor: str | None = None):
     cursor.execute(
         "SELECT processno FROM Process01t WHERE companyid=%s AND processno=%s FOR UPDATE",
         (companyid, processno),
@@ -475,10 +497,10 @@ def _restore_document_for_edit(cursor, companyid: str, processno: str):
     for _line_no, source_type, source_no, source_line, qty, weight in source_rows:
         cursor.execute(
             """UPDATE CurrentStock01t
-               SET qty=qty+%s,weight=weight+%s,updated_at=CURRENT_TIMESTAMP
+               SET qty=qty+%s,weight=weight+%s,updated_at=CURRENT_TIMESTAMP,updated_by=COALESCE(%s,updated_by)
                WHERE companyid=%s AND sourcetype=%s AND sourceno=%s AND sourceline=%s
                  AND qty+%s<=originalqty AND weight+%s<=originalweight""",
-            (qty, weight, companyid, source_type, source_no, source_line, qty, weight),
+            (qty, weight, actor or None, companyid, source_type, source_no, source_line, qty, weight),
         )
         if cursor.rowcount != 1:
             raise ValueError("기존 원소재 재고를 복구할 수 없어 가공전표를 수정하지 못했습니다.")
@@ -490,7 +512,7 @@ def _restore_document_for_edit(cursor, companyid: str, processno: str):
     cursor.execute("DELETE FROM Process02t WHERE companyid=%s AND processno=%s", (companyid, processno))
 
 
-def save_document(companyid: str, companyname: str, payload: dict):
+def save_document(companyid: str, companyname: str, payload: dict, actor: str | None = None):
     companyname = str(companyname)[:50]
     for source in payload["sources"]:
         _validate_weight_tree(source)
@@ -498,8 +520,14 @@ def save_document(companyid: str, companyname: str, payload: dict):
         # 입고·출고·기초재고와 같은 회사별 재고 잠금을 공유해 동시 차감 순서를 직렬화한다.
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         processno = str(payload.get("processno") or "").strip()
+        # 등록자/수정자: a new document is created by `actor`; an edited document keeps its original creator
+        # (its detail / ledger / stock rows are deleted and re-inserted below) and records `actor` as modifier.
+        detail_created_by, detail_updated_by = actor or None, None
         if processno:
-            _restore_document_for_edit(cursor, companyid, processno)
+            cursor.execute("SELECT created_by FROM Process01t WHERE companyid=%s AND processno=%s", (companyid, processno))
+            original = cursor.fetchone()
+            detail_created_by, detail_updated_by = (original[0] if original else None) or None, actor or None
+            _restore_document_for_edit(cursor, companyid, processno, actor)
         else:
             processno = _next_processno(cursor, companyid, payload["processdate"])
 
@@ -527,20 +555,21 @@ def save_document(companyid: str, companyname: str, payload: dict):
                 """UPDATE Process01t
                    SET companyname=%s,processdate=%s,customcode=%s,customname=%s,
                        warehousecode=%s,warehousecodename=%s,manager=%s,subulyn='N',
-                       description=%s,updatedat=CURRENT_TIMESTAMP
+                       description=%s,updatedat=CURRENT_TIMESTAMP,updated_by=%s
                    WHERE companyid=%s AND processno=%s""",
                 (companyname, payload["processdate"], payload["customcode"], customname,
                  payload["warehousecode"], warehouse_name, payload.get("manager") or None,
-                 payload.get("description") or None, companyid, processno),
+                 payload.get("description") or None, actor or None, companyid, processno),
             )
         else:
             cursor.execute(
                 """INSERT INTO Process01t
                    (companyid,companyname,processno,processdate,customcode,customname,
-                    warehousecode,warehousecodename,manager,subulyn,description)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'N',%s)""",
+                    warehousecode,warehousecodename,manager,subulyn,description,created_by)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'N',%s,%s)""",
                 (companyid, companyname, processno, payload["processdate"], payload["customcode"], customname,
-                 payload["warehousecode"], warehouse_name, payload.get("manager") or None, payload.get("description") or None),
+                 payload["warehousecode"], warehouse_name, payload.get("manager") or None, payload.get("description") or None,
+                 actor or None),
             )
 
         line_no = 0
@@ -597,21 +626,22 @@ def save_document(companyid: str, companyname: str, payload: dict):
                     stocksourcetype,stocksourceno,stocksourceline,sourcewarehousecode,sourcewarehousecodename,
                              itemcode,itemname,productname,materialcode,materialname,surfacecode,surfacename,myrtle,
                     thickness,width,length,qty,qtyunit,weight,processid,processcodename,unit,unitprice,
-                    supplyamt,vat,unitamt,description)
+                    supplyamt,vat,unitamt,description,created_by,updated_by)
                    VALUES (%s,%s,%s,%s,'SOURCE',0,NULL,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                           %s,%s,%s,%s,%s,%s,NULL,NULL,%s,0,0,0,0,NULL)""",
+                           %s,%s,%s,%s,%s,%s,NULL,NULL,%s,0,0,0,0,NULL,%s,%s)""",
                 (companyid, companyname, processno, source_line, source_line, *key,
                  stock["warehousecode"], stock["warehousecodename"], stock["itemcode"], stock["itemname"],
                  stock.get("productname"), stock.get("materialcode"), stock.get("materialname"),
                  stock.get("surfacecode"), stock.get("surfacename"), stock.get("myrtle"),
                  stock.get("thickness"), stock.get("width"), stock.get("length"), qty, stock.get("qtyunit"), weight,
-                 stock.get("unit")),
+                 stock.get("unit"), detail_created_by, detail_updated_by),
             )
             cursor.execute(
-                """UPDATE CurrentStock01t SET qty=qty-%s,weight=weight-%s,updated_at=CURRENT_TIMESTAMP
+                """UPDATE CurrentStock01t SET qty=qty-%s,weight=weight-%s,updated_at=CURRENT_TIMESTAMP,
+                          updated_by=COALESCE(%s,updated_by)
                    WHERE companyid=%s AND sourcetype=%s AND sourceno=%s AND sourceline=%s
                      AND qty>=%s AND weight>=%s""",
-                (qty, weight, companyid, *key, qty, weight),
+                (qty, weight, actor or None, companyid, *key, qty, weight),
             )
             if cursor.rowcount != 1:
                 raise ValueError("원천 재고가 다른 작업에서 변경되었습니다. 현재고를 다시 조회해 주세요.")
@@ -643,15 +673,16 @@ def save_document(companyid: str, companyname: str, payload: dict):
                            (companyid,companyname,processno,lineno,linetype,levelno,parentlineno,sourcelineno,
                              itemcode,itemname,productname,materialcode,materialname,surfacecode,surfacename,myrtle,
                             thickness,width,length,qty,qtyunit,weight,processid,processcodename,unit,unitprice,
-                            supplyamt,vat,unitamt,description)
+                            supplyamt,vat,unitamt,description,created_by,updated_by)
                             VALUES (%s,%s,%s,%s,'PRODUCT',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                         (companyid, companyname, processno, line_no, level, parent_line, source_line,
                          stock["itemcode"], product["productname"], product["productno"], stock.get("materialcode"),
                          stock.get("materialname"), stock.get("surfacecode"), stock.get("surfacename"), stock.get("myrtle"),
                          product.get("thickness"), product.get("width"), product.get("length"), product["qty"],
                          product["qtyunit"], product["weight"], product["processid"], product["processcodename"],
-                         product["unit"], product["unitprice"], amount, vat, total, product.get("description") or None),
+                         product["unit"], product["unitprice"], amount, vat, total, product.get("description") or None,
+                         detail_created_by, detail_updated_by),
                     )
                     pending.remove(product)
                     progressed = True
@@ -670,13 +701,14 @@ def save_document(companyid: str, companyname: str, payload: dict):
                 """INSERT INTO Iniop01t
                    (companyid,companyname,iniodate,iniotype,receiptno,lineno,customcode,customname,
                     itemcode,itemname,productname,materialcode,materialname,surfacecode,surfacename,myrtle,manager,
-                    thickness,width,length,qty,qtyunit,weight,warehousecode,warehousecodename,unit,unitprice,supplyamt,vat,unitamt)
-                   VALUES (%s,%s,%s,'OUT',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,0,0,0)""",
+                    thickness,width,length,qty,qtyunit,weight,warehousecode,warehousecodename,unit,unitprice,supplyamt,vat,unitamt,
+                    created_by,updated_by)
+                   VALUES (%s,%s,%s,'OUT',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,0,0,0,%s,%s)""",
                 (companyid, companyname, payload["processdate"], processno, lineno, payload["customcode"], customname,
                  stock["itemcode"], stock["itemname"], stock.get("productname"), stock.get("materialcode"), stock.get("materialname"),
                  stock.get("surfacecode"), stock.get("surfacename"), stock.get("myrtle"), payload.get("manager") or None,
                  stock.get("thickness"), stock.get("width"), stock.get("length"), qty, stock.get("qtyunit"), weight,
-                 stock["warehousecode"], stock["warehousecodename"], stock.get("unit")),
+                 stock["warehousecode"], stock["warehousecodename"], stock.get("unit"), detail_created_by, detail_updated_by),
             )
 
         for lineno, stock, product in iniop_in:
@@ -686,27 +718,29 @@ def save_document(companyid: str, companyname: str, payload: dict):
                 """INSERT INTO Iniop01t
                    (companyid,companyname,iniodate,iniotype,receiptno,lineno,customcode,customname,
                     itemcode,itemname,productname,materialcode,materialname,surfacecode,surfacename,myrtle,manager,
-                    thickness,width,length,qty,qtyunit,weight,warehousecode,warehousecodename,unit,unitprice,supplyamt,vat,unitamt)
-                   VALUES (%s,%s,%s,'IN',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    thickness,width,length,qty,qtyunit,weight,warehousecode,warehousecodename,unit,unitprice,supplyamt,vat,unitamt,
+                    created_by,updated_by)
+                   VALUES (%s,%s,%s,'IN',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (companyid, companyname, payload["processdate"], processno, lineno, payload["customcode"], customname,
                   stock["itemcode"], product["productname"], product["productno"], stock.get("materialcode"), stock.get("materialname"),
                  stock.get("surfacecode"), stock.get("surfacename"), stock.get("myrtle"), payload.get("manager") or None,
                  product.get("thickness"), product.get("width"), product.get("length"), product["qty"], product["qtyunit"],
-                 product["weight"], payload["warehousecode"], warehouse_name, product["unit"], product["unitprice"], amount, vat, amount + vat),
+                 product["weight"], payload["warehousecode"], warehouse_name, product["unit"], product["unitprice"], amount, vat, amount + vat,
+                 detail_created_by, detail_updated_by),
             )
             cursor.execute(
                 """INSERT INTO CurrentStock01t
                    (companyid,companyname,customcode,customname,sourcetype,sourceno,sourceline,receiptdate,
                     itemcode,itemname,productname,materialcode,materialname,surfacecode,surfacename,myrtle,manager,
                     thickness,width,length,originalqty,qty,qtyunit,originalweight,weight,unit,unitprice,
-                    warehousecode,warehousecodename)
-                    VALUES (%s,%s,%s,%s,'INBOUND',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    warehousecode,warehousecodename,created_by,updated_by)
+                    VALUES (%s,%s,%s,%s,'INBOUND',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (companyid, companyname, payload["customcode"], customname, processno, lineno, payload["processdate"],
                   stock["itemcode"], product["productname"], product["productno"], stock.get("materialcode"), stock.get("materialname"),
                  stock.get("surfacecode"), stock.get("surfacename"), stock.get("myrtle"), payload.get("manager") or None,
                  product.get("thickness"), product.get("width"), product.get("length"), product["qty"], product["qty"],
                  product["qtyunit"], product["weight"], product["weight"], product["unit"], product["unitprice"],
-                 payload["warehousecode"], warehouse_name),
+                 payload["warehousecode"], warehouse_name, detail_created_by, detail_updated_by),
             )
 
         cursor.execute("UPDATE Process01t SET subulyn='Y',updatedat=CURRENT_TIMESTAMP WHERE companyid=%s AND processno=%s", (companyid, processno))
@@ -718,7 +752,7 @@ def save_document(companyid: str, companyname: str, payload: dict):
                 "product_count": len(product_stock), "product_numbers": product_numbers}
 
 
-def delete_documents(companyid: str, processnos: list[str]):
+def delete_documents(companyid: str, processnos: list[str], actor: str | None = None):
     deleted = []
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
@@ -799,10 +833,11 @@ def delete_documents(companyid: str, processnos: list[str]):
             for _line_no, source_type, source_no, source_line, qty, weight in sources:
                 cursor.execute(
                     """UPDATE CurrentStock01t
-                       SET qty=qty+%s, weight=weight+%s, updated_at=CURRENT_TIMESTAMP
+                       SET qty=qty+%s, weight=weight+%s, updated_at=CURRENT_TIMESTAMP,
+                           updated_by=COALESCE(%s, updated_by)
                        WHERE companyid=%s AND sourcetype=%s AND sourceno=%s AND sourceline=%s
                          AND qty+%s<=originalqty AND weight+%s<=originalweight""",
-                    (qty, weight, companyid, source_type, source_no, source_line, qty, weight),
+                    (qty, weight, actor or None, companyid, source_type, source_no, source_line, qty, weight),
                 )
                 if cursor.rowcount != 1:
                     raise ValueError(

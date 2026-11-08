@@ -71,6 +71,7 @@ def save_rules(
             user["companyid"],
             user.get("companyname") or user["companyid"],
             [item.model_dump() for item in data.items],
+            actor=user.get("email"),
         )
         return {"success": True, "saved_count": count}
     except ValueError as error:

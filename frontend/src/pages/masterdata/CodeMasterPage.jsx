@@ -25,7 +25,7 @@ import {
   IconTrash,
   IconUpload,
 } from '@tabler/icons-react';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
@@ -338,6 +338,8 @@ export default function CodeMasterPage() {
         '정렬',
         '사용 여부',
         '비고',
+        '등록자',
+        '수정자',
       ];
       const worksheet = XLSX.utils.aoa_to_sheet([
         headers,
@@ -349,6 +351,8 @@ export default function CodeMasterPage() {
           Number(row.order) || 0,
           row.use ? 'Y' : 'N',
           row.description ?? '',
+          row.created_by ?? '',
+          row.updated_by ?? '',
         ]),
       ]);
       applyExcelHeaderStyle(worksheet, headers.length);

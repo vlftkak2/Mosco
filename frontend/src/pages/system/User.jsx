@@ -409,6 +409,8 @@ export default function User() {
                   <Table.Th>부서</Table.Th>
                   <Table.Th>권한</Table.Th>
                   <Table.Th>사용여부</Table.Th>
+                  <Table.Th>등록자</Table.Th>
+                  <Table.Th>수정자</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -427,10 +429,12 @@ export default function User() {
                         {user.useyn === 'Y' ? '사용중' : '사용중지'}
                       </Badge>
                     </Table.Td>
+                    <Table.Td>{user.created_by || ''}</Table.Td>
+                    <Table.Td>{user.updated_by || ''}</Table.Td>
                   </Table.Tr>
                 )) : (
                   <Table.Tr>
-                    <Table.Td colSpan={5} className={classes.empty}>
+                    <Table.Td colSpan={7} className={classes.empty}>
                       {loadingUsers ? '조회 중...' : companyid ? '등록된 계정이 없습니다.' : '고객사를 선택해 주세요.'}
                     </Table.Td>
                   </Table.Tr>

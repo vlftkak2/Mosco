@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import axios from 'axios';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { ActionIcon, Box, Group, Loader, Pagination, Paper, Select, Stack, Text, TextInput } from '@mantine/core';
@@ -13,6 +13,12 @@ import classes from '../../styles/pages/InboundSearch.module.css';
 const PAGE_OPTIONS = ['15', '50', '100', '200'].map((value) => ({ value, label: `${value}개씩` }));
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
+// Same date-time format as 현재고현황.
+const timestampText = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+};
 const sourceName = (value) => ({ OPENING: '기초', INBOUND: '입고', PROCESS: '가공', MOVE: '이동' }[value] || value || '');
 const createDefaultFilters = () => {
   const now = new Date();
@@ -61,7 +67,8 @@ export default function InoutmoveSearch() {
     }
   }, [filters, page, pageSize]);
 
-  useEffect(() => { void load(1, filters, pageSize); }, []);
+  const loadInitial = useEffectEvent(() => { void load(1, filters, pageSize); });
+  useEffect(() => { loadInitial(); }, []);
 
   const search = useCallback(() => {
     if (inputs.date_from && inputs.date_to && inputs.date_from > inputs.date_to) {
@@ -83,7 +90,9 @@ export default function InoutmoveSearch() {
       const url = URL.createObjectURL(data);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `재고이전현황_${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.xlsx`;
+      // Local (KST) date: toISOString() is UTC and gave the previous day before 09:00.
+      const now = new Date();
+      link.download = `재고이전현황_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -159,6 +168,10 @@ export default function InoutmoveSearch() {
               { key: 'receiptno', label: '재고이전전표', width: 150, minWidth: 125, render: (item) => item.receiptno || '' },
               { key: 'manager', label: '담당자', width: 95, minWidth: 80, render: (item) => item.manager || '' },
               { key: 'description', label: '비고', width: 150, minWidth: 110, render: (item) => item.description || '' },
+              { key: 'created_at', label: '등록일자', width: 145, minWidth: 130, render: (item) => timestampText(item.created_at) },
+              { key: 'updated_at', label: '수정일자', width: 145, minWidth: 130, render: (item) => timestampText(item.updated_at) },
+              { key: 'created_by', label: '등록자', width: 90, minWidth: 70, render: (item) => item.created_by || '' },
+              { key: 'updated_by', label: '수정자', width: 90, minWidth: 70, render: (item) => item.updated_by || '' },
             ]}
           /> : <Box className={classes.emptyState}>{loading ? '조회 중입니다.' : '조회된 재고이전 내역이 없습니다.'}</Box>}
         </Box>

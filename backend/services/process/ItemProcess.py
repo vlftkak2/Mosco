@@ -3,6 +3,10 @@ from datetime import date, datetime
 import xlsxwriter
 
 from services.process import ItemProcessRegister as process_register_module
+from services.inventory.CurrentStock import user_name_sql
+
+_CREATED_BY = f"{user_name_sql('h.created_by')} AS created_by"
+_UPDATED_BY = f"{user_name_sql('h.updated_by')} AS updated_by"
 
 
 def _conditions(
@@ -115,7 +119,8 @@ def list_documents(
                        COALESCE(totals.supplyamt, 0) AS supplyamt,
                        COALESCE(totals.vat, 0) AS vat,
                        COALESCE(totals.unitamt, 0) AS unitamt,
-                       h.manager, h.description, h.createdat, h.updatedat
+                       h.manager, h.description, h.createdat, h.updatedat,
+                       {_CREATED_BY}, {_UPDATED_BY}
                 FROM Process01t h
                 {_TOTALS_LATERAL}
                 WHERE {where_sql}
@@ -159,13 +164,15 @@ def write_documents_excel(
     headers = [
         "No.", "가공일자", "가공처", "창고", "상세건수", "수량", "중량(KG)",
         "공급가", "부가세", "합계금액", "가공전표", "담당자", "비고", "등록일자", "수정일자",
+        "등록자", "수정자",
     ]
     query = f"""
         SELECT h.processdate, h.customname, h.warehousecodename,
                COALESCE(totals.detail_count, 0), COALESCE(totals.qty, 0),
                COALESCE(totals.weight, 0), COALESCE(totals.supplyamt, 0),
                COALESCE(totals.vat, 0), COALESCE(totals.unitamt, 0), h.processno,
-               h.manager, h.description, h.createdat, h.updatedat
+               h.manager, h.description, h.createdat, h.updatedat,
+               {_CREATED_BY}, {_UPDATED_BY}
         FROM Process01t h
         {_TOTALS_LATERAL}
         WHERE {where_sql}
@@ -175,8 +182,8 @@ def write_documents_excel(
     workbook = xlsxwriter.Workbook(output_path, {"constant_memory": True})
     worksheet = workbook.add_worksheet("가공현황")
     header_format = workbook.add_format({
-        "bold": True, "font_color": "#4B5B70", "bg_color": "#F1F3F6",
-        "border": 1, "border_color": "#D9E0E8", "valign": "vcenter",
+        "bold": True, "font_color": "#B4232D", "bg_color": "#FFF3F3",
+        "border": 1, "border_color": "#E5BFC2", "valign": "vcenter",
     })
     date_format = workbook.add_format({"num_format": "yyyy-mm-dd"})
     datetime_format = workbook.add_format({"num_format": "yyyy-mm-dd hh:mm"})
@@ -196,6 +203,7 @@ def write_documents_excel(
     worksheet.set_column("M:M", 16)
     worksheet.set_column("N:N", 32)
     worksheet.set_column("N:O", 22, datetime_format)
+    worksheet.set_column("P:Q", 14)
 
     row_number = 1
     try:

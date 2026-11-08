@@ -1,6 +1,7 @@
 import { memo, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import * as XLSX from 'xlsx';
+// xlsx-js-style: same API as 'xlsx', but actually writes cell styles (red header via applyExcelHeaderStyle).
+import XLSX from 'xlsx-js-style';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper,
   Popover, ScrollArea, Stack, Table, Text, TextInput,
@@ -17,6 +18,19 @@ import classes from '../../styles/pages/ItemProcessMaster.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 
 
+// Same Excel date-time text as the other register exports: "YYYY-MM-DD HH:mm:ss" (KST).
+const formatExcelDateTime = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(value);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date);
+  const part = (type) => parts.find((entry) => entry.type === type)?.value || '';
+  return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}:${part('second')}`;
+};
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` });
 const YES_NO_FIELDS = ['steelgradeyn', 'surfaceyn', 'thicknessyn', 'widthyn', 'lengthyn'];
 const GRID_FIELDS = ['itemname', 'processid', 'processnm', ...YES_NO_FIELDS, 'description'];
@@ -124,7 +138,11 @@ function ItemAutoComplete({ row, disabled, onChange, onSelect, onOpenPicker, inp
   const requestRef = useRef(0);
   const skipBlurCommitRef = useRef(false);
 
-  useEffect(() => { setDraft(row.itemname || row.itemcode || ''); }, [row.itemcode, row.itemname]);
+  const [syncedItem, setSyncedItem] = useState({ itemcode: row.itemcode, itemname: row.itemname });
+  if (syncedItem.itemcode !== row.itemcode || syncedItem.itemname !== row.itemname) {
+    setSyncedItem({ itemcode: row.itemcode, itemname: row.itemname });
+    setDraft(row.itemname || row.itemcode || '');
+  }
 
   useEffect(() => {
     if (disabled || !draft.trim() || draft === row.itemname || draft === row.itemcode) {
@@ -525,6 +543,10 @@ export default function ItemProcessMaster() {
       ['폭', (row) => flagLabel(row.widthyn)],
       ['길이', (row) => flagLabel(row.lengthyn)],
       ['비고', (row) => row.description || ''],
+      ['등록일자', (row) => formatExcelDateTime(row.created_at)],
+      ['수정일자', (row) => formatExcelDateTime(row.updated_at)],
+      ['등록자', (row) => row.created_by || ''],
+      ['수정자', (row) => row.updated_by || ''],
     ];
     const worksheet = XLSX.utils.aoa_to_sheet([
       exportFields.map(([label]) => label),

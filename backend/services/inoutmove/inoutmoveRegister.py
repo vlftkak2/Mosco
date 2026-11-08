@@ -10,6 +10,7 @@ import db as _shared_db
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import DB_CONFIG
+from services.inventory.CurrentStock import user_name_sql
 
 logger = logging.getLogger(__name__)
 # Connections come from the single shared pool (backend/db.py).
@@ -187,6 +188,8 @@ def list_transfers(
                        h.fromwarehousecode, h.fromwarehousename,
                        h.towarehousecode, h.towarehousename,
                        h.manager, h.description, h.subulyn, h.created_at, h.updated_at,
+                       {user_name_sql('h.created_by')} AS created_by,
+                       {user_name_sql('h.updated_by')} AS updated_by,
                        COUNT(d.lineno)::integer AS line_count,
                        COALESCE(SUM(d.qty), 0)::numeric(15, 3) AS total_qty,
                        STRING_AGG(DISTINCT NULLIF(d.qtyunit, ''), ', ') AS qtyunit,
@@ -206,9 +209,11 @@ def list_transfers(
 def get_transfer(companyid: str, receiptno: str):
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
-            """SELECT companyid, companyname, receiptno, receptdate,
+            f"""SELECT companyid, companyname, receiptno, receptdate,
                       fromwarehousecode, fromwarehousename, towarehousecode, towarehousename,
-                      manager, description, subulyn, created_at, updated_at
+                      manager, description, subulyn, created_at, updated_at,
+                      {user_name_sql('inoutmove01t.created_by')} AS created_by,
+                      {user_name_sql('inoutmove01t.updated_by')} AS updated_by
                FROM inoutmove01t WHERE companyid = %s AND receiptno = %s""",
             (companyid, receiptno),
         )
@@ -217,14 +222,16 @@ def get_transfer(companyid: str, receiptno: str):
             return None
         header = _row_dict(cursor, row)
         cursor.execute(
-            """SELECT detail.lineno, detail.stocksourcetype, detail.stocksourceno, detail.stocksourceline,
+            f"""SELECT detail.lineno, detail.stocksourcetype, detail.stocksourceno, detail.stocksourceline,
                       detail.itemcode, detail.itemname, detail.productname,
                       detail.materialname, detail.surfacename, detail.myrtle,
                       detail.thickness, detail.width, detail.length,
                       detail.qty, detail.qtyunit, detail.weight,
                       stock.customname AS sourcecustomname,
                       stock.receiptdate AS sourcereceiptdate,
-                      detail.created_at, detail.updated_at
+                      detail.created_at, detail.updated_at,
+                      {user_name_sql('detail.created_by')} AS created_by,
+                      {user_name_sql('detail.updated_by')} AS updated_by
                FROM inoutmove02t AS detail
                LEFT JOIN CurrentStock01t AS stock
                  ON stock.companyid = detail.companyid
@@ -258,7 +265,7 @@ def _next_receiptno(cursor, companyid: str) -> str:
     return f"{prefix}{cursor.fetchone()[0] + 1:05d}"
 
 
-def save_transfer(companyid: str, companyname: str, payload: dict):
+def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | None = None):
     receiptno = ""
     try:
         with _connect() as connection, connection.cursor() as cursor:
@@ -288,11 +295,11 @@ def save_transfer(companyid: str, companyname: str, payload: dict):
                 """INSERT INTO inoutmove01t
                    (companyid, companyname, receiptno, receptdate,
                     fromwarehousecode, fromwarehousename, towarehousecode, towarehousename,
-                    manager, description, subulyn)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Y')""",
+                    manager, description, subulyn, created_by)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Y', %s)""",
                 (companyid, companyname, receiptno, payload["receptdate"], from_code,
                  warehouse_names[from_code], to_code, warehouse_names[to_code],
-                 payload.get("manager") or None, payload.get("description") or None),
+                 payload.get("manager") or None, payload.get("description") or None, actor or None),
             )
 
             ordered_items = sorted(payload["items"], key=lambda item: (
@@ -341,6 +348,7 @@ def save_transfer(companyid: str, companyname: str, payload: dict):
                     stock["itemcode"], stock["itemname"], stock["productname"],
                     stock["surfacecode"], stock["surfacename"], stock["materialcode"], stock["materialname"], stock["myrtle"],
                     stock["thickness"], stock["width"], stock["length"], qty, stock["qtyunit"], weight,
+                    actor or None,
                 ))
                 stock_transfers.append((lineno, item, stock, qty, weight))
                 for movement_type, movement_line, warehouse_code, warehouse_name in (
@@ -356,6 +364,7 @@ def save_transfer(companyid: str, companyname: str, payload: dict):
                         stock["thickness"], stock["width"], stock["length"], qty,
                         stock["qtyunit"], weight, warehouse_code, warehouse_name,
                         stock["unit"], stock["unitprice"], supplyamt, vat, unitamt,
+                        actor or None,
                     ))
 
             execute_values(
@@ -363,7 +372,8 @@ def save_transfer(companyid: str, companyname: str, payload: dict):
                 """INSERT INTO inoutmove02t
                    (companyid, companyname, receiptno, lineno, stocksourcetype, stocksourceno,
                     stocksourceline, itemcode, itemname, productname, surfacecode, surfacename,
-                    materialcode, materialname, myrtle, thickness, width, length, qty, qtyunit, weight)
+                    materialcode, materialname, myrtle, thickness, width, length, qty, qtyunit, weight,
+                    created_by)
                    VALUES %s""",
                 details,
                 page_size=1000,
@@ -375,7 +385,7 @@ def save_transfer(companyid: str, companyname: str, payload: dict):
                     customcode, customname, itemcode, itemname, productname,
                     materialcode, materialname, surfacecode, surfacename, myrtle, manager,
                     thickness, width, length, qty, qtyunit, weight, warehousecode, warehousecodename,
-                    unit, unitprice, supplyamt, vat, unitamt)
+                    unit, unitprice, supplyamt, vat, unitamt, created_by)
                    VALUES %s""",
                 ledger_rows,
                 page_size=1000,
@@ -388,22 +398,22 @@ def save_transfer(companyid: str, companyname: str, payload: dict):
                         receiptdate, itemcode, itemname, productname, materialcode, materialname,
                         surfacecode, surfacename, myrtle, manager, thickness, width, length,
                         originalqty, qty, qtyunit, originalweight, weight, unit, unitprice,
-                        warehousecode, warehousecodename)
+                        warehousecode, warehousecodename, created_by)
                        VALUES (%s, %s, %s, %s, 'INBOUND', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (companyid, companyname, stock["customcode"], stock["customname"], receiptno, movement_line,
                      payload["receptdate"], stock["itemcode"], stock["itemname"], stock["productname"],
                      stock["materialcode"], stock["materialname"], stock["surfacecode"], stock["surfacename"],
                      stock["myrtle"], payload.get("manager") or None, stock["thickness"], stock["width"], stock["length"],
                      moved_qty, moved_qty, stock["qtyunit"], moved_weight, moved_weight, stock["unit"], stock["unitprice"],
-                     to_code, warehouse_names[to_code]),
+                     to_code, warehouse_names[to_code], actor or None),
                 )
                 cursor.execute(
                     """UPDATE CurrentStock01t SET qty = qty - %s, weight = weight - %s,
-                              updated_at = CURRENT_TIMESTAMP
+                              updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, updated_by)
                        WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
                          AND warehousecode = %s AND qty >= %s AND weight >= %s""",
-                    (moved_qty, moved_weight, companyid, item["stocksourcetype"],
+                    (moved_qty, moved_weight, actor or None, companyid, item["stocksourcetype"],
                      item["stocksourceno"], item["stocksourceline"], from_code, moved_qty, moved_weight),
                 )
                 if cursor.rowcount != 1:
@@ -421,7 +431,7 @@ def save_transfer(companyid: str, companyname: str, payload: dict):
         raise
 
 
-def delete_transfer(companyid: str, receiptno: str):
+def delete_transfer(companyid: str, receiptno: str, actor: str | None = None):
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
@@ -477,10 +487,10 @@ def delete_transfer(companyid: str, receiptno: str):
                         and Decimal(str(source_weight or 0)) == Decimal(str(weight))):
                     cursor.execute(
                         """UPDATE CurrentStock01t SET warehousecode = %s, warehousecodename = %s,
-                                  updated_at = CURRENT_TIMESTAMP
+                                  updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, updated_by)
                            WHERE companyid = %s AND sourcetype = %s AND sourceno = %s
                              AND sourceline = %s AND warehousecode = %s""",
-                        (from_code, from_name, companyid, source_type, source_no, source_line, to_code),
+                        (from_code, from_name, actor or None, companyid, source_type, source_no, source_line, to_code),
                     )
                     if cursor.rowcount != 1:
                         raise ValueError("현재고를 원래 창고로 되돌리지 못했습니다.")
@@ -497,10 +507,10 @@ def delete_transfer(companyid: str, receiptno: str):
 
             cursor.execute(
                 """UPDATE CurrentStock01t SET qty = qty + %s, weight = weight + %s,
-                          updated_at = CURRENT_TIMESTAMP
+                          updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, updated_by)
                    WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
                      AND warehousecode = %s""",
-                (qty, weight, companyid, source_type, source_no, source_line, from_code),
+                (qty, weight, actor or None, companyid, source_type, source_no, source_line, from_code),
             )
             if cursor.rowcount != 1:
                 raise ValueError("현재고를 원래 창고로 되돌리지 못했습니다.")

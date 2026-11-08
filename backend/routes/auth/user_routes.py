@@ -56,7 +56,7 @@ def update_company_user(data: user_module.UserUpdateInput, user: dict = Depends(
     try:
         if user["authority"] == "SUBMASTER" and data.companyid != user["companyid"]:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only update accounts in your own company.")
-        item = user_module.update_user(data, actor=user if user["authority"] == "SUBMASTER" else None)
+        item = user_module.update_user(data, actor=user if user["authority"] == "SUBMASTER" else None, actor_email=user.get("email"))
         security_module.invalidate_user_access_cache(data.companyid, data.original_email)
         security_module.invalidate_user_access_cache(data.companyid, data.email)
         return {

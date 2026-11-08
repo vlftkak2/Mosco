@@ -28,6 +28,8 @@ const ORDER_COLUMNS = [
   { key: 'weight', label: '주문중량(KG)', width: 70, minWidth: 70 },
   { key: 'progress', label: '가공진행', width: 70, minWidth: 70},
   { key: 'notes', label: '비고', width: 110, minWidth: 100 },
+  { key: 'created_by', label: '등록자', width: 80, minWidth: 70 },
+  { key: 'updated_by', label: '수정자', width: 80, minWidth: 70 },
 ];
 const DETAIL_COLUMNS = [
   { key: 'select', label: '', width: 40, minWidth: 34 },
@@ -102,8 +104,8 @@ const stockSize = (source) => [source.thickness, source.width, source.length]
   .map(dimension)
   .join(' × ');
 const processingLabels = {
-  REVIEW_PENDING: '검토 대기', PROCESSING_REVIEW: '가공 검토 중',
-  PROCESSING_DONE: '가공 완료', NOT_REQUIRED: '가공 불필요', CANCELLED: '취소',
+  PROCESSING_REVIEW: '가공 대기',
+  PROCESSING_DONE: '가공 완료', NOT_REQUIRED: '가공 불필요',
 };
 
 function Badge({ value, tone = 'blue' }) {
@@ -111,6 +113,16 @@ function Badge({ value, tone = 'blue' }) {
 }
 
 function Modal({ title, children, actions, onClose, wide = false }) {
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return <div className={classes.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className={`${classes.modal} ${wide ? classes.wideModal : ''}`} role="dialog" aria-modal="true" aria-label={title}>
       <header className={classes.modalHeader}><strong>{title}</strong><button type="button" className={classes.closeIcon} aria-label="닫기" onClick={onClose}><IconX size={18} /></button></header>
@@ -270,7 +282,7 @@ export default function AIOrderManage() {
         notes: item.notes || '',
         stock_match_status: item.stock_match_status || 'UNREVIEWED',
         stock_matches: Array.isArray(item.stock_matches) ? item.stock_matches : [],
-        processing_status: item.processing_status || 'REVIEW_PENDING',
+        processing_status: item.processing_status || 'PROCESSING_REVIEW',
       }))
       : [];
     setItemDrafts(rows);
@@ -734,8 +746,11 @@ export default function AIOrderManage() {
             : modal.candidates.length ? modal.candidates.map((candidate) => {
               const key = stockKey({ sourcetype: candidate.stocksourcetype, sourceno: candidate.stocksourceno, sourceline: candidate.stocksourceline });
               const checked = modal.selectedKeys.includes(key);
-              return <tr key={key} className={checked ? classes.matchSelectedRow : ''} onClick={() => toggleStockCandidate(candidate)}>
-                <td className={classes.center}><input type="checkbox" checked={checked} onChange={() => toggleStockCandidate(candidate)} onClick={(event) => event.stopPropagation()} /></td>
+              const unavailable = Boolean(candidate.matched_elsewhere) && !checked;
+              const rowClass = [checked ? classes.matchSelectedRow : '', unavailable ? classes.matchUnavailableRow : ''].filter(Boolean).join(' ');
+              const toggleCandidate = () => { if (!unavailable) toggleStockCandidate(candidate); };
+              return <tr key={key} className={rowClass} title={unavailable ? '다른 주문 품목에 이미 연결된 현재고입니다.' : undefined} onClick={toggleCandidate}>
+                <td className={classes.center}><input type="checkbox" checked={checked} disabled={unavailable} onChange={toggleCandidate} onClick={(event) => event.stopPropagation()} /></td>
                 <td title={candidate.master_itemname || candidate.itemname || ''}>{candidate.master_itemname || candidate.itemname || ''}</td>
                 <td title={candidate.productname || ''}>{candidate.productname || ''}</td>
                 <td title={candidate.materialname || candidate.materialcode || ''}>{candidate.materialname || candidate.materialcode || ''}</td>
@@ -806,7 +821,7 @@ export default function AIOrderManage() {
         <header className={classes.panelHeader}><strong>주문 기본</strong><span className={classes.count}>{number(total)}건</span>{loading && <small>주문을 불러오는 중입니다.</small>}<Button size="compact-xs" variant="filled" color="red" className={`${classes.detailActionButton} ${classes.orderHeaderEditButton}`} leftSection={<IconPencil size={14} />} onClick={openEdit} disabled={!selectedOrder}>주문변경</Button></header>
         <div ref={ordersScrollRef} className={`${classes.tableScroll} ${classes.ordersScroll}`} onScroll={syncScrollbarFromOrders}><table className={classes.ordersTable} style={{ width: `max(100%, ${orderTableWidth}px)`, minWidth: `${orderTableWidth}px` }}><colgroup>{ORDER_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${orderColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{ORDER_COLUMNS.map((column) => <th key={column.key} className={classes.resizableHeader} style={{ width: orderColumnWidths[column.key] ?? column.width }}><span>{column.label}</span><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'orders', column)} role="separator" aria-label={`Resize ${column.label} column`} /></th>)}</tr></thead>
           <tbody>{orders.length ? orders.map((order) => <tr key={order.orderid} className={order.orderid === selectedId ? classes.selectedRow : ''} onClick={() => setSelectedId(order.orderid)}>
-            <td>{dateText(order.orderdate)}</td><td>{order.orderid}</td><td>{order.buyer || ''}</td><td>{order.recipient || ''}</td><td>{dateText(order.duedate)}</td><td title={order.deliverylocation || ''}>{order.deliverylocation || ''}</td><td className={classes.center}>{number(order.item_count)}</td><td className={classes.numeric}>{number(order.total_weight)}</td><td><Badge value={processingLabels[order.progress] || '검토 대기'} tone={order.progress === 'PROCESSING_DONE' ? 'green' : order.progress === 'PROCESSING_REVIEW' ? 'blue' : 'orange'} /></td><td>{order.notes || ''}</td></tr>
+            <td>{dateText(order.orderdate)}</td><td>{order.orderid}</td><td>{order.buyer || ''}</td><td>{order.recipient || ''}</td><td>{dateText(order.duedate)}</td><td title={order.deliverylocation || ''}>{order.deliverylocation || ''}</td><td className={classes.center}>{number(order.item_count)}</td><td className={classes.numeric}>{number(order.total_weight)}</td><td><Badge value={processingLabels[order.progress] || '가공 대기'} tone={order.progress === 'PROCESSING_DONE' ? 'green' : order.progress === 'PROCESSING_REVIEW' ? 'blue' : 'orange'} /></td><td>{order.notes || ''}</td><td>{order.created_by || ''}</td><td>{order.updated_by || ''}</td></tr>
           ) : <tr><td colSpan={ORDER_COLUMNS.length} className={classes.empty}>{loading ? '주문을 불러오는 중입니다.' : '조회된 확정 주문이 없습니다.'}</td></tr>}</tbody></table></div>
         <div ref={ordersHorizontalScrollRef} className={classes.ordersHorizontalScroll} onScroll={syncOrdersFromScrollbar} aria-label="주문 기본 가로 스크롤">
           <div className={classes.ordersHorizontalContent} style={{ width: `max(100%, ${orderTableWidth}px)` }} />
@@ -861,7 +876,7 @@ export default function AIOrderManage() {
                 </Popover.Dropdown>
               </Popover>
               : item.stock_match_status === 'NO_STOCK' ? <Badge value="재고 없음" tone="orange" /> : <span className={classes.unmatchedStock}>미선택</span>}</td>
-            <td className={classes.detailTextCell}><select className={classes.statusSelect} aria-label={`${index + 1}행 가공상태`} value={item.processing_status || 'REVIEW_PENDING'} disabled={!item.lineno || detailLoading} onChange={(event) => void changeProcessingStatus(item, event.target.value)}>
+            <td className={classes.detailTextCell}><select className={classes.statusSelect} aria-label={`${index + 1}행 가공상태`} value={item.processing_status || 'PROCESSING_REVIEW'} disabled={!item.lineno || detailLoading} onChange={(event) => void changeProcessingStatus(item, event.target.value)}>
               {Object.entries(processingLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select></td>
             <td className={classes.center}><button type="button" className={classes.matchButton} onClick={() => void openStockMatcher(item)} disabled={!item.lineno || detailLoading}>재고매칭</button></td>

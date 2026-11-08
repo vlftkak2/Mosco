@@ -58,6 +58,7 @@ def save_receipt(
         result = inbound_module.save_receipt(
             user["companyid"], user.get("companyname") or user["companyid"],
             data.model_dump(),
+            actor=user.get("email"),
         )
         return {"success": True, **result}
     except ValueError as error:
@@ -73,7 +74,7 @@ def update_receipt_manager(
     user: dict = Depends(security_module.get_current_user),
 ):
     try:
-        updated_count = inbound_module.update_receipt_manager(user["companyid"], receiptno, data.manager)
+        updated_count = inbound_module.update_receipt_manager(user["companyid"], receiptno, data.manager, actor=user.get("email"))
         return {"success": True, "updated_count": updated_count}
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

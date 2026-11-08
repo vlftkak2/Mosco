@@ -115,7 +115,9 @@ def get_user_menu_permissions(companyid: str, useremail: str, is_master: bool):
                       CASE
                           WHEN UPPER(COALESCE(p.useyn, 'N')) = 'Y'
                           THEN TRUE ELSE FALSE
-                      END AS granted
+                      END AS granted,
+                      COALESCE((SELECT u.username FROM user01t u WHERE u.email = p.createdby LIMIT 1), p.createdby) AS created_by,
+                      COALESCE((SELECT u.username FROM user01t u WHERE u.email = p.updatedby LIMIT 1), p.updatedby) AS updated_by
                FROM menucatalog01t m
                LEFT JOIN usermenupermission01t p
                  ON p.companyid = %s
@@ -190,7 +192,8 @@ def save_user_menu_permissions(data: UserMenuPermissionInput, manager_email: str
                    ON CONFLICT (companyid, useremail, menuid)
                    DO UPDATE SET
                        useyn = 'Y',
-                       updatedby = EXCLUDED.updatedby,
+                       -- the new-row template leaves updatedby NULL; an existing row is updated BY the manager
+                       updatedby = EXCLUDED.createdby,
                        updatedat = CURRENT_TIMESTAMP""",
                 rows,
                 template="(%s, %s, %s, 'Y', %s, NULL, NULL)",

@@ -1,6 +1,8 @@
-import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
+import { applyExcelHeaderStyle } from '../utils/excelHeaderStyle';
+import { INSTRUMENT_OPTIONS_BY_FIELD, instrumentLabel } from '../utils/instrumentCodes';
 import {
   ActionIcon, Autocomplete, Badge, Box, Button, Group, Input, Loader, Modal, NumberInput,
   Pagination, Paper, ScrollArea, Select, Stack, Table, Text, TextInput,
@@ -35,18 +37,18 @@ const AMOUNT_FIELDS = [
   { key: 'chargeamt', label: '과금', width: 85 },
 ];
 const INSTRUMENT_PREFIX_FIELDS = [
-  { key: 'instrumenttype', label: '수표/어음 종류', width: 100, maxLength: 20 },
+  { key: 'instrumenttype', label: '수표/어음 종류', width: 100, options: INSTRUMENT_OPTIONS_BY_FIELD.instrumenttype },
   { key: 'instrumentno', label: '수표/어음 번호', width: 140, maxLength: 100 },
 ];
 const INSTRUMENT_INFO_FIELDS = [
   { key: 'issuedate', label: '발행일', width: 100, type: 'date' },
   { key: 'issuercompany', label: '발행회사', width: 130, maxLength: 150 },
   { key: 'issuer', label: '발행자', width: 90, maxLength: 100 },
-  { key: 'issuekind', label: '발행구분', width: 90, maxLength: 20 },
+  { key: 'issuekind', label: '발행구분', width: 90, options: INSTRUMENT_OPTIONS_BY_FIELD.issuekind },
   { key: 'maturitydate', label: '만기일', width: 100, type: 'date' },
   { key: 'custodyaccount', label: '보관계좌', width: 120, maxLength: 100 },
   { key: 'custodybank', label: '보관은행', width: 110, maxLength: 100 },
-  { key: 'instrumentstatus', label: '어음처리상태', width: 120, maxLength: 30 },
+  { key: 'instrumentstatus', label: '어음처리상태', width: 120, options: INSTRUMENT_OPTIONS_BY_FIELD.instrumentstatus },
 ];
 const REMAINING_AMOUNT_FIELDS = AMOUNT_FIELDS.filter((field) => !['cashamt', 'instrumentamt'].includes(field.key));
 const DESCRIPTION_FIELD = { key: 'description', label: '비고', width: 180, maxLength: 500 };
@@ -99,6 +101,7 @@ const makeDetail = (data = {}) => ({
   bankamt: data.bankamt ?? '', cardamt: data.cardamt ?? '',
   offsetamt: data.offsetamt ?? '', lossamt: data.lossamt ?? '',
   chargeamt: data.chargeamt ?? '', description: data.description ?? '',
+  created_by: data.created_by ?? '', updated_by: data.updated_by ?? '',
 });
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const numeric = (value) => {
@@ -140,9 +143,11 @@ const ReceiptPaymentDetailInputCell = memo(function ReceiptPaymentDetailInputCel
   const [draft, setDraft] = useState(value ?? '');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const pickerOpenRef = useRef(false);
-  useEffect(() => {
+  const [synced, setSynced] = useState({ type: field.type, numericInput, value });
+  if (synced.type !== field.type || synced.numericInput !== numericInput || synced.value !== value) {
+    setSynced({ type: field.type, numericInput, value });
     if (!numericInput && field.type !== 'date') { setDraft(value ?? ''); setShowSuggestions(false); }
-  }, [field.type, numericInput, value]);
+  }
   const openPicker = () => {
     if (disabled || !onOpenPicker) return;
     pickerOpenRef.current = true;
@@ -151,9 +156,17 @@ const ReceiptPaymentDetailInputCell = memo(function ReceiptPaymentDetailInputCel
   };
   return <Table.Td data-detail-row={rowId} data-detail-field={field.key}>
     {numericInput
-      ? <NumberInput aria-label={`${rowNumber}행 ${field.label}`} value={value} min={0} allowNegative={false} decimalScale={3} thousandSeparator="," hideControls size="xs" disabled={disabled} placeholder="" onChange={(nextValue) => onUpdate(rowId, field.key, nextValue)} />
+      ? <NumberInput aria-label={`${rowNumber}행 ${field.label}`} value={value} min={0} allowNegative={false} decimalScale={3} thousandSeparator="," hideControls withKeyboardEvents={false} size="xs" disabled={disabled} placeholder="" onChange={(nextValue) => onUpdate(rowId, field.key, nextValue)} />
       : field.type === 'date'
         ? <ErpDateInput aria-label={`${rowNumber}행 ${field.label}`} size="xs" value={value} disabled={disabled} placeholder="" autoComplete="off" onChange={(event) => onUpdate(rowId, field.key, event.currentTarget.value)} />
+        : field.options
+          // 검색형 선택: 입력하면 목록이 좁혀지고 Enter/Tab(자동확정)으로 선택. 목록에 없는 값은 들어가지 않음.
+          ? <Select aria-label={`${rowNumber}행 ${field.label}`} size="xs" searchable clearable autoSelectOnBlur selectFirstOptionOnChange
+            data={value && !field.options.some((option) => option.value === value)
+              ? [{ value, label: value }, ...field.options] // an older free-text value stays visible until changed
+              : field.options}
+            value={value || null} disabled={disabled} placeholder="" nothingFoundMessage="목록에 없습니다" comboboxProps={{ withinPortal: true }}
+            onChange={(nextValue) => onUpdate(rowId, field.key, nextValue || '')} />
         : suggestions
           ? <Box className={inboundClasses.itemNameSearchTarget} onClick={(event) => {
             const input = event.currentTarget.querySelector('input');
@@ -169,6 +182,13 @@ const ReceiptPaymentDetailInputCell = memo(function ReceiptPaymentDetailInputCel
             }}
             onChange={(nextValue) => { pickerOpenRef.current = false; setDraft(nextValue); setShowSuggestions(Boolean(nextValue.trim())); }}
             onOptionSubmit={(nextValue) => { pickerOpenRef.current = false; setDraft(nextValue); setShowSuggestions(false); onUpdate(rowId, field.key, nextValue); }}
+            onKeyDown={(event) => {
+              // Tab fills the option highlighted with ↑/↓ (same as Enter), then moves on as usual.
+              if (event.key !== 'Tab' || event.shiftKey) return;
+              const listId = event.currentTarget.getAttribute('aria-controls');
+              const highlighted = listId ? document.getElementById(listId)?.querySelector('[role="option"][data-combobox-selected]') : null;
+              highlighted?.click();
+            }}
             onBlur={() => { setShowSuggestions(false); if (!pickerOpenRef.current && draft !== (value ?? '')) onUpdate(rowId, field.key, draft); pickerOpenRef.current = false; }} /></Box>
         : <TextInput aria-label={`${rowNumber}행 ${field.label}`} value={draft} placeholder="" autoComplete="off" maxLength={field.maxLength} size="xs" disabled={disabled}
           onChange={(event) => setDraft(event.currentTarget.value)}
@@ -178,7 +198,11 @@ const ReceiptPaymentDetailInputCell = memo(function ReceiptPaymentDetailInputCel
 
 const ReceiptPaymentHeaderTextInput = memo(function ReceiptPaymentHeaderTextInput({ label, value, maxLength, disabled, onCommit }) {
   const [draft, setDraft] = useState(value ?? '');
-  useEffect(() => setDraft(value ?? ''), [value]);
+  const [syncedValue, setSyncedValue] = useState(value);
+  if (syncedValue !== value) {
+    setSyncedValue(value);
+    setDraft(value ?? '');
+  }
   return <TextInput aria-label={label} value={draft} maxLength={maxLength} disabled={disabled}
     onChange={(event) => setDraft(event.currentTarget.value)}
     onBlur={() => { if (draft !== (value ?? '')) onCommit(draft); }} />;
@@ -204,7 +228,6 @@ const ReceiptPaymentDetailRow = memo(function ReceiptPaymentDetailRow({ row, ind
 const ReceiptPaymentFilterPanel = memo(function ReceiptPaymentFilterPanel({ initialValues, transactionOptions, onSearch, onClose }) {
   const [draft, setDraft] = useState(initialValues);
   const draftRef = useRef(draft);
-  draftRef.current = draft;
   const update = (key, value) => {
     const next = { ...draftRef.current, [key]: value };
     draftRef.current = next;
@@ -301,9 +324,11 @@ const ReceiptBankPickerModal = memo(function ReceiptBankPickerModal({ opened, on
   }, [options, search]);
   const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
 
-  useEffect(() => {
+  const [prevOpened, setPrevOpened] = useState(opened);
+  if (prevOpened !== opened) {
+    setPrevOpened(opened);
     if (opened) { setSearch(''); setPage(1); }
-  }, [opened]);
+  }
 
   return <Modal opened={opened} onClose={onClose}
     title={<Group gap={9} wrap="nowrap"><Box className={outboundClasses.receiptFinderTitleIcon}><IconSearch size={17} /></Box><Text className={outboundClasses.receiptFinderModalTitle} fw={750}>은행 선택</Text></Group>}
@@ -510,7 +535,8 @@ export default function ReceiptPayment() {
     }
   }, [filters, pageSize]);
 
-  useEffect(() => { void loadDocuments(1, filters, pageSize); }, []);
+  const loadInitialDocuments = useEffectEvent(() => { void loadDocuments(1, filters, pageSize); });
+  useEffect(() => { loadInitialDocuments(); }, []);
 
   const openDocument = useCallback(async (receiptno) => {
     const cachedItems = detailCache.current.get(receiptno);
@@ -633,6 +659,13 @@ export default function ReceiptPayment() {
     const cell = input?.closest('[data-detail-row][data-detail-field]');
     if (!input || !cell || saving || isSavedDocument) return;
 
+    // While an autocomplete (발행회사·보관은행) shows suggestions, ↑/↓/Enter belong to that list:
+    // moving to another row here would blur the input and close the list before a choice is made.
+    const suggestionList = input.dataset.expanded !== undefined && input.getAttribute('aria-controls')
+      ? document.getElementById(input.getAttribute('aria-controls'))
+      : null;
+    if (suggestionList?.querySelector('[role="option"]') && ['ArrowUp', 'ArrowDown', 'Enter'].includes(event.key)) return;
+
     if (event.key === 'Enter') {
       event.preventDefault();
       const currentRowIndex = items.findIndex((row) => row.id === cell.dataset.detailRow);
@@ -643,9 +676,8 @@ export default function ReceiptPayment() {
           candidate.dataset.detailRow === nextRow.id && candidate.dataset.detailField === cell.dataset.detailField
         );
         nextCell?.querySelector('input, textarea, select')?.focus();
-      } else {
-        addDetail(cell.dataset.detailField);
       }
+      // On the last row Enter no longer appends a new row; rows are added with the 추가 button.
       return;
     }
 
@@ -696,7 +728,7 @@ export default function ReceiptPayment() {
     } catch {
       // Date and numeric inputs may not expose a text selection range.
     }
-  }, [addDetail, isSavedDocument, items, saving]);
+  }, [isSavedDocument, items, saving]);
   const handleDetailTablePaste = useCallback((event) => {
     if (saving || isSavedDocument) return;
     const text = event.clipboardData?.getData('text/plain') ?? '';
@@ -788,8 +820,9 @@ export default function ReceiptPayment() {
       notifications.show({ title: '상세 행을 확인해 주세요', message: '금액 상세를 한 행 이상 추가해 주세요.', color: 'red' });
       return;
     }
-    if (!items.some((row) => AMOUNT_KEYS.some((key) => numeric(row[key]) > 0))) {
-      notifications.show({ title: '금액을 입력해 주세요', message: '금액 상세에 금액을 하나 이상 입력해 주세요.', color: 'red' });
+    const emptyRowIndex = items.findIndex((row) => !AMOUNT_KEYS.some((key) => numeric(row[key]) > 0));
+    if (emptyRowIndex >= 0) {
+      notifications.show({ title: '금액을 입력해 주세요', message: `${emptyRowIndex + 1}행에 금액이 없습니다. 금액을 입력하거나 빈 행을 삭제해 주세요.`, color: 'red' });
       return;
     }
     setSaving(true);
@@ -847,25 +880,29 @@ export default function ReceiptPayment() {
       ? items.map((row, index) => ({
         전표번호: header.receiptno, 수금지급일: header.receiptdate, 구분: typeName(header.transactiontype),
         거래처: header.customname, 순번: index + 1, 현금: numeric(row.cashamt),
-        수표어음종류: row.instrumenttype, 수표어음번호: row.instrumentno, 수표어음: numeric(row.instrumentamt),
+        수표어음종류: instrumentLabel('instrumenttype', row.instrumenttype), 수표어음번호: row.instrumentno, 수표어음: numeric(row.instrumentamt),
         발행일: dateOnly(row.issuedate), 발행회사: row.issuercompany, 발행자: row.issuer,
-        발행구분: row.issuekind, 만기일: dateOnly(row.maturitydate), 보관계좌: row.custodyaccount,
-        보관은행: row.custodybank, 어음처리상태: row.instrumentstatus,
+        발행구분: instrumentLabel('issuekind', row.issuekind), 만기일: dateOnly(row.maturitydate), 보관계좌: row.custodyaccount,
+        보관은행: row.custodybank, 어음처리상태: instrumentLabel('instrumentstatus', row.instrumentstatus),
         은행예금: numeric(row.bankamt), 카드: numeric(row.cardamt), 합계: totalOf(row), 상계: numeric(row.offsetamt),
         잡손실: numeric(row.lossamt), 과금: numeric(row.chargeamt), 비고: row.description,
+        등록자: row.created_by || '', 수정자: row.updated_by || '',
       }))
       : documents.map((row) => ({
         수금지급일: dateOnly(row.receiptdate), 구분: typeName(row.transactiontype), 거래처: row.customname,
         상세건수: row.line_count, 현금: numeric(row.cashamt), 수표어음: numeric(row.instrumentamt),
         은행예금: numeric(row.bankamt), 카드: numeric(row.cardamt), 합계: numeric(row.totalamt),
         상계: numeric(row.offsetamt), 잡손실: numeric(row.lossamt), 과금: numeric(row.chargeamt), 전표번호: row.receiptno,
+        등록자: row.created_by || '', 수정자: row.updated_by || '',
       }));
     if (!rows.length) {
       notifications.show({ title: '엑셀 데이터 없음', message: '다운로드할 데이터가 없습니다.', color: 'orange' });
       return;
     }
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), '수금지급');
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    applyExcelHeaderStyle(worksheet, Object.keys(rows[0] || {}).length);
+    XLSX.utils.book_append_sheet(workbook, worksheet, '수금지급');
     XLSX.writeFile(workbook, `수금지급_${todayString()}.xlsx`);
   }, [documents, header, items]);
 
@@ -897,6 +934,23 @@ export default function ReceiptPayment() {
       if (element && Math.abs(element.scrollLeft - left) > 0.5) element.scrollLeft = left;
     }
   };
+  // The list table stretches to the panel width (minus its vertical scrollbar), so the subtotal
+  // table copies its rendered width to keep every column lined up.
+  const hasDocuments = documents.length > 0;
+  useEffect(() => {
+    const listTable = listTableRef.current?.querySelector('table');
+    const subtotalTable = listSubtotalRef.current?.querySelector('table');
+    if (!listTable || !subtotalTable || typeof ResizeObserver === 'undefined') return undefined;
+    const apply = () => {
+      const width = `${listTable.getBoundingClientRect().width}px`;
+      subtotalTable.style.width = width;
+      subtotalTable.style.minWidth = width;
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(listTable);
+    return () => observer.disconnect();
+  }, [hasDocuments, summaryTableWidth]);
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>

@@ -1,6 +1,6 @@
-import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination,
   Paper, Popover, Select, Stack, Table, Text, TextInput,
@@ -13,6 +13,8 @@ import ErpRibbon from '../../components/common/ErpRibbon';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import classes from '../../styles/pages/ItemProcessRegister.module.css';
+import inboundClasses from '../../styles/pages/InboundRegister.module.css';
+import outboundClasses from '../../styles/pages/OutboundRegister.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 
 
@@ -133,7 +135,12 @@ function isSourceWeightBalanced(source) {
   });
 }
 const emptyHeader = () => ({ processdate: today(), customcode: '', customname: '', warehousecode: '', warehousecodename: '', manager: localStorage.getItem('user_name') || '', description: '' });
+const PAGE_SIZE_OPTIONS = [
+  { value: '15', label: '15개씩' }, { value: '50', label: '50개씩' },
+  { value: '100', label: '100개씩' }, { value: '200', label: '200개씩' },
+];
 const DOCUMENT_COLUMNS = [
+  { key: 'processdate', label: '가공일자', width: 100, minWidth: 90 },
   { key: 'customname', label: '가공처', width: 180, minWidth: 110 },
   { key: 'warehouse', label: '창고', width: 145, minWidth: 90 },
   { key: 'detail_count', label: '상세건수', width: 95, minWidth: 75 },
@@ -330,8 +337,7 @@ function StockPicker({ opened, onClose, onApply, existingKeys, existingWarehouse
     } finally { setLoading(false); }
   }, [query, warehouse, thickness, width, length]);
 
-  useEffect(() => {
-    if (!opened) return;
+  const resetAndLoadOnOpen = useEffectEvent(() => {
     setSelected({}); setSelectionWarehouseCode(existingWarehouseCode); setQuery(''); setWarehouse(''); setThickness(''); setWidth(''); setLength('');
     void (async () => {
       setLoading(true);
@@ -342,6 +348,9 @@ function StockPicker({ opened, onClose, onApply, existingKeys, existingWarehouse
         notifications.show({ title: '현재고 조회 실패', message: error.response?.data?.detail || '현재고를 조회하지 못했습니다.', color: 'red' });
       } finally { setLoading(false); }
     })();
+  });
+  useEffect(() => {
+    if (opened) resetAndLoadOnOpen();
   }, [opened]);
 
   const toggle = (row, checked) => {
@@ -393,7 +402,11 @@ export default function ItemProcessRegister() {
   const lastAddTargetRef = useRef(null);
   const productNumberCounterRef = useRef({});
   const [documents, setDocuments] = useState([]);
+  const [documentTotal, setDocumentTotal] = useState(0);
+  const [documentPage, setDocumentPage] = useState(1);
+  const [documentPageSize, setDocumentPageSize] = useState(15);
   const documentSubtotalRef = useRef(null);
+  const documentTableRef = useRef(null);
   const documentCacheRef = useRef(new Map());
   const documentListRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
@@ -428,22 +441,29 @@ export default function ItemProcessRegister() {
     setSelectedProcessEditable(false);
   }, []);
 
-  const loadDocuments = useCallback(async () => {
+  const loadDocuments = useCallback(async (nextPage = 1) => {
     const requestId = ++documentListRequestIdRef.current;
     setLoading(true);
     documentCacheRef.current.clear();
     try {
-      const { data } = await axios.get('/api/item-process-register/documents', { ...authConfig(), params: Object.fromEntries(Object.entries(filters).filter(([, v]) => v)) });
+      const params = { ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v)), page: nextPage, page_size: documentPageSize };
+      const { data } = await axios.get('/api/item-process-register/documents', { ...authConfig(), params });
       if (requestId !== documentListRequestIdRef.current) return;
       const nextDocuments = data.items || [];
+      const nextTotal = Number(data.total) || 0;
       setDocuments(nextDocuments);
-      if (selectedProcessnoRef.current && !nextDocuments.some((item) => item.processno === selectedProcessnoRef.current)) reset();
+      setDocumentTotal(nextTotal);
+      setDocumentPage(nextPage);
+      // Close the open document only when the search no longer returns it at all
+      // (it may simply be on another page now that the list is paged).
+      if (selectedProcessnoRef.current && nextPage === 1 && nextTotal <= nextDocuments.length
+        && !nextDocuments.some((item) => item.processno === selectedProcessnoRef.current)) reset();
     } catch (error) {
       if (requestId === documentListRequestIdRef.current) notifications.show({ title: '\uac00\uacf5 \uc870\ud68c \uc2e4\ud328', message: error.response?.data?.detail || '\uac00\uacf5\uc804\ud45c\ub97c \uc870\ud68c\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.', color: 'red' });
     } finally {
       if (requestId === documentListRequestIdRef.current) setLoading(false);
     }
-  }, [filters, reset]);
+  }, [filters, reset, documentPageSize]);
 
   useEffect(() => { void loadDocuments(); }, [loadDocuments]);
   useEffect(() => {
@@ -850,9 +870,11 @@ export default function ItemProcessRegister() {
     const document = documents.find((item) => item.processno === selectedProcessno);
     const createdAt = formatExcelDateTime(document?.createdat);
     const updatedAt = formatExcelDateTime(document?.updatedat);
+    const createdBy = document?.created_by || '';
+    const updatedBy = document?.updated_by || '';
     const rows = [[
       'No.', '구분', '원소재품명', '원천전표', '원천행', '가공방법', '가공품명', '제품명',
-      '두께', '폭', '길이', '수량', '단위', '중량(KG)', '단가/KG', '가공금액', '비고', '등록일자', '수정일자',
+      '두께', '폭', '길이', '수량', '단위', '중량(KG)', '단가/KG', '가공금액', '비고', '등록일자', '수정일자', '등록자', '수정자',
     ]];
     let rowNumber = 1;
     sources.forEach((source) => {
@@ -860,7 +882,7 @@ export default function ItemProcessRegister() {
         rowNumber++, '원소재', source.stock.itemname || '', source.stock.sourceno || '',
         source.stock.sourceline ?? '', '', source.stock.productname || '', '',
         source.stock.thickness ?? '', source.stock.width ?? '', source.stock.length ?? '',
-        num(source.qty), source.stock.qtyunit || '', num(source.weight), '', '', '', createdAt, updatedAt,
+        num(source.qty), source.stock.qtyunit || '', num(source.weight), '', '', '', createdAt, updatedAt, createdBy, updatedBy,
       ]);
       source.products.forEach((product) => {
         const isChild = Boolean(product.parentId);
@@ -870,7 +892,7 @@ export default function ItemProcessRegister() {
           product.productname || '', product.productno || '', product.thickness ?? '', product.width ?? '',
           product.length ?? '', num(product.qty), product.qtyunit || source.stock.qtyunit || '',
           num(product.weight), num(product.unitprice), num(product.weight) * num(product.unitprice),
-          product.description || '', createdAt, updatedAt,
+          product.description || '', createdAt, updatedAt, createdBy, updatedBy,
         ]);
       });
     });
@@ -887,69 +909,146 @@ export default function ItemProcessRegister() {
     XLSX.writeFile(workbook, `가공전표_${safeFilePart(selectedProcessno)}.xlsx`);
   }, [selectedProcessno, sources, documents, detailLoading]);
 
+  // The ribbon lives in the layout: re-registering it re-renders the whole layout, and the actions below change on
+  // every keystroke (they read `sources`). Register stable wrappers that always call the latest action instead.
+  const ribbonActionsRef = useRef(null);
+  useLayoutEffect(() => {
+    ribbonActionsRef.current = { loadDocuments, handleAdd, copySelectedDetail, exportDocument, save, requestToolbarDelete };
+  });
+  const ribbonHandlers = useMemo(() => ({
+    onSearch: () => ribbonActionsRef.current.loadDocuments(1),
+    onAdd: (...args) => ribbonActionsRef.current.handleAdd(...args),
+    onCopy: (...args) => ribbonActionsRef.current.copySelectedDetail(...args),
+    onExcel: (...args) => ribbonActionsRef.current.exportDocument(...args),
+    onSave: (...args) => ribbonActionsRef.current.save(...args),
+    onDelete: (...args) => ribbonActionsRef.current.requestToolbarDelete(...args),
+  }), []);
   useEffect(() => {
     if (!pageLayout?.registerPageRibbon) return undefined;
     const canDelete = Boolean(selectedProcessno) || (!selectedProcessno && selectedDetailIds.length > 0);
-    pageLayout.registerPageRibbon(<ErpRibbon onSearch={loadDocuments} onAdd={handleAdd} onCopy={copySelectedDetail} onExcel={exportDocument} onSave={save} onDelete={requestToolbarDelete} onClose={pageLayout.closeActivePage}
+    pageLayout.registerPageRibbon(<ErpRibbon {...ribbonHandlers} onClose={pageLayout.closeActivePage}
       showPrint={false} useSaveColor={false} disabled={{ copy: readOnly || saving || selectedDetailIds.length !== 1, excel: !selectedProcessno || detailLoading || saving || !sources.length, delete: !canDelete || saving || detailLoading, save: saving || readOnly }} loading={{ search: loading, save: saving, delete: saving }} />);
     return () => pageLayout.registerPageRibbon(null);
-  }, [pageLayout, loadDocuments, handleAdd, copySelectedDetail, exportDocument, save, requestToolbarDelete, saving, loading, detailLoading, selectedProcessno, selectedDetailIds.length, readOnly, sources.length]);
+  }, [pageLayout, ribbonHandlers, saving, loading, detailLoading, selectedProcessno, selectedDetailIds.length, readOnly, sources.length]);
 
-  const customerData = options.customers.map((x) => ({ value: x.code, label: x.name }));
-  const warehouseData = options.warehouses.map((x) => ({ value: x.code, label: x.name }));
+  const customerData = useMemo(() => options.customers.map((x) => ({ value: x.code, label: x.name })), [options.customers]);
+  const warehouseData = useMemo(() => options.warehouses.map((x) => ({ value: x.code, label: x.name })), [options.warehouses]);
   const existingKeys = new Set(sources.map((x) => sourceKey(x.stock)));
   const documentTableWidth = Math.max(1000, DOCUMENT_COLUMNS.reduce((sum, column) => sum + (documentColumnWidths[column.key] ?? column.width), 0));
   const detailTableWidth = Math.max(1320, DETAIL_COLUMNS.reduce((sum, column) => sum + (detailColumnWidths[column.key] ?? column.width), 0));
-  const documentSubtotals = documents.reduce((totals, row) => {
+  const documentSubtotals = useMemo(() => documents.reduce((totals, row) => {
     for (const key of ['detail_count', 'qty', 'weight', 'supplyamt', 'vat', 'unitamt']) totals[key] += num(row[key]);
     return totals;
-  }, { detail_count: 0, qty: 0, weight: 0, supplyamt: 0, vat: 0, unitamt: 0 });
-  const syncDocumentScroll = (left) => {
-    const subtotal = documentSubtotalRef.current;
-    if (subtotal && Math.abs(subtotal.scrollLeft - left) > 0.5) subtotal.scrollLeft = left;
-  };
+  }, { detail_count: 0, qty: 0, weight: 0, supplyamt: 0, vat: 0, unitamt: 0 }), [documents]);
+  const syncDocumentScroll = useCallback((left) => {
+    for (const element of [documentTableRef.current, documentSubtotalRef.current]) {
+      if (element && Math.abs(element.scrollLeft - left) > 0.5) element.scrollLeft = left;
+    }
+  }, []);
+  const hasSources = sources.length > 0;
 
-  return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="AI 가공관리" current="가공등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
-    <Box className={classes.workspace}>
-      <Stack gap="sm" className={classes.main}>
-        <Paper withBorder className={`${sharedClasses.panel} ${classes.listPanel}`}>
-          <Group className={classes.sectionHeader} justify="space-between"><Group gap={8}><Text className={classes.title}>가공 목록</Text><Badge color="gray" variant="light" className={classes.count}>{documents.length}건</Badge></Group></Group>
-          <Box className={classes.documentViewport} onScroll={(event) => syncDocumentScroll(event.currentTarget.scrollLeft)}><Table className={classes.documentTable} stickyHeader highlightOnHover withTableBorder withColumnBorders style={{ width: '100%', minWidth: `${documentTableWidth}px`, tableLayout: 'fixed' }}><colgroup>{DOCUMENT_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${documentColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><Table.Thead><Table.Tr>{DOCUMENT_COLUMNS.map((column) => <Table.Th key={column.key} className={classes.resizableHeader} style={{ width: `${documentColumnWidths[column.key] ?? column.width}px` }}>{column.label}<span className={classes.columnResizeHandle} data-column-key={column.key} onPointerDown={(event) => startTableColumnResize(event, DOCUMENT_COLUMNS, documentColumnWidths, setDocumentColumnWidths, 1000)} role="separator" aria-label={`${column.label} 열 너비 조절`} /></Table.Th>)}</Table.Tr></Table.Thead><Table.Tbody>{documents.map((row) => {
-            const selected = row.processno === selectedProcessno;
-            return <Table.Tr key={row.processno} className={selected ? classes.selectedDocument : classes.documentRow} onMouseEnter={() => prefetchDocument(row.processno)} onClick={() => openDocument(row.processno)}>
-              <Table.Td>{row.customname || '—'}</Table.Td>
-              <Table.Td>{row.warehousecodename || '—'}</Table.Td>
+  const documentListPanel = useMemo(() => (
+    <Paper className={`${sharedClasses.panel} ${inboundClasses.topReceiptPanel}`} withBorder>
+      <Group className={inboundClasses.topReceiptToolbar} justify="space-between" wrap="wrap">
+        <Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>가공 목록</Text><Badge color="gray" variant="light">{documentTotal.toLocaleString()}건</Badge></Group>
+      </Group>
+      <Box ref={documentTableRef} className={inboundClasses.topReceiptTable}>
+        <Table className={inboundClasses.receiptFinderTable} stickyHeader highlightOnHover withTableBorder withColumnBorders
+          style={{ width: `${documentTableWidth}px`, minWidth: `${documentTableWidth}px`, tableLayout: 'fixed' }}>
+          <colgroup>{DOCUMENT_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${documentColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
+          <Table.Thead><Table.Tr>{DOCUMENT_COLUMNS.map((column) => <Table.Th key={column.key} className={classes.resizableHeader} style={{ width: `${documentColumnWidths[column.key] ?? column.width}px` }}>
+            <span style={{ whiteSpace: 'nowrap' }}>{column.label}</span>
+            <span className={classes.columnResizeHandle} data-column-key={column.key} onPointerDown={(event) => startTableColumnResize(event, DOCUMENT_COLUMNS, documentColumnWidths, setDocumentColumnWidths, 1000)} role="separator" aria-label={`${column.label} 열 너비 조절`} />
+          </Table.Th>)}</Table.Tr></Table.Thead>
+          <Table.Tbody>{documents.map((row) => (
+            <Table.Tr key={row.processno}
+              className={`${outboundClasses.receiptFinderRow} ${row.processno === selectedProcessno ? outboundClasses.receiptFinderRowActive : ''}`}
+              onMouseEnter={() => prefetchDocument(row.processno)} onClick={() => openDocument(row.processno)}>
+              <Table.Td>{String(row.processdate || '').slice(0, 10)}</Table.Td>
+              <Table.Td>{row.customname || ''}</Table.Td>
+              <Table.Td>{row.warehousecodename || ''}</Table.Td>
               <Table.Td ta="right">{numberText(row.detail_count)}</Table.Td>
               <Table.Td ta="right">{numberText(row.qty)}</Table.Td>
               <Table.Td ta="right">{numberText(row.weight)}</Table.Td>
               <Table.Td ta="right">{numberText(row.supplyamt)}</Table.Td>
               <Table.Td ta="right">{numberText(row.vat)}</Table.Td>
-              <Table.Td ta="right">{numberText(row.unitamt)}</Table.Td>
+              <Table.Td ta="right" className={outboundClasses.receiptFinderAmount}>{numberText(row.unitamt)}</Table.Td>
               <Table.Td>{row.processno}</Table.Td>
-              <Table.Td>{row.description || '—'}</Table.Td>
-            </Table.Tr>;
-          })}</Table.Tbody></Table>{!documents.length && <Box className={classes.documentEmptyMessage}>{loading ? '조회 중입니다.' : '등록된 가공전표가 없습니다.'}</Box>}</Box>
-          <Box className={classes.documentBottom}>
-            {!!documents.length && <Box ref={documentSubtotalRef} className={classes.documentSubtotalViewport} onScroll={(event) => syncDocumentScroll(event.currentTarget.scrollLeft)}>
-              <Table className={`${classes.documentTable} ${classes.documentSubtotalTable}`} withTableBorder withColumnBorders style={{ width: '100%', minWidth: `${documentTableWidth}px`, tableLayout: 'fixed' }}><colgroup>{DOCUMENT_COLUMNS.map((column) => <col key={column.key} style={{ width: `${documentColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
-                <Table.Tbody><Table.Tr className={classes.documentSubtotalRow}>{DOCUMENT_COLUMNS.map((column, index) => <Table.Td key={column.key} ta={['detail_count', 'qty', 'weight', 'supplyamt', 'vat', 'unitamt'].includes(column.key) ? 'right' : undefined}>
-                  {index === 0 ? '소계' : ['detail_count', 'qty', 'weight'].includes(column.key) ? numberText(documentSubtotals[column.key]) : ['supplyamt', 'vat', 'unitamt'].includes(column.key) ? `${numberText(documentSubtotals[column.key])}원` : ''}
-                </Table.Td>)}</Table.Tr></Table.Tbody>
-              </Table>
-            </Box>}
-          </Box>
-        </Paper>
-
-        <Paper withBorder className={`${sharedClasses.panel} ${classes.detailPanel}`}>
-          <Group className={classes.sectionHeader} justify="space-between"><Group gap={8}><Text className={classes.title}>가공 상세</Text><Badge color="gray" variant="light" className={classes.count}>{selectedProcessno || '신규'} · {sources.length}개 원소재</Badge></Group><Group gap="sm"><Text size="xs" c={Math.abs(totalSourceWeight - totalLeafWeight) <= 0.001 ? 'teal' : 'red'}>투입 {numberText(totalSourceWeight)} KG · 최종제품 {numberText(totalLeafWeight)} KG</Text><Button size="xs" variant="light" color="red" disabled={readOnly} onClick={() => setStockOpen(true)}>현재고 조회</Button></Group></Group>
-          <Box className={classes.headerGrid}>
+              <Table.Td>{row.description || ''}</Table.Td>
+            </Table.Tr>
+          ))}</Table.Tbody>
+        </Table>
+        {!documents.length && <Box className={inboundClasses.topReceiptEmptyMessage}>{loading ? '조회 중입니다.' : '검색된 가공전표가 없습니다.'}</Box>}
+      </Box>
+      <Box className={inboundClasses.topReceiptBottom}>
+        {!!documents.length && <Box ref={documentSubtotalRef} className={inboundClasses.topReceiptSubtotalViewport}>
+          <Table className={`${inboundClasses.receiptFinderTable} ${inboundClasses.receiptSubtotalTable}`} withTableBorder withColumnBorders
+            style={{ width: `${documentTableWidth}px`, minWidth: `${documentTableWidth}px`, tableLayout: 'fixed' }}>
+            <colgroup>{DOCUMENT_COLUMNS.map((column) => <col key={column.key} style={{ width: `${documentColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
+            <Table.Tbody><Table.Tr>{DOCUMENT_COLUMNS.map((column, index) => {
+              const numeric = ['detail_count', 'qty', 'weight', 'supplyamt', 'vat', 'unitamt'].includes(column.key);
+              return <Table.Td key={column.key} className={`${inboundClasses.topReceiptSubtotalCell} ${numeric ? inboundClasses.topReceiptSubtotalNumber : ''}`}>
+                {index === 0 ? '소계' : ['detail_count', 'qty', 'weight'].includes(column.key) ? numberText(documentSubtotals[column.key])
+                  : ['supplyamt', 'vat', 'unitamt'].includes(column.key) ? `${numberText(documentSubtotals[column.key])}원` : ''}
+              </Table.Td>;
+            })}</Table.Tr></Table.Tbody>
+          </Table>
+        </Box>}
+        <Box className={inboundClasses.topReceiptHorizontalScroll} onScroll={(event) => syncDocumentScroll(event.currentTarget.scrollLeft)} aria-label="가공 목록 가로 스크롤">
+          <Box className={inboundClasses.topReceiptHorizontalContent} style={{ width: `${documentTableWidth}px` }} />
+        </Box>
+      </Box>
+      <Group className={inboundClasses.topReceiptPagination} justify="space-between">
+        <Group className={inboundClasses.topReceiptPageSize} gap="xs">
+          <Select aria-label="페이지당 표시 건수" data={PAGE_SIZE_OPTIONS} value={String(documentPageSize)} w={100} size="xs"
+            onChange={(value) => { if (value) setDocumentPageSize(Number(value)); }} />
+        </Group>
+        <Pagination size="sm" total={Math.max(1, Math.ceil(documentTotal / documentPageSize))} value={documentPage}
+          onChange={(value) => void loadDocuments(value)} withEdges color="red" disabled={loading || !documentTotal} />
+      </Group>
+    </Paper>
+  ), [documents, documentTotal, documentPage, documentPageSize, documentTableWidth, documentColumnWidths, selectedProcessno, prefetchDocument, openDocument, loadDocuments, loading, documentSubtotals, syncDocumentScroll]);
+  const headerFields = useMemo(() => (
+    <Box className={classes.headerGrid}>
             <ErpDateInput label="가공일자" disabled={readOnly} value={header.processdate} onChange={(e) => setHeader((h) => ({ ...h, processdate: e.currentTarget.value }))} />
             <Select label="가공처" searchable autoSelectOnBlur disabled={readOnly} data={customerData} value={header.customcode || null} onChange={(value) => { const item = options.customers.find((x) => x.code === value); setHeader((h) => ({ ...h, customcode: value || '', customname: item?.name || '' })); }} />
-            <Select label="입고창고" searchable autoSelectOnBlur disabled={readOnly || sources.length > 0} data={warehouseData} value={header.warehousecode || null} onChange={(value) => { const item = options.warehouses.find((x) => x.code === value); setHeader((h) => ({ ...h, warehousecode: value || '', warehousecodename: item?.name || '' })); }} />
+            <Select label="입고창고" searchable autoSelectOnBlur disabled={readOnly || hasSources} data={warehouseData} value={header.warehousecode || null} onChange={(value) => { const item = options.warehouses.find((x) => x.code === value); setHeader((h) => ({ ...h, warehousecode: value || '', warehousecodename: item?.name || '' })); }} />
             <TextInput label="담당자" disabled={readOnly} value={header.manager} onChange={(e) => setHeader((h) => ({ ...h, manager: e.currentTarget.value }))} />
             <TextInput label="비고" disabled={readOnly} value={header.description} onChange={(e) => setHeader((h) => ({ ...h, description: e.currentTarget.value }))} />
           </Box>
+  ), [header, readOnly, customerData, warehouseData, options.customers, options.warehouses, hasSources]);
+  const filterPanel = useMemo(() => (
+    <Paper component="aside" withBorder className={classes.filter}>
+        <Group className={classes.filterHeader} justify="space-between" align="center">
+          <Text fw={700}>조회조건</Text>
+          <ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon>
+        </Group>
+        <Stack gap="sm" className={classes.filterFields}>
+          <Box>
+            <Text size="xs" fw={700} mb={5}>가공기간</Text>
+            <Stack gap={6}>
+              <ErpDateInput aria-label="가공기간 시작일" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.currentTarget.value }))} />
+              <ErpDateInput aria-label="가공기간 종료일" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.currentTarget.value }))} />
+            </Stack>
+          </Box>
+          <TextInput label="가공처" placeholder="가공처명 입력" value={filters.customer} onChange={(e) => setFilters((f) => ({ ...f, customer: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
+          <TextInput label="가공창고" placeholder="가공창고명 입력" value={filters.warehouse} onChange={(e) => setFilters((f) => ({ ...f, warehouse: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
+          <TextInput label="가공전표번호" placeholder="가공전표번호 입력" value={filters.processno} onChange={(e) => setFilters((f) => ({ ...f, processno: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
+          <TextInput label="품목정보" placeholder="품목코드 또는 품명 입력" value={filters.iteminfo} onChange={(e) => setFilters((f) => ({ ...f, iteminfo: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
+          <TextInput label="제품정보" placeholder="제품명 또는 제품번호 입력" value={filters.productinfo} onChange={(e) => setFilters((f) => ({ ...f, productinfo: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
+        </Stack>
+      </Paper>
+  ), [filters, loadDocuments]);
+
+  return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+    <ErpBreadcrumb parent="AI 가공관리" current="가공등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+    <Box className={classes.workspace}>
+      <Stack gap="sm" className={classes.main}>
+        {documentListPanel}
+
+        <Paper withBorder className={`${sharedClasses.panel} ${classes.detailPanel}`}>
+          <Group className={classes.sectionHeader} justify="space-between"><Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>가공 상세</Text><Badge color="gray" variant="light" className={classes.count}>{selectedProcessno || '신규'} · {sources.length}개 원소재</Badge></Group><Group gap="sm"><Text size="xs" c={Math.abs(totalSourceWeight - totalLeafWeight) <= 0.001 ? 'teal' : 'red'}>투입 {numberText(totalSourceWeight)} KG · 최종제품 {numberText(totalLeafWeight)} KG</Text><Button size="xs" variant="light" color="red" disabled={readOnly} onClick={() => setStockOpen(true)}>현재고 조회</Button></Group></Group>
+          {headerFields}
           <Box className={classes.detailViewport}>
             <table className={classes.detailTable} style={{ width: `${detailTableWidth}px`, minWidth: `${detailTableWidth}px` }}><colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{DETAIL_COLUMNS.map((column) => <th key={column.key} className={classes.resizableHeader} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }}>{column.key === 'select' ? detailRowIds.length > 0 && <input type="checkbox" aria-label="상세 전체 선택" checked={allDetailsSelected} disabled={readOnly} onChange={(event) => { setSelectedDetailIds(event.currentTarget.checked ? detailRowIds : []); selectionAnchorRef.current = ''; }} /> : column.label}<span className={classes.columnResizeHandle} data-column-key={column.key} onPointerDown={(event) => startTableColumnResize(event, DETAIL_COLUMNS, detailColumnWidths, setDetailColumnWidths, 1320)} role="separator" aria-label={`${column.label || '선택'} 열 너비 조절`} /></th>)}</tr></thead>
               <tbody>{sources.flatMap((source, sourceIndex) => {
@@ -987,26 +1086,7 @@ export default function ItemProcessRegister() {
           </Group>
         </Paper>
       </Stack>
-      {filterOpen && <Paper component="aside" withBorder className={classes.filter}>
-        <Group className={classes.filterHeader} justify="space-between" align="center">
-          <Text fw={700}>조회조건</Text>
-          <ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon>
-        </Group>
-        <Stack gap="sm" className={classes.filterFields}>
-          <Box>
-            <Text size="xs" fw={700} mb={5}>가공기간</Text>
-            <Stack gap={6}>
-              <ErpDateInput aria-label="가공기간 시작일" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.currentTarget.value }))} />
-              <ErpDateInput aria-label="가공기간 종료일" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.currentTarget.value }))} />
-            </Stack>
-          </Box>
-          <TextInput label="가공처" placeholder="가공처명 입력" value={filters.customer} onChange={(e) => setFilters((f) => ({ ...f, customer: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
-          <TextInput label="가공창고" placeholder="가공창고명 입력" value={filters.warehouse} onChange={(e) => setFilters((f) => ({ ...f, warehouse: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
-          <TextInput label="가공전표번호" placeholder="가공전표번호 입력" value={filters.processno} onChange={(e) => setFilters((f) => ({ ...f, processno: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
-          <TextInput label="품목정보" placeholder="품목코드 또는 품명 입력" value={filters.iteminfo} onChange={(e) => setFilters((f) => ({ ...f, iteminfo: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
-          <TextInput label="제품정보" placeholder="제품명 또는 제품번호 입력" value={filters.productinfo} onChange={(e) => setFilters((f) => ({ ...f, productinfo: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
-        </Stack>
-      </Paper>}
+      {filterOpen && filterPanel}
     </Box>
     <Modal opened={deleteDocumentsOpen} onClose={() => !saving && setDeleteDocumentsOpen(false)} title="가공전표 삭제" centered size="sm">
       <Stack gap="md">

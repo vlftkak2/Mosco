@@ -4,6 +4,9 @@ import xlsxwriter
 
 from services.inventory import CurrentStock as current_stock_module
 
+_CREATED_BY = f"{current_stock_module.user_name_sql('i.created_by')} AS created_by"
+_UPDATED_BY = f"{current_stock_module.user_name_sql('i.updated_by')} AS updated_by"
+
 
 def _conditions(
     companyid: str,
@@ -76,7 +79,8 @@ def list_iniop_stock(companyid: str, page: int, page_size: int, **filters):
                        i.qty, COALESCE(qty_code.code_name, i.qtyunit) AS qtyunit, i.weight,
                        COALESCE(price_code.code_name, i.unit) AS unit, i.unitprice, i.supplyamt, i.vat, i.unitamt,
                        i.warehousecode, i.warehousecodename,
-                       i.created_at, i.updated_at
+                       i.created_at, i.updated_at,
+                       {_CREATED_BY}, {_UPDATED_BY}
                 FROM Iniop01t AS i
                 LEFT JOIN CodeMaster01t AS qty_code
                   ON qty_code.companyid = i.companyid
@@ -101,7 +105,8 @@ def write_iniop_stock_excel(companyid: str, output_path: str, **filters):
                        i.productname, i.materialcode, i.materialname, i.surfacecode, i.surfacename, i.myrtle, i.manager,
                        i.thickness, i.width, i.length,
                        i.qty, COALESCE(qty_code.code_name, i.qtyunit) AS qtyunit, i.weight, i.warehousecode, i.warehousecodename,
-                       i.created_at, i.updated_at
+                       i.created_at, i.updated_at,
+                       {_CREATED_BY}, {_UPDATED_BY}
                 FROM Iniop01t AS i
                 LEFT JOIN CodeMaster01t AS qty_code
                   ON qty_code.companyid = i.companyid
@@ -113,6 +118,7 @@ def write_iniop_stock_excel(companyid: str, output_path: str, **filters):
         "No.", "수불일자", "수불유형", "수불전표", "거래처코드", "거래처명", "라인", "품목코드", "품목명",
         "제품번호", "강판코드", "강판", "표면코드", "표면", "도금량(g/㎡)", "담당자",
         "두께", "폭", "길이", "수량", "수량단위", "중량", "창고코드", "창고명", "등록일자", "수정일자",
+        "등록자", "수정자",
     ]
     workbook = xlsxwriter.Workbook(output_path, {"constant_memory": True})
     worksheet = workbook.add_worksheet("수불장")
@@ -139,6 +145,7 @@ def write_iniop_stock_excel(companyid: str, output_path: str, **filters):
     worksheet.set_column("V:V", 14, number_format)
     worksheet.set_column("W:X", 18)
     worksheet.set_column("Y:Z", 22, datetime_format)
+    worksheet.set_column("AA:AB", 14)
     row_no = 1
     try:
         with current_stock_module._connect() as connection, connection.cursor(name="iniop_stock_excel_cursor") as cursor:

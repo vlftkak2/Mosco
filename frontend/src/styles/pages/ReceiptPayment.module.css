@@ -174,6 +174,12 @@
 .detailTableWrap :global(.mantine-TextInput-input), .detailTableWrap :global(.mantine-Autocomplete-input) { text-align: left; }
 .detailTableWrap :global(.mantine-NumberInput-input:focus), .detailTableWrap :global(.mantine-TextInput-input:focus), .detailTableWrap :global(.mantine-Autocomplete-input:focus) { outline: 2px solid #4c83d3; outline-offset: -2px; background: #fff; }
 .detailTableWrap :global(.mantine-Autocomplete-input) { padding-right: 28px; }
+/* 수표/어음 종류·발행구분·어음처리상태 (검색형 고정 선택값) */
+.detailTableWrap :global(.mantine-Select-input) {
+  height: 33px; min-height: 33px; padding: 0 22px 0 7px; border: 0; border-radius: 0;
+  background: transparent; color: #293a52; font-size: 11px; text-align: left; box-shadow: none;
+}
+.detailTableWrap :global(.mantine-Select-input:focus) { outline: 2px solid #4c83d3; outline-offset: -2px; background: #fff; }
 .calculatedAmount { color: #18324f; font-weight: 600; }
 .detailFooter { flex: 0 0 auto; min-height: 44px; margin-top: auto; padding: 7px 13px; border-top: 1px solid #dce2e9; background: #f8fafc; }
 
@@ -218,10 +224,11 @@
 }
 
 /* Keep lookup cells visually consistent with inbound detail autocomplete. */
+/* Same as the inbound 강종 cell: no own border (the grid cell is the box), tinted background + search icon. */
 .detailTableWrap :global(.mantine-Autocomplete-input) {
-  border: 1px solid #e7b1b3 !important;
+  border: 0 !important;
   background-color: #fff9f8 !important;
 }
-.detailTableWrap :global(.mantine-Autocomplete-input:hover) { border-color: #d9777b !important; background-color: #fff2f1 !important; }
-.detailTableWrap :global(.mantine-Autocomplete-input:focus) { border-color: #c9373d !important; outline: none !important; box-shadow: 0 0 0 2px #c9373d1a !important; background-color: #fff !important; }
-.detailTableWrap :global(.mantine-Autocomplete-input:disabled) { border-color: transparent !important; background-image: none !important; cursor: not-allowed; }
+.detailTableWrap :global(.mantine-Autocomplete-input:hover) { background-color: #fff2f1 !important; }
+.detailTableWrap :global(.mantine-Autocomplete-input:focus) { position: relative; z-index: 1; outline: 2px solid #4c83d3 !important; outline-offset: -2px; box-shadow: 0 0 0 2px #c9373d1a !important; }
+.detailTableWrap :global(.mantine-Autocomplete-input:disabled) { background-color: #f1f3f5 !important; background-image: none !important; color: #8b95a3; cursor: not-allowed; }

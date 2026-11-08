@@ -170,10 +170,13 @@ def list_company_users(companyid: str):
         )
         counts = cursor.fetchone()
         cursor.execute(
-            """SELECT companyid, username, email, team, authority, useyn
-               FROM user01t
-               WHERE companyid = %s
-               ORDER BY LOWER(username), LOWER(email)""",
+            """SELECT u.companyid, u.username, u.email, u.team, u.authority, u.useyn,
+                      u.createdat, u.updatedat,
+                      COALESCE((SELECT x.username FROM user01t x WHERE x.email = u.created_by LIMIT 1), u.created_by) AS created_by,
+                      COALESCE((SELECT x.username FROM user01t x WHERE x.email = u.updated_by LIMIT 1), u.updated_by) AS updated_by
+               FROM user01t u
+               WHERE u.companyid = %s
+               ORDER BY LOWER(u.username), LOWER(u.email)""",
             (companyid,),
         )
         return {
@@ -230,10 +233,11 @@ def create_user(
 
         cursor.execute(
             """INSERT INTO user01t
-               (companyid, companyname, username, email, password, team, authority, useyn)
-               VALUES (%s, %s, %s, %s, %s, NULLIF(%s, ''), %s, 'Y')
+               (companyid, companyname, username, email, password, team, authority, useyn, created_by)
+               VALUES (%s, %s, %s, %s, %s, NULLIF(%s, ''), %s, 'Y', %s)
                RETURNING companyid, username, email, team, authority, useyn""",
-            (data.companyid, companyname, data.username, data.email, hash_password(data.password), data.team, data.authority),
+            (data.companyid, companyname, data.username, data.email, hash_password(data.password), data.team, data.authority,
+             created_by or None),
         )
         created_user = dict(cursor.fetchone())
 
@@ -257,7 +261,8 @@ def create_user(
         return created_user
 
 
-def update_user(data: UserUpdateInput, *, actor: dict | None = None):
+def update_user(data: UserUpdateInput, *, actor: dict | None = None, actor_email: str | None = None):
+    # `actor` (SUBMASTER only) drives permission checks; `actor_email` is recorded as 수정자 for every editor.
     with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute(
             "SELECT company_status, licensed_seats FROM company01t WHERE companyid = %s FOR UPDATE",
@@ -324,18 +329,22 @@ def update_user(data: UserUpdateInput, *, actor: dict | None = None):
         if data.password:
             cursor.execute(
                 """UPDATE user01t
-                   SET username = %s, email = %s, team = NULLIF(%s, ''), authority = %s, useyn = %s, password = %s
+                   SET username = %s, email = %s, team = NULLIF(%s, ''), authority = %s, useyn = %s, password = %s,
+                       updatedat = CURRENT_TIMESTAMP, updated_by = %s
                    WHERE companyid = %s AND LOWER(email) = LOWER(%s)
                    RETURNING companyid, username, email, team, authority, useyn""",
-                (data.username, data.email, data.team, data.authority, next_useyn, hash_password(data.password), data.companyid, data.original_email),
+                (data.username, data.email, data.team, data.authority, next_useyn, hash_password(data.password),
+                 actor_email or None, data.companyid, data.original_email),
             )
         else:
             cursor.execute(
                 """UPDATE user01t
-                   SET username = %s, email = %s, team = NULLIF(%s, ''), authority = %s, useyn = %s
+                   SET username = %s, email = %s, team = NULLIF(%s, ''), authority = %s, useyn = %s,
+                       updatedat = CURRENT_TIMESTAMP, updated_by = %s
                    WHERE companyid = %s AND LOWER(email) = LOWER(%s)
                    RETURNING companyid, username, email, team, authority, useyn""",
-                (data.username, data.email, data.team, data.authority, next_useyn, data.companyid, data.original_email),
+                (data.username, data.email, data.team, data.authority, next_useyn, actor_email or None,
+                 data.companyid, data.original_email),
             )
         return dict(cursor.fetchone())
 

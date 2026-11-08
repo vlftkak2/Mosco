@@ -26,7 +26,7 @@ import {
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
-import * as XLSX from "xlsx";
+import XLSX from "xlsx-js-style";
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import sharedClasses from "../../styles/pages/ManagementShared.module.css";
 import classes from "../../styles/pages/CustomerPage.module.css";
@@ -984,6 +984,8 @@ export default function CustomerPage() {
         "계좌번호",
         "사용여부",
         "비고",
+        "등록자",
+        "수정자",
       ];
       const worksheet = XLSX.utils.aoa_to_sheet([
         headers,
@@ -1012,6 +1014,8 @@ export default function CustomerPage() {
           customer.accountno ?? "",
           displayUseyn(customer.useryn ?? customer.useyn),
           customer.remark ?? "",
+          customer.createdbyname ?? "",
+          customer.updatedbyname ?? "",
         ]),
       ]);
       applyExcelHeaderStyle(worksheet, headers.length);

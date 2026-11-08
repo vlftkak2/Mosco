@@ -21,14 +21,21 @@ def documents(date_from: date | None = None, date_to: date | None = None,
               processno: str = Query(default="", max_length=100),
               iteminfo: str = Query(default="", max_length=150),
               productinfo: str = Query(default="", max_length=150),
+              page: int | None = Query(default=None, ge=1),
+              page_size: int | None = Query(default=None, ge=1, le=200),
               user: dict = Depends(security_module.get_current_user)):
     if date_from and date_to and date_from > date_to:
         raise HTTPException(status_code=422, detail="시작일은 종료일보다 늦을 수 없습니다.")
     try:
+        filters = dict(customer=customer, warehouse=warehouse, processno=processno,
+                       iteminfo=iteminfo, productinfo=productinfo)
+        if page is not None:
+            # Paged list (가공 목록 with 15/50/100/200 per page, like 출고등록).
+            return {"success": True, **process_module.list_documents(
+                user["companyid"], date_from, date_to, **filters, page=page, page_size=page_size or 15,
+            )}
         return {"success": True, "items": process_module.list_documents(
-            user["companyid"], date_from, date_to,
-            customer=customer, warehouse=warehouse, processno=processno,
-            iteminfo=iteminfo, productinfo=productinfo,
+            user["companyid"], date_from, date_to, **filters,
         )}
     except Exception as error:
         raise HTTPException(status_code=500, detail="가공전표 목록을 조회하지 못했습니다.") from error
@@ -86,7 +93,7 @@ def next_product_number(data: process_module.ProductNumberRequest,
 def delete_documents(data: process_module.ProcessDeleteRequest,
                      user: dict = Depends(security_module.get_current_user)):
     try:
-        deleted = process_module.delete_documents(user["companyid"], data.processnos)
+        deleted = process_module.delete_documents(user["companyid"], data.processnos, actor=user.get("email"))
         return {"success": True, "deleted": deleted}
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -100,7 +107,8 @@ def save_document(data: process_module.ProcessSaveRequest,
                   user: dict = Depends(security_module.get_current_user)):
     try:
         return {"success": True, **process_module.save_document(
-            user["companyid"], user.get("companyname") or user["companyid"], data.model_dump()
+            user["companyid"], user.get("companyname") or user["companyid"], data.model_dump(),
+            actor=user.get("email"),
         )}
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

@@ -98,6 +98,7 @@ def save_items(
             user["companyid"],
             user.get("companyname") or user["companyid"],
             [item.model_dump() for item in data.items],
+            actor=user.get("email"),
         )
         return {"success": True, "saved_count": saved_count}
     except ValueError as error:
@@ -120,6 +121,7 @@ def bulk_insert_items(
             user["companyid"],
             user.get("companyname") or user["companyid"],
             items,
+            actor=user.get("email"),
         )
         return {"success": True, "inserted_count": inserted_count}
     except ValueError as error:
@@ -139,6 +141,9 @@ def delete_items(
     try:
         deleted_count = item_master_module.delete_items(user["companyid"], data.itemcodes)
         return {"success": True, "deleted_count": deleted_count}
+    except ValueError as error:
+        # e.g. the item is still used by stock / documents
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except Exception as error:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

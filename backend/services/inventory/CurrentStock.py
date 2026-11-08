@@ -21,6 +21,12 @@ def _row_dict(cursor, row):
     return dict(zip((column[0] for column in cursor.description), row))
 
 
+def user_name_sql(column: str) -> str:
+    """SQL showing the user's name for an email column, falling back to the stored email
+    (so rows stay readable after the user is deleted)."""
+    return f"COALESCE((SELECT u.username FROM user01t u WHERE u.email = {column} LIMIT 1), {column})"
+
+
 class StockLookupItem(BaseModel):
     itemcode: str = Field(min_length=1, max_length=100)
     thickness: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
@@ -236,7 +242,12 @@ def record_document(
     lines: list[dict],
     customcode: str = "",
     customname: str = "",
+    created_by: str | None = None,
+    updated_by: str | None = None,
 ):
+    """created_by/updated_by: the user emails stored on the new ledger/stock rows (등록자/수정자).
+    For an edited document pass the original creator and the editor. The acting user
+    (updated_by or created_by) is also stamped as 수정자 on stock rows an OUT document draws from."""
     if iniotype not in {"ST", "IN", "OUT"}:
         raise ValueError("지원하지 않는 수불 유형입니다.")
     movements = [_normalized_movement(line) for line in lines]
@@ -298,6 +309,7 @@ def record_document(
             movement["warehousecodename"],
             price_unit_name or None,
             line.get("unitprice"), line.get("supplyamt"), line.get("vat"), line.get("unitamt"),
+            created_by or None, updated_by or None,
         ))
         if iniotype != "OUT":
             source_type = "OPENING" if iniotype == "ST" else "INBOUND"
@@ -316,6 +328,7 @@ def record_document(
                 movement["qty"], movement["qty"], quantity_unit_name,
                 movement["weight"], movement["weight"], price_unit_name or None,
                 line.get("unitprice"), movement["warehousecode"], movement["warehousecodename"],
+                created_by or None, updated_by or None,
             ))
 
     execute_values(
@@ -324,13 +337,15 @@ def record_document(
                (companyid, companyname, iniodate, iniotype, receiptno, lineno, customcode, customname,
                 itemcode, itemname, productname, materialcode, materialname, surfacecode, surfacename,
                 myrtle, manager, thickness, width, length, qty, qtyunit, weight,
-                warehousecode, warehousecodename, unit, unitprice, supplyamt, vat, unitamt)
+                warehousecode, warehousecodename, unit, unitprice, supplyamt, vat, unitamt,
+                created_by, updated_by)
            VALUES %s""",
         ledger_rows,
         page_size=1000,
     )
     if iniotype == "OUT":
-        _apply_source_stock_changes(cursor, companyid, source_keys, movements, reverse=False)
+        _apply_source_stock_changes(cursor, companyid, source_keys, movements, reverse=False,
+                                    actor=updated_by or created_by)
     else:
         inserted = execute_values(
             cursor,
@@ -338,7 +353,8 @@ def record_document(
                    (companyid, companyname, customcode, customname, sourcetype, sourceno, sourceline,
                     receiptdate, itemcode, itemname, productname, materialcode, materialname,
                     surfacecode, surfacename, myrtle, manager, thickness, width, length, originalqty, qty, qtyunit,
-                    originalweight, weight, unit, unitprice, warehousecode, warehousecodename)
+                    originalweight, weight, unit, unitprice, warehousecode, warehousecodename,
+                    created_by, updated_by)
                VALUES %s
                ON CONFLICT (companyid, sourcetype, sourceno, sourceline) DO NOTHING
                RETURNING sourceline""",
@@ -416,7 +432,7 @@ def _lock_rows_sorted(cursor, companyid: str, keys: list[tuple]):
 
 
 def _apply_source_stock_changes(cursor, companyid: str, source_keys: list[tuple],
-                                movements: list[dict], reverse: bool):
+                                movements: list[dict], reverse: bool, actor: str | None = None):
     """Subtract (or restore) quantities on stock source rows with one statement.
 
     Several lines may draw from the same source row, so amounts are summed per row first.
@@ -434,7 +450,7 @@ def _apply_source_stock_changes(cursor, companyid: str, source_keys: list[tuple]
     if reverse:
         sql = """UPDATE CurrentStock01t AS stock
                  SET qty = stock.qty + v.qty, weight = stock.weight + v.weight,
-                     updated_at = CURRENT_TIMESTAMP
+                     updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE({actor}, stock.updated_by)
                  FROM (VALUES %s) AS v(sourcetype, sourceno, sourceline, qty, weight)
                  WHERE stock.companyid = {companyid} AND stock.sourcetype = v.sourcetype
                    AND stock.sourceno = v.sourceno AND stock.sourceline = v.sourceline
@@ -457,13 +473,14 @@ def _apply_source_stock_changes(cursor, companyid: str, source_keys: list[tuple]
                            AND (code = stock.unit OR code_name = stock.unit)
                          LIMIT 1
                      ), stock.unit),
-                     updated_at = CURRENT_TIMESTAMP
+                     updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE({actor}, stock.updated_by)
                  FROM (VALUES %s) AS v(sourcetype, sourceno, sourceline, qty, weight)
                  WHERE stock.companyid = {companyid} AND stock.sourcetype = v.sourcetype
                    AND stock.sourceno = v.sourceno AND stock.sourceline = v.sourceline
                    AND stock.qty >= v.qty AND stock.weight >= v.weight
                  RETURNING stock.sourcetype, stock.sourceno, stock.sourceline"""
     sql = sql.replace("{companyid}", cursor.mogrify("%s", (companyid,)).decode().replace("%", "%%"))
+    sql = sql.replace("{actor}", cursor.mogrify("%s::varchar", (actor or None,)).decode().replace("%", "%%"))
     changed = execute_values(
         cursor, sql, values,
         template="(%s::varchar, %s::varchar, %s::integer, %s::numeric, %s::numeric)",
@@ -473,7 +490,7 @@ def _apply_source_stock_changes(cursor, companyid: str, source_keys: list[tuple]
         raise ValueError("선택된 원천 재고 라인의 잔량 또는 복원 가능 수량을 확인해 주세요.")
 
 
-def reverse_document(cursor, companyid: str, iniotype: str, receiptno: str):
+def reverse_document(cursor, companyid: str, iniotype: str, receiptno: str, actor: str | None = None):
     cursor.execute(
         """SELECT companyname, lineno, itemcode, itemname, thickness, width, length, qty, qtyunit, weight,
                   warehousecode, warehousecodename
@@ -506,7 +523,7 @@ def reverse_document(cursor, companyid: str, iniotype: str, receiptno: str):
             if not source_key or not all(source_key) or int(source_key[2]) <= 0:
                 raise ValueError("출고 상세에서 원천 재고 연결 정보를 찾을 수 없습니다.")
             source_keys.append((source_key[0], source_key[1], int(source_key[2])))
-        _apply_source_stock_changes(cursor, companyid, source_keys, movements, reverse=True)
+        _apply_source_stock_changes(cursor, companyid, source_keys, movements, reverse=True, actor=actor)
     else:
         source_type = "OPENING" if iniotype == "ST" else "INBOUND"
         source_lines = [int(movement["lineno"]) for movement in movements]
@@ -670,7 +687,8 @@ def _current_stock_select(source_lines: bool):
         "stock.thickness, stock.width, "
         "stock.length, stock.qty, COALESCE(qty_code.code_name, stock.qtyunit) AS qtyunit, "
         "stock.weight, stock.warehousecode, stock.warehousecodename, "
-        "stock.created_at, stock.updated_at"
+        "stock.created_at, stock.updated_at, "
+        f"{user_name_sql('stock.created_by')} AS created_by, {user_name_sql('stock.updated_by')} AS updated_by"
     )
 
 
@@ -719,7 +737,7 @@ def write_current_stock_excel(companyid: str, output_path: str, **filters):
     headers = ["No.", "재고구분", "원천전표", "원천순번", "입고일자", "거래처코드", "거래처명",
                "최초수량", "최초중량", "단가기준", "매입단가", "품목코드", "품목명", "Lot번호",
                "강판코드", "강판", "표면코드", "표면", "도금량(g/㎡)", "담당자", "두께", "폭", "길이",
-               "현재수량", "수량단위", "현재중량", "창고코드", "창고명", "등록일자", "수정일자"]
+               "현재수량", "수량단위", "현재중량", "창고코드", "창고명", "등록일자", "수정일자", "등록자", "수정자"]
     workbook = xlsxwriter.Workbook(output_path, {"constant_memory": True})
     worksheet = workbook.add_worksheet("현재고")
     header_format = workbook.add_format({"bold": True, "font_color": "#B4232D", "bg_color": "#FFF3F3", "border": 1, "border_color": "#E5BFC2"})
@@ -735,6 +753,7 @@ def write_current_stock_excel(companyid: str, output_path: str, **filters):
     worksheet.set_column("G:G", 24)
     worksheet.set_column("L:M", 20)
     worksheet.set_column("V:W", 20, datetime_format)
+    worksheet.set_column("AE:AF", 14)
     row_no = 1
     try:
         with _connect() as connection, connection.cursor(name="current_stock_excel_cursor") as cursor:

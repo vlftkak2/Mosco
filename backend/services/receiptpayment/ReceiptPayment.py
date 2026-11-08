@@ -11,6 +11,16 @@ from config import DB_CONFIG
 # Connections come from the single shared pool (backend/db.py).
 _connect = _shared_db.connect
 
+# 수표/어음 고정 선택값: DB에는 코드, 화면에는 이름. (frontend src/utils/instrumentCodes.js 와 같은 목록)
+# 발행구분·어음처리상태 코드는 업무 로직(보유어음 불러오기·배서)이 판단에 사용하므로 바꾸지 않는다.
+INSTRUMENT_OPTIONS = {
+    "instrumenttype": {"RECEIVABLE": "외상매출채권", "ELECTRONIC": "전자어음", "PROMISSORY": "약속어음", "CURRENT_CHECK": "당좌수표",
+                       "HOUSEHOLD_CHECK": "가계수표", "CASHIER_CHECK": "자기앞수표", "OTHER": "기타"},
+    "issuekind": {"OWN": "자수", "OTHER": "타수"},
+    "instrumentstatus": {"HELD": "보관", "ENDORSED": "배서", "DISCOUNTED": "할인", "SETTLED": "결제", "DISHONORED": "부도"},
+}
+INSTRUMENT_FIELD_LABELS = {"instrumenttype": "수표/어음 종류", "issuekind": "발행구분", "instrumentstatus": "어음처리상태"}
+
 
 class ReceiptPaymentDetailInput(BaseModel):
     cashamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=3)
@@ -40,6 +50,20 @@ class ReceiptPaymentDetailInput(BaseModel):
     def strip_detail_text(cls, value: str) -> str:
         return value.strip()
 
+    @field_validator("instrumenttype", "issuekind", "instrumentstatus")
+    @classmethod
+    def validate_fixed_code(cls, value: str, info) -> str:
+        # Fixed lists: store the code. A Korean label (e.g. from an Excel upload) is accepted and converted.
+        if not value:
+            return value
+        options = INSTRUMENT_OPTIONS[info.field_name]
+        if value.upper() in options:
+            return value.upper()
+        by_label = {label: code for code, label in options.items()}
+        if value in by_label:
+            return by_label[value]
+        raise ValueError(f"{INSTRUMENT_FIELD_LABELS[info.field_name]} 값을 목록에서 선택해 주세요: {value}")
+
 
 class ReceiptPaymentSaveRequest(BaseModel):
     receiptno: str = Field(default="", max_length=100)
@@ -67,8 +91,9 @@ class ReceiptPaymentSaveRequest(BaseModel):
     @model_validator(mode="after")
     def require_detail_amount(self):
         amount_fields = ("cashamt", "instrumentamt", "bankamt", "cardamt", "offsetamt", "lossamt", "chargeamt")
-        if not any(getattr(item, field) > 0 for item in self.items for field in amount_fields):
-            raise ValueError("금액 상세에 금액을 하나 이상 입력해 주세요.")
+        for lineno, item in enumerate(self.items, start=1):
+            if not any(getattr(item, field) > 0 for field in amount_fields):
+                raise ValueError(f"{lineno}행에 금액이 없습니다. 금액을 입력하거나 빈 행을 삭제해 주세요.")
         return self
 
 
@@ -128,6 +153,8 @@ def list_documents(companyid: str, page: int, page_size: int, date_from: date | 
             f"""
             SELECT h.receiptno, h.receiptdate, h.transactiontype, h.customcode, h.customname,
                    h.manager, h.description, h.created_at, h.updated_at,
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = h.created_by LIMIT 1), h.created_by) AS created_by,
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = h.updated_by LIMIT 1), h.updated_by) AS updated_by,
                    COALESCE(d.line_count, 0)::integer AS line_count,
                    COALESCE(d.cashamt, 0)::numeric(15, 3) AS cashamt,
                    COALESCE(d.instrumentamt, 0)::numeric(15, 3) AS instrumentamt,
@@ -192,7 +219,9 @@ def list_detail_rows(companyid: str, page: int, page_size: int, date_from: date 
                    d.custodyaccount, d.custodybank, d.instrumentstatus,
                    d.bankamt, d.cardamt, d.offsetamt, d.lossamt, d.chargeamt, d.totalamt,
                    d.description AS detail_description,
-                   d.created_at, d.updated_at
+                   d.created_at, COALESCE(d.updated_at, h.updated_at) AS updated_at,
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = COALESCE(d.created_by, h.created_by) LIMIT 1), COALESCE(d.created_by, h.created_by)) AS created_by,
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = COALESCE(d.updated_by, h.updated_by) LIMIT 1), COALESCE(d.updated_by, h.updated_by)) AS updated_by
             {join_sql}
             WHERE {where_sql}
             ORDER BY h.receiptdate DESC, h.receiptno DESC, d.lineno NULLS FIRST
@@ -208,7 +237,9 @@ def get_document(companyid: str, receiptno: str):
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """SELECT companyid, companyname, receiptno, receiptdate, transactiontype,
-                      customcode, customname, manager, description, created_at, updated_at
+                      customcode, customname, manager, description, created_at, updated_at,
+                      COALESCE((SELECT u.username FROM user01t u WHERE u.email = ReceiptPayment01t.created_by LIMIT 1), ReceiptPayment01t.created_by) AS created_by,
+                      COALESCE((SELECT u.username FROM user01t u WHERE u.email = ReceiptPayment01t.updated_by LIMIT 1), ReceiptPayment01t.updated_by) AS updated_by
                FROM ReceiptPayment01t WHERE companyid = %s AND receiptno = %s""",
             (companyid, receiptno),
         )
@@ -221,7 +252,9 @@ def get_document(companyid: str, receiptno: str):
                       instrumenttype, instrumentno, issuedate, issuercompany, issuer, issuekind,
                       maturitydate, custodyaccount, custodybank, instrumentstatus,
                       bankamt, cardamt, offsetamt, lossamt, chargeamt, totalamt,
-                      description, created_at, updated_at
+                      description, created_at, updated_at,
+                      COALESCE((SELECT u.username FROM user01t u WHERE u.email = ReceiptPayment02t.created_by LIMIT 1), ReceiptPayment02t.created_by) AS created_by,
+                      COALESCE((SELECT u.username FROM user01t u WHERE u.email = ReceiptPayment02t.updated_by LIMIT 1), ReceiptPayment02t.updated_by) AS updated_by
                FROM ReceiptPayment02t
                WHERE companyid = %s AND receiptno = %s
                ORDER BY lineno""",
@@ -258,7 +291,7 @@ def _next_receiptno(cursor, companyid: str, receiptdate: date) -> str:
     return f"{prefix}{cursor.fetchone()[0] + 1:05d}"
 
 
-def save_document(companyid: str, companyname: str, payload: dict):
+def save_document(companyid: str, companyname: str, payload: dict, actor: str | None = None):
     receiptno = payload.get("receiptno", "").strip()
     is_new = not receiptno
     items = payload["items"]
@@ -268,28 +301,38 @@ def save_document(companyid: str, companyname: str, payload: dict):
             cursor.execute(
                 """INSERT INTO ReceiptPayment01t
                    (companyid, companyname, receiptno, receiptdate, transactiontype,
-                    customcode, customname, manager, description)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    customcode, customname, manager, description, created_by)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (companyid, companyname, receiptno, payload["receiptdate"], payload["transactiontype"],
-                 payload["customcode"], payload["customname"], payload["manager"], payload["description"]),
+                 payload["customcode"], payload["customname"], payload["manager"], payload["description"],
+                 actor or None),
             )
+            detail_created_by, detail_updated_by = actor or None, None
         else:
             cursor.execute(
                 """UPDATE ReceiptPayment01t
                    SET receiptdate = %s, transactiontype = %s, customcode = %s, customname = %s,
-                       manager = %s, description = %s, updated_at = CURRENT_TIMESTAMP
+                       manager = %s, description = %s, updated_at = CURRENT_TIMESTAMP,
+                       updated_by = %s
                    WHERE companyid = %s AND receiptno = %s
-                   RETURNING receiptno""",
+                   RETURNING receiptno, created_by""",
                 (payload["receiptdate"], payload["transactiontype"], payload["customcode"],
-                 payload["customname"], payload["manager"], payload["description"], companyid, receiptno),
+                 payload["customname"], payload["manager"], payload["description"], actor or None,
+                 companyid, receiptno),
             )
-            if not cursor.fetchone():
+            updated = cursor.fetchone()
+            if not updated:
                 raise ValueError("수금/지급 전표를 찾을 수 없습니다.")
+            # Details are re-inserted on edit: keep the original creator, record the editor as modifier.
+            detail_created_by, detail_updated_by = updated[1] or None, actor or None
             cursor.execute("DELETE FROM ReceiptPayment02t WHERE companyid = %s AND receiptno = %s", (companyid, receiptno))
 
         for lineno, item in enumerate(items, start=1):
             cashamt = item["cashamt"]
             instrumentamt = item["instrumentamt"]
+            # 수금으로 받은 수표/어음은 처리상태를 비워 두면 '보관'으로 저장한다.
+            if payload["transactiontype"] == "RECEIPT" and instrumentamt > 0 and not item["instrumentstatus"]:
+                item["instrumentstatus"] = "HELD"
             bankamt = item["bankamt"]
             cardamt = item["cardamt"]
             totalamt = cashamt + instrumentamt + bankamt + cardamt
@@ -298,15 +341,17 @@ def save_document(companyid: str, companyname: str, payload: dict):
                    (companyid, companyname, receiptno, lineno, cashamt, instrumentamt,
                     instrumenttype, instrumentno, issuedate, issuercompany, issuer, issuekind,
                     maturitydate, custodyaccount, custodybank, instrumentstatus,
-                    bankamt, cardamt, offsetamt, lossamt, chargeamt, totalamt, description)
+                    bankamt, cardamt, offsetamt, lossamt, chargeamt, totalamt, description,
+                    created_by, updated_by)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                           %s, %s, %s, %s, %s, %s, %s)""",
+                           %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (companyid, companyname, receiptno, lineno, cashamt, instrumentamt,
                  item["instrumenttype"] or None, item["instrumentno"] or None, item["issuedate"],
                  item["issuercompany"] or None, item["issuer"] or None, item["issuekind"] or None,
                  item["maturitydate"], item["custodyaccount"] or None, item["custodybank"] or None,
                  item["instrumentstatus"] or None, bankamt, cardamt, item["offsetamt"],
-                 item["lossamt"], item["chargeamt"], totalamt, item["description"]),
+                 item["lossamt"], item["chargeamt"], totalamt, item["description"],
+                 detail_created_by, detail_updated_by),
             )
     return {"receiptno": receiptno, "is_new": is_new}
 

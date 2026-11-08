@@ -369,6 +369,8 @@ export default function UserMenu() {
                   <Table.Th>메뉴코드</Table.Th>
                   <Table.Th>메뉴명</Table.Th>
                   <Table.Th>메뉴 운영상태</Table.Th>
+                  <Table.Th>등록자</Table.Th>
+                  <Table.Th>수정자</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -396,10 +398,12 @@ export default function UserMenu() {
                         {menu.useyn === 'Y' ? '사용중' : '사용중지'}
                       </Badge>
                     </Table.Td>
+                    <Table.Td>{menu.created_by || ''}</Table.Td>
+                    <Table.Td>{menu.updated_by || ''}</Table.Td>
                   </Table.Tr>
                 )) : (
                   <Table.Tr>
-                    <Table.Td colSpan={4} className={classes.empty}>
+                    <Table.Td colSpan={6} className={classes.empty}>
                       {loadingMenus
                         ? '조회 중...'
                         : selectedUser

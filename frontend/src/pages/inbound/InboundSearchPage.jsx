@@ -26,7 +26,7 @@ const TABLE_COLUMN_WIDTHS = {
   productname: 105, itemname: 125, materialname: 85, surfacename: 75, myrtle: 100,
   thickness: 60, width: 50, length: 60, qty: 70, weight: 80, unitprice: 90,
   supplyamt: 90, vat: 80, unitamt: 95, other_cost_amount: 105, qtyunit: 75, unit: 75, manager: 80,
-  description: 120, created_at: 145, updated_at: 145,
+  description: 120, created_at: 145, updated_at: 145, created_by: 90, updated_by: 90,
 };
 const BASE_TABLE_WIDTH = Object.values(TABLE_COLUMN_WIDTHS).reduce((sum, width) => sum + width, 0);
 const TABLE_COLUMNS = [
@@ -36,7 +36,7 @@ const TABLE_COLUMNS = [
   ['qty', '수량'], ['weight', '중량'], ['unitprice', '매입단가'], ['supplyamt', '공급가'], ['vat', '부가세'],
   ['unitamt', '합계금액'],
   ['other_cost_amount', '\uAE30\uD0C0\uBE44\uC6A9 \uD569\uACC4'], ['qtyunit', '수량단위'], ['unit', '단가기준'], ['manager', '담당자'], ['description', '비고'],
-  ['created_at', '등록일자'], ['updated_at', '수정일자'],
+  ['created_at', '등록일자'], ['updated_at', '수정일자'], ['created_by', '등록자'], ['updated_by', '수정자'],
 ].map(([key, label]) => ({ key, label, width: TABLE_COLUMN_WIDTHS[key], minWidth: Math.min(TABLE_COLUMN_WIDTHS[key], 72) }));
 
 const makeDefaultFilters = () => {
@@ -306,6 +306,8 @@ export default function InboundSearchPage() {
                   <Table.Td>{item.description}</Table.Td>
                   <Table.Td>{displayDateTime(item.created_at)}</Table.Td>
                   <Table.Td>{displayDateTime(item.updated_at)}</Table.Td>
+                  <Table.Td>{item.created_by}</Table.Td>
+                  <Table.Td>{item.updated_by}</Table.Td>
                 </Table.Tr>) : !loading && <Table.Tr><Table.Td colSpan={TABLE_COLUMNS.length} style={{ height: 180, textAlign: 'center', color: '#7c899b' }}>표시할 입고 상세 내역이 없습니다.</Table.Td></Table.Tr>}</Table.Tbody>
             </Table>
           </Box>

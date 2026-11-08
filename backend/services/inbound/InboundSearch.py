@@ -122,7 +122,10 @@ def list_inbound_details(
                    COALESCE(et.other_cost_amount, 0) AS other_cost_amount,
                    d.qtyunit, d.unit, h.manager,
                    COALESCE(NULLIF(BTRIM(h.description), ''), d.description) AS description,
-                   d.created_at, d.updated_at
+                   d.created_at, COALESCE(d.updated_at, h.updated_at) AS updated_at,
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = d.created_by LIMIT 1), d.created_by) AS created_by,
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = COALESCE(d.updated_by, h.updated_by) LIMIT 1),
+                            COALESCE(d.updated_by, h.updated_by)) AS updated_by
             FROM Inbound01t AS h
             JOIN Inbound02t AS d
               ON d.companyid = h.companyid
@@ -174,7 +177,7 @@ def write_inbound_details_excel(
         "No.", "입고일자", "입고전표", "매입처", "창고", "제품번호", "품명", "강종", "표면",
         "도금량(g/㎡)", "두께", "폭", "길이", "수량", "중량", "매입단가", "공급가", "부가세",
         "합계금액", "수량단위", "단가기준", "담당자", "비고",
-        "등록일자", "수정일자",
+        "등록일자", "수정일자", "등록자", "수정자",
     ]
     headers.insert(19, "\uAE30\uD0C0\uBE44\uC6A9 \uD569\uACC4")
     query = f"""
@@ -204,7 +207,10 @@ def write_inbound_details_excel(
                COALESCE(et.other_cost_amount, 0) AS other_cost_amount,
                d.qtyunit, d.unit, h.manager,
                COALESCE(NULLIF(BTRIM(h.description), ''), d.description) AS description,
-               d.created_at, d.updated_at
+               d.created_at, COALESCE(d.updated_at, h.updated_at) AS updated_at,
+               COALESCE((SELECT u.username FROM user01t u WHERE u.email = d.created_by LIMIT 1), d.created_by) AS created_by,
+               COALESCE((SELECT u.username FROM user01t u WHERE u.email = COALESCE(d.updated_by, h.updated_by) LIMIT 1),
+                        COALESCE(d.updated_by, h.updated_by)) AS updated_by
         FROM Inbound01t AS h
         JOIN Inbound02t AS d
           ON d.companyid = h.companyid
@@ -250,6 +256,7 @@ def write_inbound_details_excel(
     worksheet.set_column("W:W", 18)
     worksheet.set_column("X:X", 30)
     worksheet.set_column("Y:Z", 22, datetime_format)
+    worksheet.set_column("AA:AB", 14)
 
     row_number = 1
     try:

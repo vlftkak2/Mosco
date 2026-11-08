@@ -79,6 +79,7 @@ def _save_receipt(data: outbound_module.OutboundSaveRequest, user: dict, is_new:
         result = outbound_module.save_receipt(
             user["companyid"], user.get("companyname") or user["companyid"],
             payload,
+            actor=user.get("email"),
         )
         return {"success": True, **result}
     except ValueError as error:
@@ -114,6 +115,7 @@ def update_receipt_managers(
     try:
         updated_count = outbound_module.update_receipt_manager(
             user["companyid"], receiptno, data.manager,
+            actor=user.get("email"),
         )
         return {"success": True, "updated_count": updated_count}
     except ValueError as error:
@@ -125,7 +127,7 @@ def update_receipt_managers(
 @router.delete("/receipts/{receiptno}")
 def delete_receipt(receiptno: str, user: dict = Depends(security_module.get_current_user)):
     try:
-        deleted_count = outbound_module.delete_receipt(user["companyid"], receiptno)
+        deleted_count = outbound_module.delete_receipt(user["companyid"], receiptno, actor=user.get("email"))
         if not deleted_count:
             raise HTTPException(status_code=404, detail="출고전표를 찾을 수 없습니다.")
         return {"success": True, "deleted_count": deleted_count}

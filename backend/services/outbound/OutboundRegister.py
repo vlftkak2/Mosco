@@ -81,6 +81,20 @@ class OutboundSaveRequest(BaseModel):
     def require_header_fields(self):
         if not self.is_new and not self.receiptno:
             raise ValueError("수정할 출고전표번호가 없습니다.")
+        # 비용여부 '예' = 다른 거래처(운송사 등)에 지급하는 비용 → 매출처를 거래처로 쓸 수 없음.
+        # 매출처 부담이면 '아니오'를 선택한다(이때 거래처는 매출처로 저장된다).
+        header_code = self.customcode.lower()
+        header_name = self.customname.lower()
+        for index, expense in enumerate(self.expenses, start=1):
+            if expense.purchaseyn != "Y":
+                continue
+            if not expense.customcode and not expense.customname:
+                raise ValueError(f"기타비용 {index}행: 비용여부 '예'는 거래처를 입력해 주세요.")
+            same_code = bool(header_code) and expense.customcode.lower() == header_code
+            same_name = not expense.customcode and bool(header_name) and expense.customname.lower() == header_name
+            if same_code or same_name:
+                raise ValueError(f"기타비용 {index}행: 비용여부 '예'의 거래처는 매출처와 다른 거래처를 입력해 주세요. "
+                                 "매출처 부담이면 '아니오'로 선택해 주세요.")
         return self
 
 
@@ -184,7 +198,11 @@ def list_receipts(
                    h.description, h.subulyn, h.created_at,
                    COUNT(d.lineno)::integer AS line_count,
                    STRING_AGG(DISTINCT NULLIF(d.warehousecode, ''), ', ') AS warehousecode,
-                   STRING_AGG(DISTINCT NULLIF(d.warehousecodename, ''), ', ') AS warehousecodename,
+                   -- Same label as the detail header when a receipt spans several warehouses.
+                   CASE WHEN COUNT(DISTINCT NULLIF(d.warehousecode, '')) > 1
+                        THEN '복수 창고 (' || COUNT(DISTINCT NULLIF(d.warehousecode, '')) || ')'
+                        ELSE STRING_AGG(DISTINCT NULLIF(d.warehousecodename, ''), ', ')
+                   END AS warehousecodename,
                    COALESCE(SUM(d.qty), 0)::numeric(15, 3) AS total_qty,
                    STRING_AGG(DISTINCT NULLIF(d.qtyunit, ''), ', ') AS qtyunit,
                    COALESCE(SUM(d.weight), 0)::numeric(15, 3) AS total_weight,
@@ -239,7 +257,10 @@ def get_receipt(companyid: str, receiptno: str):
                       stock.receiptdate, stock.customname AS sourcecustomname,
                       COALESCE(stock.qty, 0) + COALESCE(own.qty, 0) AS current_qty,
                       COALESCE(stock.weight, 0) + COALESCE(own.weight, 0) AS current_weight,
-                      d.created_at, d.updated_at
+                      d.created_at, COALESCE(d.updated_at, h.updated_at) AS updated_at,
+                      COALESCE((SELECT u.username FROM user01t u WHERE u.email = d.created_by LIMIT 1), d.created_by) AS created_by,
+                      COALESCE((SELECT u.username FROM user01t u WHERE u.email = COALESCE(d.updated_by, h.updated_by) LIMIT 1),
+                               COALESCE(d.updated_by, h.updated_by)) AS updated_by
                FROM Outbound02t AS d
                JOIN Outbound01t AS h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
                LEFT JOIN CurrentStock01t AS stock
@@ -393,7 +414,8 @@ def list_available_stock(
 
 
 def _insert_outbound_expenses(cursor, companyid: str, companyname: str, receiptno: str,
-                              expenses: list[dict]):
+                              expenses: list[dict], created_by: str | None = None,
+                              updated_by: str | None = None):
     if not expenses:
         return
     normalized = []
@@ -441,12 +463,14 @@ def _insert_outbound_expenses(cursor, companyid: str, companyname: str, receiptn
             supplyamt, vat, supplyamt + vat, customcode, customname,
             str(expense.get("purchaseyn") or "N").strip().upper(),
             str(expense.get("description") or "").strip() or None,
+            created_by or None, updated_by or None,
         ))
     execute_values(
         cursor,
         """INSERT INTO Outbound03t
            (companyid, companyname, receiptno, lineno, costcode, costname,
-            supplyamt, vat, totalamt, customcode, customname, purchaseyn, description)
+            supplyamt, vat, totalamt, customcode, customname, purchaseyn, description,
+            created_by, updated_by)
            VALUES %s""",
         normalized,
         page_size=1000,
@@ -492,7 +516,7 @@ def _prefetch_source_rows(cursor, companyid: str, items: list[dict]) -> dict:
         rows[(record["sourcetype"], record["sourceno"], record["sourceline"])] = record
     return rows
 
-def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
+def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict, actor: str | None = None):
     items = payload["items"]
     default_date = payload.get("receptdate")
     default_code = (payload.get("customcode") or "").strip()
@@ -586,9 +610,11 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
                 if demand["qty"] > Decimal(str(stock["qty"])) or demand["weight"] > Decimal(str(stock["weight"])):
                     raise ValueError(f"원천 재고 {source_key[1]}/{source_key[2]}의 출고량이 잔량을 초과합니다.")
 
+            # One save creates one sales receipt keyed by the header (출고일자 / 매출처).
+            # Detail lines keep their own source-stock warehouse, so a receipt may span warehouses.
             grouped_items = {}
             for item in items:
-                group_key = (item["receptdate"], item["customcode"], item["_warehousecode"])
+                group_key = (item["receptdate"], item["customcode"], "")
                 grouped_items.setdefault(group_key, []).append(item)
             if payload.get("expenses") and len(grouped_items) != 1:
                 raise ValueError("기타비용은 하나의 출고전표에 연결해야 합니다. 품목을 한 전표로 저장한 뒤 등록해 주세요.")
@@ -599,10 +625,11 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
                 customer_name = customers[customcode]
                 cursor.execute(
                     """INSERT INTO Outbound01t
-                       (companyid, companyname, receiptno, receptdate, customcode, customname, manager, description, subulyn)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'N')""",
+                       (companyid, companyname, receiptno, receptdate, customcode, customname, manager, description, subulyn,
+                        created_by)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'N', %s)""",
                     (companyid, companyname, receiptno, receptdate, customcode, customer_name,
-                     manager or None, payload.get("description") or None),
+                     manager or None, payload.get("description") or None, actor or None),
                 )
                 detail_values = []
                 stock_lines = []
@@ -627,7 +654,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
                         qty, quantity_unit_names.get(stock["qtyunit"], stock["qtyunit"]), weight,
                         price_unit_names.get(unit) or unit, unitprice, supplyamt, vat, unitamt,
                         stock["warehousecode"], stock["warehousecodename"], item.get("description", "").strip() or None,
-                        manager or None,
+                        manager or None, actor or None, None,
                     ))
                     stock_lines.append({
                         "stocksourcetype": source_key[0], "stocksourceno": source_key[1], "stocksourceline": source_key[2],
@@ -645,18 +672,18 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
                        (companyid, companyname, receiptno, lineno, stocksourcetype, stocksourceno, stocksourceline,
                         itemcode, itemname, productname, surfacecode, surfacename, materialcode, materialname, myrtle,
                         thickness, width, length, qty, qtyunit, weight, unit, unitprice, supplyamt, vat, unitamt,
-                        warehousecode, warehousecodename, description, manager)
+                        warehousecode, warehousecodename, description, manager, created_by, updated_by)
                        VALUES %s""",
                     detail_values,
                     page_size=1000,
                 )
                 current_stock_module.record_document(
                     cursor, companyid, companyname, receptdate, "OUT", receiptno, stock_lines,
-                    customcode=customcode, customname=customer_name,
+                    customcode=customcode, customname=customer_name, created_by=actor,
                 )
                 _insert_outbound_expenses(
                     cursor, companyid, companyname, receiptno,
-                    payload.get("expenses") or [],
+                    payload.get("expenses") or [], created_by=actor,
                 )
                 created_receipts.append({
                     "receiptno": receiptno, "receptdate": receptdate.isoformat(),
@@ -682,9 +709,9 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict):
         raise
 
 
-def save_receipt(companyid: str, companyname: str, payload: dict):
+def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | None = None):
     if payload.get("is_new"):
-        return _save_new_receipt_groups(companyid, companyname, payload)
+        return _save_new_receipt_groups(companyid, companyname, payload, actor)
     receiptno = (payload.get("receiptno") or "").strip()
     items = payload["items"]
     try:
@@ -752,7 +779,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                 raise ValueError("단가 기준을 확인해 주세요: " + " / ".join(unit_errors[:5]))
 
             cursor.execute(
-                """SELECT COALESCE(subulyn, 'N'), customcode, description
+                """SELECT COALESCE(subulyn, 'N'), customcode, description, created_by
                    FROM Outbound01t WHERE companyid = %s AND receiptno = %s FOR UPDATE""",
                 (companyid, receiptno),
             )
@@ -770,14 +797,15 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                 raise ValueError("수정할 출고전표가 없습니다. 목록을 새로고침해 주세요.")
 
             if existing:
-                current_stock_module.reverse_document(cursor, companyid, "OUT", receiptno)
+                current_stock_module.reverse_document(cursor, companyid, "OUT", receiptno, actor=actor)
                 cursor.execute(
                     """UPDATE Outbound01t
                        SET receptdate = %s, customcode = %s, customname = %s,
-                           manager = %s, description = %s, updated_at = CURRENT_TIMESTAMP
+                           manager = %s, description = %s, updated_at = CURRENT_TIMESTAMP,
+                           updated_by = %s
                        WHERE companyid = %s AND receiptno = %s""",
                     (payload["receptdate"], customcode, customer_name,
-                     manager or None, payload.get("description") or None, companyid, receiptno),
+                     manager or None, payload.get("description") or None, actor or None, companyid, receiptno),
                 )
                 cursor.execute(
                     "DELETE FROM Outbound02t WHERE companyid = %s AND receiptno = %s",
@@ -791,11 +819,15 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                 cursor.execute(
                     """INSERT INTO Outbound01t
                        (companyid, companyname, receiptno, receptdate, customcode,
-                        customname, manager, description, subulyn)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'N')""",
+                        customname, manager, description, subulyn, created_by)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'N', %s)""",
                     (companyid, companyname, receiptno, payload["receptdate"], customcode,
-                     customer_name, manager or None, payload.get("description") or None),
+                     customer_name, manager or None, payload.get("description") or None, actor or None),
                 )
+            # Detail/expense rows are re-inserted on edit: keep the original creator and
+            # record the editor as the modifier.
+            detail_created_by = (existing[3] if existing else actor) or None
+            detail_updated_by = (actor or None) if existing else None
 
             quantity_unit_codes, quantity_unit_names = _load_quantity_unit_maps(cursor, companyid)
             source_cache = {}
@@ -853,7 +885,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                     qty, quantity_unit_names.get(stock["qtyunit"], stock["qtyunit"]), weight,
                     price_unit_names.get(unit) or unit, unitprice, supplyamt, vat, unitamt,
                     stock["warehousecode"], stock["warehousecodename"], item.get("description", "").strip() or None,
-                    manager or None,
+                    manager or None, detail_created_by, detail_updated_by,
                 ))
                 stock_lines.append({
                     "stocksourcetype": source_key[0], "stocksourceno": source_key[1], "stocksourceline": source_key[2],
@@ -872,7 +904,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
                    (companyid, companyname, receiptno, lineno, stocksourcetype, stocksourceno, stocksourceline,
                     itemcode, itemname, productname, surfacecode, surfacename, materialcode, materialname, myrtle,
                     thickness, width, length, qty, qtyunit, weight, unit, unitprice, supplyamt, vat, unitamt,
-                    warehousecode, warehousecodename, description, manager)
+                    warehousecode, warehousecodename, description, manager, created_by, updated_by)
                    VALUES %s""",
                 detail_values,
                 page_size=1000,
@@ -880,10 +912,12 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
             current_stock_module.record_document(
                 cursor, companyid, companyname, payload["receptdate"], "OUT", receiptno, stock_lines,
                 customcode=customcode, customname=customer_name,
+                created_by=detail_created_by, updated_by=detail_updated_by,
             )
             _insert_outbound_expenses(
                 cursor, companyid, companyname, receiptno,
                 payload.get("expenses") or [],
+                created_by=detail_created_by, updated_by=detail_updated_by,
             )
         return {"receiptno": receiptno, "saved_count": len(items)}
     except ValueError:
@@ -898,7 +932,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict):
         raise
 
 
-def update_receipt_manager(companyid: str, receiptno: str, manager: str):
+def update_receipt_manager(companyid: str, receiptno: str, manager: str, actor: str | None = None):
     normalized_manager = (manager or "").strip()
     with _connect() as connection, connection.cursor() as cursor:
         # Shared company stock lock: inbound/outbound saves run concurrently with each other
@@ -920,9 +954,9 @@ def update_receipt_manager(companyid: str, receiptno: str, manager: str):
 
         cursor.execute(
             """UPDATE Outbound01t
-               SET manager = %s, updated_at = CURRENT_TIMESTAMP
+               SET manager = %s, updated_at = CURRENT_TIMESTAMP, updated_by = %s
                WHERE companyid = %s AND receiptno = %s""",
-            (normalized_manager or None, companyid, receiptno),
+            (normalized_manager or None, actor or None, companyid, receiptno),
         )
         cursor.execute(
             "SELECT COUNT(*) FROM Outbound02t WHERE companyid = %s AND receiptno = %s",
@@ -933,24 +967,24 @@ def update_receipt_manager(companyid: str, receiptno: str, manager: str):
             raise ValueError("Outbound receipt has no detail rows.")
         cursor.execute(
             """UPDATE Outbound02t
-               SET manager = %s, updated_at = CURRENT_TIMESTAMP
+               SET manager = %s, updated_at = CURRENT_TIMESTAMP, updated_by = %s
                WHERE companyid = %s AND receiptno = %s""",
-            (normalized_manager or None, companyid, receiptno),
+            (normalized_manager or None, actor or None, companyid, receiptno),
         )
         if cursor.rowcount != updated_count:
             raise ValueError("Outbound detail manager update count did not match.")
         cursor.execute(
             """UPDATE Iniop01t
-               SET manager = %s, updated_at = CURRENT_TIMESTAMP
+               SET manager = %s, updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, updated_by)
                WHERE companyid = %s AND iniotype = 'OUT' AND receiptno = %s""",
-            (normalized_manager or None, companyid, receiptno),
+            (normalized_manager or None, actor or None, companyid, receiptno),
         )
         if cursor.rowcount != updated_count:
             raise ValueError("Inventory ledger manager update count did not match.")
     return updated_count
 
 
-def delete_receipt(companyid: str, receiptno: str):
+def delete_receipt(companyid: str, receiptno: str, actor: str | None = None):
     with _connect() as connection, connection.cursor() as cursor:
         # Shared company stock lock: inbound/outbound saves run concurrently with each other
         # (stock rows are row-locked), while opening stock / transfer / processing still take
@@ -965,7 +999,7 @@ def delete_receipt(companyid: str, receiptno: str):
             return 0
         if str(row[0] or "N").strip().upper() in {"Y", "YES", "확정"}:
             raise ValueError("수불 확정된 출고전표는 삭제할 수 없습니다.")
-        current_stock_module.reverse_document(cursor, companyid, "OUT", receiptno)
+        current_stock_module.reverse_document(cursor, companyid, "OUT", receiptno, actor=actor)
         cursor.execute("DELETE FROM Outbound02t WHERE companyid = %s AND receiptno = %s", (companyid, receiptno))
         cursor.execute("DELETE FROM Outbound01t WHERE companyid = %s AND receiptno = %s", (companyid, receiptno))
         return 1

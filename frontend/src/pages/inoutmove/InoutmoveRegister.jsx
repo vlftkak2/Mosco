@@ -4,7 +4,8 @@ import ErpDateInput from '../../components/common/ErpDateInput';
 import { ActionIcon, Box, Button, Group, Loader, Modal, Pagination, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
+import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import outboundClasses from '../../styles/pages/OutboundRegister.module.css';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
@@ -13,6 +14,19 @@ import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import classes from './InoutmoveRegister.module.css';
 
 const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
+// Same Excel date-time text as 입고/출고등록: "YYYY-MM-DD HH:mm:ss" (KST).
+const formatExcelDateTime = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(value);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date);
+  const part = (type) => parts.find((entry) => entry.type === type)?.value || '';
+  return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}:${part('second')}`;
+};
 const today = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -312,7 +326,7 @@ export default function InoutmoveRegister() {
   const renderListHeader = (column) => <Table.Th key={column.key} className={codeClasses.resizableHeader} style={{ position: 'relative', width: listColumnWidths[column.key] ?? column.width }}>
     <span style={{ whiteSpace: 'nowrap' }}>{column.label}</span><span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeGridColumn(event, column, listColumnWidths, setListColumnWidths, LIST_COLUMNS, true)} role="separator" aria-label={`${column.label} 열 너비 조절`} />
   </Table.Th>;
-  const renderDetailHeader = (column) => <Table.Th key={column.key} className={codeClasses.resizableHeader} style={{ position: 'relative', width: detailColumnWidths[column.key] ?? column.width }}>
+  const renderDetailHeader = (column) => <Table.Th key={column.key} className={column.key === 'select' ? `${codeClasses.checkCol} ${classes.checkCell}` : codeClasses.resizableHeader} style={{ position: 'relative', width: detailColumnWidths[column.key] ?? column.width }}>
     {column.key === 'select' ? <input type="checkbox" checked={items.length > 0 && selectedIds.length === items.length} onChange={(event) => setSelectedIds(event.currentTarget.checked ? items.map(sourceKey) : [])} disabled={readOnly || !items.length} /> : <span style={{ whiteSpace: 'nowrap' }}>{column.label}</span>}
     {column.key !== 'select' && <span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeGridColumn(event, column, detailColumnWidths, setDetailColumnWidths, DETAIL_COLUMNS)} role="separator" aria-label={`${column.label} 열 너비 조절`} />}
   </Table.Th>;
@@ -354,10 +368,7 @@ export default function InoutmoveRegister() {
     setFilters(next); void loadDocuments(1, next);
   }, [filterInputs, loadDocuments]);
 
-  const addDocument = useCallback(() => {
-    resetDraft();
-  }, [resetDraft]);
-
+  // 추가 (ribbon) = same as 출고등록: leave a saved document for a new one, then pick current stock.
   const openStockPicker = useCallback(() => {
     if (saving) return;
     if (selectedReceiptno) resetDraft();
@@ -472,22 +483,29 @@ export default function InoutmoveRegister() {
       '중량(KG)': row.weight,
       출발창고: row.fromwarehousename || fromWarehouse,
       도착창고: row.towarehousename || toWarehouse,
+      등록일자: formatExcelDateTime(row.created_at),
+      수정일자: formatExcelDateTime(row.updated_at),
+      등록자: row.created_by || '',
+      수정자: row.updated_by || '',
     }));
     if (!exportRows.length) {
       notifications.show({ title: '엑셀 다운로드', message: '다운로드할 재고이전 상세가 없습니다.', color: 'orange' });
       return;
     }
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(exportRows), '재고이전상세');
-    XLSX.writeFile(workbook, `재고이전_${selectedReceiptno || today()}.xlsx`);
-  }, [items, fromWarehouse, toWarehouse, selectedReceiptno]);
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    applyExcelHeaderStyle(worksheet, Object.keys(exportRows[0] || {}).length);
+    XLSX.utils.book_append_sheet(workbook, worksheet, '재고이전상세');
+    // Same naming as the other downloads: <name>_YYYYMMDD (local date).
+    XLSX.writeFile(workbook, `재고이전_${today().replaceAll('-', '')}.xlsx`);
+  }, [items, fromWarehouse, toWarehouse]);
 
   useEffect(() => {
     if (!pageLayout?.registerPageRibbon) return undefined;
     pageLayout.registerPageRibbon(<Group className={inboundClasses.commandRibbon} justify="flex-start" wrap="nowrap" gap={2}>
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
       <span className={inboundClasses.ribbonSeparator} />
-      <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={addDocument} disabled={saving}>추가</Button>
+      <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={openStockPicker} disabled={saving}>추가</Button>
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} disabled>복사</Button>
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportDocument} disabled={!items.length}>엑셀</Button>
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={saveDocument} loading={saving} disabled={readOnly || !items.length}>저장</Button>
@@ -496,7 +514,7 @@ export default function InoutmoveRegister() {
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={pageLayout.closeActivePage}>닫기</Button>
     </Group>);
     return () => pageLayout.registerPageRibbon(null);
-  }, [pageLayout, runSearch, loading, addDocument, saving, readOnly, items.length, requestDelete, selectedReceiptno, selectedIds.length, exportDocument, saveDocument]);
+  }, [pageLayout, runSearch, loading, openStockPicker, saving, readOnly, items.length, requestDelete, selectedReceiptno, selectedIds.length, exportDocument, saveDocument]);
 
   const updateHeader = (field, value) => setHeader((current) => ({ ...current, [field]: value || '' }));
   return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
@@ -563,8 +581,8 @@ export default function InoutmoveRegister() {
                 style={{ width: `max(100%, ${detailTableWidth}px)`, minWidth: `${detailTableWidth}px`, tableLayout: 'fixed' }}>
                 <colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
                 <Table.Thead><Table.Tr>{DETAIL_COLUMNS.map(renderDetailHeader)}</Table.Tr></Table.Thead>
-                {!!items.length && <Table.Tbody>{items.map((row, index) => <Table.Tr key={sourceKey(row)} className={selectedSet.has(sourceKey(row)) ? classes.selectedRow : ''}>
-                  <Table.Td className={codeClasses.checkCol}><input type="checkbox" checked={selectedSet.has(sourceKey(row))} disabled={readOnly} onChange={(event) => setSelectedIds((current) => event.currentTarget.checked ? [...current, sourceKey(row)] : current.filter((key) => key !== sourceKey(row)))} /></Table.Td>
+                {!!items.length && <Table.Tbody>{items.map((row, index) => <Table.Tr key={sourceKey(row)} className={readOnly ? classes.savedRow : selectedSet.has(sourceKey(row)) ? classes.selectedRow : ''}>
+                  <Table.Td className={`${codeClasses.checkCol} ${classes.checkCell}`}><input type="checkbox" checked={selectedSet.has(sourceKey(row))} disabled={readOnly} onChange={(event) => setSelectedIds((current) => event.currentTarget.checked ? [...current, sourceKey(row)] : current.filter((key) => key !== sourceKey(row)))} /></Table.Td>
                   <Table.Td>{index + 1}</Table.Td><Table.Td>이동</Table.Td>
                   <Table.Td>{String(header.receptdate || '').slice(0, 10)}</Table.Td><Table.Td>{row.fromwarehousename || fromWarehouse}</Table.Td><Table.Td>{row.towarehousename || toWarehouse}</Table.Td>
                   <Table.Td>{row.itemname}</Table.Td><Table.Td>{row.productname}</Table.Td><Table.Td>{row.materialname || row.myrtle || ''}</Table.Td>

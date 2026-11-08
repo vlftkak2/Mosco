@@ -5,6 +5,7 @@ import db as _shared_db
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import DB_CONFIG
+from services.inventory.CurrentStock import user_name_sql
 
 
 logger = logging.getLogger(__name__)
@@ -75,7 +76,7 @@ def _row_to_rule(row):
         "itemcode", "itemname", "itemtypecode", "itemtypecodenm",
         "processid", "processcodename", "processnm", "steelgradeyn",
         "surfaceyn", "thicknessyn", "widthyn", "lengthyn", "description",
-        "created_at", "updated_at",
+        "created_by", "updated_by", "created_at", "updated_at",
     )
     result = dict(zip(keys, row))
     for key in keys[:-2]:
@@ -118,7 +119,9 @@ def list_rules(
             f"""SELECT r.itemcode, r.itemname, r.itemtypecode, r.itemtypecodenm,
                        r.processid, COALESCE(p.code_name, ''), r.processnm,
                        r.steelgradeyn, r.surfaceyn, r.thicknessyn, r.widthyn,
-                       r.lengthyn, r.description, r.created_at, r.updated_at
+                       r.lengthyn, r.description,
+                       {user_name_sql('r.created_by')}, {user_name_sql('r.updated_by')},
+                       r.created_at, r.updated_at
                 FROM ItemProcessrule01t r
                 LEFT JOIN CodeMaster01t p
                   ON p.companyid = r.companyid
@@ -207,7 +210,7 @@ def suggest_active_items(companyid: str, query: str, limit: int = 8):
         ]
 
 
-def save_rules(companyid: str, companyname: str, items: list[dict]) -> int:
+def save_rules(companyid: str, companyname: str, items: list[dict], actor: str | None = None) -> int:
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"item-process:{companyid}",))
         itemcodes = sorted({item["itemcode"] for item in items})
@@ -254,12 +257,12 @@ def save_rules(companyid: str, companyname: str, items: list[dict]) -> int:
                     """INSERT INTO ItemProcessrule01t
                            (companyid, companyname, itemcode, itemname, itemtypecode,
                             itemtypecodenm, processid, processnm, steelgradeyn, surfaceyn,
-                            thicknessyn, widthyn, lengthyn, description, created_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, clock_timestamp())""",
+                            thicknessyn, widthyn, lengthyn, description, created_at, created_by)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, clock_timestamp(), %s)""",
                     (
                         companyid, companyname, item["itemcode"], master["itemname"],
                         master["itemtypecode"], master["itemtypecodenm"], item["processid"],
-                        *values,
+                        *values, actor or None,
                     ),
                 )
             else:
@@ -269,11 +272,11 @@ def save_rules(companyid: str, companyname: str, items: list[dict]) -> int:
                        SET companyname = %s, itemname = %s, itemtypecode = %s,
                            itemtypecodenm = %s, processid = %s, processnm = %s,
                            steelgradeyn = %s, surfaceyn = %s, thicknessyn = %s, widthyn = %s, lengthyn = %s,
-                           description = %s, updated_at = CURRENT_TIMESTAMP
+                           description = %s, updated_at = CURRENT_TIMESTAMP, updated_by = %s
                        WHERE companyid = %s AND itemcode = %s AND processid = %s""",
                     (
                         companyname, master["itemname"], master["itemtypecode"],
-                        master["itemtypecodenm"], item["processid"], *values, companyid,
+                        master["itemtypecodenm"], item["processid"], *values, actor or None, companyid,
                         item["itemcode"], original_processid,
                     ),
                 )
