@@ -36,6 +36,7 @@ import ReceiptPayment from "./pages/receiptpayment/ReceiptPayment";
 import ReceiptPaymentSearch from "./pages/receiptpayment/ReceiptPaymentSearch";
 import InstrumentStatus from "./pages/receiptpayment/InstrumentStatus";
 import GrossProfit from "./pages/outbound/GrossProfit";
+import GrossProfitDashboard from "./pages/outbound/GrossProfitDashboard";
 
 
 // Mantine 기본 스타일 
@@ -101,6 +102,7 @@ function App() {
           <Route path="/ReceiptPaymentSearch" element={menuPage('RECEIPT_PAYMENT_SEARCH', <ReceiptPaymentSearch />)} />
           <Route path="/InstrumentStatus" element={menuPage('INSTRUMENT_STATUS', <InstrumentStatus />)} />
           <Route path="/GrossProfit" element={menuPage('GROSS_PROFIT', <GrossProfit />)} />
+          <Route path="/GrossProfitDashboard" element={menuPage('GROSS_PROFIT_DASHBOARD', <GrossProfitDashboard />)} />
           <Route path="/AIOrderPage" element={menuPage('AI_ORDER_RECOGNITION', <AIOrderPage />)} />
           <Route path="/AIOrderOptimization" element={menuPage('AI_OPTIMIZATION', <AIOrderOptimization />)} />
           <Route path="/AIProcessingStandards" element={menuPage('AI_STANDARDS', <AIProcessingStandards />)} />

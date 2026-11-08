@@ -44,6 +44,7 @@ from routes.inbound import Purchase_routes as Purchase_routes
 from routes.outbound import OutboundRegister_routes as OutboundRegister_routes
 from routes.outbound import OutboundSearch_routes as OutboundSearch_routes
 from routes.outbound import GrossProfit_routes as GrossProfit_routes
+from routes.outbound import GrossProfitDashboard_routes as GrossProfitDashboard_routes
 from routes.inventory import StockStand_routes as StockStand_routes
 from routes.inventory import CurrentStock_routes as CurrentStock_routes
 from routes.inventory import IniopStock_routes as IniopStock_routes
@@ -129,6 +130,7 @@ app.include_router(OutboundRegister_routes.router)
 # Company-scoped outbound status/search API
 app.include_router(OutboundSearch_routes.router)
 app.include_router(GrossProfit_routes.router)  # 매출이익분석
+app.include_router(GrossProfitDashboard_routes.router)  # 매출이익 현황판
 
 # Company-scoped opening stock API
 app.include_router(StockStand_routes.router)

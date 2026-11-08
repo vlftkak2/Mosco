@@ -46,10 +46,13 @@
 }
 
 .navBar {
-  border-right: 1px solid #202d40 !important;
-  background: #202d40 !important;
-  color: #d5dce6;
+  overflow: hidden;
+  border-right: 0 !important;
+  background: transparent !important;
 }
+
+/* 모바일: 헤더 왼쪽 햄버거 */
+.mobileBurger { display: flex; flex: 0 0 auto; align-items: center; padding: 0 8px 0 12px; }
 
 .headerBrand {
   display: flex;
@@ -294,15 +297,7 @@
   height: 100dvh !important;
   min-height: 0 !important;
   overflow: hidden !important;
-  --app-shell-navbar-width: 204px;
 }
-
-.sidebarCollapsed { --app-shell-navbar-width: 64px; }
-.sidebarCollapsed .headerBrand { justify-content: center; gap: 0; padding: 0; }
-.sidebarCollapsed .logoMark,
-.sidebarCollapsed .brandCopy { display: none; }
-.sidebarCollapsed .linksContainer { padding: 14px 8px 22px !important; }
-.appShellInbound .headerBrand { width: 204px; flex-basis: 204px; }
 
 .appMainInbound {
   display: flex;

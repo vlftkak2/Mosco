@@ -14,6 +14,8 @@
 /* 표 */
 .profitTable tbody td, .profitTable tfoot td { height: 30px; font-variant-numeric: tabular-nums; }
 .profitCell { font-weight: 700; }
+.table .profitUp, .profitTable td.profitUp { color: #dc2626 !important; }
+.table .profitDown, .profitTable td.profitDown { color: #1d4ed8 !important; }
 .lossRow > td { color: #dc2626 !important; }
 .marginUp { color: #dc2626; font-weight: 600; white-space: nowrap; }
 .marginDown { color: #1d4ed8; font-weight: 600; white-space: nowrap; }

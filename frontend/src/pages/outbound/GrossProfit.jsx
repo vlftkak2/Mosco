@@ -10,6 +10,7 @@ import {
   IconChevronDown, IconChevronRight, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus,
   IconSearch, IconTrash, IconX,
 } from '@tabler/icons-react';
+import { useLocation } from 'react-router-dom';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
@@ -89,12 +90,14 @@ const renderCell = (row, column, index) => {
   return value ?? '';
 };
 const cellStyle = (column) => ({ textAlign: column.align || (column.type ? 'right' : undefined) });
+// 이익금액: 이익은 빨강, 손실은 파랑 (마진율 ▲/▼ 와 같은 색)
+const profitClass = (value) => `${pageClasses.profitCell} ${Number(value) < 0 ? pageClasses.profitDown : pageClasses.profitUp}`;
 
 // 출고 행 (가벼운 일반 td)
 const ProfitRow = memo(function ProfitRow({ row, index }) {
   const loss = Number(row.profit_amt) < 0;
   return <tr className={`${TR}${loss ? ` ${pageClasses.lossRow}` : ''}`} data-with-row-border="true" data-hover="true">
-    {COLUMNS.map((column) => <td key={column.key} className={`${TD}${column.key === 'profit_amt' ? ` ${pageClasses.profitCell}` : ''}`}
+    {COLUMNS.map((column) => <td key={column.key} className={`${TD}${column.key === 'profit_amt' ? ` ${profitClass(row.profit_amt)}` : ''}`}
       data-with-column-border="true" style={cellStyle(column)}>{renderCell(row, column, index)}</td>)}
   </tr>;
 });
@@ -106,7 +109,7 @@ const SummaryCells = ({ entry, label }) => COLUMNS.map((column, columnIndex) => 
   else if (column.type === 'money') content = money(entry[column.key]);
   else if (column.type === 'margin') content = <MarginCell value={entry.margin_rate} profit={entry.profit_amt} />;
   else if (column.key === 'qty' || column.key === 'weight') content = decimal(entry[column.key]);
-  return <td key={column.key} className={TD} data-with-column-border="true" style={cellStyle(column)}>{content}</td>;
+  return <td key={column.key} className={`${TD}${column.key === 'profit_amt' ? ` ${profitClass(entry.profit_amt)}` : ''}`} data-with-column-border="true" style={cellStyle(column)}>{content}</td>;
 });
 
 const GroupBlock = memo(function GroupBlock({ group, rows, startIndex, collapsed, onToggle }) {
@@ -161,6 +164,17 @@ export default function GrossProfit() {
   const [autoCollapsed, setAutoCollapsed] = useState(false);
   const requestId = useRef(0);
   const closeFilter = useCallback(() => setFilterOpen(false), []);
+  // 현황판에서 넘어온 조건 (?customer=&date_from=&date_to=) 적용
+  const location = useLocation();
+  const [appliedSearch, setAppliedSearch] = useState('');
+  if (location.search && location.search !== appliedSearch) {
+    setAppliedSearch(location.search);
+    const query = new URLSearchParams(location.search);
+    const next = { ...makeFilters() };
+    ['date_from', 'date_to', 'customer'].forEach((key) => { if (query.get(key)) next[key] = query.get(key); });
+    setInputs(next);
+    setFilters(next);
+  }
 
   const load = useCallback(async (requested) => {
     const id = ++requestId.current;
