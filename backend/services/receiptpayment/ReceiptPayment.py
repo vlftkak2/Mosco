@@ -41,10 +41,13 @@ class ReceiptPaymentDetailInput(BaseModel):
     lossamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=3)
     chargeamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=3)
     description: str = Field(default="", max_length=500)
+    # 보유증권 불러오기: 지급 행이 사용한 수금 증권(전표번호·순번)
+    source_receiptno: str = Field(default="", max_length=30)
+    source_lineno: int | None = Field(default=None, gt=0)
 
     @field_validator(
         "instrumenttype", "instrumentno", "issuercompany", "issuer", "issuekind",
-        "custodyaccount", "custodybank", "instrumentstatus", "description",
+        "custodyaccount", "custodybank", "instrumentstatus", "description", "source_receiptno",
     )
     @classmethod
     def strip_detail_text(cls, value: str) -> str:
@@ -94,6 +97,10 @@ class ReceiptPaymentSaveRequest(BaseModel):
         for lineno, item in enumerate(self.items, start=1):
             if not any(getattr(item, field) > 0 for field in amount_fields):
                 raise ValueError(f"{lineno}행에 금액이 없습니다. 금액을 입력하거나 빈 행을 삭제해 주세요.")
+            # 종류를 골랐다면 증권이므로 금액은 '수표/어음' 칸에 있어야 한다 (현금 수금은 종류를 비운다).
+            if item.instrumenttype and item.instrumentamt <= 0:
+                raise ValueError(f"{lineno}행: 수표/어음 종류를 선택했으면 금액은 '수표/어음' 칸에 입력해 주세요. "
+                                 "현금으로 받았다면 종류를 비워 주세요.")
         return self
 
 
@@ -252,7 +259,10 @@ def get_document(companyid: str, receiptno: str):
                       instrumenttype, instrumentno, issuedate, issuercompany, issuer, issuekind,
                       maturitydate, custodyaccount, custodybank, instrumentstatus,
                       bankamt, cardamt, offsetamt, lossamt, chargeamt, totalamt,
-                      description, created_at, updated_at,
+                      description, created_at, updated_at, source_receiptno, source_lineno,
+                      (SELECT p.receiptno FROM ReceiptPayment02t p
+                        WHERE p.companyid = ReceiptPayment02t.companyid AND p.source_receiptno = ReceiptPayment02t.receiptno
+                          AND p.source_lineno = ReceiptPayment02t.lineno LIMIT 1) AS used_receiptno,
                       COALESCE((SELECT u.username FROM user01t u WHERE u.email = ReceiptPayment02t.created_by LIMIT 1), ReceiptPayment02t.created_by) AS created_by,
                       COALESCE((SELECT u.username FROM user01t u WHERE u.email = ReceiptPayment02t.updated_by LIMIT 1), ReceiptPayment02t.updated_by) AS updated_by
                FROM ReceiptPayment02t
@@ -262,6 +272,117 @@ def get_document(companyid: str, receiptno: str):
         )
         document["items"] = [_row_dict(cursor, detail) for detail in cursor.fetchall()]
     return document
+
+
+# 보유증권: 수금으로 받은 타수 증권(어음·수표·외상매출채권) 중 아직 '보관'이고 어떤 지급에도 쓰이지 않은 것.
+# 예전에 처리상태 없이 저장된 수금 증권은 보관으로 본다.
+_HELD_CONDITION = """h.transactiontype = 'RECEIPT' AND d.instrumentamt > 0
+    AND COALESCE(NULLIF(d.issuekind, ''), 'OTHER') = 'OTHER'
+    AND COALESCE(NULLIF(d.instrumentstatus, ''), 'HELD') = 'HELD'"""
+
+
+def list_held_instruments(companyid: str, page: int = 1, page_size: int = 50, maturity_from: date | None = None,
+                          maturity_to: date | None = None, customer: str = "", keyword: str = "", instrumenttype: str = ""):
+    where = ["d.companyid = %s", _HELD_CONDITION,
+             """NOT EXISTS (SELECT 1 FROM ReceiptPayment02t p WHERE p.companyid = d.companyid
+                    AND p.source_receiptno = d.receiptno AND p.source_lineno = d.lineno)"""]
+    params: list = [companyid]
+    if maturity_from:
+        where.append("d.maturitydate >= %s"); params.append(maturity_from)
+    if maturity_to:
+        where.append("d.maturitydate <= %s"); params.append(maturity_to)
+    if customer.strip():
+        where.append("(h.customname ILIKE %s OR h.customcode ILIKE %s)"); params += [f"%{customer.strip()}%"] * 2
+    if keyword.strip():
+        where.append("(d.instrumentno ILIKE %s OR d.issuercompany ILIKE %s OR d.issuer ILIKE %s)"); params += [f"%{keyword.strip()}%"] * 3
+    if instrumenttype.strip():
+        where.append("d.instrumenttype = %s"); params.append(instrumenttype.strip().upper())
+    where_sql = " AND ".join(where)
+    join_sql = "FROM ReceiptPayment02t d JOIN ReceiptPayment01t h ON h.companyid = d.companyid AND h.receiptno = d.receiptno"
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(f"SELECT COUNT(*), COALESCE(SUM(d.instrumentamt), 0) {join_sql} WHERE {where_sql}", params)
+        total, total_amount = cursor.fetchone()
+        cursor.execute(
+            f"""SELECT d.receiptno, d.lineno, h.receiptdate, h.customcode, h.customname,
+                       d.instrumenttype, d.instrumentno, d.instrumentamt, d.issuedate, d.issuercompany, d.issuer,
+                       d.maturitydate, d.custodyaccount, d.custodybank, d.description
+                {join_sql} WHERE {where_sql}
+                ORDER BY d.maturitydate NULLS LAST, h.receiptdate, d.receiptno, d.lineno
+                LIMIT %s OFFSET %s""",
+            (*params, page_size, (page - 1) * page_size),
+        )
+        items = [_row_dict(cursor, row) for row in cursor.fetchall()]
+    return {"items": items, "total": total, "total_amount": total_amount, "page": page, "page_size": page_size}
+
+
+def _restore_used_instruments(cursor, companyid: str, receiptno: str, actor: str | None):
+    """Give back (to '보관') every receipt instrument used by this payment document's lines."""
+    cursor.execute(
+        """UPDATE ReceiptPayment02t r
+           SET instrumentstatus = 'HELD', updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, r.updated_by)
+           FROM ReceiptPayment02t p
+           WHERE p.companyid = %s AND p.receiptno = %s AND p.source_receiptno IS NOT NULL
+             AND r.companyid = p.companyid AND r.receiptno = p.source_receiptno AND r.lineno = p.source_lineno""",
+        (actor or None, companyid, receiptno),
+    )
+
+
+def _block_if_instruments_used(cursor, companyid: str, receiptno: str, action: str):
+    """A receipt document whose instruments were used by a payment cannot be changed or deleted."""
+    cursor.execute(
+        """SELECT DISTINCT receiptno FROM ReceiptPayment02t
+           WHERE companyid = %s AND source_receiptno = %s AND receiptno <> %s ORDER BY receiptno LIMIT 5""",
+        (companyid, receiptno, receiptno),
+    )
+    used_by = [row[0] for row in cursor.fetchall()]
+    if used_by:
+        raise ValueError(f"이 전표의 증권이 지급에 사용되어 {action}할 수 없습니다. (지급전표 {', '.join(used_by)}) "
+                         "먼저 해당 지급전표를 삭제해 주세요.")
+
+
+def _apply_source_instruments(cursor, companyid: str, receiptno: str, transactiontype: str, items: list[dict]):
+    """Lock the receipt instruments chosen with 보유증권 불러오기, verify they are still held and
+    copy their details into the payment lines (the server copy is authoritative)."""
+    keys = [(item["source_receiptno"], item["source_lineno"]) for item in items if item.get("source_receiptno")]
+    if not keys:
+        return []
+    if transactiontype != "PAYMENT":
+        raise ValueError("보유증권은 지급 전표에서만 사용할 수 있습니다.")
+    if any(not lineno for _, lineno in keys) or len(keys) != len(set(keys)):
+        raise ValueError("같은 증권을 한 전표에 두 번 사용할 수 없습니다.")
+    cursor.execute(
+        f"""SELECT d.receiptno, d.lineno, d.instrumenttype, d.instrumentno, d.instrumentamt, d.issuedate,
+                   d.issuercompany, d.issuer, d.maturitydate, d.custodyaccount, d.custodybank,
+                   ({_HELD_CONDITION}) AS held,
+                   (SELECT p.receiptno FROM ReceiptPayment02t p WHERE p.companyid = d.companyid
+                     AND p.source_receiptno = d.receiptno AND p.source_lineno = d.lineno
+                     AND p.receiptno <> %s LIMIT 1) AS used_by
+            FROM ReceiptPayment02t d
+            JOIN ReceiptPayment01t h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
+            WHERE d.companyid = %s AND (d.receiptno, d.lineno) IN (SELECT * FROM unnest(%s::varchar[], %s::integer[]))
+            ORDER BY d.receiptno, d.lineno
+            FOR UPDATE OF d""",
+        (receiptno, companyid, [k[0] for k in keys], [k[1] for k in keys]),
+    )
+    sources = {(row[0], row[1]): row for row in cursor.fetchall()}
+    for index, item in enumerate(items, start=1):
+        if not item.get("source_receiptno"):
+            continue
+        source = sources.get((item["source_receiptno"], item["source_lineno"]))
+        label = f"{index}행 증권({item['source_receiptno']}-{item['source_lineno']})"
+        if not source:
+            raise ValueError(f"{label}을 찾을 수 없습니다. 보유증권을 다시 불러와 주세요.")
+        if source[12]:
+            raise ValueError(f"{label}은 이미 다른 지급(지급전표 {source[12]})에 사용되었습니다. 보유증권을 다시 불러와 주세요.")
+        if not source[11]:
+            raise ValueError(f"{label}은 보관 중인 증권이 아닙니다(배서·할인·결제·부도 등). 보유증권을 다시 불러와 주세요.")
+        (_, _, item["instrumenttype"], item["instrumentno"], item["instrumentamt"], item["issuedate"],
+         item["issuercompany"], item["issuer"], item["maturitydate"], item["custodyaccount"], item["custodybank"], _, _) = source
+        for key in ("instrumenttype", "instrumentno", "issuercompany", "issuer", "custodyaccount", "custodybank"):
+            item[key] = item[key] or ""
+        item["issuekind"] = "OTHER"
+        item["instrumentstatus"] = "ENDORSED"
+    return keys
 
 
 def search_customers(companyid: str, query: str, limit: int = 30):
@@ -309,6 +430,7 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
             )
             detail_created_by, detail_updated_by = actor or None, None
         else:
+            _block_if_instruments_used(cursor, companyid, receiptno, "수정")
             cursor.execute(
                 """UPDATE ReceiptPayment01t
                    SET receiptdate = %s, transactiontype = %s, customcode = %s, customname = %s,
@@ -325,7 +447,11 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
                 raise ValueError("수금/지급 전표를 찾을 수 없습니다.")
             # Details are re-inserted on edit: keep the original creator, record the editor as modifier.
             detail_created_by, detail_updated_by = updated[1] or None, actor or None
+            # instruments this payment used go back to '보관' first; the current selection is applied again below
+            _restore_used_instruments(cursor, companyid, receiptno, actor)
             cursor.execute("DELETE FROM ReceiptPayment02t WHERE companyid = %s AND receiptno = %s", (companyid, receiptno))
+
+        used_keys = _apply_source_instruments(cursor, companyid, receiptno, payload["transactiontype"], items)
 
         for lineno, item in enumerate(items, start=1):
             cashamt = item["cashamt"]
@@ -342,22 +468,33 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
                     instrumenttype, instrumentno, issuedate, issuercompany, issuer, issuekind,
                     maturitydate, custodyaccount, custodybank, instrumentstatus,
                     bankamt, cardamt, offsetamt, lossamt, chargeamt, totalamt, description,
-                    created_by, updated_by)
+                    created_by, updated_by, source_receiptno, source_lineno)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                           %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (companyid, companyname, receiptno, lineno, cashamt, instrumentamt,
                  item["instrumenttype"] or None, item["instrumentno"] or None, item["issuedate"],
                  item["issuercompany"] or None, item["issuer"] or None, item["issuekind"] or None,
                  item["maturitydate"], item["custodyaccount"] or None, item["custodybank"] or None,
                  item["instrumentstatus"] or None, bankamt, cardamt, item["offsetamt"],
                  item["lossamt"], item["chargeamt"], totalamt, item["description"],
-                 detail_created_by, detail_updated_by),
+                 detail_created_by, detail_updated_by,
+                 item.get("source_receiptno") or None, item.get("source_lineno") if item.get("source_receiptno") else None),
+            )
+        if used_keys:
+            # the receipt instruments are now 배서(양도)
+            cursor.execute(
+                """UPDATE ReceiptPayment02t SET instrumentstatus = 'ENDORSED', updated_at = CURRENT_TIMESTAMP,
+                          updated_by = COALESCE(%s, updated_by)
+                   WHERE companyid = %s AND (receiptno, lineno) IN (SELECT * FROM unnest(%s::varchar[], %s::integer[]))""",
+                (actor or None, companyid, [k[0] for k in used_keys], [k[1] for k in used_keys]),
             )
     return {"receiptno": receiptno, "is_new": is_new}
 
 
-def delete_document(companyid: str, receiptno: str) -> bool:
+def delete_document(companyid: str, receiptno: str, actor: str | None = None) -> bool:
     with _connect() as connection, connection.cursor() as cursor:
+        _block_if_instruments_used(cursor, companyid, receiptno, "삭제")
+        _restore_used_instruments(cursor, companyid, receiptno, actor)
         cursor.execute(
             "DELETE FROM ReceiptPayment01t WHERE companyid = %s AND receiptno = %s RETURNING receiptno",
             (companyid, receiptno),
