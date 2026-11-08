@@ -1,169 +1,116 @@
 
-import { AppShell, Burger, Group, Text, Box, ScrollArea, Button, Stack, Modal, TextInput, PasswordInput, Menu, ActionIcon } from '@mantine/core';
+import { AppShell, Burger, Group, Text, Box, Button, Stack, Modal, PasswordInput, Menu } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { LinksGroup } from './MainLayoutLink';
+import MainLayoutNav, { categoryOfPath, normalizePath } from './MainLayoutNav';
 import classes from '../../styles/layout/MainLayout.module.css';
 import { createContext, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate,useLocation } from 'react-router-dom';
 import { clearAIOrderPageSession } from '../../pages/ai/AIOrderPageSession';
-import { 
-  IconAddressBook,
-  IconAdjustmentsHorizontal,
-  IconBuildingWarehouse,
-  IconFolder,
-  IconHeadset,
-  IconLayoutDashboard,
-  IconLogout,
-  IconPackage,
-  IconTool,
-  IconTruckDelivery,
-  IconTruckLoading,
-  IconCreditCard,
-  IconUser,
-  IconUsers,
-  IconRobot,
-  
-  IconDatabase,           // 기준정보
-  IconPackageImport,      // 입고관리
-  
-  IconFileAi,             // 가공관리
-  IconPackageExport,      // 출고관리
-  
-  IconSettings,
+import {
+  IconArrowsDownUp,
+  IconBox,
+  IconCash,
+  IconCheck,
+  IconClipboardText,
   IconChevronDown,
-  IconChevronLeft,
-  IconChevronRight,
+  IconCpu,
+  IconHome,
+  IconLogout,
+  IconSettings,
+  IconShieldLock,
+  IconUser,
+  IconX,
 } from '@tabler/icons-react';
 import '@mantine/notifications/styles.css';
 import { notifications } from '@mantine/notifications';
-import axios from 'axios'; // axios 추가
-import { IconCheck, IconX } from '@tabler/icons-react'; // 아이콘 추가
-import steel119HomeLogo from '../../assets/img/steel119-home.png';
+import axios from 'axios';
 
 export const PageRibbonContext = createContext(null);
 export const MenuAccessContext = createContext({ menuids: [], loaded: false, authority: 'USER', fallbackPath: null });
 
-const mockdata = [
-  {
-    label: '대시보드(EX)',
-    icon: <IconLayoutDashboard size={18} stroke={1.8} />,
-    link: '/HomePage',
-    initiallyOpened: false,
-    MenuID: 'HOME',
-  },
-
-    {
-    label: '기준정보',
-    icon: <IconDatabase size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      {label: '일반코드',link: '/CodeMasterPage',icon: '',MenuID: 'DATA_CODE'},
-      { label: '품목코드', link: '/ItemMasterPage', icon: '', MenuID: 'DATA_ITEM' },
-      { label: '거래처관리', link: '/CustomerPage', icon: '', MenuID:'DATA_CUSTOMER' },
-
-    ],
-  },  
- 
-  {
-    label: '입고관리',
-    icon: <IconPackageImport size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '입고등록', link: '/InboundRegisterPage', icon: '✔️', MenuID:'INBOUND_REGISTER' },
-      { label: '입고현황', link: '/InboundSearchPage', icon: '✔️', MenuID:'INBOUND_SEARCH' },
-    ],
-  },
-
-  {
-    label: '출고관리',
-    icon: <IconPackageExport size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      
-      { label: '출고등록', link: '/OutboundRegisterPage', icon: '', MenuID: 'OUTBOUND_REGISTER' },
-      { label: '출고현황', link: '/OutboundSearchPage', icon: '', MenuID: 'OUTBOUND_SEARCH' },
-      { label: '매출이익분석', link: '/GrossProfit', icon: '', MenuID: 'GROSS_PROFIT' },
-    ],
-  },
-
-  {
-    label: '수금/지급관리',
-    icon: <IconCreditCard size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '수금/지급 등록', link: '/ReceiptPayment', icon: '', MenuID: 'RECEIPT_PAYMENT' },
-      { label: '수금/지급 현황', link: '/ReceiptPaymentSearch', icon: '', MenuID: 'RECEIPT_PAYMENT_SEARCH' },
-      { label: '수표/어음 현황', link: '/InstrumentStatus', icon: '', MenuID: 'INSTRUMENT_STATUS' },
-    ],
-  },  
-
-  {
-    label: '가공 관리',
-    icon: <IconPackageExport size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '가공공정 관리', link: '/ItemProcessMaster', icon: '', MenuID: 'ITEM_PROCESS_MASTER' },
-      { label: '가공등록', link: '/ItemProcessRegister', icon: '', MenuID: 'ITEM_PROCESS_REGISTER' },
-      { label: '가공현황', link: '/ItemProcessSearch', icon: '', MenuID: 'ITEM_PROCESS_SEARCH' },
-    ],
-  },  
-
-  {
-    label: 'AI 가공관리',
-    icon: <IconFileAi size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: 'AI 주문서 인식', link: '/AIOrderPage', icon: '', MenuID: 'AI_ORDER_RECOGNITION' },
-      { label: '주문서 관리', link: '/AIOrderManage', icon: '', MenuID: 'AI_ORDER_MANAGEMENT' },
-      { label: '가공 최적화(EX)', link: '/AIOrderOptimization', icon: '', MenuID: 'AI_OPTIMIZATION' },
-      { label: '가공기준 관리(EX)', link: '/AIProcessingStandards', icon: '', MenuID: 'AI_STANDARDS' },
-
-        
-    ],
-  },  
-
-  
-  {
-    label: '재고관리',
-    icon: <IconBuildingWarehouse size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '기초재고등록', link: '/StockStandPage', icon: '', MenuID: 'STOCK_INITIAL' },
-      { label: '재고수불현황', link: '/IniopStockPage', icon: '', MenuID:'STOCK_HISTORY' },
-      { label: '현재고현황', link: '/CurrentStockPage', icon: '', MenuID:'STOCK_CURRENT' },
-      { label: '재고이전등록', link: '/InoutmoveRegister', icon: '', MenuID: 'INOUTMOVE_REGISTER' },
-      { label: '재고이전현황', link: '/InoutmoveSearch', icon: '', MenuID: 'INOUTMOVE_SEARCH' },
-    ],
-  },     
-
-
-
-  {
-    label: '고객지원(EX)',
-    icon: <IconHeadset size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    link: '/CustomerSupport',
-    MenuID: 'CUSTOMER_SUPPORT',
-  },
-
-
-
-  {
-    label: '시스템관리',
-    icon: <IconSettings size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '고객사등록', link: '/Company', icon: '', MenuID:'COMPANY_REGISTRATION'},
-      { label: '사용자 관리', link: '/User', icon: '', MenuID:'COMPANY_USER_MANAGEMENT'},
-      { label: '사용자 메뉴권한', link: '/UserMenu', icon: '', MenuID:'USER_MENU_PERMISSION'},
-      { label: '설정', link: '/', icon: '✔️', MenuID:'M-19', disabled: true},
-    ],
-  },
-
+// 대메뉴(레일) > 그룹 > 상세 메뉴. MenuID 는 menucatalog01t 권한 키
+const MENU = [
+  { key: 'main', label: '메인', icon: IconHome, groups: [
+    { label: '메인', links: [
+      { label: '대시보드(EX)', link: '/HomePage', MenuID: 'HOME' },
+    ] },
+  ] },
+  { key: 'inout', label: '입출고', icon: IconArrowsDownUp, groups: [
+    { label: '입고 관리', links: [
+      { label: '입고등록', link: '/InboundRegisterPage', MenuID: 'INBOUND_REGISTER' },
+      { label: '입고현황', link: '/InboundSearchPage', MenuID: 'INBOUND_SEARCH' },
+    ] },
+    { label: '출고 관리', links: [
+      { label: '출고등록', link: '/OutboundRegisterPage', MenuID: 'OUTBOUND_REGISTER' },
+      { label: '출고현황', link: '/OutboundSearchPage', MenuID: 'OUTBOUND_SEARCH' },
+    ] },
+    { label: '매출 분석', links: [
+      { label: '매출이익분석', link: '/GrossProfit', MenuID: 'GROSS_PROFIT' },
+      { label: '매출이익 현황판', link: '/GrossProfitDashboard', MenuID: 'GROSS_PROFIT_DASHBOARD' },
+    ] },
+  ] },
+  { key: 'process', label: '가공', icon: IconCpu, groups: [
+    { label: 'AI 파이프라인', links: [
+      { label: 'AI 주문서 인식', link: '/AIOrderPage', MenuID: 'AI_ORDER_RECOGNITION' },
+      { label: '주문서 관리', link: '/AIOrderManage', MenuID: 'AI_ORDER_MANAGEMENT' },
+      { label: '가공 최적화(EX)', link: '/AIOrderOptimization', MenuID: 'AI_OPTIMIZATION' },
+      { label: '가공기준 관리(EX)', link: '/AIProcessingStandards', MenuID: 'AI_STANDARDS' },
+    ] },
+    { label: '공정', links: [
+      { label: '가공공정 관리', link: '/ItemProcessMaster', MenuID: 'ITEM_PROCESS_MASTER' },
+      { label: '가공등록', link: '/ItemProcessRegister', MenuID: 'ITEM_PROCESS_REGISTER' },
+      { label: '가공현황', link: '/ItemProcessSearch', MenuID: 'ITEM_PROCESS_SEARCH' },
+    ] },
+  ] },
+  { key: 'stock', label: '재고', icon: IconBox, groups: [
+    { label: '재고 현황', links: [
+      { label: '현재고현황', link: '/CurrentStockPage', MenuID: 'STOCK_CURRENT' },
+      { label: '재고수불현황', link: '/IniopStockPage', MenuID: 'STOCK_HISTORY' },
+    ] },
+    { label: '재고 등록', links: [
+      { label: '기초재고등록', link: '/StockStandPage', MenuID: 'STOCK_INITIAL' },
+      { label: '재고이전등록', link: '/InoutmoveRegister', MenuID: 'INOUTMOVE_REGISTER' },
+      { label: '재고이전현황', link: '/InoutmoveSearch', MenuID: 'INOUTMOVE_SEARCH' },
+    ] },
+  ] },
+  { key: 'fund', label: '자금', icon: IconCash, groups: [
+    { label: '수금/지급', links: [
+      { label: '수금/지급 등록', link: '/ReceiptPayment', MenuID: 'RECEIPT_PAYMENT' },
+      { label: '수금/지급 현황', link: '/ReceiptPaymentSearch', MenuID: 'RECEIPT_PAYMENT_SEARCH' },
+      { label: '수표/어음 현황', link: '/InstrumentStatus', MenuID: 'INSTRUMENT_STATUS' },
+    ] },
+  ] },
+  { key: 'board', label: '게시판', icon: IconClipboardText, groups: [
+    { label: '커뮤니케이션', links: [
+      { label: '고객지원(EX)', link: '/CustomerSupport', MenuID: 'CUSTOMER_SUPPORT' },
+      { label: '공지사항', link: '/board/notice', disabled: true, badge: '준비중' },
+      { label: '자료실', link: '/board/archive', disabled: true, badge: '준비중' },
+      { label: '사내게시판', link: '/board/internal', disabled: true, badge: '준비중' },
+    ] },
+  ] },
+  { key: 'settings', label: '설정', icon: IconSettings, groups: [
+    { label: '기준정보', links: [
+      { label: '일반코드', link: '/CodeMasterPage', MenuID: 'DATA_CODE' },
+      { label: '품목코드', link: '/ItemMasterPage', MenuID: 'DATA_ITEM' },
+      { label: '거래처관리', link: '/CustomerPage', MenuID: 'DATA_CUSTOMER' },
+    ] },
+    { label: '시스템설정', links: [
+      { label: '사용자 관리', link: '/User', MenuID: 'COMPANY_USER_MANAGEMENT' },
+      { label: '사용자 메뉴권한', link: '/UserMenu', MenuID: 'USER_MENU_PERMISSION' },
+    ] },
+  ] },
+  { key: 'admin', label: '어드민', icon: IconShieldLock, groups: [
+    { label: '플랫폼 관리', links: [
+      { label: '고객사등록', link: '/Company', MenuID: 'COMPANY_REGISTRATION' },
+    ] },
+  ] },
 ];
+const MENU_LINKS = MENU.flatMap((category) => category.groups.flatMap((group) => group.links));
+const NAV_RAIL_WIDTH = 72;
+const NAV_PANEL_WIDTH = 204;
+const NAV_PANEL_STORAGE_KEY = 'steel119-nav-panel-open';
 
 function findMenuLabel(items, path) {
-  const normalizePath = (value) => String(value || '').replace(/\/+$/, '').toLowerCase() || '/';
   const normalizedPath = normalizePath(path);
   const canonicalPath = normalizedPath === '/inboundregister'
     ? '/inboundregisterpage'
@@ -182,6 +129,7 @@ function findMenuLabel(items, path) {
     '/receiptpaymentsearch': '수금/지급 현황',
     '/instrumentstatus': '수표/어음 현황',
     '/grossprofit': '매출이익분석',
+    '/grossprofitdashboard': '매출이익 현황판',
     '/inoutmoveregister': '재고이전등록',
     '/inoutmovesearch': '재고이전현황',
     '/aiorderpage': 'AI 가공솔루션',
@@ -199,21 +147,18 @@ function findMenuLabel(items, path) {
 
   if (routeLabelAliases[normalizedPath]) return routeLabelAliases[normalizedPath];
 
-  for (const item of items) {
-    if (item.link && normalizePath(item.link) === canonicalPath) return item.label;
-    const nested = item.links ? findMenuLabel(item.links, path) : '';
-    if (nested) return nested;
-  }
+  const found = items.find((item) => normalizePath(item.link) === canonicalPath);
+  if (found) return found.label;
   return canonicalPath === '/homepage' ? '대시보드' : path;
 }
 
 export default function MainLayout({ children }) {
   const [opened, { toggle }] = useDisclosure();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+  const [panelOpen, setPanelOpen] = useState(() => {
     try {
-      return localStorage.getItem('steel119-sidebar-collapsed') === 'Y';
+      return localStorage.getItem(NAV_PANEL_STORAGE_KEY) !== 'N';
     } catch {
-      return false;
+      return true;
     }
   });
   const [pwModalOpened, { open: openPwModal, close: closePwModal }] = useDisclosure(false);
@@ -225,31 +170,30 @@ export default function MainLayout({ children }) {
   });
 
   const navigate = useNavigate();
-  const toggleSidebar = () => setSidebarCollapsed((collapsed) => {
-    const next = !collapsed;
+  const changePanelOpen = useCallback((next) => {
+    setPanelOpen(next);
     try {
-      localStorage.setItem('steel119-sidebar-collapsed', next ? 'Y' : 'N');
+      localStorage.setItem(NAV_PANEL_STORAGE_KEY, next ? 'Y' : 'N');
     } catch {
-      // Ignore storage errors; the current page can still toggle the sidebar.
+      // 저장 실패해도 현재 화면에서는 접기/펼치기가 동작한다.
     }
-    return next;
-  });
+  }, []);
   const { pathname } = useLocation(); // 2. 현재 경로 가져오기
   const isDashboard = String(pathname || '').replace(/\/+$/, '').toLowerCase() === '/homepage';
   const isInboundWorkspace = [
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
     '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage',
     '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/aiprocessingstandards', '/itemprocessmaster', '/itemprocessregister', '/itemprocesssearch', '/customersupport',
-    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/instrumentstatus', '/grossprofit', '/company', '/user', '/usermenu',
+    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/instrumentstatus', '/grossprofit', '/grossprofitdashboard', '/company', '/user', '/usermenu',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
   const [pageRibbon, setPageRibbon] = useState(null);
   const registerPageRibbon = useCallback((content) => setPageRibbon(() => content), []);
   const [tabState, setTabState] = useState(() => ({
     pathname,
-    tabs: [{ path: pathname, label: findMenuLabel(mockdata, pathname) }],
+    tabs: [{ path: pathname, label: findMenuLabel(MENU_LINKS, pathname) }],
   }));
   if (pathname !== tabState.pathname) {
-    const tab = { path: pathname, label: findMenuLabel(mockdata, pathname) };
+    const tab = { path: pathname, label: findMenuLabel(MENU_LINKS, pathname) };
     const tabs = tabState.tabs.some((item) => item.path === tab.path)
       ? tabState.tabs
       : [...tabState.tabs, tab];
@@ -274,7 +218,7 @@ export default function MainLayout({ children }) {
       clearAIOrderPageSession();
     }
     const remaining = pageTabs.filter((tab) => tab.path !== path);
-    if (!remaining.length) remaining.push({ path: '/HomePage', label: findMenuLabel(mockdata, '/HomePage') });
+    if (!remaining.length) remaining.push({ path: '/HomePage', label: findMenuLabel(MENU_LINKS, '/HomePage') });
     setTabState({ pathname, tabs: remaining });
     if (pathname === path) navigate(remaining[remaining.length - 1].path);
   }, [pageTabs, pathname, navigate]);
@@ -441,28 +385,25 @@ const handlePasswordChange = async (e) => {
 
 
 const isPlatformMaster = currentCompanyId === '001' && currentAuthority === 'MASTER';
-const visibleMockdata = mockdata
-  .map((item) => {
-    if (!item.links) return item;
-    const links = item.links.filter((link) => {
-      if (link.link === '/Company') return isPlatformMaster;
-      if (link.link === '/User') return ['MASTER', 'SUBMASTER'].includes(currentAuthority);
-      if (link.link === '/UserMenu') return ['MASTER', 'SUBMASTER'].includes(currentAuthority);
-      if (isPlatformMaster) return true;
-      return !link.MenuID || myPermissions.includes(link.MenuID);
-    });
-    return { ...item, links };
-  })
-  .filter((item) => {
-    if (item.links) return item.links.length > 0;
-    if (isPlatformMaster) return true;
-    if (item.link === '/CustomerSupport') return false;
-    return !item.MenuID || myPermissions.includes(item.MenuID);
-  });
+const canSeeLink = (link) => {
+  if (link.link === '/Company') return isPlatformMaster;
+  if (link.link === '/User' || link.link === '/UserMenu') return ['MASTER', 'SUBMASTER'].includes(currentAuthority);
+  if (isPlatformMaster) return true;
+  if (link.link === '/CustomerSupport') return false;
+  return !link.MenuID || myPermissions.includes(link.MenuID);
+};
+const visibleMenu = MENU
+  .map((category) => ({
+    ...category,
+    groups: category.groups
+      .map((group) => ({ ...group, links: group.links.filter(canSeeLink) }))
+      .filter((group) => group.links.length > 0),
+  }))
+  .filter((category) => category.groups.length > 0);
 
-const firstAccessiblePath = visibleMockdata
-  .flatMap((item) => item.links || [item])
-  .find((item) => item.link && item.link !== '/HomePage')?.link;
+const firstAccessiblePath = visibleMenu
+  .flatMap((category) => category.groups.flatMap((group) => group.links))
+  .find((link) => !link.disabled && link.link !== '/HomePage')?.link;
 const noAccessibleMenus = !isPlatformMaster
   && myPermissionsLoaded
   && !myPermissions.includes('HOME')
@@ -475,73 +416,55 @@ useEffect(() => {
   }
 }, [currentAuthority, firstAccessiblePath, isDashboard, isPlatformMaster, myPermissions, myPermissionsLoaded, navigate]);
 
-const links = visibleMockdata.map((item) => (
-  <LinksGroup {...item} pathname={pathname} collapsed={sidebarCollapsed} key={item.label} />
-));
+const currentCategoryKey = categoryOfPath(visibleMenu, pathname);
+// 사용자가 고른 대메뉴. 화면을 이동하면 그 화면의 대메뉴로 돌아간다.
+const [navSelection, setNavSelection] = useState({ pathname, key: null });
+const selectedKey = navSelection.pathname === pathname && navSelection.key ? navSelection.key : null;
+// 상세를 접으면 레일은 항상 현재 화면의 대메뉴를 표시
+const activeCategoryKey = (panelOpen && selectedKey && visibleMenu.some((category) => category.key === selectedKey))
+  ? selectedKey
+  : currentCategoryKey || visibleMenu[0]?.key || null;
+
+const handleSelectCategory = (key) => {
+  if (key === activeCategoryKey && panelOpen) {
+    changePanelOpen(false);
+    return;
+  }
+  setNavSelection({ pathname, key });
+  if (!panelOpen) changePanelOpen(true);
+};
+const handleNavigate = (link) => {
+  if (opened) toggle();
+  if (normalizePath(link) !== normalizePath(pathname)) navigate(link);
+};
+const navbarWidth = NAV_RAIL_WIDTH + (panelOpen && activeCategoryKey ? NAV_PANEL_WIDTH : 0);
 
 const menuAccessContextValue = {
   menuids: myPermissions,
   loaded: myPermissionsLoaded,
   authority: currentAuthority,
   companyid: currentCompanyId,
-  fallbackPath: firstAccessiblePath || (isPlatformMaster ? '/HomePage' : null),
+  // 권한 없는 화면 → 첫 허용 메뉴, 하나도 없으면 대시보드(안내 문구)
+  fallbackPath: firstAccessiblePath || '/HomePage',
 };
-
-//   /* 잠시 주석처리 */
-// const links = useMemo(() => {
-//   return mockdata.map((group) => {
-//     // 1. 하위 메뉴(links)가 있는 그룹 처리
-//     if (group.links) {
-//       const updatedSubLinks = group.links.map((sub) => ({
-//         ...sub,
-//         // 권한이 없으면 disabled: true
-//         disabled: !myPermissions.includes(sub.MenuID)
-//       }));
-
-//       return <LinksGroup {...group} links={updatedSubLinks} key={group.label} />;
-//     }
-
-//     // 2. 단일 메뉴(Home 등) 처리
-//     const isDisabled = group.MenuID !== null && !myPermissions.includes(group.MenuID);
-//     return <LinksGroup {...group} disabled={isDisabled} key={group.label} />;
-//   });
-// }, [myPermissions]);
 
 
   return (
     <>
     <AppShell
-      className={`${isInboundWorkspace || isDashboard ? classes.appShellInbound : ''} ${sidebarCollapsed ? classes.sidebarCollapsed : ''}`}
+      className={isInboundWorkspace || isDashboard ? classes.appShellInbound : ''}
+      layout="alt"
       header={{ height: 49 }}
       navbar={{
-        width: sidebarCollapsed ? 64 : 204,
+        width: navbarWidth,
         breakpoint: 'sm',
         collapsed: { mobile: !opened },
       }}
       padding="sm"
     >
       <AppShell.Header className={classes.appHeader}>
-        <Box className={classes.headerBrand} style={{ width: sidebarCollapsed ? 64 : 204, flexBasis: sidebarCollapsed ? 64 : 204 }}>
-          <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" color="white" />
-          <ActionIcon
-            className={classes.sidebarToggle}
-            onClick={toggleSidebar}
-            aria-label={sidebarCollapsed ? '네비게이션 펼치기' : '네비게이션 접기'}
-            title={sidebarCollapsed ? '네비게이션 펼치기' : '네비게이션 접기'}
-            visibleFrom="sm"
-            variant="subtle"
-            color="gray"
-            size="sm"
-          >
-            {sidebarCollapsed ? <IconChevronRight size={17} /> : <IconChevronLeft size={17} />}
-          </ActionIcon>
-          <Box className={classes.logoMark}>
-            {/* <img src={steel119HomeLogo} alt="Steel119" /> */}
-            <img src={steel119HomeLogo} alt="Steel119" />
-          </Box>
-          <Box className={classes.brandCopy}>
-            <Text className={classes.brandName}>STEEL119</Text>
-          </Box>
+        <Box className={classes.mobileBurger} hiddenFrom="sm">
+          <Burger opened={opened} onClick={toggle} size="sm" aria-label="메뉴 열기" />
         </Box>
 
         <Box className={classes.headerActions}>
@@ -607,16 +530,23 @@ const menuAccessContextValue = {
       </AppShell.Header>
 
       <AppShell.Navbar className={classes.navBar} p={0}>
-        <AppShell.Section grow component={ScrollArea} type="never" offsetScrollbars>
-          <div className={classes.linksContainer}>{links}</div>
-        </AppShell.Section>
+        <MainLayoutNav
+          categories={visibleMenu}
+          pathname={pathname}
+          activeKey={activeCategoryKey}
+          currentKey={currentCategoryKey}
+          panelOpen={panelOpen}
+          onSelect={handleSelectCategory}
+          onTogglePanel={() => changePanelOpen(!panelOpen)}
+          onNavigate={handleNavigate}
+        />
 
       </AppShell.Navbar>
 
       <AppShell.Main className={`${classes.appMain} ${isDashboard ? classes.appMainDashboard : isInboundWorkspace ? classes.appMainInbound : ''}`}>
         <div className={classes.pageTabs} role="tablist" aria-label="열린 메뉴">
           {visiblePageTabs.map((tab) => {
-            const label = findMenuLabel(mockdata, tab.path);
+            const label = findMenuLabel(MENU_LINKS, tab.path);
             return (
               <div key={tab.path} role="tab" aria-selected={pathname === tab.path} tabIndex={0}
                 className={`${classes.pageTab} ${pathname === tab.path ? classes.pageTabActive : ''} ${String(tab.path || '').replace(/\/+$/, '').toLowerCase() === '/user' ? classes.pageTabNoBold : ''}`}
@@ -636,7 +566,7 @@ const menuAccessContextValue = {
             <Menu.Dropdown className={classes.moreTabsDropdown}>
               <div className={classes.moreTabsHeading}>열린 화면 {pageTabs.length}개</div>
               {overflowPageTabs.map((tab) => {
-                const label = findMenuLabel(mockdata, tab.path);
+                const label = findMenuLabel(MENU_LINKS, tab.path);
                 return <div className={classes.moreTabRow} key={tab.path}>
                   <button type="button" className={classes.moreTabOpen} title={label} onClick={() => navigate(tab.path)}>
                     <span>{label}</span>
