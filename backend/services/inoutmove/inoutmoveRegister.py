@@ -314,7 +314,7 @@ def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | 
                               itemcode, itemname, productname, materialcode, materialname,
                               surfacecode, surfacename, myrtle, thickness, width, length,
                               qty, qtyunit, weight, unit, unitprice, warehousecode, warehousecodename,
-                              originalqty, originalweight
+                              originalqty, originalweight, origintype, originno, originline
                        FROM CurrentStock01t
                        WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
                        FOR UPDATE""",
@@ -392,21 +392,24 @@ def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | 
             )
             for lineno, item, stock, moved_qty, moved_weight in stock_transfers:
                 movement_line = lineno * 2
+                # 원래 출처: 이전 전 재고에 적혀 있으면 그대로, 비어 있으면 이전 전 재고 자신 (여러 번 옮겨도 처음 입고·기초재고·가공을 가리킴)
+                origin = ((stock["origintype"], stock["originno"], stock["originline"]) if stock.get("originno")
+                          else (stock["sourcetype"], stock["sourceno"], stock["sourceline"]))
                 cursor.execute(
                     """INSERT INTO CurrentStock01t
                        (companyid, companyname, customcode, customname, sourcetype, sourceno, sourceline,
                         receiptdate, itemcode, itemname, productname, materialcode, materialname,
                         surfacecode, surfacename, myrtle, manager, thickness, width, length,
                         originalqty, qty, qtyunit, originalweight, weight, unit, unitprice,
-                        warehousecode, warehousecodename, created_by)
+                        warehousecode, warehousecodename, created_by, origintype, originno, originline)
                        VALUES (%s, %s, %s, %s, 'INBOUND', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (companyid, companyname, stock["customcode"], stock["customname"], receiptno, movement_line,
                      payload["receptdate"], stock["itemcode"], stock["itemname"], stock["productname"],
                      stock["materialcode"], stock["materialname"], stock["surfacecode"], stock["surfacename"],
                      stock["myrtle"], payload.get("manager") or None, stock["thickness"], stock["width"], stock["length"],
                      moved_qty, moved_qty, stock["qtyunit"], moved_weight, moved_weight, stock["unit"], stock["unitprice"],
-                     to_code, warehouse_names[to_code], actor or None),
+                     to_code, warehouse_names[to_code], actor or None, *origin),
                 )
                 cursor.execute(
                     """UPDATE CurrentStock01t SET qty = qty - %s, weight = weight - %s,

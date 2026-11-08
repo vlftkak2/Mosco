@@ -193,9 +193,18 @@ def list_documents(companyid: str, page: int, page_size: int, date_from: date | 
 
 def list_detail_rows(companyid: str, page: int, page_size: int, date_from: date | None = None,
                      date_to: date | None = None, receiptno: str = "", customer: str = "",
-                     transactiontype: str = ""):
+                     transactiontype: str = "", instrumentstatus: str = "", instrumenttype: str = "",
+                     issuekind: str = ""):
     """Return one row per payment detail, joined with its header for the status grid."""
     where_sql, params = _where_conditions(companyid, date_from, date_to, receiptno, customer, transactiontype)
+    if instrumentstatus in INSTRUMENT_STATUS_FILTERS and instrumentstatus != "OPEN":
+        where_sql += f" AND ({_EFFECTIVE_STATUS_SQL}) = %s"; params.append(instrumentstatus)
+    if instrumenttype.strip():
+        where_sql += " AND d.instrumenttype = %s"; params.append(instrumenttype.strip().upper())
+    if issuekind in ("OWN", "OTHER"):
+        where_sql += " AND d.issuekind = %s"; params.append(issuekind)
+    elif issuekind == "NONE":  # 증권인데 발행구분이 빈값
+        where_sql += " AND d.instrumentamt > 0 AND COALESCE(d.issuekind, '') = ''"
     join_sql = """
         FROM ReceiptPayment01t AS h
         LEFT JOIN ReceiptPayment02t AS d
@@ -224,6 +233,8 @@ def list_detail_rows(companyid: str, page: int, page_size: int, date_from: date 
                    d.lineno, d.cashamt, d.instrumenttype, d.instrumentno, d.instrumentamt,
                    d.issuedate, d.issuercompany, d.issuer, d.issuekind, d.maturitydate,
                    d.custodyaccount, d.custodybank, d.instrumentstatus,
+                   d.processdate, d.discountfee, d.processmemo, d.source_receiptno,
+                   COALESCE(d.source_receiptno, {_USED_RECEIPTNO_SQL}) AS linked_receiptno,
                    d.bankamt, d.cardamt, d.offsetamt, d.lossamt, d.chargeamt, d.totalamt,
                    d.description AS detail_description,
                    d.created_at, COALESCE(d.updated_at, h.updated_at) AS updated_at,
@@ -260,6 +271,7 @@ def get_document(companyid: str, receiptno: str):
                       maturitydate, custodyaccount, custodybank, instrumentstatus,
                       bankamt, cardamt, offsetamt, lossamt, chargeamt, totalamt,
                       description, created_at, updated_at, source_receiptno, source_lineno,
+                      processdate, discountfee, processmemo,
                       (SELECT p.receiptno FROM ReceiptPayment02t p
                         WHERE p.companyid = ReceiptPayment02t.companyid AND p.source_receiptno = ReceiptPayment02t.receiptno
                           AND p.source_lineno = ReceiptPayment02t.lineno LIMIT 1) AS used_receiptno,
@@ -338,6 +350,17 @@ def _block_if_instruments_used(cursor, companyid: str, receiptno: str, action: s
     if used_by:
         raise ValueError(f"이 전표의 증권이 지급에 사용되어 {action}할 수 없습니다. (지급전표 {', '.join(used_by)}) "
                          "먼저 해당 지급전표를 삭제해 주세요.")
+    cursor.execute(
+        """SELECT lineno, source_receiptno FROM ReceiptPayment02t
+           WHERE companyid = %s AND receiptno = %s AND processdate IS NOT NULL ORDER BY lineno""",
+        (companyid, receiptno),
+    )
+    processed = cursor.fetchall()
+    if processed:
+        sources = sorted({row[1] for row in processed if row[1]})
+        where = f"원본 수금 전표({', '.join(sources)})에서 " if sources else ""
+        raise ValueError(f"결제·할인·부도 처리된 증권이 있어 {action}할 수 없습니다. "
+                         f"({', '.join(str(row[0]) for row in processed)}행) 먼저 {where}처리취소를 해 주세요.")
 
 
 def _apply_source_instruments(cursor, companyid: str, receiptno: str, transactiontype: str, items: list[dict]):
@@ -383,6 +406,165 @@ def _apply_source_instruments(cursor, companyid: str, receiptno: str, transactio
         item["issuekind"] = "OTHER"
         item["instrumentstatus"] = "ENDORSED"
     return keys
+
+
+# 결제·할인·부도 처리 (마지막 처리만 기록: 처리일·할인료·처리메모 + updated_by)
+#  - 받은 증권 (수금, 타수): 보관 → 결제/할인/부도, 처리취소 → 보관
+#  - 발행한 어음 (지급, 자수): 미결제(빈값) → 결제, 처리취소 → 미결제
+#  - 배서된 증권(지급에 사용)은 부도만: 배서 → 부도 (연결된 지급 행도 부도 표시), 처리취소 → 배서
+#    (넘겨준 어음이 부도나서 상환청구를 받은 경우. 재지급·회수는 별도 전표와 처리메모로 관리)
+PROCESS_ACTIONS = {"SETTLE": "SETTLED", "DISCOUNT": "DISCOUNTED", "DISHONOR": "DISHONORED", "CANCEL": None}
+PROCESS_ACTION_LABELS = {"SETTLE": "결제", "DISCOUNT": "할인", "DISHONOR": "부도", "CANCEL": "처리취소"}
+PROCESSED_STATUSES = ("SETTLED", "DISCOUNTED", "DISHONORED")
+
+
+class InstrumentProcessLine(BaseModel):
+    lineno: int = Field(gt=0)
+    discountfee: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=3)
+
+
+class InstrumentProcessRequest(BaseModel):
+    action: str = Field(min_length=1, max_length=10)
+    processdate: date | None = None
+    processmemo: str = Field(default="", max_length=500)
+    lines: list[InstrumentProcessLine] = Field(min_length=1, max_length=1000)
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, value: str) -> str:
+        value = value.strip().upper()
+        if value not in PROCESS_ACTIONS:
+            raise ValueError("처리 구분이 올바르지 않습니다.")
+        return value
+
+    @field_validator("processmemo")
+    @classmethod
+    def strip_memo(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode="after")
+    def check_lines(self):
+        if self.action != "CANCEL" and not self.processdate:
+            raise ValueError("처리일을 입력해 주세요.")
+        linenos = [line.lineno for line in self.lines]
+        if len(linenos) != len(set(linenos)):
+            raise ValueError("같은 행이 두 번 선택되었습니다.")
+        return self
+
+
+def _process_block_reason(action: str, transactiontype: str, row: dict) -> str | None:
+    """Why this line cannot take the action (None = allowed). The screen applies the same rules."""
+    status = (row["instrumentstatus"] or "").upper()
+    kind = (row["issuekind"] or "").upper()
+    if not row["instrumentamt"] or row["instrumentamt"] <= 0:
+        return "수표/어음 금액이 없는 행입니다"
+    if transactiontype == "RECEIPT":
+        if kind == "OWN":
+            return "자수 증권은 수금에서 처리할 수 없습니다"
+        if row["used_by"] or status == "ENDORSED":
+            if action == "DISHONOR":
+                return None if status == "ENDORSED" else "이미 부도 처리된 증권입니다"
+            if action == "CANCEL":
+                return None if status == "DISHONORED" else "배서된 증권은 지급 전표를 삭제해야 되돌릴 수 있습니다"
+            return "배서(지급에 사용)된 증권은 부도만 처리할 수 있습니다"
+        if action == "CANCEL":
+            return None if status in PROCESSED_STATUSES else "처리된 증권이 아닙니다"
+        return None if status in ("", "HELD") else "보관 중인 증권이 아닙니다"
+    # PAYMENT · 타수 직접 입력(배서양도): 부도만, 처리취소 → 배서. 불러온 행은 원본 수금 전표에서 처리한다.
+    if kind == "OTHER":
+        if row["source_receiptno"]:
+            return f"보유증권 불러오기로 넣은 행은 원본 수금 전표({row['source_receiptno']})에서 처리해 주세요"
+        if action == "DISHONOR":
+            return None if status in ("", "ENDORSED") else "이미 부도 처리된 증권입니다"
+        if action == "CANCEL":
+            return None if status == "DISHONORED" else "부도 처리된 증권이 아닙니다"
+        return "배서양도한 증권은 부도·처리취소만 할 수 있습니다"
+    # PAYMENT · 자수: 결제 또는 처리취소
+    if kind != "OWN":
+        return "발행구분(자수·타수)이 없는 행은 처리할 수 없습니다"
+    if action == "SETTLE":
+        return None if status not in PROCESSED_STATUSES else "이미 결제된 어음입니다"
+    if action == "CANCEL":
+        return None if status == "SETTLED" else "결제된 어음이 아닙니다"
+    return "발행한 어음은 결제·처리취소만 할 수 있습니다"
+
+
+def process_instruments(companyid: str, receiptno: str, payload: dict, actor: str | None = None):
+    action = payload["action"]
+    lines = {line["lineno"]: line for line in payload["lines"]}
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT transactiontype FROM ReceiptPayment01t WHERE companyid = %s AND receiptno = %s FOR SHARE",
+                       (companyid, receiptno))
+        header = cursor.fetchone()
+        if not header:
+            raise LookupError("수금/지급 전표를 찾을 수 없습니다.")
+        transactiontype = (header[0] or "").upper()
+        # Row locks: a concurrent 지급 저장 (보유증권 사용) or another 처리 waits here, then sees the new state.
+        cursor.execute(
+            """SELECT d.lineno, d.instrumentamt, d.instrumentstatus, d.issuekind, d.source_receiptno,
+                      (SELECT p.receiptno FROM ReceiptPayment02t p WHERE p.companyid = d.companyid
+                        AND p.source_receiptno = d.receiptno AND p.source_lineno = d.lineno LIMIT 1) AS used_by
+               FROM ReceiptPayment02t d
+               WHERE d.companyid = %s AND d.receiptno = %s AND d.lineno = ANY(%s)
+               ORDER BY d.lineno FOR UPDATE OF d""",
+            (companyid, receiptno, list(lines)),
+        )
+        rows = {row[0]: dict(zip(("lineno", "instrumentamt", "instrumentstatus", "issuekind", "source_receiptno", "used_by"), row))
+                for row in cursor.fetchall()}
+        problems = []
+        for lineno in sorted(lines):
+            row = rows.get(lineno)
+            reason = "행을 찾을 수 없습니다" if not row else _process_block_reason(action, transactiontype, row)
+            if reason:
+                problems.append(f"{lineno}행: {reason}")
+        if problems:
+            raise ValueError(f"{PROCESS_ACTION_LABELS[action]}할 수 없는 행이 있습니다. " + " / ".join(problems[:5]))
+
+        for lineno in sorted(lines):
+            endorsed = transactiontype == "RECEIPT" and bool(rows[lineno]["used_by"])
+            manual_endorsed = transactiontype == "PAYMENT" and (rows[lineno]["issuekind"] or "").upper() == "OTHER"
+            if action == "CANCEL":
+                cursor.execute(
+                    """UPDATE ReceiptPayment02t
+                       SET instrumentstatus = %s, processdate = NULL, discountfee = 0, processmemo = NULL,
+                           updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, updated_by)
+                       WHERE companyid = %s AND receiptno = %s AND lineno = %s""",
+                    ("ENDORSED" if endorsed or manual_endorsed else "HELD" if transactiontype == "RECEIPT" else None,
+                     actor or None, companyid, receiptno, lineno),
+                )
+            else:
+                cursor.execute(
+                    """UPDATE ReceiptPayment02t
+                       SET instrumentstatus = %s, processdate = %s, discountfee = %s, processmemo = %s,
+                           updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, updated_by)
+                       WHERE companyid = %s AND receiptno = %s AND lineno = %s""",
+                    (PROCESS_ACTIONS[action], payload["processdate"],
+                     lines[lineno]["discountfee"] if action == "DISCOUNT" else 0,
+                     payload["processmemo"] or None, actor or None, companyid, receiptno, lineno),
+                )
+            if endorsed:
+                # 이 증권을 넘겨준 지급 행도 같은 표시 (부도 ↔ 배서). 처리일이 있으면 그 지급 전표는 삭제가 막힌다.
+                cancel = action == "CANCEL"
+                cursor.execute(
+                    """UPDATE ReceiptPayment02t
+                       SET instrumentstatus = %s, processdate = %s, processmemo = %s,
+                           updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, updated_by)
+                       WHERE companyid = %s AND source_receiptno = %s AND source_lineno = %s""",
+                    ("ENDORSED" if cancel else "DISHONORED", None if cancel else payload["processdate"],
+                     None if cancel else (payload["processmemo"] or None), actor or None, companyid, receiptno, lineno),
+                )
+    return {"receiptno": receiptno, "action": action, "count": len(lines)}
+
+
+# 증권 상태 공용 SQL (수금/지급 현황 내역 조회와 수표/어음 현황 InstrumentStatus.py 가 함께 사용)
+#  유효 상태: 지급·자수의 빈 상태 = 출금 예정(UNPAID). 그 밖의 빈 상태는 빈값 그대로.
+_EFFECTIVE_STATUS_SQL = """CASE
+    WHEN d.instrumentamt > 0 AND COALESCE(d.instrumentstatus, '') = ''
+         AND h.transactiontype = 'PAYMENT' AND d.issuekind = 'OWN' THEN 'UNPAID'
+    ELSE NULLIF(d.instrumentstatus, '') END"""
+_USED_RECEIPTNO_SQL = """(SELECT p.receiptno FROM ReceiptPayment02t p WHERE p.companyid = d.companyid
+    AND p.source_receiptno = d.receiptno AND p.source_lineno = d.lineno LIMIT 1)"""
+INSTRUMENT_STATUS_FILTERS = ("OPEN", "HELD", "UNPAID", "ENDORSED", "SETTLED", "DISCOUNTED", "DISHONORED")
 
 
 def search_customers(companyid: str, query: str, limit: int = 30):
@@ -456,9 +638,13 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
         for lineno, item in enumerate(items, start=1):
             cashamt = item["cashamt"]
             instrumentamt = item["instrumentamt"]
-            # 수금으로 받은 수표/어음은 처리상태를 비워 두면 '보관'으로 저장한다.
-            if payload["transactiontype"] == "RECEIPT" and instrumentamt > 0 and not item["instrumentstatus"]:
-                item["instrumentstatus"] = "HELD"
+            # 발행구분은 입력한 그대로 저장한다 (빈값이면 빈값, 서버가 채우지 않음).
+            # 처리상태를 비워 두면: 수금 증권(자수 제외) = 보관, 지급 타수(넘겨준 증권) = 배서. 지급 자수는 비워 둔다(= 미결제).
+            if instrumentamt > 0 and not item["instrumentstatus"]:
+                if payload["transactiontype"] == "RECEIPT" and item["issuekind"] != "OWN":
+                    item["instrumentstatus"] = "HELD"
+                elif payload["transactiontype"] == "PAYMENT" and item["issuekind"] == "OTHER":
+                    item["instrumentstatus"] = "ENDORSED"
             bankamt = item["bankamt"]
             cardamt = item["cardamt"]
             totalamt = cashamt + instrumentamt + bankamt + cardamt

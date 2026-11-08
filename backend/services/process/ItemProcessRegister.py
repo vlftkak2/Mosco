@@ -164,6 +164,12 @@ def _next_productno(cursor, companyid: str, productdate: date, source_productnam
     return f"{prefix}{cursor.fetchone()[0] + 1:05d}"
 
 
+def _stock_dimensions(product: dict) -> tuple:
+    """두께·폭·길이가 비어 있으면 0 (재고수불·현재고는 0이 기본값, 입고등록과 같은 방식).
+    가공 상세(Process02t)에는 입력한 그대로(빈값) 저장한다. 코일처럼 길이가 없는 경우가 실제로 있다."""
+    return tuple(product.get(key) if product.get(key) is not None else Decimal("0") for key in ("thickness", "width", "length"))
+
+
 def allocate_productno(companyid: str, productdate: date, source_productname: str) -> str:
     with _connect() as connection, connection.cursor() as cursor:
         return _next_productno(cursor, companyid, productdate, source_productname)
@@ -724,7 +730,7 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
                 (companyid, companyname, payload["processdate"], processno, lineno, payload["customcode"], customname,
                   stock["itemcode"], product["productname"], product["productno"], stock.get("materialcode"), stock.get("materialname"),
                  stock.get("surfacecode"), stock.get("surfacename"), stock.get("myrtle"), payload.get("manager") or None,
-                 product.get("thickness"), product.get("width"), product.get("length"), product["qty"], product["qtyunit"],
+                 *_stock_dimensions(product), product["qty"], product["qtyunit"],
                  product["weight"], payload["warehousecode"], warehouse_name, product["unit"], product["unitprice"], amount, vat, amount + vat,
                  detail_created_by, detail_updated_by),
             )
@@ -738,7 +744,7 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
                 (companyid, companyname, payload["customcode"], customname, processno, lineno, payload["processdate"],
                   stock["itemcode"], product["productname"], product["productno"], stock.get("materialcode"), stock.get("materialname"),
                  stock.get("surfacecode"), stock.get("surfacename"), stock.get("myrtle"), payload.get("manager") or None,
-                 product.get("thickness"), product.get("width"), product.get("length"), product["qty"], product["qty"],
+                 *_stock_dimensions(product), product["qty"], product["qty"],
                  product["qtyunit"], product["weight"], product["weight"], product["unit"], product["unitprice"],
                  payload["warehousecode"], warehouse_name, detail_created_by, detail_updated_by),
             )

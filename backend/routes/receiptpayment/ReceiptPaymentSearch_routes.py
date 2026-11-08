@@ -49,6 +49,9 @@ def get_detail_rows(
     receiptno: str = Query(default="", max_length=100),
     customer: str = Query(default="", max_length=150),
     transactiontype: str = Query(default="", max_length=10),
+    instrumentstatus: str = Query(default="", max_length=20),
+    instrumenttype: str = Query(default="", max_length=20),
+    issuekind: str = Query(default="", max_length=10),
     user: dict = Depends(security_module.get_current_user),
 ):
     if date_from and date_to and date_from > date_to:
@@ -60,7 +63,7 @@ def get_detail_rows(
             "success": True,
             **receipt_payment_module.list_detail_rows(
                 user["companyid"], page, page_size, date_from, date_to,
-                receiptno, customer, transactiontype,
+                receiptno, customer, transactiontype, instrumentstatus.upper(), instrumenttype, issuekind.upper(),
             ),
         }
     except Exception as error:
