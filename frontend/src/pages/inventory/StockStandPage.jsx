@@ -1542,7 +1542,7 @@ export default function StockStandPage() {
       worksheet['!cols'] = STOCK_EXPORT_COLUMNS.map(([key]) => ({ wch: ['itemname', 'materialname', 'surfacename', 'description'].includes(key) ? 24 : ['created_at', 'updated_at'].includes(key) ? 19 : 16 }));
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, '기초재고');
-      XLSX.writeFile(workbook, `기초재고_${standdate.replaceAll('-', '')}.xlsx`);
+      XLSX.writeFile(workbook, `기초재고등록_${standdate.replaceAll('-', '')}.xlsx`);
       notifications.show({ title: '엑셀 다운로드 완료', message: `${rowsForExport.length.toLocaleString()}건을 저장했습니다.`, color: 'teal' });
     } catch (error) {
       notifications.show({ title: '엑셀 다운로드 실패', message: errorText(error), color: 'red' });

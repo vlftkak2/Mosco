@@ -193,7 +193,7 @@ export default function AIOrderManage() {
   const [applied, setApplied] = useState(() => createDefaultOrderFilters(initialOrderId, initialOrderDate));
   const [draftFilters, setDraftFilters] = useState(() => createDefaultOrderFilters(initialOrderId, initialOrderDate));
   const [modal, setModal] = useState(null);
-  // AI 주문서 인식에서 넘어온 저장 전 주문 (저장하면 사라진다)
+  // AI 주문서인식에서 넘어온 저장 전 주문 (저장하면 사라진다)
   const [orderDraft, setOrderDraft] = useState(() => readAIOrderDraft());
   const draftRow = useMemo(() => orderDraft ? {
     orderid: DRAFT_ID, isDraft: true, progress: 'DRAFT',
@@ -861,7 +861,7 @@ export default function AIOrderManage() {
     if (modal.type === 'delete-order') return <MantineModal opened onClose={() => !saving && setModal(null)} title="주문 삭제" centered size="sm">
       <Stack gap="md">
         <Text size="sm" c="dimmed">{selectedOrder.isDraft
-          ? '저장하지 않은 주문을 취소합니다. AI 주문서 인식의 분석 결과는 그대로 남아 있어 다시 넘길 수 있습니다.'
+          ? '저장하지 않은 주문을 취소합니다. AI 주문서인식의 분석 결과는 그대로 남아 있어 다시 넘길 수 있습니다.'
           : `${selectedOrder.orderid} 주문과 상세 내역을 삭제합니다. 삭제한 주문은 복구할 수 없습니다.`}</Text>
         <Group justify="flex-end">
           <Button variant="default" onClick={() => setModal(null)} disabled={saving}>취소</Button>

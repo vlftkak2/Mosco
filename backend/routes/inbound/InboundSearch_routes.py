@@ -51,9 +51,9 @@ def export_inbound_details(
         )
     except Exception as error:
         os.unlink(temp_file.name)
-        raise HTTPException(status_code=500, detail="입고현황 엑셀 파일을 만들지 못했습니다.") from error
+        raise HTTPException(status_code=500, detail="매입현황 엑셀 파일을 만들지 못했습니다.") from error
 
-    filename = f"입고현황_{date.today():%Y%m%d}.xlsx"
+    filename = f"매입현황_{date.today():%Y%m%d}.xlsx"
     return FileResponse(
         temp_file.name,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -205,7 +205,7 @@ def write_transfer_details_excel(
         ORDER BY h.receptdate DESC, h.receiptno DESC, d.lineno"""
 
     workbook = xlsxwriter.Workbook(output_path, {"constant_memory": True})
-    worksheet = workbook.add_worksheet("재고이전현황")
+    worksheet = workbook.add_worksheet("재고이동현황")
     # Same header style as the other search exports (입고/출고현황, 현재고, 재고수불).
     header_format = workbook.add_format({
         "bold": True, "font_color": "#B4232D", "bg_color": "#FFF3F3",

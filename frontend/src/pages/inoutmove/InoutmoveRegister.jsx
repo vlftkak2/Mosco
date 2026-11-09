@@ -517,9 +517,9 @@ export default function InoutmoveRegister() {
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
     applyExcelHeaderStyle(worksheet, Object.keys(exportRows[0] || {}).length);
-    XLSX.utils.book_append_sheet(workbook, worksheet, '재고이전상세');
+    XLSX.utils.book_append_sheet(workbook, worksheet, '재고이동상세');
     // Same naming as the other downloads: <name>_YYYYMMDD (local date).
-    XLSX.writeFile(workbook, `재고이전_${today().replaceAll('-', '')}.xlsx`);
+    XLSX.writeFile(workbook, `재고이동_${today().replaceAll('-', '')}.xlsx`);
   }, [items, fromWarehouse, toWarehouse]);
 
   useEffect(() => {

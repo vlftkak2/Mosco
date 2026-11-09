@@ -93,7 +93,7 @@ const mockdata = [
     icon: <IconCpu {...ic} />,
     links: [
       { label: 'AI 가공솔루션', links: [
-        { label: 'AI 주문서 인식', link: '/AIOrderPage', MenuID: 'AI_ORDER_RECOGNITION' },
+        { label: 'AI 주문서인식', link: '/AIOrderPage', MenuID: 'AI_ORDER_RECOGNITION' },
         { label: '주문서관리', link: '/AIOrderManage', MenuID: 'AI_ORDER_MANAGEMENT' },
         { label: '가공최적화', link: '/AIOrderOptimization', MenuID: 'AI_OPTIMIZATION' },
       ] },
@@ -150,7 +150,6 @@ const mockdata = [
         { label: '거래처관리', link: '/CustomerPage', MenuID: 'DATA_CUSTOMER' },
       ] },
       { label: '운영정보', links: [
-        { label: '사업장관리', disabled: true },
         { label: '사용자관리', disabled: true },
       ] },
     ],

@@ -742,7 +742,7 @@ def write_current_stock_excel(companyid: str, output_path: str, **filters):
                "강판코드", "강판", "표면코드", "표면", "도금량(g/㎡)", "담당자", "두께", "폭", "길이",
                "현재수량", "수량단위", "현재중량", "창고코드", "창고명", "등록일자", "수정일자", "등록자", "수정자"]
     workbook = xlsxwriter.Workbook(output_path, {"constant_memory": True})
-    worksheet = workbook.add_worksheet("현재고")
+    worksheet = workbook.add_worksheet("현재고현황")
     header_format = workbook.add_format({"bold": True, "font_color": "#B4232D", "bg_color": "#FFF3F3", "border": 1, "border_color": "#E5BFC2"})
     integer_format = workbook.add_format({"num_format": "#,##0;[Red]-#,##0;0"})
     number_format = workbook.add_format({"num_format": "#,##0.###"})

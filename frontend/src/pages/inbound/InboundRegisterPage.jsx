@@ -2498,7 +2498,7 @@ export default function InboundRegisterPage() {
       applyExcelHeaderStyle(worksheet, exportFields.length);
       worksheet['!cols'] = exportFields.map(([label]) => ({ wch: Math.min(28, Math.max(14, String(label).length + 4)) }));
       worksheet['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: exportFields.length - 1 } }) };
-      XLSX.utils.book_append_sheet(workbook, worksheet, '입고내역');
+      XLSX.utils.book_append_sheet(workbook, worksheet, '매입내역');
       const safeFilePart = (value) => {
         const invalidCharacters = '<>:"/\\|?*';
         const safePart = [...String(value || '').trim()]
@@ -2507,7 +2507,7 @@ export default function InboundRegisterPage() {
           .replace(/\s+/g, '_');
         return safePart || '미입력';
       };
-      XLSX.writeFile(workbook, `입고전표_${safeFilePart(header.customname || header.customcode)}_${safeFilePart(header.receptdate)}_${safeFilePart(header.receiptno)}.xlsx`);
+      XLSX.writeFile(workbook, `매입전표_${safeFilePart(header.customname || header.customcode)}_${safeFilePart(header.receptdate)}_${safeFilePart(header.receiptno)}.xlsx`);
     } finally { setExporting(false); }
   }, [header, rows, unitOptions.price]);
 
