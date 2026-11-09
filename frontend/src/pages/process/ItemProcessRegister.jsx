@@ -230,14 +230,21 @@ function ProcessMethodCell({ product, options, disabled, onSelect }) {
   const [draft, setDraft] = useState(selectedName);
   const [opened, setOpened] = useState(false);
   const [pickerOpened, setPickerOpened] = useState(false);
+  // A closed Mantine Modal still mounts a Portal (a node in document.body) and its hooks, so
+  // every product row paid for one while a document rendered. Mount it on first use instead.
+  const [pickerMounted, setPickerMounted] = useState(false);
+  const openPicker = () => { if (pickerMounted) setPickerOpened(true); else setPickerMounted(true); };
+  // Open on the render after mounting so the modal keeps its usual enter transition.
+  useEffect(() => { if (pickerMounted) setPickerOpened(true); }, [pickerMounted]);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [activeIndex, setActiveIndex] = useState(-1);
   const skipBlurCommitRef = useRef(false);
-  const matches = options.filter((option) => draft.trim()
+  // Disabled (saved) rows can never show suggestions, so skip filtering the options for them.
+  const matches = disabled ? [] : options.filter((option) => draft.trim()
     && option.processname.toLocaleLowerCase().includes(draft.trim().toLocaleLowerCase())).slice(0, 8);
-  const pickerMatches = options.filter((option) => !query.trim()
-    || `${option.processid} ${option.processname}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const pickerMatches = pickerMounted ? options.filter((option) => !query.trim()
+    || `${option.processid} ${option.processname}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) : [];
   const pageSize = 8;
   const pageItems = pickerMatches.slice((page - 1) * pageSize, page * pageSize);
 
@@ -280,9 +287,9 @@ function ProcessMethodCell({ product, options, disabled, onSelect }) {
               } else if (event.key === 'Escape') { event.stopPropagation(); setOpened(false); setActiveIndex(-1); }
               else if (event.key === 'Enter' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'ArrowUp' || event.key === 'ArrowDown') handleDetailGridKeyDown(event);
             }}
-            onDoubleClick={() => { if (!disabled) setPickerOpened(true); }} />
+            onDoubleClick={() => { if (!disabled) openPicker(); }} />
           <button type="button" className={classes.processPickerButton} disabled={disabled}
-            onClick={() => { setQuery(''); setPage(1); setPickerOpened(true); }} aria-label="가공방법 조회"><IconSearch size={15} /></button>
+            onClick={() => { setQuery(''); setPage(1); openPicker(); }} aria-label="가공방법 조회"><IconSearch size={15} /></button>
         </div>
       </Popover.Target>
       <Popover.Dropdown className={classes.processSuggestions}>
@@ -291,7 +298,7 @@ function ProcessMethodCell({ product, options, disabled, onSelect }) {
           onMouseDown={(event) => event.preventDefault()} onClick={() => choose(option)}><span>{option.processname}</span></button>)}
       </Popover.Dropdown>
     </Popover>
-    <Modal opened={pickerOpened} onClose={() => setPickerOpened(false)} centered size={620}
+    {pickerMounted && <Modal opened={pickerOpened} onClose={() => setPickerOpened(false)} centered size={620}
       title={<Group gap={8}><IconSearch size={17} /><Text fw={600}>가공방법 선택</Text></Group>}>
       <Stack gap="sm">
         <TextInput value={query} onChange={(event) => { setQuery(event.currentTarget.value); setPage(1); }}
@@ -305,7 +312,7 @@ function ProcessMethodCell({ product, options, disabled, onSelect }) {
         <Group justify="space-between"><Text size="xs" c="dimmed">총 {pickerMatches.length.toLocaleString()}개</Text>
           <Pagination size="sm" total={Math.max(1, Math.ceil(pickerMatches.length / pageSize))} value={page} onChange={setPage} withEdges color="red" /></Group>
       </Stack>
-    </Modal>
+    </Modal>}
   </>;
 }
 
@@ -1051,7 +1058,7 @@ export default function ItemProcessRegister() {
   ), [filters, loadDocuments, readOnly]);
 
   return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="AI 가공관리" current="가공등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+    <ErpBreadcrumb parent="재고가공" current="재고가공 등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
     <Box className={classes.workspace}>
       <Stack gap="sm" className={classes.main}>
         {documentListPanel}

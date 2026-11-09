@@ -1,45 +1,34 @@
 
-import { AppShell, Burger, Group, Text, Box, ScrollArea, Button, Stack, Modal, TextInput, PasswordInput, Menu, ActionIcon } from '@mantine/core';
+import { AppShell, Burger, Group, Text, Box, ScrollArea, Button, Stack, Modal, TextInput, PasswordInput, Menu } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { LinksGroup } from './MainLayoutLink';
+import { SidebarNav } from './MainLayoutLink';
 import classes from '../../styles/layout/MainLayout.module.css';
 import { createContext, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, useOutlet } from 'react-router-dom';
 import { clearAIOrderPageSession } from '../../pages/ai/AIOrderPageSession';
 import { clearAIOrderDraft } from '../../pages/ai/AIOrderDraft';
-import { 
-  IconAddressBook,
-  IconAdjustmentsHorizontal,
-  IconBuildingWarehouse,
-  IconFolder,
-  IconHeadset,
-  IconLayoutDashboard,
-  IconLogout,
-  IconPackage,
-  IconTool,
-  IconTruckDelivery,
-  IconTruckLoading,
-  IconCreditCard,
-  IconUser,
-  IconUsers,
-  IconRobot,
-  
-  IconDatabase,           // 기준정보
-  IconPackageImport,      // 입고관리
-  
-  IconFileAi,             // 가공관리
-  IconPackageExport,      // 출고관리
-  
-  IconSettings,
+import {
+  IconBox,
+  IconCash,
   IconChevronDown,
-  IconChevronLeft,
-  IconChevronRight,
+  IconChevronsLeft,
+  IconChevronsRight,
+  IconClipboardText,
+  IconCpu,
+  IconHome,
+  IconLogout,
+  IconPackageExport,
+  IconPackageImport,
+  IconSettings,
+  IconShieldLock,
+  IconUser,
+  IconUserCircle,
 } from '@tabler/icons-react';
 import '@mantine/notifications/styles.css';
 import { notifications } from '@mantine/notifications';
 import axios from 'axios'; // axios 추가
 import { IconCheck, IconX } from '@tabler/icons-react'; // 아이콘 추가
-import steel119HomeLogo from '../../assets/img/steel119-home.png';
+import steel119Logo from '../../assets/img/logolast.png';
 
 export const PageRibbonContext = createContext(null);
 
@@ -65,124 +54,122 @@ const KeepAlivePage = memo(function KeepAlivePage({ path, active, activation, el
 });
 export const MenuAccessContext = createContext({ menuids: [], loaded: false, authority: 'USER', fallbackPath: null });
 
+// 메뉴 구성: 대메뉴 > 섹션(links 가 있는 항목) > 화면. 이름·순서는 네비게이션 시안(v185) 기준.
+const ic = { size: 20, stroke: 1.8 };
 const mockdata = [
   {
-    label: '대시보드(EX)',
-    icon: <IconLayoutDashboard size={18} stroke={1.8} />,
-    link: '/HomePage',
-    initiallyOpened: false,
-    MenuID: 'HOME',
-  },
-
-    {
-    label: '기준정보',
-    icon: <IconDatabase size={18} stroke={1.8} />,
-    initiallyOpened: false,
+    label: '홈',
+    icon: <IconHome {...ic} />,
     links: [
-      {label: '일반코드',link: '/CodeMasterPage',icon: '',MenuID: 'DATA_CODE'},
-      { label: '품목코드', link: '/ItemMasterPage', icon: '', MenuID: 'DATA_ITEM' },
-      { label: '거래처관리', link: '/CustomerPage', icon: '', MenuID:'DATA_CUSTOMER' },
-
-    ],
-  },  
- 
-  {
-    label: '입고관리',
-    icon: <IconPackageImport size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '입고등록', link: '/InboundRegisterPage', icon: '✔️', MenuID:'INBOUND_REGISTER' },
-      { label: '입고현황', link: '/InboundSearchPage', icon: '✔️', MenuID:'INBOUND_SEARCH' },
+      { label: '업무현황', links: [
+        { label: '대시보드', link: '/HomePage', MenuID: 'HOME' },
+      ] },
     ],
   },
-
   {
-    label: '출고관리',
-    icon: <IconPackageExport size={18} stroke={1.8} />,
-    initiallyOpened: false,
+    label: '매입',
+    icon: <IconPackageImport {...ic} />,
     links: [
-      
-      { label: '출고등록', link: '/OutboundRegisterPage', icon: '', MenuID: 'OUTBOUND_REGISTER' },
-      { label: '출고현황', link: '/OutboundSearchPage', icon: '', MenuID: 'OUTBOUND_SEARCH' },
-      { label: '매출이익분석', link: '/GrossProfit', icon: '', MenuID: 'GROSS_PROFIT' },
-      { label: '매출이익 현황판', link: '/GrossProfitDashboard', icon: '', MenuID: 'GROSS_PROFIT_DASHBOARD' },
+      { label: '매입관리', links: [
+        { label: '매입등록', link: '/InboundRegisterPage', MenuID: 'INBOUND_REGISTER' },
+        { label: '매입현황', link: '/InboundSearchPage', MenuID: 'INBOUND_SEARCH' },
+      ] },
     ],
   },
-
   {
-    label: '수금/지급관리',
-    icon: <IconCreditCard size={18} stroke={1.8} />,
-    initiallyOpened: false,
+    label: '매출',
+    icon: <IconPackageExport {...ic} />,
     links: [
-      { label: '수금/지급 등록', link: '/ReceiptPayment', icon: '', MenuID: 'RECEIPT_PAYMENT' },
-      { label: '수금/지급 현황', link: '/ReceiptPaymentSearch', icon: '', MenuID: 'RECEIPT_PAYMENT_SEARCH' },
-      { label: '수표/어음 현황', link: '/InstrumentStatus', icon: '', MenuID: 'INSTRUMENT_STATUS' },
-    ],
-  },  
-
-  {
-    label: '가공 관리',
-    icon: <IconPackageExport size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '가공공정 관리', link: '/ItemProcessMaster', icon: '', MenuID: 'ITEM_PROCESS_MASTER' },
-      { label: '가공등록', link: '/ItemProcessRegister', icon: '', MenuID: 'ITEM_PROCESS_REGISTER' },
-      { label: '가공현황', link: '/ItemProcessSearch', icon: '', MenuID: 'ITEM_PROCESS_SEARCH' },
-    ],
-  },  
-
-  {
-    label: 'AI 가공관리',
-    icon: <IconFileAi size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: 'AI 주문서 인식', link: '/AIOrderPage', icon: '', MenuID: 'AI_ORDER_RECOGNITION' },
-      { label: '주문서 관리', link: '/AIOrderManage', icon: '', MenuID: 'AI_ORDER_MANAGEMENT' },
-      { label: '가공 최적화', link: '/AIOrderOptimization', icon: '', MenuID: 'AI_OPTIMIZATION' },
-
-        
-    ],
-  },  
-
-  
-  {
-    label: '재고관리',
-    icon: <IconBuildingWarehouse size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '기초재고등록', link: '/StockStandPage', icon: '', MenuID: 'STOCK_INITIAL' },
-      { label: '재고수불현황', link: '/IniopStockPage', icon: '', MenuID:'STOCK_HISTORY' },
-      { label: '현재고현황', link: '/CurrentStockPage', icon: '', MenuID:'STOCK_CURRENT' },
-      { label: '재고이전등록', link: '/InoutmoveRegister', icon: '', MenuID: 'INOUTMOVE_REGISTER' },
-      { label: '재고이전현황', link: '/InoutmoveSearch', icon: '', MenuID: 'INOUTMOVE_SEARCH' },
-    ],
-  },     
-
-
-
-  {
-    label: '고객지원(EX)',
-    icon: <IconHeadset size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    link: '/CustomerSupport',
-    MenuID: 'CUSTOMER_SUPPORT',
-  },
-
-
-
-  {
-    label: '시스템관리',
-    icon: <IconSettings size={18} stroke={1.8} />,
-    initiallyOpened: false,
-    links: [
-      { label: '고객사등록', link: '/Company', icon: '', MenuID:'COMPANY_REGISTRATION'},
-      { label: '사용자 관리', link: '/User', icon: '', MenuID:'COMPANY_USER_MANAGEMENT'},
-      { label: '사용자 메뉴권한', link: '/UserMenu', icon: '', MenuID:'USER_MENU_PERMISSION'},
-      { label: '설정', link: '/', icon: '✔️', MenuID:'M-19', disabled: true},
+      { label: '매출관리', links: [
+        { label: '매출등록', link: '/OutboundRegisterPage', MenuID: 'OUTBOUND_REGISTER' },
+        { label: '매출현황', link: '/OutboundSearchPage', MenuID: 'OUTBOUND_SEARCH' },
+        { label: '매출이익 분석', link: '/GrossProfit', MenuID: 'GROSS_PROFIT' },
+        { label: '매출이익 현황', link: '/GrossProfitDashboard', MenuID: 'GROSS_PROFIT_DASHBOARD' },
+      ] },
     ],
   },
-
+  {
+    label: '가공',
+    icon: <IconCpu {...ic} />,
+    links: [
+      { label: 'AI 가공솔루션', links: [
+        { label: 'AI 주문서 인식', link: '/AIOrderPage', MenuID: 'AI_ORDER_RECOGNITION' },
+        { label: '주문서관리', link: '/AIOrderManage', MenuID: 'AI_ORDER_MANAGEMENT' },
+        { label: '가공최적화', link: '/AIOrderOptimization', MenuID: 'AI_OPTIMIZATION' },
+      ] },
+      { label: '재고가공', links: [
+        { label: '가공공정 관리', link: '/ItemProcessMaster', MenuID: 'ITEM_PROCESS_MASTER' },
+        { label: '재고가공 등록', link: '/ItemProcessRegister', MenuID: 'ITEM_PROCESS_REGISTER' },
+        { label: '재고가공 현황', link: '/ItemProcessSearch', MenuID: 'ITEM_PROCESS_SEARCH' },
+      ] },
+    ],
+  },
+  {
+    label: '재고',
+    icon: <IconBox {...ic} />,
+    links: [
+      { label: '재고관리', links: [
+        { label: '기초재고 등록', link: '/StockStandPage', MenuID: 'STOCK_INITIAL' },
+        { label: '현재고 현황', link: '/CurrentStockPage', MenuID: 'STOCK_CURRENT' },
+        { label: '재고수불 현황', link: '/IniopStockPage', MenuID: 'STOCK_HISTORY' },
+        { label: '재고이동 등록', link: '/InoutmoveRegister', MenuID: 'INOUTMOVE_REGISTER' },
+        { label: '재고이동 현황', link: '/InoutmoveSearch', MenuID: 'INOUTMOVE_SEARCH' },
+      ] },
+    ],
+  },
+  {
+    label: '자금',
+    icon: <IconCash {...ic} />,
+    links: [
+      { label: '수금·지급', links: [
+        { label: '수금·지급 등록', link: '/ReceiptPayment', MenuID: 'RECEIPT_PAYMENT' },
+        { label: '수금·지급 현황', link: '/ReceiptPaymentSearch', MenuID: 'RECEIPT_PAYMENT_SEARCH' },
+      ] },
+      { label: '자금관리', links: [
+        { label: '수표·어음 관리', link: '/InstrumentStatus', MenuID: 'INSTRUMENT_STATUS' },
+        { label: '거래처원장', disabled: true },
+      ] },
+    ],
+  },
+  {
+    label: '게시판',
+    icon: <IconClipboardText {...ic} />,
+    links: [
+      { label: '상담관리', links: [
+        { label: '상담게시판', link: '/CustomerSupport', MenuID: 'CUSTOMER_SUPPORT' },
+      ] },
+    ],
+  },
+  {
+    label: '설정',
+    icon: <IconSettings {...ic} />,
+    links: [
+      { label: '기준정보', links: [
+        { label: '일반코드 관리', link: '/CodeMasterPage', MenuID: 'DATA_CODE' },
+        { label: '품목코드 관리', link: '/ItemMasterPage', MenuID: 'DATA_ITEM' },
+        { label: '거래처관리', link: '/CustomerPage', MenuID: 'DATA_CUSTOMER' },
+      ] },
+      { label: '운영정보', links: [
+        { label: '사업장관리', disabled: true },
+        { label: '사용자관리', disabled: true },
+      ] },
+    ],
+  },
+  {
+    label: '어드민',
+    icon: <IconShieldLock {...ic} />,
+    links: [
+      { label: '고객사 관리', links: [
+        { label: '고객사등록', link: '/Company', MenuID: 'COMPANY_REGISTRATION' },
+        { label: '고객사관리', link: '/User', MenuID: 'COMPANY_USER_MANAGEMENT' },
+        { label: '고객사 권한관리', link: '/UserMenu', MenuID: 'USER_MENU_PERMISSION' },
+      ] },
+    ],
+  },
 ];
+
+// 메뉴 트리에서 실제 화면(link 가 있는 항목)만 펼친다
+const flattenMenuLinks = (items) => items.flatMap((item) => (item.links ? flattenMenuLinks(item.links) : [item]));
 
 function findMenuLabel(items, path) {
   const normalizePath = (value) => String(value || '').replace(/\/+$/, '').toLowerCase() || '/';
@@ -190,42 +177,19 @@ function findMenuLabel(items, path) {
   const canonicalPath = normalizedPath === '/inboundregister'
     ? '/inboundregisterpage'
     : normalizedPath;
+  // 예전 주소로 들어와도 같은 메뉴 이름을 보여준다
   const routeLabelAliases = {
-    '/iniopstockpage': '재고수불현황',
-    '/stockstandpage': '기초재고등록',
-    '/inboundregister': '입고등록',
-    '/inboundregisterpage': '입고등록',
-    '/inboundsearch': '입고현황',
-    '/inboundsearchpage': '입고현황',
-    '/currentstockpage': '현재고현황',
-    '/outboundregisterpage': '출고등록',
-    '/outboundsearchpage': '출고현황',
-    '/receiptpayment': '수금/지급 등록',
-    '/receiptpaymentsearch': '수금/지급 현황',
-    '/instrumentstatus': '수표/어음 현황',
-    '/grossprofit': '매출이익분석',
-    '/grossprofitdashboard': '매출이익 현황판',
-    '/inoutmoveregister': '재고이전등록',
-    '/inoutmovesearch': '재고이전현황',
-    '/aiorderpage': 'AI 가공솔루션',
-    '/aiordermanage': '주문서 관리',
-    '/aiorderoptimization': '가공 최적화',
-    '/itemprocessmaster': '가공공정 관리',
-    '/itemprocessregister': '가공등록',
-    '/itemprocesssearch': '가공현황',
-    '/customersupport': '고객지원',
-    '/company': '고객사등록',
-    '/user': '사용자 관리',
-    '/usermenu': '사용자 메뉴권한',
+    '/inboundregister': '매입등록',
+    '/inboundsearch': '매입현황',
   };
+
 
   if (routeLabelAliases[normalizedPath]) return routeLabelAliases[normalizedPath];
 
-  for (const item of items) {
-    if (item.link && normalizePath(item.link) === canonicalPath) return item.label;
-    const nested = item.links ? findMenuLabel(item.links, path) : '';
-    if (nested) return nested;
-  }
+  // 하위 섹션까지 내려가며 찾는다. 못 찾으면 '' (경로를 돌려주면 첫 섹션에서 바로 끝나 버린다)
+  const found = flattenMenuLinks(items)
+    .find((item) => item.link && normalizePath(item.link) === canonicalPath);
+  if (found) return found.label;
   return canonicalPath === '/homepage' ? '대시보드' : path;
 }
 
@@ -247,15 +211,16 @@ export default function MainLayout({ children }) {
   });
 
   const navigate = useNavigate();
-  const toggleSidebar = () => setSidebarCollapsed((collapsed) => {
-    const next = !collapsed;
+  const setSidebarCollapsedSaved = useCallback((next) => {
+    setSidebarCollapsed(next);
     try {
       localStorage.setItem('steel119-sidebar-collapsed', next ? 'Y' : 'N');
     } catch {
       // Ignore storage errors; the current page can still toggle the sidebar.
     }
-    return next;
-  });
+  }, []);
+  const toggleSidebar = () => setSidebarCollapsedSaved(!sidebarCollapsed);
+  const expandSidebar = useCallback(() => setSidebarCollapsedSaved(false), [setSidebarCollapsedSaved]);
   const location = useLocation();
   const { pathname } = location; // 2. 현재 경로 가져오기
   const outlet = useOutlet();
@@ -474,27 +439,25 @@ const handlePasswordChange = async (e) => {
 
 
 const isPlatformMaster = currentCompanyId === '001' && currentAuthority === 'MASTER';
-const visibleMockdata = mockdata
-  .map((item) => {
-    if (!item.links) return item;
-    const links = item.links.filter((link) => {
-      if (link.link === '/Company') return isPlatformMaster;
-      if (link.link === '/User') return ['MASTER', 'SUBMASTER'].includes(currentAuthority);
-      if (link.link === '/UserMenu') return ['MASTER', 'SUBMASTER'].includes(currentAuthority);
-      if (isPlatformMaster) return true;
-      return !link.MenuID || myPermissions.includes(link.MenuID);
-    });
-    return { ...item, links };
-  })
+const canSeeMenu = (link) => {
+  if (link.link === '/Company') return isPlatformMaster;
+  if (link.link === '/User' || link.link === '/UserMenu') return ['MASTER', 'SUBMASTER'].includes(currentAuthority);
+  if (link.link === '/CustomerSupport') return isPlatformMaster;
+  if (isPlatformMaster) return true;
+  return !link.MenuID || myPermissions.includes(link.MenuID);
+};
+// 화면이 아직 없는 메뉴(disabled)는 비활성으로 보인다. 섹션은 비활성 메뉴만 있어도 보이지만,
+// 대메뉴는 실제로 열 수 있는 화면이 하나도 없으면 숨긴다 (예: 권한 없는 사용자의 어드민).
+const hasEnabledLink = (item) => (item.links ? item.links.some(hasEnabledLink) : !item.disabled);
+const filterMenu = (items, depth = 0) => items
+  .map((item) => (item.links ? { ...item, links: filterMenu(item.links, depth + 1) } : item))
   .filter((item) => {
-    if (item.links) return item.links.length > 0;
-    if (isPlatformMaster) return true;
-    if (item.link === '/CustomerSupport') return false;
-    return !item.MenuID || myPermissions.includes(item.MenuID);
+    if (!item.links) return item.disabled || canSeeMenu(item);
+    return depth === 0 ? item.links.some(hasEnabledLink) : item.links.length > 0;
   });
+const visibleMockdata = filterMenu(mockdata);
 
-const firstAccessiblePath = visibleMockdata
-  .flatMap((item) => item.links || [item])
+const firstAccessiblePath = flattenMenuLinks(visibleMockdata)
   .find((item) => item.link && item.link !== '/HomePage')?.link;
 const noAccessibleMenus = !isPlatformMaster
   && myPermissionsLoaded
@@ -508,9 +471,6 @@ useEffect(() => {
   }
 }, [currentAuthority, firstAccessiblePath, isDashboard, isPlatformMaster, myPermissions, myPermissionsLoaded, navigate]);
 
-const links = visibleMockdata.map((item) => (
-  <LinksGroup {...item} pathname={pathname} collapsed={sidebarCollapsed} key={item.label} />
-));
 
 // 대시보드 권한이 없으면 대시보드 화면을 띄우지 않고 안내 문구만 보인다
 const dashboardBlocked = isDashboard && !isPlatformMaster && (!myPermissionsLoaded || !myPermissions.includes('HOME'));
@@ -558,65 +518,44 @@ const menuAccessContextValue = {
   return (
     <>
     <AppShell
-      className={`${isInboundWorkspace || isDashboard ? classes.appShellInbound : ''} ${sidebarCollapsed ? classes.sidebarCollapsed : ''}`}
-      header={{ height: 49 }}
+      layout="alt"
+      transitionDuration={220}
+      transitionTimingFunction="ease"
+      className={`${isInboundWorkspace || isDashboard ? classes.appShellInbound : ''} ${sidebarCollapsed ? `${classes.sidebarCollapsed} steel119-sidebar-collapsed` : ''}`}
+      header={{ height: 54 }}
       navbar={{
-        width: sidebarCollapsed ? 64 : 204,
+        width: sidebarCollapsed ? 62 : 210,
         breakpoint: 'sm',
         collapsed: { mobile: !opened },
       }}
       padding="sm"
     >
       <AppShell.Header className={classes.appHeader}>
-        <Box className={classes.headerBrand} style={{ width: sidebarCollapsed ? 64 : 204, flexBasis: sidebarCollapsed ? 64 : 204 }}>
-          <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" color="white" />
-          <ActionIcon
-            className={classes.sidebarToggle}
-            onClick={toggleSidebar}
-            aria-label={sidebarCollapsed ? '네비게이션 펼치기' : '네비게이션 접기'}
-            title={sidebarCollapsed ? '네비게이션 펼치기' : '네비게이션 접기'}
-            visibleFrom="sm"
-            variant="subtle"
-            color="gray"
-            size="sm"
-          >
-            {sidebarCollapsed ? <IconChevronRight size={17} /> : <IconChevronLeft size={17} />}
-          </ActionIcon>
-          <Box className={classes.logoMark}>
-            {/* <img src={steel119HomeLogo} alt="Steel119" /> */}
-            <img src={steel119HomeLogo} alt="Steel119" />
-          </Box>
-          <Box className={classes.brandCopy}>
-            <Text className={classes.brandName}>STEEL119</Text>
-          </Box>
-        </Box>
+        <Burger className={classes.mobileBurger} opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
 
         <Box className={classes.headerActions}>
           {ribbons[pathname] ?? null}
         </Box>
 
-        <Group className={classes.headerUser} gap={8} wrap="nowrap">
+        <Group className={classes.headerUser} gap={10} wrap="nowrap">
           <Group
             className={classes.userIdentity}
-            gap={0}
+            gap={9}
+            wrap="nowrap"
             onClick={openPwModal}
             title="비밀번호 변경"
             role="button"
             tabIndex={0}
             onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') openPwModal(); }}
           >
-            <Text size="xs" fw={600}>{userInfo.name ? `${userInfo.name}님` : <IconUser size={15} />}</Text>
+            <IconUserCircle className={classes.userIcon} size={18} stroke={1.8} />
+            <span className={classes.userName}>{userInfo.name ? `${userInfo.name}님` : <IconUser size={15} />}</span>
           </Group>
-          <Box className={classes.userDivider} aria-hidden="true" />
-          <Button
-            className={classes.logoutButton}
-            variant="subtle"
-            size="xs"
-            leftSection={<IconLogout size={15} />}
-            onClick={handleLogout}
-          >
-            로그아웃
-          </Button>
+          <span className={classes.userDivider} aria-hidden="true">|</span>
+          <button type="button" className={classes.logoutButton} onClick={handleLogout}>
+            <IconLogout size={16} stroke={1.8} />
+            <span>로그아웃</span>
+          </button>
         </Group>
 
         <Modal opened={pwModalOpened} onClose={closePwModal} title={<Text fw={700} size="md">비밀번호 수정</Text>} centered size="sm" padding="md">
@@ -654,10 +593,23 @@ const menuAccessContextValue = {
       </AppShell.Header>
 
       <AppShell.Navbar className={classes.navBar} p={0}>
-        <AppShell.Section grow component={ScrollArea} type="never" offsetScrollbars>
-          <div className={classes.linksContainer}>{links}</div>
+        <AppShell.Section className={classes.sideHead}>
+          <div className={classes.logoSlot}>
+            <img src={steel119Logo} alt="스틸119" />
+          </div>
+          <button
+            type="button"
+            className={classes.sidebarToggle}
+            onClick={toggleSidebar}
+            aria-label={sidebarCollapsed ? '네비게이션 펼치기' : '네비게이션 접기'}
+            title={sidebarCollapsed ? '로고·네비게이션 함께 펼치기' : '로고·네비게이션 함께 접기'}
+          >
+            {sidebarCollapsed ? <IconChevronsRight size={20} stroke={1.8} /> : <IconChevronsLeft size={20} stroke={1.8} />}
+          </button>
         </AppShell.Section>
-
+        <AppShell.Section grow component={ScrollArea} type="hover" scrollbars="y" scrollbarSize={6} className={classes.navScroll}>
+          <SidebarNav items={visibleMockdata} pathname={pathname} collapsed={sidebarCollapsed} onExpand={expandSidebar} />
+        </AppShell.Section>
       </AppShell.Navbar>
 
       <AppShell.Main className={`${classes.appMain} ${isDashboard ? classes.appMainDashboard : isInboundWorkspace ? classes.appMainInbound : ''}`}>

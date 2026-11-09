@@ -1,187 +1,110 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UnstyledButton, Collapse, Group, Box, Text, Menu } from '@mantine/core';
-import { IconChevronRight } from '@tabler/icons-react';
+import { UnstyledButton } from '@mantine/core';
+import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import classes from '../../styles/layout/MainLayoutLink.module.css';
-import { Notifications, notifications } from '@mantine/notifications';
-import axios from 'axios';
 
 function normalizePath(path) {
-  return path === '/' ? path : (path || '').replace(/\/+$/, '');
+  return path === '/' ? path : String(path || '').replace(/\/+$/, '').toLowerCase();
 }
 
 function itemContainsPath(item, pathname) {
-  if (normalizePath(item.link) === normalizePath(pathname)) return true;
+  if (item.link && normalizePath(item.link) === normalizePath(pathname)) return true;
   return (item.links || []).some((child) => itemContainsPath(child, pathname));
 }
 
-function NestedMenuItem({ item, pathname, navigate, depth = 0 }) {
-  const hasChildren = Array.isArray(item.links);
-  const [opened, setOpened] = useState(() => hasChildren && item.links.some((child) => itemContainsPath(child, pathname)));
-
-  if (hasChildren) {
-    return (
-      <Box className={classes.subGroup}>
-        <UnstyledButton
-          className={classes.subGroupControl}
-          onClick={() => setOpened((value) => !value)}
-          aria-expanded={opened}
-        >
-          <span
-            className={classes.subGroupLabel}
-            style={{ fontSize: '13px', fontWeight: 400, lineHeight: 1.2 }}
-          >
-            {item.label}
-          </span>
-          <IconChevronRight className={`${classes.chevron} ${opened ? classes.chevronOpened : ''}`} size={15} stroke={1.8} />
-        </UnstyledButton>
-        <Collapse in={opened}>
-          <div className={classes.subGroupChildren}>
-            {item.links.map((child) => (
-              <NestedMenuItem
-                key={child.label}
-                item={child}
-                pathname={pathname}
-                navigate={navigate}
-                depth={depth + 1}
-              />
-            ))}
-          </div>
-        </Collapse>
-      </Box>
-    );
-  }
-
+function MenuLink({ item, pathname, navigate }) {
+  const active = Boolean(item.link) && normalizePath(item.link) === normalizePath(pathname);
   return (
-    <Text
-      component="a"
-      key={item.label}
-      className={`${classes.subLink} ${normalizePath(item.link) === normalizePath(pathname) ? classes.subLinkActive : ''} ${item.disabled ? classes.subLinkDisabled : ''}`}
-      aria-current={normalizePath(item.link) === normalizePath(pathname) ? 'page' : undefined}
-      aria-disabled={item.disabled || undefined}
-      tabIndex={item.disabled ? -1 : undefined}
-      onClick={(event) => {
-        event.preventDefault();
-        if (!item.disabled && item.link) navigate(item.link);
-      }}
-      style={{
-        cursor: item.disabled || !item.link ? 'default' : 'pointer',
-        opacity: item.disabled ? 0.5 : 1,
-        marginLeft: depth ? 4 : 0,
-      }}
-    >
-      {item.label}
-    </Text>
+    <div className={classes.linkRow}>
+      <button
+        type="button"
+        className={`${classes.link} ${active ? classes.linkActive : ''} ${item.disabled ? classes.linkDisabled : ''}`}
+        aria-current={active ? 'page' : undefined}
+        disabled={item.disabled || undefined}
+        onClick={() => { if (!item.disabled && item.link) navigate(item.link); }}
+      >
+        <span className={classes.linkName}>{item.label}</span>
+      </button>
+    </div>
   );
 }
 
-// 1. props에 'disabled'를 추가합니다.
-export function LinksGroup({ icon: Icon, label, initiallyOpened, links, link, disabled, pathname, collapsed = false }) {
-  const hasLinks = Array.isArray(links);
-  const navigate = useNavigate();
-  const isActive = normalizePath(link) === normalizePath(pathname) || (links || []).some((item) => itemContainsPath(item, pathname));
-  const [opened, setOpened] = useState(() => Boolean(initiallyOpened || isActive));
+// 하위 메뉴: 항목에 links 가 있으면 섹션 제목 + 그 아래 메뉴로 그린다 (예: AI 가공솔루션 / 재고가공).
+function SubMenus({ links, pathname, navigate }) {
+  return (
+    <div className={classes.submenus}>
+      {links.map((item) => (Array.isArray(item.links) ? (
+        <div key={item.label} className={classes.section}>
+          <div className={classes.sectionHead}>{item.label}</div>
+          {item.links.map((child) => <MenuLink key={child.label} item={child} pathname={pathname} navigate={navigate} />)}
+        </div>
+      ) : (
+        <MenuLink key={item.label} item={item} pathname={pathname} navigate={navigate} />
+      )))}
+    </div>
+  );
+}
 
-  
-  // 2. 서브 메뉴 아이템들 처리
-  const items = (hasLinks ? links : []).map((item) => (
-    <NestedMenuItem key={item.label} item={item} pathname={pathname} navigate={navigate} />
+// 대메뉴는 여러 개를 동시에 펼칠 수 있다. 접힌 상태에서 대메뉴 아이콘을 누르면 사이드바를 펼치고 그 메뉴를 연다.
+export function SidebarNav({ items, pathname, collapsed = false, onExpand }) {
+  const navigate = useNavigate();
+  const [openLabels, setOpenLabels] = useState(() => new Set(
+    items.filter((item) => item.links && itemContainsPath(item, pathname)).map((item) => item.label),
   ));
 
-  if (collapsed) {
-    const collapsedItems = (hasLinks ? links : []).flatMap((item) => (
-      item.links ? [
-        { type: 'label', key: `group-${item.label}`, label: item.label },
-        ...item.links,
-      ] : [item]
-    ));
-    const trigger = (
-      <UnstyledButton
-        className={`${classes.collapsedControl} ${isActive ? classes.controlActive : ''}`}
-        aria-label={label}
-        title={label}
-        onClick={!hasLinks && !disabled && link ? () => navigate(link) : undefined}
-        disabled={disabled || undefined}
-      >
-        {Icon}
-      </UnstyledButton>
-    );
-
-    if (!hasLinks) return trigger;
-
-    return (
-      <Menu position="right-start" offset={6} withinPortal shadow="sm">
-        <Menu.Target>{trigger}</Menu.Target>
-        <Menu.Dropdown className={classes.collapsedMenu}>
-          {collapsedItems.map((item) => item.type === 'label' ? (
-            <Menu.Label key={item.key}>{item.label}</Menu.Label>
-          ) : (
-            <Menu.Item
-              key={item.label}
-              disabled={item.disabled}
-              onClick={() => item.link && !item.disabled && navigate(item.link)}
-            >
-              {item.label}
-            </Menu.Item>
-          ))}
-        </Menu.Dropdown>
-      </Menu>
-    );
+  // 다른 경로(탭 이동 등)로 가면 그 화면의 대메뉴를 열어 둔다 (경로가 바뀐 렌더에서 바로 반영).
+  const [lastPathname, setLastPathname] = useState(pathname);
+  if (lastPathname !== pathname) {
+    setLastPathname(pathname);
+    const owner = items.find((item) => item.links && itemContainsPath(item, pathname));
+    if (owner && !openLabels.has(owner.label)) setOpenLabels(new Set(openLabels).add(owner.label));
   }
 
+  const handleCategory = (item) => {
+    if (item.disabled) return;
+    if (!item.links) {
+      if (item.link) navigate(item.link);
+      return;
+    }
+    if (collapsed) {
+      onExpand?.();
+      setOpenLabels((current) => new Set(current).add(item.label));
+      return;
+    }
+    setOpenLabels((current) => {
+      const next = new Set(current);
+      if (next.has(item.label)) next.delete(item.label); else next.add(item.label);
+      return next;
+    });
+  };
+
   return (
-    <>
-      <UnstyledButton 
-        onClick={() => {
-          // ✅ 대메뉴(Home 등) 자체가 비활성이면 아무것도 안 함
-          if (disabled) return; 
-
-          if (hasLinks) {
-            setOpened((value) => !value);
-          } else if (link) {
-            navigate(link);
-          }
-        }} 
-        className={`${classes.control} ${hasLinks ? classes.controlParent : ''} ${isActive ? classes.controlActive : ''} ${opened ? classes.controlOpen : ''}`}
-        aria-expanded={hasLinks ? opened : undefined}
-        aria-current={normalizePath(link) === normalizePath(pathname) ? 'page' : undefined}
-        style={{
-          // ✅ 대메뉴 비활성 스타일 (필요한 경우)
-          opacity: disabled ? 0.5 : 1,
-          cursor: disabled ? 'not-allowed' : 'pointer',
-        }}
-      >
-        <Group justify="space-between" gap={0}>
-          <Box className={classes.innerControl}>
-            {Icon && (
-              <Box className={classes.icon} style={{ filter: disabled ? 'grayscale(1)' : 'none' }}>
-                {Icon}
-              </Box>
-            )}
-            <Box className={classes.label} style={{ color: disabled ? '#adb5bd' : 'inherit' }}>
-              {label}
-            </Box>
-          </Box>
-
-          {hasLinks && (
-              <IconChevronRight
-              className={`${classes.chevron} ${opened ? classes.chevronOpened : ''}`}
-              size={15}
-              stroke={1.8}
-              style={{ display: disabled ? 'none' : 'inline-block' }}
-            />
-          )}
-        </Group>
-      </UnstyledButton>
-
-      {/* 대메뉴가 활성화되어 있을 때만 하위 메뉴를 보여줍니다 */}
-      {hasLinks && !disabled ? (
-        <Collapse in={opened}>
-          <div className={classes.subLinkContainer}>
-            {items}
+    <nav className={classes.nav}>
+      {items.map((item) => {
+        const hasLinks = Array.isArray(item.links);
+        const isOpen = hasLinks && openLabels.has(item.label);
+        const isCurrent = itemContainsPath(item, pathname);
+        return (
+          <div key={item.label}>
+            <UnstyledButton
+              className={`${classes.category} ${isOpen ? classes.categoryOpen : ''} ${isCurrent ? classes.categoryCurrent : ''}`}
+              onClick={() => handleCategory(item)}
+              aria-expanded={hasLinks ? isOpen : undefined}
+              aria-current={!hasLinks && isCurrent ? 'page' : undefined}
+              title={item.label}
+              disabled={item.disabled || undefined}
+            >
+              <span className={classes.categoryIcon}>{item.icon}</span>
+              <span className={classes.categoryName}>{item.label}</span>
+              {hasLinks && (isOpen
+                ? <IconChevronDown className={classes.arrow} size={13} stroke={2} />
+                : <IconChevronRight className={classes.arrow} size={13} stroke={2} />)}
+            </UnstyledButton>
+            {isOpen && !collapsed && <SubMenus links={item.links} pathname={pathname} navigate={navigate} />}
           </div>
-        </Collapse>
-      ) : null}
-    </>
+        );
+      })}
+    </nav>
   );
 }

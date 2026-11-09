@@ -316,9 +316,9 @@ export default function InstrumentStatus() {
   return <Box className={`${sharedClasses.pageShell} ${classes.page} ${pageClasses.page}`}>
     <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
       <Group className={classes.breadcrumbTrail} gap={7}>
-        <Text component="span" className={classes.breadcrumbParent}>수금/지급관리</Text>
+        <Text component="span" className={classes.breadcrumbParent}>자금관리</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-        <Text component="span" className={classes.breadcrumbCurrent}>수표/어음 현황</Text>
+        <Text component="span" className={classes.breadcrumbCurrent}>수표·어음 관리</Text>
       </Group>
       {!filterOpen && <Button className={classes.filterToggle} variant="subtle" size="xs" leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
     </Box>

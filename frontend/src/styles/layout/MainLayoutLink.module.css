@@ -1,170 +1,155 @@
-.control {
+/* 사이드바 네비게이션 (STEEL119 네비게이션 시안 v185 기준) */
+.nav {
+  padding-bottom: 16px;
+}
+
+/* 대메뉴: 마우스 오버 시 시각 변화 없음, 펼친 메뉴만 흰색 */
+.category {
   position: relative;
-  display: block !important;
-  box-sizing: border-box;
-  width: 100% !important;
-  min-height: 43px !important;
-  margin: 2px 0 !important;
-  padding: 0 13px !important;
-  border: 1px solid transparent !important;
-  border-radius: 5px !important;
-  background: transparent !important;
-  color: #d5dce6 !important;
-  cursor: pointer !important;
-  text-align: left;
-  transition: background 140ms ease, color 140ms ease;
-}
-
-.collapsedControl {
-  display: flex !important;
-  width: 100% !important;
-  height: 42px !important;
-  align-items: center;
-  justify-content: center;
-  margin: 2px 0 !important;
-  padding: 0 !important;
-  border: 1px solid transparent !important;
-  border-radius: 5px !important;
-  background: transparent !important;
-  color: #91a0b5 !important;
-  cursor: pointer;
-}
-.collapsedControl:hover { background: #2b3b52 !important; color: #fff !important; }
-.collapsedControl.controlActive { background: #f0444c !important; color: #fff !important; }
-.collapsedMenu { min-width: 190px; }
-
-.control:hover {
-  background: #2b3b52 !important;
-  color: #fff !important;
-}
-
-.controlActive,
-.controlOpen.controlActive {
-  border-color: transparent !important;
-  background: #f0444c !important;
-  color: #fff !important;
-}
-
-.controlParent.controlActive,
-.controlParent.controlOpen.controlActive {
-  background: transparent !important;
-  color: #fff !important;
-}
-
-.innerControl {
-  display: flex !important;
-  min-width: 0;
-  align-items: center;
-  gap: 11px;
-}
-
-.icon {
-  display: flex !important;
-  width: 18px;
-  flex: 0 0 18px;
-  align-items: center;
-  justify-content: center;
-  color: #91a0b5;
-}
-
-.controlActive .icon { color: #fff; }
-.control:hover .icon { color: #fff; }
-
-.label {
-  overflow: hidden;
-  margin-left: 0 !important;
-  color: inherit;
-  font-size: 13px !important;
-  font-weight: 400 !important;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chevron {
-  display: inline-flex;
-  margin-left: 8px;
-  color: #8490a0;
-  transition: transform 180ms ease;
-}
-
-.chevronOpened { transform: rotate(90deg); }
-.controlActive .chevron { color: #fff; }
-
-.subLinkContainer {
-  margin: 2px 0 6px !important;
-  padding: 3px 0 7px !important;
-  border: 0 !important;
-  border-radius: 0;
-  background: transparent;
-}
-
-.subGroupControl {
   display: flex !important;
   width: 100%;
-  min-height: 34px;
+  min-height: 43px;
   align-items: center;
-  justify-content: space-between;
-  padding: 7px 9px 7px 14px !important;
-  border-radius: 5px;
-  color: #d5dce6 !important;
-  font-size: 13px !important;
-  font-weight: 400;
-  text-align: left;
-}
-
-.subGroupLabel {
-  font-size: 13px !important;
-  font-weight: 400 !important;
-  line-height: 1.2;
-}
-
-.subGroupControl:hover {
-  background: #2b3b52;
-  color: #fff !important;
-}
-
-.subGroupChildren {
-  margin: 2px 0 4px;
-  padding-left: 0;
-  border-left: 0;
-}
-
-.subLink {
-  display: flex !important;
-  min-height: 36px;
-  align-items: center;
-  padding: 9px 7px 9px 40px !important;
-  border-radius: 5px;
-  color: #d5dce6 !important;
-  cursor: pointer !important;
-  font-size: 13px !important;
-  font-weight: 400 !important;
-  line-height: 1.35;
-  text-decoration: none !important;
-  transition: background 140ms ease, color 140ms ease;
-}
-
-.subLink:hover {
-  background: #2b3b52;
-  color: #fff !important;
-}
-
-.subLinkActive {
-  background: #f0444c !important;
-  color: #fff !important;
-}
-
-.subLinkDisabled,
-.subLinkDisabled:hover {
+  padding: 0 40px 0 16px !important;
+  border: 0;
   background: transparent !important;
-  color: #8b95a3 !important;
-  cursor: not-allowed !important;
+  color: #b9c4d1 !important;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.category:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.categoryIcon {
+  display: flex;
+  width: 20px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin-right: 4px;
+  color: inherit;
+}
+.categoryIcon svg { width: 18px; height: 18px; }
+
+.categoryName {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
 }
 
-.subIcon {
+.arrow {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 22px;
+  color: #8491a1;
+  transform: translateY(-50%);
+}
+
+.categoryOpen,
+.categoryOpen .categoryName { color: #fff !important; }
+.categoryOpen .categoryIcon { color: #e5ebf3; }
+/* 하위 메뉴가 없는 대메뉴(대시보드 등)는 현재 화면이면 흰색 */
+.categoryCurrent:not(.categoryOpen):not([aria-expanded]) { color: #fff !important; }
+
+/* 하위 메뉴 */
+.submenus {
+  padding: 11px 10px 15px;
+  background: #171d27;
+}
+
+.section + .section,
+.linkRow + .section,
+.section + .linkRow { margin-top: 24px; }
+
+/* 소제목: 클릭 대상이 아님을 보이도록 작고 흐린 글씨 + 왼쪽 여백에 걸친 작은 점.
+   점(4px) + 간격(6px)이 왼쪽에 걸리도록 20px 에서 시작해 글자는 메뉴와 같은 30px 선에 맞춘다. */
+.sectionHead {
   display: flex;
   align-items: center;
-  margin-right: 8px;
-  color: #91a0b5;
-  font-size: 12px;
+  gap: 6px;
+  margin: 11px 0 5px;
+  padding: 0 12px 0 20px;
+  color: #6f7d90;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: default;
+  user-select: none;
 }
+.sectionHead::before {
+  content: "";
+  width: 4px;
+  height: 4px;
+  flex: none;
+  border-radius: 50%;
+  background: #c92b32;
+  opacity: 0.85;
+}
+.section:first-child .sectionHead { margin-top: 0; }
+
+.linkRow { position: relative; display: flex; align-items: center; }
+
+.link {
+  position: relative;
+  z-index: 0;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  padding: 9px 38px 9px 30px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #c5cfdb;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+}
+.link::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 2px;
+  right: 26px;
+  bottom: 2px;
+  left: 8px;
+  border-radius: 6px;
+  background: transparent;
+  pointer-events: none;
+}
+.link:hover { color: #fff; }
+.link:not(.linkActive):hover::before { background: #252f3d; }
+.link:focus-visible { outline: 2px solid #ff8388; outline-offset: -2px; }
+
+.linkActive { color: #fff; font-weight: 650; }
+.linkActive::before { background: #c92b32; }
+
+.linkName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.linkDisabled,
+.linkDisabled:hover { color: #6b7686; cursor: not-allowed; }
+.linkDisabled::before { background: transparent !important; }
+
+/* 접기/펼치기 애니메이션: 레이아웃은 그대로 두고 패딩·투명도만 부드럽게 바꾼다 */
+.category { transition: padding 220ms ease, min-height 220ms ease; }
+.categoryIcon svg { transition: width 220ms ease, height 220ms ease; }
+.categoryName,
+.arrow { transition: opacity 160ms ease; }
+
+/* 접힌 사이드바: 아이콘만 가운데 (62px 폭 - 아이콘 20px) / 2 = 21px */
+:global(.steel119-sidebar-collapsed) .category {
+  min-height: 47px;
+  padding: 0 0 0 21px !important;
+}
+:global(.steel119-sidebar-collapsed) .categoryIcon svg { width: 21px; height: 21px; }
+:global(.steel119-sidebar-collapsed) .categoryName,
+:global(.steel119-sidebar-collapsed) .arrow { opacity: 0; pointer-events: none; }
+:global(.steel119-sidebar-collapsed) .category:hover { color: #fff !important; }
+:global(.steel119-sidebar-collapsed) .categoryCurrent { color: #fff !important; }

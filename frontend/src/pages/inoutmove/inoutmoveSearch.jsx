@@ -111,7 +111,7 @@ export default function InoutmoveSearch() {
   const searchOnEnter = (event) => { if (event.key === 'Enter') search(); };
 
   return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="재고관리" current="재고이전현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+    <ErpBreadcrumb parent="재고관리" current="재고이동 현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
     <Box className={classes.inboundWorkspace}>
       {filterOpen && <Paper component="aside" className={classes.filterSidebar} withBorder>
         <Group className={classes.filterHeader} justify="space-between">

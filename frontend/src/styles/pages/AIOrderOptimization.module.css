@@ -1,6 +1,6 @@
 /* 가공 최적화 (pages/ai/AIOrderOptimization.jsx)
    틀(페이지·패널 머리·표·배지·버튼)은 주문서 관리와 같은 AIOrderRegistry.module.css 를 쓰고,
-   여기에는 ①~④ 안쪽 배치만 둔다. 글자 크기는 주문서 관리 기준 (본문 12px, 제목 13px, 표 머리 11px). */
+   여기에는 ①~④ 안쪽 배치와 불러오기 모달을 둔다. 글자 크기는 주문서 관리 기준 (본문 12px, 제목 13px, 표 머리 11px). */
 .main { overflow-y: auto; padding-right: 4px; scrollbar-width: thin; }
 .card { flex: 0 0 auto; }
 .card > header { flex-wrap: wrap; gap: 8px; padding-top: 5px; padding-bottom: 5px; }
@@ -84,6 +84,95 @@
 /* 하단 버튼 (주문서 관리 버튼과 같은 크기) */
 .footer { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 0 4px; }
 .note { margin-right: auto; color: #8292a9; font-size: 11px; }
+
+/* 품목·계획 불러오기: 같은 높이와 여백, 목록 안에서만 스크롤 */
+.pickerContent { display: flex; flex-direction: column; height: min(740px, calc(100dvh - 32px)); overflow: hidden; border: 1px solid #dce2ea; border-radius: 10px; box-shadow: 0 24px 80px #1421352e; }
+.pickerHeader { flex: 0 0 auto; gap: 16px; min-height: 88px; padding: 18px 22px; border-bottom: 1px solid #e1e6ee; background: #fff; }
+.pickerTitle { min-width: 0; flex: 1; }
+.pickerClose { flex-shrink: 0; align-self: flex-start; margin-top: 4px; border-radius: 6px; color: #78869a; }
+.pickerClose:hover { background: #f1f3f6; color: #26364e; }
+.pickerHeading { display: flex; align-items: center; gap: 12px; }
+.pickerHeadingIcon { display: grid; flex: 0 0 42px; width: 42px; height: 42px; place-items: center; border: 1px solid #ffe1e3; border-radius: 10px; background: #fff4f4; color: #e45159; }
+.pickerHeadingLine { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.pickerHeadingLine strong { color: #1e2e45; font-size: 17px; font-weight: 700; letter-spacing: -0.4px; }
+.pickerMaterial { padding: 3px 9px; border: 1px solid #e1e6ee; border-radius: 20px; background: #f8fafc; color: #64758d; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.pickerHeading p { margin: 5px 0 0; color: #718197; font-size: 12px; font-weight: 400; line-height: 1.5; }
+.pickerBody { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 0; overflow: hidden; color: #26364e; font-size: 12px; }
+.pickerWorkspace { display: flex; flex: 1; flex-direction: column; min-height: 0; gap: 14px; padding: 18px 22px; overflow: hidden; background: #fafbfc; }
+.pickerFilters { display: grid; flex: 0 0 auto; grid-template-columns: minmax(160px, 240px) minmax(160px, 240px) 120px auto; align-items: end; justify-content: start; gap: 10px; }
+.pickerFilters > * { min-width: 0; }
+.pickerFilters :global(.mantine-InputWrapper-label) { margin-bottom: 5px; color: #4b5b70; font-size: 12px; font-weight: 600; }
+.pickerFilters :global(.mantine-Input-input) { font-size: 12px; }
+.pickerFilters :global(.mantine-Button-root) { font-size: 12px; }
+.planPickerFilters { grid-template-columns: minmax(260px, 420px) 150px auto; }
+.pickerGuide { display: flex; flex: 0 0 auto; align-items: flex-start; gap: 8px; padding: 11px 13px; border: 1px solid #dfe8f3; border-radius: 6px; background: #f3f7fc; color: #64758d; font-size: 12px; line-height: 1.6; }
+.pickerGuide > svg { flex-shrink: 0; margin-top: 2px; color: #7190b6; }
+.pickerGuide p { margin: 0; }
+.pickerCriteria { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 7px; color: #344c68; }
+.pickerCriteria > span { display: inline-flex; flex-wrap: wrap; gap: 7px; }
+.pickerCriteria b { color: #718197; font-size: 11px; font-weight: 500; }
+.pickerList { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid #dce2ea; border-radius: 7px; background: #fff; }
+.pickerListHeader { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; min-height: 42px; padding: 9px 12px; border-bottom: 1px solid #e1e6ee; }
+.pickerListHeader > div { display: flex; align-items: center; gap: 8px; }
+.pickerListHeader strong { color: #26364e; font-size: 12px; }
+.pickerListHeader > span { color: #8290a5; font-size: 11px; }
+.pickerCount { padding: 2px 7px; border-radius: 4px; background: #f1f3f6; color: #64758d; font-size: 11px; font-variant-numeric: tabular-nums; }
+.pickerTableScroll { flex: 1; overflow: auto; }
+.pickerTable { font-size: 12px; }
+.pickerTable th { height: 36px; border-right-color: #e7ecf2; background: #f4f6f9; }
+.pickerTable td { height: 43px; border-right-color: #edf0f4; border-bottom-color: #e7ecf2; }
+.pickerTable tbody tr { background: #fff; }
+.pickerTable tbody tr:nth-child(even) { background: #fbfcfe; }
+.pickerTable tbody tr:hover { background: #fff7f7; }
+.pickerTable th:first-child { left: 0; z-index: 3; }
+.pickerTable td:first-child:not([colspan]) { position: sticky; left: 0; z-index: 2; background: inherit; }
+.pickerTable tbody tr.pickerSelectedRow { background: #fff0f1; }
+.pickerTable tbody tr.pickerSelectedRow td:first-child { box-shadow: inset 3px 0 #e45159; }
+.pickerTable tbody tr.pickerDisabledRow { background: #f7f8fa; cursor: not-allowed; }
+.pickerTable tbody tr.pickerDisabledRow td { color: #9aa6b5; }
+.pickerCheckbox { width: 15px; height: 15px; margin: 0; accent-color: #e45159; vertical-align: middle; cursor: pointer; }
+.pickerCheckbox:disabled { cursor: not-allowed; }
+.pickerCheckbox:focus-visible { outline: 2px solid #e45159; outline-offset: 3px; }
+.pickerTable td.pickerEmptyCell { padding: 0; white-space: normal; cursor: default; }
+.pickerEmpty { display: flex; min-height: 230px; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 24px; background: #fff; color: #8290a5; text-align: center; line-height: 1.6; }
+.pickerEmptyIcon { display: grid; width: 46px; height: 46px; margin-bottom: 4px; place-items: center; border-radius: 50%; background: #f1f4f8; color: #8b9aad; }
+.pickerEmpty strong { color: #4b5b70; font-size: 13px; font-weight: 600; }
+.planPickerTable { width: 100%; min-width: 1130px; }
+.planPickerTable td { height: 58px; }
+.planNumber { font-weight: 600; font-variant-numeric: tabular-nums; }
+.planSpec { display: flex; flex-direction: column; gap: 3px; }
+.planSpec strong { overflow: hidden; font-weight: 600; text-overflow: ellipsis; }
+.planSpec span { color: #8290a5; font-size: 11px; font-variant-numeric: tabular-nums; }
+.pickerFooter { display: grid; flex: 0 0 auto; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; min-height: 68px; padding: 14px 22px; border-top: 1px solid #e1e6ee; background: #fff; }
+.pickerSelection { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: #718197; font-size: 12px; }
+.pickerSelection > svg { flex-shrink: 0; color: #8290a5; }
+.pickerSelection strong { color: #d94a54; font-weight: 700; }
+.pickerPagination { justify-self: center; }
+.pickerFooterActions { grid-column: 3; justify-self: end; flex-wrap: nowrap; }
+.pickerFooterActions :global(.mantine-Button-root) { min-width: 72px; font-size: 12px; }
+
+@media (max-width: 720px) {
+  .pickerHeader { gap: 8px; padding: 14px; }
+  .pickerHeading { gap: 9px; }
+  .pickerHeadingIcon { flex-basis: 34px; width: 34px; height: 34px; }
+  .pickerHeadingLine { gap: 6px; }
+  .pickerHeadingLine strong { font-size: 15px; }
+  .pickerHeading p { font-size: 11px; }
+  .pickerWorkspace { gap: 10px; padding: 12px; }
+  .pickerFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); justify-content: stretch; }
+  .planPickerFilters > :first-child { grid-column: 1 / -1; }
+  .pickerGuide { padding: 9px 10px; font-size: 11px; }
+  .pickerFooter { grid-template-columns: 1fr auto; gap: 10px; padding: 12px; }
+  .pickerFooterActions { grid-column: 2; grid-row: 1; }
+  .pickerPagination { grid-column: 1 / -1; grid-row: 2; }
+  .pickerSelection { gap: 5px; font-size: 11px; }
+}
+
+@media (max-height: 640px), (max-width: 480px) {
+  .pickerWorkspace { overflow-y: auto; }
+  .pickerList { flex-shrink: 0; min-height: 180px; }
+  .pickerEmpty { min-height: 160px; }
+}
 
 @media (max-width: 1250px) {
   .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }

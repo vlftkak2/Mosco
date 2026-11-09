@@ -967,7 +967,7 @@ export default function ItemMaster() {
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-      <ErpBreadcrumb parent="기준정보" current="품목코드" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+      <ErpBreadcrumb parent="기준정보" current="품목코드 관리" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
 
       <Box className={classes.workspace}>
       <Paper className={`${sharedClasses.panel} ${codeClasses.codePanel}`} withBorder>

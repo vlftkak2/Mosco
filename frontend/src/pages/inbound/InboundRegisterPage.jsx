@@ -1337,6 +1337,10 @@ export default function InboundRegisterPage() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
+  // Receipt being fetched after a list click: highlighted immediately so the click gets
+  // instant feedback; only the latest click's response is applied (see openReceipt).
+  const [openingReceiptno, setOpeningReceiptno] = useState('');
+  const openRequestRef = useRef({ id: 0, controller: null });
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -1721,9 +1725,17 @@ export default function InboundRegisterPage() {
       notifications.show({ title: '저장되지 않은 변경사항', message: '현재 입고 내용을 먼저 저장해 주세요.', color: 'orange' });
       return false;
     }
+    openRequestRef.current.controller?.abort();
+    const controller = new AbortController();
+    const requestId = openRequestRef.current.id + 1;
+    openRequestRef.current = { id: requestId, controller };
+    const isLatest = () => openRequestRef.current.id === requestId;
+    setOpeningReceiptno(receiptno);
     setDetailLoading(true);
     try {
-      const { data } = await axios.get(`/api/inbound-register/receipts/${encodeURIComponent(receiptno)}`, authConfig());
+      const { data } = await axios.get(`/api/inbound-register/receipts/${encodeURIComponent(receiptno)}`, { ...authConfig(), signal: controller.signal });
+      // A newer click (or 신규) superseded this request: drop the stale response.
+      if (!isLatest()) return false;
       const receipt = data.receipt;
       setHeader({
         receiptno: receipt.receiptno || '',
@@ -1764,10 +1776,15 @@ export default function InboundRegisterPage() {
       selectionAnchorRef.current = '';
       return true;
     } catch (error) {
+      if (!isLatest()) return false;
       notifications.show({ title: '입고 상세 조회 실패', message: errorMessage(error), color: 'red' });
       return false;
     } finally {
-      setDetailLoading(false);
+      if (isLatest()) {
+        openRequestRef.current.controller = null;
+        setOpeningReceiptno('');
+        setDetailLoading(false);
+      }
     }
   }, [hasPendingChanges]);
 
@@ -1781,6 +1798,13 @@ export default function InboundRegisterPage() {
     if (hasPendingChanges) {
       notifications.show({ title: '저장되지 않은 변경사항', message: '현재 입고 내용을 먼저 저장해 주세요.', color: 'orange' });
       return false;
+    }
+    // Cancel a receipt still loading so its late response cannot overwrite the new draft.
+    if (openRequestRef.current.controller) {
+      openRequestRef.current.controller.abort();
+      openRequestRef.current = { id: openRequestRef.current.id + 1, controller: null };
+      setOpeningReceiptno('');
+      setDetailLoading(false);
     }
     setHeader({ ...EMPTY_HEADER, receptdate: localDate() });
     setReceiptMetadata({ companyid: '', companyname: '', created_at: '', updated_at: '' });
@@ -2685,6 +2709,7 @@ export default function InboundRegisterPage() {
         onSetCostPicker={setExpenseCostPickerId} />
     </Table>
   ), [expenseHeader, saving, readOnly, expenseOptions, getExpenseCostInputRef, toggleExpenseSelection, changeExpense, openCustomerPicker]);
+  const highlightedReceiptno = openingReceiptno || selectedReceiptno;
   const receiptPanel = useMemo(() => (
     <Paper className={`${sharedClasses.panel} ${classes.topReceiptPanel}`} withBorder>
       <Group className={classes.topReceiptToolbar} justify="space-between" wrap="wrap">
@@ -2695,7 +2720,7 @@ export default function InboundRegisterPage() {
           <colgroup>{RECEIPT_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${receiptColumnWidths[column.key] ?? receiptAutoWidths[column.key] ?? column.width}px` }} />)}</colgroup>
           <Table.Thead><Table.Tr>{RECEIPT_COLUMNS.map(renderReceiptHeader)}</Table.Tr></Table.Thead>
           <Table.Tbody>
-            <InboundReceiptRows receipts={receipts} selectedReceiptno={selectedReceiptno} onOpenReceipt={handleOpenReceipt} />
+            <InboundReceiptRows receipts={receipts} selectedReceiptno={highlightedReceiptno} onOpenReceipt={handleOpenReceipt} />
           </Table.Tbody>
         </Table>
         {!receipts.length && <Box className={classes.topReceiptEmptyMessage}>{loading ? '조회 중입니다.' : '검색된 입고전표가 없습니다.'}</Box>}
@@ -2726,7 +2751,7 @@ export default function InboundRegisterPage() {
         <Pagination size="sm" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={(value) => loadReceipts(value, filters)} withEdges color="red" disabled={loading || !total} />
       </Group>
     </Paper>
-  ), [total, receiptTableWidth, receiptColumnWidths, receiptAutoWidths, renderReceiptHeader, receipts, selectedReceiptno, handleOpenReceipt, loading, receiptSubtotals, syncReceiptScroll, pageSize, loadReceipts, filters, page]);
+  ), [total, receiptTableWidth, receiptColumnWidths, receiptAutoWidths, renderReceiptHeader, receipts, highlightedReceiptno, handleOpenReceipt, loading, receiptSubtotals, syncReceiptScroll, pageSize, loadReceipts, filters, page]);
   const receiptHeaderFields = useMemo(() => (
     <Box className={classes.sharedReceiptFields}>
       <Box className={classes.sharedReceiptField}>
@@ -2803,9 +2828,9 @@ export default function InboundRegisterPage() {
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>입고관리</Text>
+          <Text component="span" className={classes.breadcrumbParent}>매입관리</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-          <Text component="span" className={classes.breadcrumbCurrent}>입고등록</Text>
+          <Text component="span" className={classes.breadcrumbCurrent}>매입등록</Text>
         </Group>
         {!filterOpen && (
           <Button className={classes.receiptFilterToggle} variant="subtle" size="xs"

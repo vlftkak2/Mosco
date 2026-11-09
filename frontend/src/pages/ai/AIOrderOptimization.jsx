@@ -44,6 +44,7 @@ const toKeys = (keys) => keys.map((key) => { const [orderid, lineno] = key.split
 const MATERIAL_TABS = [{ value: 'COIL', label: '코일·스켈프' }, { value: 'SHEET', label: '시트·판재' }];
 const PLAN_STATUS = { DRAFT: { label: '임시저장', tone: 'blue' }, CONFIRMED: { label: '계획확정', tone: 'green' }, CANCELLED: { label: '취소', tone: '' }, DONE: { label: '가공완료', tone: 'green' } };
 const DEFAULT_SETTINGS = { combo: 'SINGLE', processmode: 'ONE', trimloss: 4, orientation: 'NORMAL', newwidths: [], newsizes: [], extrawidths: [] };
+const PICKER_MODAL_CLASSES = { content: classes.pickerContent, header: classes.pickerHeader, title: classes.pickerTitle, body: classes.pickerBody, close: classes.pickerClose };
 const FORMULAS = {
   COIL: {
     input: '신규: 필요중량 × (후보폭 ÷ 사용폭) / 현재고: 원코일 실제중량',
@@ -132,6 +133,23 @@ function ResizableHead({ columns, widthOf, startResize, labelOf }) {
 
 function Info({ text }) {
   return <span title={text} style={{ display: 'inline-flex', marginLeft: 3, verticalAlign: '-2px', color: '#8b9aad', cursor: 'help' }}><IconInfoCircle size={13} /></span>;
+}
+
+function PickerTitle({ title, description, material, icon }) {
+  return <div className={classes.pickerHeading}>
+    <span className={classes.pickerHeadingIcon} aria-hidden="true">{icon}</span>
+    <div>
+      <div className={classes.pickerHeadingLine}><strong>{title}</strong><span className={classes.pickerMaterial}>{material === 'COIL' ? '코일·스켈프' : '시트·판재'}</span></div>
+      <p>{description}</p>
+    </div>
+  </div>;
+}
+
+function PickerEmpty({ title, description }) {
+  return <div className={classes.pickerEmpty}>
+    <span className={classes.pickerEmptyIcon}><IconSearch size={23} stroke={1.5} aria-hidden="true" /></span>
+    <strong>{title}</strong><span>{description}</span>
+  </div>;
 }
 
 function Card({ number, title, actions, children, bodyClass = classes.cardBody }) {
@@ -225,6 +243,7 @@ export default function AIOrderOptimization() {
   const [pickerFilter, setPickerFilter] = useState({ buyer: '', itemname: '', thickness: '' });
   const [pickerPage, setPickerPage] = useState(1);
   const [planPickerOpen, setPlanPickerOpen] = useState(false);
+  const [planPickerFilter, setPlanPickerFilter] = useState({ query: '', status: 'ALL' });
   const [queue, setQueue] = useState([]);
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -293,6 +312,11 @@ export default function AIOrderOptimization() {
 
   const materialQueue = useMemo(() => queue.filter((row) => row.material === material && row.optimize_status === 'WAITING'), [queue, material]);
   const materialPlans = useMemo(() => plans.filter((row) => row.materialtype === material), [plans, material]);
+  const filteredPlans = useMemo(() => {
+    const query = planPickerFilter.query.trim().toLowerCase();
+    return materialPlans.filter((plan) => (planPickerFilter.status === 'ALL' || plan.status === planPickerFilter.status)
+      && (!query || [plan.planno, plan.itemname, plan.lines, plan.created_by].some((value) => String(value || '').toLowerCase().includes(query))));
+  }, [materialPlans, planPickerFilter]);
   const selectedRows = useMemo(() => selectedKeys.map((key) => queue.find((row) => keyOf(row) === key)).filter(Boolean), [selectedKeys, queue]);
   const editingDraft = activePlan?.status === 'DRAFT';
   const viewingConfirmed = activePlan?.status === 'CONFIRMED';
@@ -508,58 +532,94 @@ export default function AIOrderOptimization() {
           : row.optimize_status === 'PLANNED' ? <span className={`${reg.badge} ${reg.green}`}>계획확정</span>
             : <span className={reg.badge}>대기</span>}
           {!activePlan && <button type="button" className={classes.linkButton} style={{ marginLeft: 6 }} onClick={() => removeRow(keyOf(row))}>빼기</button>}</td>
-      </tr>) : <tr><td colSpan={material === 'SHEET' ? 14 : 13} className={reg.empty}>{loading ? '불러오는 중입니다.'
+      </tr>) : <tr><td colSpan={targetColumns.length} className={reg.empty}>{loading ? '불러오는 중입니다.'
         : materialQueue.length ? '[대기 품목 불러오기]로 최적화할 품목을 담아 주세요.' : '최적화 대기 품목이 없습니다. 주문서 관리에서 [가공 최적화로 보내기]를 해 주세요.'}</td></tr>}</tbody>
     </table>
   </div>;
 
-  // 대기 품목 불러오기 창 (출고등록 현재고 조회와 같은 방식)
-  const pickerModal = <Modal opened={pickerOpen} onClose={() => setPickerOpen(false)} centered size="90%" title={<Text fw={700}>대기 품목 불러오기 · {material === 'COIL' ? '코일·스켈프' : '시트·판재'}</Text>}>
-    <Stack gap="sm">
-      <div className={reg.info}>주문서 관리에서 보낸 최적화 대기 품목입니다. 같은 창고 · 같은 품명·두께(시트는 폭까지) 품목끼리만 함께 담을 수 있고, 첫 품목이 기준이 됩니다. 창고는 재고매칭으로 연결한 재고의 창고입니다.{pickerWarehouses.length ? ` 창고: ${queue.flatMap((row) => row.warehouses || []).find((item) => item.code === pickerWarehouses[0])?.name || pickerWarehouses[0]}` : ''}{pickerBase ? ` 기준: ${pickerBase.itemname} ${fmt(pickerBase.thickness, 3)}T${pickerBase.material === 'SHEET' ? ` × ${fmt(pickerBase.width)}` : ''}` : ''}</div>
-      <Group gap="xs" align="end" className={classes.candidateTools}>
-        <TextInput size="xs" label="발주처" w={160} value={pickerFilter.buyer} onChange={(event) => { const { value } = event.currentTarget; setPickerFilter((current) => ({ ...current, buyer: value })); setPickerPage(1); }} />
-        <TextInput size="xs" label="품명" w={160} value={pickerFilter.itemname} onChange={(event) => { const { value } = event.currentTarget; setPickerFilter((current) => ({ ...current, itemname: value })); setPickerPage(1); }} />
-        <TextInput size="xs" label="두께" w={90} value={pickerFilter.thickness} onChange={(event) => { const { value } = event.currentTarget; setPickerFilter((current) => ({ ...current, thickness: value })); setPickerPage(1); }} />
-      </Group>
-      <div className={reg.tableScroll} style={{ maxHeight: '55vh' }}>
-        <table className={`${reg.ordersTable} ${classes.table}`} style={targetTableStyle}>
+  // 두 불러오기 창은 제목·검색·목록·하단 동작의 같은 틀을 쓴다.
+  const pickerModal = <Modal opened={pickerOpen} onClose={() => setPickerOpen(false)} centered size="min(1440px, calc(100vw - 32px))" xOffset={16} yOffset={16}
+    classNames={PICKER_MODAL_CLASSES} closeButtonProps={{ 'aria-label': '품목 불러오기 닫기' }}
+    title={<PickerTitle title="품목 불러오기" description="주문서 관리에서 보낸 대기 품목을 선택해 최적화 대상에 담습니다." material={material} icon={<IconListCheck size={22} stroke={1.7} />} />}>
+    <div className={classes.pickerWorkspace}>
+      <div className={classes.pickerFilters}>
+        <TextInput size="sm" label="발주처" placeholder="발주처명 검색" leftSection={<IconSearch size={14} />} value={pickerFilter.buyer} onChange={(event) => { const { value } = event.currentTarget; setPickerFilter((current) => ({ ...current, buyer: value })); setPickerPage(1); }} />
+        <TextInput size="sm" label="품명" placeholder="품명 검색" value={pickerFilter.itemname} onChange={(event) => { const { value } = event.currentTarget; setPickerFilter((current) => ({ ...current, itemname: value })); setPickerPage(1); }} />
+        <TextInput size="sm" label="두께 (mm)" placeholder="예: 1.2" value={pickerFilter.thickness} onChange={(event) => { const { value } = event.currentTarget; setPickerFilter((current) => ({ ...current, thickness: value })); setPickerPage(1); }} />
+        <Button size="sm" variant="default" onClick={() => { setPickerFilter({ buyer: '', itemname: '', thickness: '' }); setPickerPage(1); }}>초기화</Button>
+      </div>
+      <div className={classes.pickerGuide}>
+        <IconInfoCircle size={16} aria-hidden="true" />
+        <div><p>같은 창고·품명·두께{material === 'SHEET' ? '·폭' : ''}의 품목을 함께 담을 수 있습니다. 첫 품목이 기준이 됩니다.</p>
+          {pickerBase && <div className={classes.pickerCriteria}>
+            <span><b>기준 품목</b>{pickerBase.itemname} {fmt(pickerBase.thickness, 3)}T{material === 'SHEET' ? ` × ${fmt(pickerBase.width)}mm` : ''}</span>
+            <span><b>연결 창고</b>{pickerWarehouses.length ? queue.flatMap((row) => row.warehouses || []).find((item) => item.code === pickerWarehouses[0])?.name || pickerWarehouses[0] : '연결 재고 없음'}</span>
+          </div>}
+        </div>
+      </div>
+      <div className={classes.pickerList}>
+        <div className={classes.pickerListHeader}><div><strong>대기 품목</strong><span className={classes.pickerCount}>{fmt(pickerRows.length, 0)}건</span></div><span>행 또는 체크박스를 눌러 선택하세요</span></div>
+        <div className={`${reg.tableScroll} ${classes.pickerTableScroll}`}>
+        <table className={`${reg.ordersTable} ${classes.table} ${classes.pickerTable}`} style={targetTableStyle} aria-label="최적화 대기 품목">
           {targetHead('선택')}
           <tbody>{pickerPageRows.length ? pickerPageRows.map((row) => {
             const key = keyOf(row);
             const picked = pickerKeys.includes(key);
             const reason = picked ? '' : incompatibleReason(pickerBase, row, pickerWarehouses);
-            return <tr key={key} className={picked ? reg.selectedRow : ''} title={reason || undefined} style={reason ? { color: '#a6b0bd', cursor: 'not-allowed' } : undefined} onClick={() => togglePick(row)}>
-              <td className={classes.center}><input type="checkbox" checked={picked} disabled={Boolean(reason)} readOnly aria-label={`${key} 선택`} /></td>
+            return <tr key={key} className={picked ? classes.pickerSelectedRow : reason ? classes.pickerDisabledRow : ''} title={reason || undefined} onClick={() => togglePick(row)}>
+              <td className={classes.center}><input className={classes.pickerCheckbox} type="checkbox" checked={picked} disabled={Boolean(reason)} onClick={(event) => event.stopPropagation()} onChange={() => togglePick(row)} aria-label={`${row.orderid}-${row.lineno} 선택`} /></td>
               {lineCells(row)}
-              <td>{row.missing?.length ? <span className={`${reg.badge} ${reg.orange}`} title={`빠진 값: ${row.missing.join(', ')}`}>확인 필요</span> : reason ? <span className={reg.badge}>함께 불가</span> : <span className={reg.badge}>대기</span>}</td>
+              <td>{reason ? <span className={reg.badge} title={reason}>함께 선택 불가</span> : row.missing?.length ? <span className={`${reg.badge} ${reg.orange}`} title={`빠진 값: ${row.missing.join(', ')}`}>확인 필요</span> : picked ? <span className={`${reg.badge} ${reg.red}`}>선택됨</span> : <span className={reg.badge}>대기</span>}</td>
             </tr>;
-          }) : <tr><td colSpan={material === 'SHEET' ? 14 : 13} className={reg.empty}>불러올 대기 품목이 없습니다.</td></tr>}</tbody>
+          }) : <tr><td colSpan={targetColumns.length} className={classes.pickerEmptyCell}><PickerEmpty title={loading ? '대기 품목을 불러오는 중입니다' : '불러올 대기 품목이 없습니다'} description={materialQueue.length ? '검색 조건을 변경하거나 이미 담은 품목을 확인해 주세요.' : '주문서 관리에서 품목을 가공 최적화로 보내 주세요.'} /></td></tr>}</tbody>
         </table>
+        </div>
       </div>
-      <Group justify="space-between">
-        <Text size="xs" c="dimmed">총 {pickerRows.length}건 · {pickerKeys.length}개 선택</Text>
-        <Group gap="xs">
-          <Pagination size="sm" color="red" total={Math.max(1, Math.ceil(pickerRows.length / PICKER_PAGE_SIZE))} value={pickerPage} onChange={setPickerPage} withEdges />
-          <Button size="xs" variant="default" className={reg.secondaryActionButton} onClick={() => setPickerOpen(false)}>취소</Button>
-          <Button size="xs" variant="filled" color="red" className={reg.detailActionButton} onClick={applyPicker} disabled={!pickerKeys.length}>선택 반영</Button>
-        </Group>
+    </div>
+    <div className={classes.pickerFooter}>
+      <div className={classes.pickerSelection} aria-live="polite"><IconListCheck size={17} /><span><strong>{pickerKeys.length}개</strong> 선택</span>
+        {pickerKeys.length > 0 && <button type="button" className={classes.linkButton} onClick={() => setPickerKeys([])}>선택 해제</button>}
+      </div>
+      <Pagination className={classes.pickerPagination} size="sm" color="red" total={Math.max(1, Math.ceil(pickerRows.length / PICKER_PAGE_SIZE))} value={pickerPage} onChange={setPickerPage} siblings={1} />
+      <Group gap={8} className={classes.pickerFooterActions}>
+        <Button size="sm" variant="default" onClick={() => setPickerOpen(false)}>취소</Button>
+        <Button size="sm" color="red" leftSection={<IconCheck size={15} />} onClick={applyPicker} disabled={!pickerKeys.length}>선택 반영{pickerKeys.length ? ` (${pickerKeys.length})` : ''}</Button>
       </Group>
-    </Stack>
+    </div>
   </Modal>;
 
   // 계획 불러오기 창
-  const planPickerModal = <Modal opened={planPickerOpen} onClose={() => setPlanPickerOpen(false)} centered size="80%" title={<Text fw={700}>계획 불러오기 · {material === 'COIL' ? '코일·스켈프' : '시트·판재'}</Text>}>
-    <div className={reg.tableScroll} style={{ maxHeight: '60vh' }}>
-      <table className={`${reg.ordersTable} ${classes.table}`}>
-        <colgroup><col style={{ width: 140 }} /><col style={{ width: 84 }} /><col style={{ width: 90 }} /><col style={{ width: 170 }} /><col style={{ width: 80 }} /><col style={{ width: 70 }} /><col /><col style={{ width: 90 }} /></colgroup>
-        <thead><tr><th>계획번호</th><th>상태</th><th>원자재</th><th>규격</th><th>조합</th><th className={classes.num}>수율</th><th>주문 품목</th><th>등록자</th></tr></thead>
-        <tbody>{materialPlans.length ? materialPlans.map((plan) => <tr key={plan.planno} className={activePlan?.planno === plan.planno ? reg.selectedRow : ''} onClick={() => void openPlan(plan.planno)}>
-          <td>{plan.planno}</td><td><span className={`${reg.badge} ${reg[PLAN_STATUS[plan.status]?.tone] || ''}`}>{PLAN_STATUS[plan.status]?.label || plan.status}</span></td>
-          <td>{plan.rawkind === 'STOCK' ? '현재고' : '신규'}</td><td>{plan.itemname} {fmt(plan.thickness, 3)} × {fmt(plan.width)}{plan.length ? ` × ${fmt(plan.length)}` : ''}</td>
-          <td>{plan.combo === 'MIXED' ? '혼합' : '단독'}</td><td className={classes.num}>{fmt(plan.yieldrate, 2)}%</td><td title={plan.lines || ''}>{plan.lines}</td><td>{plan.created_by}</td>
-        </tr>) : <tr><td colSpan={8} className={reg.empty}>임시저장·확정된 계획이 없습니다.</td></tr>}</tbody>
-      </table>
+  const planPickerModal = <Modal opened={planPickerOpen} onClose={() => setPlanPickerOpen(false)} centered size="min(1440px, calc(100vw - 32px))" xOffset={16} yOffset={16}
+    classNames={PICKER_MODAL_CLASSES} closeButtonProps={{ 'aria-label': '계획 불러오기 닫기' }}
+    title={<PickerTitle title="계획 불러오기" description="임시저장한 계획을 이어서 작업하거나 확정된 계획을 확인합니다." material={material} icon={<IconFolderOpen size={22} stroke={1.7} />} />}>
+    <div className={classes.pickerWorkspace}>
+      <div className={`${classes.pickerFilters} ${classes.planPickerFilters}`}>
+        <TextInput size="sm" label="계획 검색" placeholder="계획번호, 품명, 주문 품목, 등록자 검색" leftSection={<IconSearch size={14} />} value={planPickerFilter.query} onChange={(event) => { const { value } = event.currentTarget; setPlanPickerFilter((current) => ({ ...current, query: value })); }} />
+        <Select size="sm" label="계획 상태" value={planPickerFilter.status} allowDeselect={false} onChange={(value) => setPlanPickerFilter((current) => ({ ...current, status: value }))}
+          data={[{ value: 'ALL', label: '전체 상태' }, { value: 'DRAFT', label: '임시저장' }, { value: 'CONFIRMED', label: '계획확정' }]} />
+        <Button size="sm" variant="default" onClick={() => setPlanPickerFilter({ query: '', status: 'ALL' })}>초기화</Button>
+      </div>
+      <div className={classes.pickerGuide}><IconInfoCircle size={16} aria-hidden="true" /><p>임시저장 계획은 조건을 수정할 수 있습니다. 확정 계획은 저장된 가공 결과를 조회합니다.</p></div>
+      <div className={classes.pickerList}>
+        <div className={classes.pickerListHeader}><div><strong>저장된 계획</strong><span className={classes.pickerCount}>{fmt(filteredPlans.length, 0)}건</span></div><span>계획을 누르면 바로 불러옵니다</span></div>
+        <div className={`${reg.tableScroll} ${classes.pickerTableScroll}`}>
+          <table className={`${reg.ordersTable} ${classes.table} ${classes.pickerTable} ${classes.planPickerTable}`} aria-label="저장된 가공 계획">
+            <colgroup><col style={{ width: 164 }} /><col style={{ width: 94 }} /><col style={{ width: 84 }} /><col style={{ width: 210 }} /><col style={{ width: 70 }} /><col style={{ width: 84 }} /><col /><col style={{ width: 112 }} /><col style={{ width: 90 }} /></colgroup>
+            <thead><tr><th>계획번호</th><th>상태</th><th>원자재</th><th>품명 / 규격 (mm)</th><th>조합</th><th className={classes.num}>수율</th><th>주문 품목</th><th>등록자</th><th className={classes.center}>불러오기</th></tr></thead>
+            <tbody>{filteredPlans.length ? filteredPlans.map((plan) => <tr key={plan.planno} className={activePlan?.planno === plan.planno ? classes.pickerSelectedRow : ''} onClick={() => void openPlan(plan.planno)}>
+              <td className={classes.planNumber}>{plan.planno}</td><td><span className={`${reg.badge} ${reg[PLAN_STATUS[plan.status]?.tone] || ''}`}>{PLAN_STATUS[plan.status]?.label || plan.status}</span></td>
+              <td>{plan.rawkind === 'STOCK' ? '현재고' : '신규 매입'}</td>
+              <td><div className={classes.planSpec}><strong title={plan.itemname}>{plan.itemname}</strong><span>{fmt(plan.thickness, 3)} × {fmt(plan.width)}{plan.length ? ` × ${fmt(plan.length)}` : ' × C'}</span></div></td>
+              <td>{plan.combo === 'MIXED' ? '혼합' : '단독'}</td><td className={classes.num}><b>{fmt(plan.yieldrate, 2)}%</b></td><td title={plan.lines || ''}>{plan.lines || '–'}</td><td title={plan.created_by || ''}>{plan.created_by || '–'}</td>
+              <td className={classes.center}><Button size="compact-xs" variant="subtle" color="red" aria-label={`${plan.planno} 불러오기`} onClick={(event) => { event.stopPropagation(); void openPlan(plan.planno); }}>불러오기</Button></td>
+            </tr>) : <tr><td colSpan={9} className={classes.pickerEmptyCell}><PickerEmpty title={loading ? '계획을 불러오는 중입니다' : materialPlans.length ? '검색 조건에 맞는 계획이 없습니다' : '저장된 계획이 없습니다'} description={materialPlans.length ? '검색어 또는 계획 상태를 변경해 주세요.' : '가공 조합을 선택해 임시저장하거나 계획을 확정해 주세요.'} /></td></tr>}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div className={classes.pickerFooter}>
+      <div className={classes.pickerSelection}><IconFolderOpen size={17} /><span>전체 <strong>{fmt(materialPlans.length, 0)}건</strong> 중 {fmt(filteredPlans.length, 0)}건 표시</span></div>
+      <Group className={classes.pickerFooterActions}><Button size="sm" variant="default" onClick={() => setPlanPickerOpen(false)}>닫기</Button></Group>
     </div>
   </Modal>;
 
@@ -569,9 +629,9 @@ export default function AIOrderOptimization() {
   return <Box className={`${sharedClasses.pageShell} ${reg.page}`}>
     <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
       <Group className={inboundClasses.breadcrumbTrail} gap={7}>
-        <Text component="span" className={inboundClasses.breadcrumbParent}>가공관리</Text>
+        <Text component="span" className={inboundClasses.breadcrumbParent}>AI 가공솔루션</Text>
         <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
-        <Text component="span" className={inboundClasses.breadcrumbCurrent}>가공 최적화</Text>
+        <Text component="span" className={inboundClasses.breadcrumbCurrent}>가공최적화</Text>
       </Group>
       {!filterOpen && <Button className={inboundClasses.receiptFilterToggle} variant="subtle" size="xs"
         leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}

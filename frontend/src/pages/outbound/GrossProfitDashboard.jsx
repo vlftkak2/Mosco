@@ -368,9 +368,9 @@ export default function GrossProfitDashboard() {
     <Box className={`${sharedClasses.pageShell} ${classes.page} ${pageClasses.page}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>출고관리</Text>
+          <Text component="span" className={classes.breadcrumbParent}>매출관리</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-          <Text component="span" className={classes.breadcrumbCurrent}>매출이익 현황판</Text>
+          <Text component="span" className={classes.breadcrumbCurrent}>매출이익 현황</Text>
         </Group>
       </Box>
 
