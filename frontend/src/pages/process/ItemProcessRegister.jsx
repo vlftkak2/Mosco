@@ -8,9 +8,10 @@ import {
   Paper, Popover, Select, Stack, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { IconBox, IconPlus, IconSearch, IconTool, IconTrash, IconX } from '@tabler/icons-react';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
 import ErpDateInput from '../../components/common/ErpDateInput';
+import PickerModal, { PickerEmpty, SelectPickerModal, pickerClasses } from '../../components/common/PickerModal';
 import ErpRibbon from '../../components/common/ErpRibbon';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
@@ -224,6 +225,11 @@ const orderProducts = (products) => {
   return ordered;
 };
 
+const PROCESS_METHOD_PICKER_COLUMNS = [
+  { key: 'processid', label: '공정코드', width: 140 },
+  { key: 'processname', label: '가공방법', width: 260 },
+];
+
 function ProcessMethodCell({ product, options, disabled, onSelect }) {
   const selectedOption = options.find((option) => option.processid === product.processid);
   const selectedName = selectedOption?.processname || product.processcodename || '';
@@ -298,21 +304,12 @@ function ProcessMethodCell({ product, options, disabled, onSelect }) {
           onMouseDown={(event) => event.preventDefault()} onClick={() => choose(option)}><span>{option.processname}</span></button>)}
       </Popover.Dropdown>
     </Popover>
-    {pickerMounted && <Modal opened={pickerOpened} onClose={() => setPickerOpened(false)} centered size={620}
-      title={<Group gap={8}><IconSearch size={17} /><Text fw={600}>가공방법 선택</Text></Group>}>
-      <Stack gap="sm">
-        <TextInput value={query} onChange={(event) => { setQuery(event.currentTarget.value); setPage(1); }}
-          leftSection={<IconSearch size={15} />} autoFocus />
-        <Box className={classes.processOptionViewport}><Table withTableBorder withColumnBorders highlightOnHover>
-          <Table.Thead><Table.Tr><Table.Th>공정코드</Table.Th><Table.Th>가공방법</Table.Th></Table.Tr></Table.Thead>
-          <Table.Tbody>{pageItems.map((option) => <Table.Tr key={option.processid} className={classes.processOptionRow} onClick={() => choose(option)}>
-            <Table.Td>{option.processid}</Table.Td><Table.Td>{option.processname}</Table.Td></Table.Tr>)}
-            {!pageItems.length && <Table.Tr><Table.Td colSpan={2} ta="center" c="dimmed" py="xl">선택 가능한 가공방법이 없습니다.</Table.Td></Table.Tr>}
-          </Table.Tbody></Table></Box>
-        <Group justify="space-between"><Text size="xs" c="dimmed">총 {pickerMatches.length.toLocaleString()}개</Text>
-          <Pagination size="sm" total={Math.max(1, Math.ceil(pickerMatches.length / pageSize))} value={page} onChange={setPage} withEdges color="red" /></Group>
-      </Stack>
-    </Modal>}
+    {pickerMounted && <SelectPickerModal opened={pickerOpened} onClose={() => setPickerOpened(false)} size="sm"
+      title="가공방법 선택" description="가공 결과에 적용할 가공방법을 고릅니다." icon={<IconTool size={21} stroke={1.8} />}
+      searchValue={query} onSearchChange={(value) => { setQuery(value); setPage(1); }} searchPlaceholder="공정코드 또는 가공방법 검색"
+      listTitle="가공방법" columns={PROCESS_METHOD_PICKER_COLUMNS} rows={pageItems} rowKey={(option) => option.processid} onSelect={choose}
+      total={pickerMatches.length} page={page} pageCount={Math.max(1, Math.ceil(pickerMatches.length / pageSize))} onPageChange={setPage}
+      emptyTitle="선택 가능한 가공방법이 없습니다" />}
   </>;
 }
 
@@ -377,28 +374,82 @@ function StockPicker({ opened, onClose, onApply, existingKeys, existingWarehouse
     if (onApply(rows) !== false) onClose();
   };
 
-  return <Modal opened={opened} onClose={onClose} title={<Text fw={600}>가공 원소재 선택</Text>} size="95%" centered classNames={{ content: classes.modalContent, body: classes.modalBody }} styles={{ content: { height: '96vh', minHeight: 'min(96vh, 360px)', maxHeight: 'calc(100vh - 12px)', display: 'flex', flexDirection: 'column' }, body: { display: 'flex', minHeight: 0, flex: '1 1 auto', flexDirection: 'column', overflow: 'hidden' } }}>
-    <Stack className={classes.pickerLayout} gap="sm" pt={6}>
-      <Group className={classes.pickerFilters} align="end" gap="xs" wrap="wrap"><TextInput label="창고" placeholder="창고코드 또는 창고명" w={180} value={warehouse} onChange={(e) => setWarehouse(e.currentTarget.value)} onKeyDown={(e) => e.key === 'Enter' && load(1)} />
-        <TextInput label="품목" placeholder="품목코드·품명·제품번호" w={220} value={query} onChange={(e) => setQuery(e.currentTarget.value)} onKeyDown={(e) => e.key === 'Enter' && load(1)} />
-        <TextInput label="두께" type="number" min="0" step="0.001" w={100} value={thickness} onChange={(e) => setThickness(e.currentTarget.value)} onKeyDown={(e) => e.key === 'Enter' && load(1)} />
-        <TextInput label="폭" type="number" min="0" step="0.001" w={100} value={width} onChange={(e) => setWidth(e.currentTarget.value)} onKeyDown={(e) => e.key === 'Enter' && load(1)} />
-        <TextInput label="길이" type="number" min="0" step="0.001" w={100} value={length} onChange={(e) => setLength(e.currentTarget.value)} onKeyDown={(e) => e.key === 'Enter' && load(1)} />
-        <Button color="red" leftSection={<IconSearch size={15} />} onClick={() => load(1)}>조회</Button></Group>
-      <Box className={classes.pickerViewport}>{loading && <Loader className={classes.loader} color="red" size="sm" />}
-        <Table stickyHeader withTableBorder withColumnBorders className={classes.pickerTable}><Table.Thead><Table.Tr>
-          <Table.Th /><Table.Th>구분</Table.Th><Table.Th>입고일자</Table.Th><Table.Th>창고</Table.Th><Table.Th>품명</Table.Th><Table.Th>제품명</Table.Th><Table.Th>강종</Table.Th><Table.Th>두께</Table.Th><Table.Th>폭</Table.Th><Table.Th>길이</Table.Th><Table.Th>현재수량</Table.Th><Table.Th>현재중량</Table.Th>
-        </Table.Tr></Table.Thead><Table.Tbody>{items.map((row) => {
-          const key = sourceKey(row); const disabled = existingKeys.has(key) || Boolean(row.linked_orders) || Boolean((selectionWarehouseCode || existingWarehouseCode) && row.warehousecode !== (selectionWarehouseCode || existingWarehouseCode));
-          return <Table.Tr key={key}><Table.Td><input className={classes.pickerCheckbox} type="checkbox" checked={Boolean(selected[key])} disabled={disabled} onChange={(e) => toggle(row, e.currentTarget.checked)} /></Table.Td>
-            <Table.Td>{row.sourcetype === 'OPENING' ? '기초' : row.sourcetype === 'INBOUND' ? '입고' : '가공'}<LinkedOrderBadge orders={row.linked_orders} /></Table.Td><Table.Td>{String(row.receiptdate || '').slice(0, 10)}</Table.Td><Table.Td>{row.warehousecodename}</Table.Td><Table.Td>{row.itemname}</Table.Td><Table.Td>{row.productname}</Table.Td><Table.Td>{row.materialname || row.myrtle}</Table.Td><Table.Td>{numberText(row.thickness)}</Table.Td><Table.Td>{numberText(row.width)}</Table.Td><Table.Td>{numberText(row.length)}</Table.Td><Table.Td ta="right">{numberText(row.qty)}</Table.Td><Table.Td ta="right">{numberText(row.weight)}</Table.Td>
-            </Table.Tr>;
-        })}{!items.length && <Table.Tr><Table.Td colSpan={12} className={classes.empty}>가공 가능한 현재고가 없습니다.</Table.Td></Table.Tr>}</Table.Tbody></Table>
-      </Box>
-      <Group className={classes.pickerFooter} justify="space-between"><Group gap="sm"><Text size="xs" c="dimmed">총 {total.toLocaleString()}건</Text><Text size="xs" c="dimmed">현재 페이지 선택 {items.filter((row) => selected[sourceKey(row)]).length}건</Text></Group><Group><Pagination size="sm" color="red" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={load} /><Button variant="default" onClick={onClose}>취소</Button><Button color="red" disabled={!items.some((row) => selected[sourceKey(row)])} onClick={apply}>선택 반영</Button></Group></Group>
-    </Stack>
-  </Modal>;
+  const baseWarehouseCode = selectionWarehouseCode || existingWarehouseCode;
+  const baseWarehouseName = baseWarehouseCode ? (items.find((row) => row.warehousecode === baseWarehouseCode)?.warehousecodename || baseWarehouseCode) : '';
+  const pickedCount = items.filter((row) => selected[sourceKey(row)]).length;
+  const searchOnEnter = (event) => { if (event.key === 'Enter') void load(1); };
+  const resetFilters = () => { setQuery(''); setWarehouse(''); setThickness(''); setWidth(''); setLength(''); };
+
+  return <PickerModal opened={opened} onClose={onClose}
+    title="가공 원소재 선택" description="가공에 투입할 현재고를 선택합니다. 같은 창고의 재고만 함께 담을 수 있습니다." icon={<IconBox size={22} stroke={1.7} />}
+    filters={<>
+      <TextInput size="sm" label="창고" placeholder="창고코드 또는 창고명" value={warehouse} onChange={(e) => setWarehouse(e.currentTarget.value)} onKeyDown={searchOnEnter} />
+      <TextInput size="sm" label="품목" placeholder="품목코드·품명·제품번호" leftSection={<IconSearch size={14} />} value={query} onChange={(e) => setQuery(e.currentTarget.value)} onKeyDown={searchOnEnter} />
+      <TextInput size="sm" label="두께" type="number" min="0" step="0.001" placeholder="예: 1.2" style={{ width: 100 }} value={thickness} onChange={(e) => setThickness(e.currentTarget.value)} onKeyDown={searchOnEnter} />
+      <TextInput size="sm" label="폭" type="number" min="0" step="0.001" style={{ width: 100 }} value={width} onChange={(e) => setWidth(e.currentTarget.value)} onKeyDown={searchOnEnter} />
+      <TextInput size="sm" label="길이" type="number" min="0" step="0.001" style={{ width: 100 }} value={length} onChange={(e) => setLength(e.currentTarget.value)} onKeyDown={searchOnEnter} />
+      <Button size="sm" color="red" leftSection={<IconSearch size={15} />} onClick={() => load(1)} loading={loading}>조회</Button>
+      <Button size="sm" variant="default" onClick={resetFilters}>초기화</Button>
+    </>}
+    guide={<>
+      <p>투입할 재고를 체크한 뒤 [선택 반영]을 누르세요. 처음 선택한 재고의 창고가 기준이 되며, 다른 창고의 재고는 함께 선택할 수 없습니다.</p>
+      {/* 선택 전에도 같은 줄을 그려 두어 첫 선택 때 안내 상자 높이가 바뀌지 않게 한다 */}
+      <div className={pickerClasses.criteria}>
+        <span className={baseWarehouseCode ? undefined : pickerClasses.criteriaEmpty}><b>기준 창고</b>{baseWarehouseName || '재고를 선택하면 표시됩니다'}</span>
+      </div>
+    </>}
+    listTitle="가공 가능 재고" count={total} loading={loading}
+    selectedCount={pickedCount} selectionLabel="선택 (현재 페이지)" onClearSelection={() => { setSelected({}); setSelectionWarehouseCode(existingWarehouseCode || ''); }}
+    pagination={<Pagination size="sm" color="red" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={load} siblings={1} disabled={loading || !total} />}
+    onApply={apply} applyDisabled={!pickedCount || loading}>
+    <table className={pickerClasses.table} style={{ width: `max(100%, ${PICKER_TABLE_WIDTH}px)`, minWidth: PICKER_TABLE_WIDTH }} aria-label="가공 가능 재고">
+      <colgroup>{PICKER_COLUMNS.map((column) => <col key={column.key} style={{ width: column.width }} />)}</colgroup>
+      <thead><tr>{PICKER_COLUMNS.map((column) => <th key={column.key} className={column.align ? pickerClasses[column.align] : undefined}>{column.label}</th>)}</tr></thead>
+      <tbody>{items.map((row) => {
+        const key = sourceKey(row);
+        const reason = existingKeys.has(key) ? '이미 가공 원소재로 담긴 재고입니다.'
+          : row.linked_orders ? '주문서에 연결된 재고입니다.'
+            : baseWarehouseCode && row.warehousecode !== baseWarehouseCode ? '기준 창고와 다른 창고의 재고는 함께 선택할 수 없습니다.' : '';
+        const picked = Boolean(selected[key]);
+        return <tr key={key} className={picked ? pickerClasses.selectedRow : reason ? pickerClasses.disabledRow : ''} title={reason || undefined}
+          onClick={() => { if (!reason || picked) toggle(row, !picked); }}>
+          <td className={pickerClasses.center}><input className={pickerClasses.checkbox} type="checkbox" checked={picked} disabled={Boolean(reason) && !picked} onClick={(e) => e.stopPropagation()} onChange={(e) => toggle(row, e.currentTarget.checked)} aria-label={`${row.itemname} 재고 선택`} /></td>
+          <td>{row.sourcetype === 'OPENING' ? '기초' : row.sourcetype === 'INBOUND' ? '입고' : '가공'}<LinkedOrderBadge orders={row.linked_orders} /></td>
+          <td>{String(row.receiptdate || '').slice(0, 10)}</td>
+          <td>{row.warehousecodename}</td>
+          <td title={row.itemname || ''}>{row.itemname}</td>
+          <td title={row.productname || ''}>{row.productname}</td>
+          <td>{row.materialname || row.myrtle}</td>
+          <td className={pickerClasses.right}>{numberText(row.thickness)}</td>
+          <td className={pickerClasses.right}>{numberText(row.width)}</td>
+          <td className={pickerClasses.right}>{numberText(row.length)}</td>
+          <td className={pickerClasses.right}>{numberText(row.qty)}</td>
+          <td className={pickerClasses.right}>{numberText(row.weight)}</td>
+        </tr>;
+      })}
+      {!items.length && <tr><td colSpan={PICKER_COLUMNS.length} className={pickerClasses.emptyCell}>
+        <PickerEmpty title={loading ? '현재고를 조회하고 있습니다' : '가공 가능한 현재고가 없습니다'} description={loading ? '' : '검색 조건을 바꿔 다시 조회해 주세요.'} />
+      </td></tr>}
+      </tbody>
+    </table>
+  </PickerModal>;
 }
+
+const PICKER_COLUMNS = [
+  { key: 'select', label: '선택', width: 52, align: 'center' },
+  { key: 'sourcetype', label: '구분', width: 90 },
+  { key: 'receiptdate', label: '입고일자', width: 100 },
+  { key: 'warehouse', label: '창고', width: 130 },
+  { key: 'itemname', label: '품명', width: 160 },
+  { key: 'productname', label: '제품명', width: 200 },
+  { key: 'material', label: '강종', width: 100 },
+  { key: 'thickness', label: '두께', width: 80, align: 'right' },
+  { key: 'width', label: '폭', width: 80, align: 'right' },
+  { key: 'length', label: '길이', width: 80, align: 'right' },
+  { key: 'qty', label: '현재수량', width: 100, align: 'right' },
+  { key: 'weight', label: '현재중량', width: 120, align: 'right' },
+];
+const PICKER_TABLE_WIDTH = PICKER_COLUMNS.reduce((sum, column) => sum + column.width, 0);
 
 
 export default function ItemProcessRegister() {
@@ -633,8 +684,10 @@ export default function ItemProcessRegister() {
     }
   }, [allocateProductno, readOnly, saving, selectedDetailIds, sources]);
   const handleAdd = useCallback(() => {
+    // 수정할 수 없는 저장 전표가 열려 있으면 (매입·매출·재고이동 등록과 같이) 그 전표에서 나와 새 전표를 시작한다.
     if (readOnly) {
-      notifications.show({ title: '수정할 수 없는 전표', message: '가공품이 출고되었거나 후속 가공에 사용되어 수정할 수 없습니다.', color: 'orange' });
+      reset();
+      setStockOpen(true);
       return;
     }
     if (selectedDetailIds.length) {
@@ -672,7 +725,7 @@ export default function ItemProcessRegister() {
       return;
     }
     setStockOpen(true);
-  }, [readOnly, selectedDetailIds, sources, addProduct]);
+  }, [readOnly, reset, selectedDetailIds, sources, addProduct]);
   const updateProduct = (sourceId, productId, field, value) => setSources((current) => current.map((source) => source.id === sourceId ? { ...source, products: source.products.map((product) => product.id === productId ? { ...product, [field]: value } : product) } : source));
   const updateProductWeight = (sourceId, productId, value) => {
     const source = sources.find((item) => item.id === sourceId);
@@ -1050,12 +1103,12 @@ export default function ItemProcessRegister() {
         <Box className={outboundClasses.outboundStockLookup}>
           <Text fw={700} size="sm">재고 조회</Text>
           <Text size="xs" c="dimmed">가공할 원소재를 선택합니다.</Text>
-          <Button fullWidth color="red" leftSection={<IconSearch size={15} />} onClick={() => setStockOpen(true)} disabled={readOnly}>
+          <Button fullWidth color="red" leftSection={<IconSearch size={15} />} onClick={() => { if (readOnly) reset(); setStockOpen(true); }}>
             현재고 조회
           </Button>
         </Box>
       </Paper>
-  ), [filters, loadDocuments, readOnly]);
+  ), [filters, loadDocuments, readOnly, reset]);
 
   return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
     <ErpBreadcrumb parent="재고가공" current="재고가공 등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />

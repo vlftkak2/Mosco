@@ -2,14 +2,14 @@ import { createContext, memo, useCallback, useContext, useDeferredValue, useEffe
 import axios from 'axios';
 import { usePageActivation } from '../../components/common/usePageReactivated';
 import ErpDateInput from '../../components/common/ErpDateInput';
+import { SelectPickerModal } from '../../components/common/PickerModal';
 import {
-  ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper, Popover, Select,
-  ScrollArea, Stack, Table, Text, TextInput, Tooltip,
+  ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper, Popover, Select, Stack, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus,
-  IconFilter, IconSearch, IconTrash, IconX,
+  IconBox, IconBuildingStore, IconFilter, IconListDetails, IconSearch, IconTrash, IconX,
 } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
 import XLSX from 'xlsx-js-style';
@@ -253,12 +253,6 @@ const formatNumericInput = (value) => {
   return decimalParts.length ? `${groupedInteger}.${decimalParts.join('')}` : groupedInteger;
 };
 
-const PickerModalTitle = ({ title }) => (
-  <Group gap={9} wrap="nowrap">
-    <Box className={classes.receiptFinderTitleIcon}><IconSearch size={17} /></Box>
-    <Text className={classes.receiptFinderModalTitle} fw={750}>{title}</Text>
-  </Group>
-);
 const formatExcelDateTime = (value) => {
   if (!value) return '';
   const date = new Date(value);
@@ -273,6 +267,21 @@ const formatExcelDateTime = (value) => {
 };
 
 const isReceiptConfirmed = (value) => ['Y', 'YES', '확정'].includes(String(value ?? '').trim().toUpperCase());
+const CUSTOMER_PICKER_COLUMNS = [
+  { key: 'customercode', label: '매입처코드', width: 130 },
+  { key: 'customername', label: '매입처명', width: 260 },
+  { key: 'ceoname', label: '대표자', width: 140 },
+  { key: 'businessno', label: '사업자번호', width: 150 },
+];
+const ITEM_PICKER_COLUMNS = [
+  { key: 'itemcode', label: '품목코드', width: 150 },
+  { key: 'itemname', label: '품목명', width: 260 },
+  { key: 'itemtype', label: '형태구분', width: 140, render: (item) => item.itemtypecodenm || item.itemtypecode || '' },
+];
+const CODE_PICKER_COLUMNS = [
+  { key: 'code', label: '코드', width: 140 },
+  { key: 'name', label: '코드명', width: 260 },
+];
 const CustomerPickerModal = memo(function CustomerPickerModal({ opened, onClose, onSelect }) {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -314,34 +323,12 @@ const CustomerPickerModal = memo(function CustomerPickerModal({ opened, onClose,
   const changePage = useCallback((nextPage) => { void load(nextPage, search); }, [load, search]);
   const invalidatePending = useCallback(() => { requestIdRef.current += 1; onClose(); }, [onClose]);
 
-  return <Modal opened={opened} onClose={invalidatePending} title={<PickerModalTitle title="매입처 선택" />} classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader, title: classes.receiptFinderModalTitle, close: classes.receiptFinderModalClose }} centered size={900}>
-    <Stack gap="sm" pt={10}>
-      <Group gap={7} wrap="nowrap">
-        <TextInput className={classes.customerSearchInput} placeholder="매입처코드 또는 매입처명 검색" value={searchInput}
-          onChange={(event) => setSearchInput(event.currentTarget.value)}
-          onKeyDown={(event) => { if (event.key === 'Enter') searchCustomers(); }}
-          leftSection={<IconSearch size={15} />} size="sm" autoFocus />
-        <Button color="red" size="sm" leftSection={<IconSearch size={15} />} onClick={searchCustomers}>조회</Button>
-      </Group>
-      <Box className={classes.pickerResults}>
-        {loading && <Loader className={classes.pickerLoader} size="xs" color="gray" aria-label="조회 중" />}
-        <ScrollArea h={420} type="auto" scrollbarSize={6}>
-          <Table className={`${codeClasses.codeTable} ${classes.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
-            <Table.Thead><Table.Tr><Table.Th className={classes.customerCodeColumn}>매입처코드</Table.Th><Table.Th className={classes.customerNameColumn}>매입처명</Table.Th><Table.Th className={classes.customerRepresentativeColumn}>대표자</Table.Th><Table.Th className={classes.customerBusinessColumn}>사업자번호</Table.Th></Table.Tr></Table.Thead>
-            <Table.Tbody>
-              {customers.map((customer) => (
-                <Table.Tr key={customer.customercode} className={classes.customerResultRow} onClick={() => onSelect(customer)}>
-                  <Table.Td>{customer.customercode}</Table.Td><Table.Td>{customer.customername}</Table.Td><Table.Td>{customer.ceoname || ''}</Table.Td><Table.Td>{customer.businessno || ''}</Table.Td>
-                </Table.Tr>
-              ))}
-              {!customers.length && <Table.Tr><Table.Td colSpan={4} className={classes.customerEmpty}>{loading ? '조회 중입니다.' : '조회된 매입처가 없습니다.'}</Table.Td></Table.Tr>}
-            </Table.Tbody>
-          </Table>
-        </ScrollArea>
-      </Box>
-      <Group justify="space-between"><Text size="xs" c="dimmed">총 {total.toLocaleString()}개 매입처</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / 20))} value={page} onChange={changePage} withEdges color="red" disabled={loading} /></Group>
-    </Stack>
-  </Modal>;
+  return <SelectPickerModal opened={opened} onClose={invalidatePending} size="lg"
+    title="매입처 선택" description="입고 전표에 넣을 매입처를 고릅니다." icon={<IconBuildingStore size={21} stroke={1.8} />}
+    searchValue={searchInput} onSearchChange={setSearchInput} onSearch={searchCustomers} searchPlaceholder="매입처코드 또는 매입처명 검색"
+    listTitle="매입처" columns={CUSTOMER_PICKER_COLUMNS} rows={customers} rowKey={(customer) => customer.customercode} onSelect={onSelect}
+    loading={loading} total={total} page={page} pageCount={Math.max(1, Math.ceil(total / 20))} onPageChange={changePage}
+    emptyTitle="조회된 매입처가 없습니다" emptyDescription="매입처코드나 이름을 바꿔 다시 조회해 주세요." />;
 });
 
 const ItemPickerModal = memo(function ItemPickerModal({ opened, onClose, onSelect }) {
@@ -382,35 +369,12 @@ const ItemPickerModal = memo(function ItemPickerModal({ opened, onClose, onSelec
   const close = () => { requestIdRef.current += 1; onClose(); };
   const search = () => { void loadItems(1, searchInput.trim()); };
 
-  return <Modal opened={opened} onClose={close} title={<PickerModalTitle title="품목 선택" />}
-    classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader, title: classes.receiptFinderModalTitle, close: classes.receiptFinderModalClose }}
-    centered size={700}>
-    <Stack gap="sm" pt={10}>
-      <Group gap={7} wrap="nowrap">
-        <TextInput className={classes.customerSearchInput} placeholder="품목코드, 품목명 또는 형태구분 검색"
-          value={searchInput} onChange={(event) => setSearchInput(event.currentTarget.value)}
-          onKeyDown={(event) => { if (event.key === 'Enter') search(); }} />
-        <Button color="red" size="sm" leftSection={<IconSearch size={15} />} onClick={search} loading={loading}>조회</Button>
-      </Group>
-      <Box className={classes.pickerResults}>
-        {loading && <Loader className={classes.pickerLoader} size="xs" color="gray" aria-label="조회 중" />}
-        <ScrollArea h={260} type="auto" scrollbarSize={6}>
-          <Table className={`${codeClasses.codeTable} ${classes.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
-            <Table.Thead><Table.Tr><Table.Th>품목코드</Table.Th><Table.Th>품목명</Table.Th><Table.Th>형태구분</Table.Th></Table.Tr></Table.Thead>
-            <Table.Tbody>
-              {items.map((item) => <Table.Tr key={item.itemcode} className={classes.customerResultRow} onClick={() => onSelect(item)}>
-                <Table.Td>{item.itemcode}</Table.Td><Table.Td>{item.itemname}</Table.Td><Table.Td>{item.itemtypecodenm || item.itemtypecode || ''}</Table.Td>
-              </Table.Tr>)}
-              {!items.length && <Table.Tr><Table.Td colSpan={3} className={classes.customerEmpty}>{loading ? '조회 중입니다.' : '조회된 품목이 없습니다.'}</Table.Td></Table.Tr>}
-            </Table.Tbody>
-          </Table>
-        </ScrollArea>
-      </Box>
-      <Group justify="space-between"><Text size="xs" c="dimmed">총 {total.toLocaleString()}개 품목</Text>
-        <Pagination size="sm" total={Math.max(1, Math.ceil(total / 20))} value={page} onChange={(nextPage) => { void loadItems(nextPage, searchInput.trim()); }} withEdges color="red" disabled={loading} />
-      </Group>
-    </Stack>
-  </Modal>;
+  return <SelectPickerModal opened={opened} onClose={close} size="md"
+    title="품목 선택" description="입고 상세에 넣을 품목을 고릅니다." icon={<IconBox size={21} stroke={1.8} />}
+    searchValue={searchInput} onSearchChange={setSearchInput} onSearch={search} searchPlaceholder="품목코드, 품목명 또는 형태구분 검색"
+    listTitle="품목" columns={ITEM_PICKER_COLUMNS} rows={items} rowKey={(item) => item.itemcode} onSelect={onSelect}
+    loading={loading} total={total} page={page} pageCount={Math.max(1, Math.ceil(total / 20))} onPageChange={(nextPage) => { void loadItems(nextPage, searchInput.trim()); }}
+    emptyTitle="조회된 품목이 없습니다" emptyDescription="품목코드나 품목명을 바꿔 다시 조회해 주세요." />;
 });
 
 const MasterOptionPickerModal = memo(function MasterOptionPickerModal({ opened, onClose, title, options, onSelect }) {
@@ -425,26 +389,12 @@ const MasterOptionPickerModal = memo(function MasterOptionPickerModal({ opened, 
   const pageCount = Math.max(1, Math.ceil(filteredOptions.length / pageSize));
   const visibleOptions = filteredOptions.slice((page - 1) * pageSize, page * pageSize);
 
-  return <Modal opened={opened} onClose={onClose} title={<PickerModalTitle title={title} />} classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader, title: classes.receiptFinderModalTitle, close: classes.receiptFinderModalClose }} centered size="md">
-    <Stack gap="sm" pt={10}>
-      <TextInput value={search} onChange={(event) => { setSearch(event.currentTarget.value); setPage(1); }} placeholder={'코드 또는 코드명 검색'} leftSection={<IconSearch size={15} />} autoFocus />
-      <ScrollArea h={360} type="auto" scrollbarSize={6}>
-        <Table className={`${codeClasses.codeTable} ${classes.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
-          <Table.Thead><Table.Tr><Table.Th>{'코드'}</Table.Th><Table.Th>{'코드명'}</Table.Th></Table.Tr></Table.Thead>
-          <Table.Tbody>
-            {visibleOptions.map((option) => <Table.Tr key={option.code} className={classes.customerResultRow} onClick={() => onSelect(option)}>
-              <Table.Td>{option.code}</Table.Td><Table.Td>{option.name}</Table.Td>
-            </Table.Tr>)}
-            {!visibleOptions.length && <Table.Tr><Table.Td colSpan={2} className={classes.customerEmpty}>{'조회된 사용중 코드가 없습니다.'}</Table.Td></Table.Tr>}
-          </Table.Tbody>
-        </Table>
-      </ScrollArea>
-      <Group justify="space-between" align="center">
-        <Text size="xs" c="dimmed">총 {filteredOptions.length.toLocaleString()}개 코드</Text>
-        <Pagination size="sm" total={pageCount} value={page} onChange={setPage} withEdges color="red" />
-      </Group>
-    </Stack>
-  </Modal>;
+  return <SelectPickerModal opened={opened} onClose={onClose} size="sm"
+    title={title} description="사용 중인 코드 중에서 고릅니다." icon={<IconListDetails size={21} stroke={1.8} />}
+    searchValue={search} onSearchChange={(value) => { setSearch(value); setPage(1); }} searchPlaceholder="코드 또는 코드명 검색"
+    listTitle="코드" columns={CODE_PICKER_COLUMNS} rows={visibleOptions} rowKey={(option) => option.code} onSelect={onSelect}
+    total={filteredOptions.length} page={page} pageCount={pageCount} onPageChange={setPage}
+    emptyTitle="조회된 사용 중 코드가 없습니다" />;
 });
 
 const resolveMasterCode = (field, value, unitOptions) => {

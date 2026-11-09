@@ -336,7 +336,7 @@ export default function User() {
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
-        <Text component="span" className={classes.breadcrumbParent}>고객사 관리</Text>
+        <Text component="span" className={classes.breadcrumbParent}>고객사정보</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
         <Text component="span" className={classes.breadcrumbCurrent}>고객사관리</Text>
       </Box>

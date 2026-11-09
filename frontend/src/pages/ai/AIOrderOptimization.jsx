@@ -551,10 +551,16 @@ export default function AIOrderOptimization() {
       <div className={classes.pickerGuide}>
         <IconInfoCircle size={16} aria-hidden="true" />
         <div><p>같은 창고·품명·두께{material === 'SHEET' ? '·폭' : ''}의 품목을 함께 담을 수 있습니다. 첫 품목이 기준이 됩니다.</p>
-          {pickerBase && <div className={classes.pickerCriteria}>
-            <span><b>기준 품목</b>{pickerBase.itemname} {fmt(pickerBase.thickness, 3)}T{material === 'SHEET' ? ` × ${fmt(pickerBase.width)}mm` : ''}</span>
-            <span><b>연결 창고</b>{pickerWarehouses.length ? queue.flatMap((row) => row.warehouses || []).find((item) => item.code === pickerWarehouses[0])?.name || pickerWarehouses[0] : '연결 재고 없음'}</span>
-          </div>}
+          {/* 선택 전에도 같은 줄을 자리표시로 그려 둔다 → 첫 선택 때 안내 상자 높이가 바뀌어 목록이 움찔하지 않게 */}
+          <div className={classes.pickerCriteria}>
+            {pickerBase ? <>
+              <span><b>기준 품목</b>{pickerBase.itemname} {fmt(pickerBase.thickness, 3)}T{material === 'SHEET' ? ` × ${fmt(pickerBase.width)}mm` : ''}</span>
+              <span><b>연결 창고</b>{pickerWarehouses.length ? queue.flatMap((row) => row.warehouses || []).find((item) => item.code === pickerWarehouses[0])?.name || pickerWarehouses[0] : '연결 재고 없음'}</span>
+            </> : <>
+              <span className={classes.pickerCriteriaEmpty}><b>기준 품목</b>품목을 선택하면 표시됩니다</span>
+              <span className={classes.pickerCriteriaEmpty}><b>연결 창고</b>-</span>
+            </>}
+          </div>
         </div>
       </div>
       <div className={classes.pickerList}>

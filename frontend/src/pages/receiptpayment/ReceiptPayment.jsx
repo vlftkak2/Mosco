@@ -6,18 +6,18 @@ import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import { INSTRUMENT_OPTIONS_BY_FIELD, INSTRUMENT_TYPE_OPTIONS, instrumentLabel } from '../../utils/instrumentCodes';
 import {
   ActionIcon, Autocomplete, Badge, Box, Button, Group, Input, Loader, Modal, NumberInput,
-  Pagination, Paper, ScrollArea, Select, Stack, Table, Text, TextInput,
+  Pagination, Paper, Select, Stack, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconChevronDown, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus, IconSearch, IconTrash, IconX,
+  IconBuildingBank, IconBuildingStore, IconChevronDown, IconCopy, IconDeviceFloppy, IconFileDollar, IconFileSpreadsheet, IconFilter, IconPlus, IconSearch, IconTrash, IconX,
 } from '@tabler/icons-react';
 import ErpDateInput from '../../components/common/ErpDateInput';
+import PickerModal, { PickerEmpty, SelectPickerModal, pickerClasses } from '../../components/common/PickerModal';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
-import outboundClasses from '../../styles/pages/OutboundRegister.module.css';
 import classes from '../../styles/pages/ReceiptPayment.module.css';
 import searchClasses from '../../styles/pages/ReceiptPaymentSearch.module.css';
 
@@ -451,6 +451,29 @@ const daysUntil = (value) => {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   return Math.round((new Date(`${String(value).slice(0, 10)}T00:00:00`) - today) / 86400000);
 };
+const HELD_COLUMNS = [
+  { key: 'select', label: '', width: 52 },
+  { key: 'maturitydate', label: '만기일', width: 100 },
+  { key: 'dday', label: 'D-day', width: 80, align: 'center' },
+  { key: 'instrumenttype', label: '종류', width: 110 },
+  { key: 'instrumentno', label: '증권번호', width: 160 },
+  { key: 'instrumentamt', label: '금액', width: 130, align: 'right' },
+  { key: 'issuercompany', label: '발행회사', width: 180 },
+  { key: 'customname', label: '받은 거래처', width: 180 },
+  { key: 'receiptdate', label: '수금일', width: 100 },
+  { key: 'receiptno', label: '수금전표', width: 150 },
+];
+const HELD_TABLE_WIDTH = HELD_COLUMNS.reduce((sum, column) => sum + column.width, 0);
+const CUSTOMER_PICKER_COLUMNS = [
+  { key: 'customercode', label: '거래처코드', width: 130 },
+  { key: 'customername', label: '거래처명', width: 260 },
+  { key: 'ceoname', label: '대표자', width: 140 },
+  { key: 'businessno', label: '사업자번호', width: 150 },
+];
+const BANK_PICKER_COLUMNS = [
+  { key: 'code', label: '은행코드', width: 140 },
+  { key: 'name', label: '은행명', width: 260 },
+];
 const HeldInstrumentPickerModal = memo(function HeldInstrumentPickerModal({ opened, onClose, excludedKeys, onApply }) {
   const [filters, setFilters] = useState({ maturity_from: '', maturity_to: '', customer: '', keyword: '', instrumenttype: '' });
   const [rows, setRows] = useState([]);
@@ -500,65 +523,50 @@ const HeldInstrumentPickerModal = memo(function HeldInstrumentPickerModal({ open
   const search = () => { void load(1, filters); };
   const close = () => { requestRef.current += 1; onClose(); };
 
-  return <Modal opened={opened} onClose={close} title={<Group gap={9} wrap="nowrap"><Box className={outboundClasses.receiptFinderTitleIcon}><IconSearch size={17} /></Box><Text className={outboundClasses.receiptFinderModalTitle} fw={750}>보유증권 불러오기</Text></Group>}
-    classNames={{ content: outboundClasses.receiptFinderModalContent, header: outboundClasses.receiptFinderModalHeader, title: outboundClasses.receiptFinderModalTitle, close: outboundClasses.receiptFinderModalClose }} centered size={1180}>
-    <Stack gap="sm" pt={10}>
-      <Text size="xs" c="dimmed">수금으로 받아 보관 중인 어음·수표·외상매출채권입니다. 선택하면 지급 상세에 추가되고, 저장하면 원래 증권은 '배서'로 바뀝니다.</Text>
-      <Group gap={7} wrap="wrap" align="end" onKeyDown={(event) => { if (event.key === 'Enter') search(); }}>
-        <Box><Text size="xs" fw={700} mb={4}>만기일</Text><Group gap={4} wrap="nowrap">
-          <ErpDateInput size="xs" w={130} value={filters.maturity_from} onChange={(event) => updateFilter('maturity_from', event.currentTarget.value)} aria-label="만기일 시작" />
-          <Text size="xs">~</Text>
-          <ErpDateInput size="xs" w={130} value={filters.maturity_to} onChange={(event) => updateFilter('maturity_to', event.currentTarget.value)} aria-label="만기일 끝" />
-        </Group></Box>
-        <Select size="xs" w={130} label="종류" data={[{ value: '', label: '전체' }, ...INSTRUMENT_TYPE_OPTIONS]} value={filters.instrumenttype} onChange={(value) => updateFilter('instrumenttype', value || '')} />
-        <TextInput size="xs" w={170} label="받은 거래처" value={filters.customer} onChange={(event) => updateFilter('customer', event.currentTarget.value)} />
-        <TextInput size="xs" w={200} label="증권번호·발행회사" value={filters.keyword} onChange={(event) => updateFilter('keyword', event.currentTarget.value)} />
-        <Button color="red" size="xs" leftSection={<IconSearch size={14} />} onClick={search}>조회</Button>
-      </Group>
-      <Box className={outboundClasses.pickerResults}>
-        {loading && <Loader className={outboundClasses.pickerLoader} size="xs" color="red" aria-label="조회 중" />}
-        <ScrollArea h={420} type="auto" scrollbarSize={6}>
-          <Table className={`${codeClasses.codeTable} ${outboundClasses.pickerTable} ${classes.heldTable}`} highlightOnHover withTableBorder withColumnBorders>
-            <Table.Thead><Table.Tr>
-              <Table.Th className={codeClasses.checkCol}><input type="checkbox" aria-label="전체 선택" checked={allVisibleSelected} disabled={!visibleRows.length} onChange={(event) => toggleAllVisible(event.currentTarget.checked)} /></Table.Th>
-              <Table.Th>만기일</Table.Th><Table.Th>D-day</Table.Th><Table.Th>종류</Table.Th><Table.Th>증권번호</Table.Th><Table.Th ta="right">금액</Table.Th>
-              <Table.Th>발행회사</Table.Th><Table.Th>받은 거래처</Table.Th><Table.Th>수금일</Table.Th><Table.Th>수금전표</Table.Th>
-            </Table.Tr></Table.Thead>
-            <Table.Tbody>
-              {visibleRows.map((row) => {
-                const key = sourceKey(row.receiptno, row.lineno);
-                const days = daysUntil(row.maturitydate);
-                return <Table.Tr key={key} className={selected[key] ? classes.detailSelectedRow : ''} onClick={() => toggle(row)} style={{ cursor: 'pointer' }}>
-                  <Table.Td className={codeClasses.checkCol} onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`${row.instrumentno || key} 선택`} checked={Boolean(selected[key])} onChange={() => toggle(row)} /></Table.Td>
-                  <Table.Td>{dateOnly(row.maturitydate)}</Table.Td>
-                  <Table.Td className={days !== null && days < 0 ? classes.heldOverdue : days !== null && days <= 7 ? classes.heldSoon : ''}>{days === null ? '' : days < 0 ? `D+${-days}` : days === 0 ? 'D-Day' : `D-${days}`}</Table.Td>
-                  <Table.Td>{instrumentLabel('instrumenttype', row.instrumenttype)}</Table.Td>
-                  <Table.Td>{row.instrumentno || ''}</Table.Td>
-                  <Table.Td ta="right">{formatted(row.instrumentamt)}</Table.Td>
-                  <Table.Td>{row.issuercompany || ''}</Table.Td>
-                  <Table.Td>{row.customname || ''}</Table.Td>
-                  <Table.Td>{dateOnly(row.receiptdate)}</Table.Td>
-                  <Table.Td>{row.receiptno}-{row.lineno}</Table.Td>
-                </Table.Tr>;
-              })}
-              {!visibleRows.length && <Table.Tr><Table.Td colSpan={10} className={outboundClasses.customerEmpty}>{loading ? '조회 중입니다.' : '보관 중인 증권이 없습니다.'}</Table.Td></Table.Tr>}
-            </Table.Tbody>
-          </Table>
-        </ScrollArea>
-      </Box>
-      <Group justify="space-between" wrap="nowrap">
-        <Group gap="md" wrap="nowrap">
-          <Pagination size="sm" total={Math.max(1, Math.ceil(total / HELD_PAGE_SIZE))} value={page} onChange={(nextPage) => void load(nextPage, filters)} withEdges color="red" disabled={loading} />
-          <Text size="xs" c="dimmed">총 {total.toLocaleString()}건</Text>
-        </Group>
-        <Group gap="sm" wrap="nowrap">
-          <Text size="sm" fw={700}>선택 {selectedRows.length.toLocaleString()}장 · 합계 {formatted(selectedAmount)}원</Text>
-          <Button variant="default" onClick={close}>취소</Button>
-          <Button color="red" disabled={!selectedRows.length} onClick={() => { onApply(selectedRows); onClose(); }}>선택 적용</Button>
-        </Group>
-      </Group>
-    </Stack>
-  </Modal>;
+  return <PickerModal opened={opened} onClose={close}
+    title="보유증권 불러오기" description="보관 중인 수금 증권을 골라 지급 상세에 추가합니다." icon={<IconFileDollar size={22} stroke={1.7} />}
+    filters={<div style={{ display: 'contents' }} onKeyDown={(event) => { if (event.key === 'Enter') search(); }}>
+      <ErpDateInput label="만기일 시작" value={filters.maturity_from} onChange={(event) => updateFilter('maturity_from', event.currentTarget.value)} />
+      <ErpDateInput label="만기일 끝" value={filters.maturity_to} onChange={(event) => updateFilter('maturity_to', event.currentTarget.value)} />
+      <Select size="sm" label="종류" data={[{ value: '', label: '전체' }, ...INSTRUMENT_TYPE_OPTIONS]} value={filters.instrumenttype} onChange={(value) => updateFilter('instrumenttype', value || '')} />
+      <TextInput size="sm" label="받은 거래처" value={filters.customer} onChange={(event) => updateFilter('customer', event.currentTarget.value)} />
+      <TextInput size="sm" label="증권번호·발행회사" leftSection={<IconSearch size={14} />} value={filters.keyword} onChange={(event) => updateFilter('keyword', event.currentTarget.value)} />
+      <Button size="sm" color="red" leftSection={<IconSearch size={15} />} onClick={search}>조회</Button>
+    </div>}
+    guide={<p>수금으로 받아 보관 중인 어음·수표·외상매출채권입니다. 선택하면 지급 상세에 추가되고, 저장하면 원래 증권은 '배서'로 바뀝니다.</p>}
+    listTitle="보관 중인 증권" count={total} loading={loading}
+    selectedCount={selectedRows.length} selectionLabel={`선택 · 합계 ${formatted(selectedAmount)}원`}
+    pagination={<Pagination size="sm" color="red" total={Math.max(1, Math.ceil(total / HELD_PAGE_SIZE))} value={page} onChange={(nextPage) => void load(nextPage, filters)} siblings={1} disabled={loading} />}
+    onApply={() => { onApply(selectedRows); onClose(); }} applyLabel="선택 적용">
+    <table className={pickerClasses.table} style={{ width: `max(100%, ${HELD_TABLE_WIDTH}px)` }} aria-label="보관 중인 증권">
+      <colgroup>{HELD_COLUMNS.map((column) => <col key={column.key} style={{ width: column.width }} />)}</colgroup>
+      <thead><tr>
+        <th className={pickerClasses.center}><input className={pickerClasses.checkbox} type="checkbox" aria-label="전체 선택" checked={allVisibleSelected} disabled={!visibleRows.length} onChange={(event) => toggleAllVisible(event.currentTarget.checked)} /></th>
+        {HELD_COLUMNS.slice(1).map((column) => <th key={column.key} className={column.align ? pickerClasses[column.align] : undefined}>{column.label}</th>)}
+      </tr></thead>
+      <tbody>
+        {visibleRows.map((row) => {
+          const key = sourceKey(row.receiptno, row.lineno);
+          const days = daysUntil(row.maturitydate);
+          return <tr key={key} className={selected[key] ? pickerClasses.selectedRow : undefined} onClick={() => toggle(row)}>
+            <td className={pickerClasses.center} onClick={(event) => event.stopPropagation()}><input className={pickerClasses.checkbox} type="checkbox" aria-label={`${row.instrumentno || key} 선택`} checked={Boolean(selected[key])} onChange={() => toggle(row)} /></td>
+            <td>{dateOnly(row.maturitydate)}</td>
+            <td className={pickerClasses.center}><span className={days !== null && days < 0 ? classes.heldOverdue : days !== null && days <= 7 ? classes.heldSoon : undefined}>{days === null ? '' : days < 0 ? `D+${-days}` : days === 0 ? 'D-Day' : `D-${days}`}</span></td>
+            <td>{instrumentLabel('instrumenttype', row.instrumenttype)}</td>
+            <td title={row.instrumentno || ''}>{row.instrumentno || ''}</td>
+            <td className={pickerClasses.right}>{formatted(row.instrumentamt)}</td>
+            <td title={row.issuercompany || ''}>{row.issuercompany || ''}</td>
+            <td title={row.customname || ''}>{row.customname || ''}</td>
+            <td>{dateOnly(row.receiptdate)}</td>
+            <td>{row.receiptno}-{row.lineno}</td>
+          </tr>;
+        })}
+        {!visibleRows.length && <tr><td colSpan={HELD_COLUMNS.length} className={pickerClasses.emptyCell}>
+          <PickerEmpty title={loading ? '보유증권을 조회하고 있습니다' : '보관 중인 증권이 없습니다'} description={loading ? '' : '만기일이나 검색 조건을 바꿔 다시 조회해 주세요.'} />
+        </td></tr>}
+      </tbody>
+    </table>
+  </PickerModal>;
 });
 
 const ReceiptCustomerPickerModal = memo(function ReceiptCustomerPickerModal({ opened, onClose, onSelect }) {
@@ -597,32 +605,12 @@ const ReceiptCustomerPickerModal = memo(function ReceiptCustomerPickerModal({ op
   const select = (customer) => { onSelect(customer); onClose(); };
   const invalidatePending = () => { requestRef.current += 1; onClose(); };
 
-  return <Modal opened={opened} onClose={invalidatePending} title={<Group gap={9} wrap="nowrap"><Box className={outboundClasses.receiptFinderTitleIcon}><IconSearch size={17} /></Box><Text className={outboundClasses.receiptFinderModalTitle} fw={750}>거래처 선택</Text></Group>}
-    classNames={{ content: outboundClasses.receiptFinderModalContent, header: outboundClasses.receiptFinderModalHeader, title: outboundClasses.receiptFinderModalTitle, close: outboundClasses.receiptFinderModalClose }} centered size={900}>
-    <Stack gap="sm" pt={10}>
-      <Group gap={7} wrap="nowrap">
-        <TextInput className={outboundClasses.customerSearchInput} placeholder="거래처코드 또는 거래처명 검색" value={searchInput}
-          onChange={(event) => setSearchInput(event.currentTarget.value)}
-          onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} leftSection={<IconSearch size={15} />} size="sm" autoFocus />
-        <Button color="red" size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch}>조회</Button>
-      </Group>
-      <Box className={outboundClasses.pickerResults}>
-        {loading && <Loader className={outboundClasses.pickerLoader} size="xs" color="red" aria-label="조회 중" />}
-        <ScrollArea h={420} type="auto" scrollbarSize={6}>
-          <Table className={`${codeClasses.codeTable} ${outboundClasses.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
-            <Table.Thead><Table.Tr><Table.Th className={outboundClasses.customerCodeColumn}>거래처코드</Table.Th><Table.Th className={outboundClasses.customerNameColumn}>거래처명</Table.Th><Table.Th className={outboundClasses.customerRepresentativeColumn}>대표자</Table.Th><Table.Th className={outboundClasses.customerBusinessColumn}>사업자번호</Table.Th></Table.Tr></Table.Thead>
-            <Table.Tbody>
-              {customers.map((customer) => <Table.Tr key={customer.customercode} className={outboundClasses.customerResultRow} onClick={() => select(customer)}>
-                <Table.Td>{customer.customercode}</Table.Td><Table.Td>{customer.customername}</Table.Td><Table.Td>{customer.ceoname || ''}</Table.Td><Table.Td>{customer.businessno || ''}</Table.Td>
-              </Table.Tr>)}
-              {!customers.length && <Table.Tr><Table.Td colSpan={4} className={outboundClasses.customerEmpty}>{loading ? '조회 중입니다.' : '조회된 거래처가 없습니다.'}</Table.Td></Table.Tr>}
-            </Table.Tbody>
-          </Table>
-        </ScrollArea>
-      </Box>
-      <Group justify="space-between"><Text size="xs" c="dimmed">총 {total.toLocaleString()}건</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / 20))} value={page} onChange={(nextPage) => void load(nextPage, search)} withEdges color="red" disabled={loading} /></Group>
-    </Stack>
-  </Modal>;
+  return <SelectPickerModal opened={opened} onClose={invalidatePending} size="lg"
+    title="거래처 선택" description="수금·지급 전표에 넣을 거래처를 고릅니다." icon={<IconBuildingStore size={21} stroke={1.8} />}
+    searchValue={searchInput} onSearchChange={setSearchInput} onSearch={runSearch} searchPlaceholder="거래처코드 또는 거래처명 검색"
+    listTitle="거래처" columns={CUSTOMER_PICKER_COLUMNS} rows={customers} rowKey={(customer) => customer.customercode} onSelect={select}
+    loading={loading} total={total} page={page} pageCount={Math.max(1, Math.ceil(total / 20))} onPageChange={(nextPage) => void load(nextPage, search)}
+    emptyTitle="조회된 거래처가 없습니다" emptyDescription="거래처코드나 이름을 바꿔 다시 조회해 주세요." />;
 });
 
 const ReceiptBankPickerModal = memo(function ReceiptBankPickerModal({ opened, onClose, options, onSelect }) {
@@ -641,30 +629,12 @@ const ReceiptBankPickerModal = memo(function ReceiptBankPickerModal({ opened, on
     if (opened) { setSearch(''); setPage(1); }
   }
 
-  return <Modal opened={opened} onClose={onClose}
-    title={<Group gap={9} wrap="nowrap"><Box className={outboundClasses.receiptFinderTitleIcon}><IconSearch size={17} /></Box><Text className={outboundClasses.receiptFinderModalTitle} fw={750}>은행 선택</Text></Group>}
-    classNames={{ content: outboundClasses.receiptFinderModalContent, header: outboundClasses.receiptFinderModalHeader, title: outboundClasses.receiptFinderModalTitle, close: outboundClasses.receiptFinderModalClose }}
-    centered size={620}>
-    <Stack gap="sm" pt={10}>
-      <TextInput className={outboundClasses.customerSearchInput} placeholder="은행코드 또는 은행명 검색" value={search}
-        onChange={(event) => { setSearch(event.currentTarget.value); setPage(1); }} leftSection={<IconSearch size={15} />} size="sm" autoFocus />
-      <Box className={outboundClasses.pickerResults}>
-        <ScrollArea h={360} type="auto" scrollbarSize={6}>
-          <Table className={`${codeClasses.codeTable} ${outboundClasses.pickerTable}`} highlightOnHover withTableBorder withColumnBorders>
-            <Table.Thead><Table.Tr><Table.Th>은행코드</Table.Th><Table.Th>은행명</Table.Th></Table.Tr></Table.Thead>
-            <Table.Tbody>
-              {pageItems.map((item) => <Table.Tr key={item.code} className={outboundClasses.customerResultRow} onClick={() => { onSelect(item); onClose(); }}>
-                <Table.Td>{item.code}</Table.Td><Table.Td>{item.name}</Table.Td>
-              </Table.Tr>)}
-              {!pageItems.length && <Table.Tr><Table.Td colSpan={2} className={outboundClasses.customerEmpty}>조회된 은행이 없습니다.</Table.Td></Table.Tr>}
-            </Table.Tbody>
-          </Table>
-        </ScrollArea>
-      </Box>
-      <Group justify="space-between"><Text size="xs" c="dimmed">총 {filtered.length.toLocaleString()}건</Text>
-        <Pagination size="sm" total={Math.max(1, Math.ceil(filtered.length / pageSize))} value={page} onChange={setPage} withEdges color="red" /></Group>
-    </Stack>
-  </Modal>;
+  return <SelectPickerModal opened={opened} onClose={onClose} size="sm"
+    title="은행 선택" description="보관은행으로 넣을 은행을 고릅니다." icon={<IconBuildingBank size={21} stroke={1.8} />}
+    searchValue={search} onSearchChange={(value) => { setSearch(value); setPage(1); }} searchPlaceholder="은행코드 또는 은행명 검색"
+    listTitle="은행" columns={BANK_PICKER_COLUMNS} rows={pageItems} rowKey={(item) => item.code} onSelect={(item) => { onSelect(item); onClose(); }}
+    total={filtered.length} page={page} pageCount={Math.max(1, Math.ceil(filtered.length / pageSize))} onPageChange={setPage}
+    emptyTitle="조회된 은행이 없습니다" />;
 });
 
 export default function ReceiptPayment() {

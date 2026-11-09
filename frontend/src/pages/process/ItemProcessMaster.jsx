@@ -4,19 +4,19 @@ import usePageReactivated from '../../components/common/usePageReactivated';
 // xlsx-js-style: same API as 'xlsx', but actually writes cell styles (red header via applyExcelHeaderStyle).
 import XLSX from 'xlsx-js-style';
 import {
-  ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper,
-  Popover, ScrollArea, Stack, Table, Text, TextInput,
+  ActionIcon, Badge, Box, Button, Group, Loader, Modal, Paper,
+  Popover, Stack, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { IconBox, IconSearch, IconTool, IconTrash, IconX } from '@tabler/icons-react';
 
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
 import ErpRibbon from '../../components/common/ErpRibbon';
+import { SelectPickerModal } from '../../components/common/PickerModal';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import classes from '../../styles/pages/ItemProcessMaster.module.css';
-import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 
 
 // Same Excel date-time text as the other register exports: "YYYY-MM-DD HH:mm:ss" (KST).
@@ -76,6 +76,16 @@ const toRow = (item) => ({
   is_dirty: false,
 });
 
+const MATERIAL_ITEM_PICKER_COLUMNS = [
+  { key: 'itemcode', label: '품목코드', width: 150 },
+  { key: 'itemname', label: '원소재 품명', width: 260 },
+  { key: 'itemtype', label: '형태구분', width: 140, render: (item) => item.itemtypecodenm || item.itemtypecode || '' },
+];
+const PROCESS_PICKER_COLUMNS = [
+  { key: 'code', label: '공정코드', width: 140 },
+  { key: 'name', label: '가공공정명', width: 260 },
+];
+
 function ItemPickerModal({ opened, onClose, onSelect }) {
   const [query, setQuery] = useState('');
   const [items, setItems] = useState([]);
@@ -103,32 +113,12 @@ function ItemPickerModal({ opened, onClose, onSelect }) {
   useEffect(() => { void loadItems(); }, [loadItems]);
   useEffect(() => { if (!opened) { setQuery(''); setPage(1); } }, [opened]);
 
-  return (
-    <Modal opened={opened} onClose={onClose} centered size={900}
-      classNames={{ content: inboundClasses.receiptFinderModalContent, header: inboundClasses.receiptFinderModalHeader,
-        title: inboundClasses.receiptFinderModalTitle, close: inboundClasses.receiptFinderModalClose }}
-      title={<Group gap={8}><IconSearch size={18} /><Text fw={700}>원소재 품목 선택</Text></Group>}>
-      <Stack gap="sm">
-        <TextInput value={query} onChange={(event) => { setQuery(event.currentTarget.value); setPage(1); }}
-          placeholder="품목코드 또는 품목명 검색" leftSection={<IconSearch size={15} />} autoFocus />
-        <ScrollArea className={classes.pickerResults} h={350} type="auto" scrollbarSize={6}>
-          <Table className={classes.pickerTable} withTableBorder withColumnBorders highlightOnHover>
-            <Table.Thead><Table.Tr><Table.Th>품목코드</Table.Th><Table.Th>원소재 품명</Table.Th><Table.Th>형태구분</Table.Th></Table.Tr></Table.Thead>
-            <Table.Tbody>
-              {items.map((item) => (
-                <Table.Tr key={item.itemcode} className={classes.pickerRow} onDoubleClick={() => onSelect(item)} onClick={() => onSelect(item)}>
-                  <Table.Td>{item.itemcode}</Table.Td><Table.Td>{item.itemname}</Table.Td><Table.Td>{item.itemtypecodenm || item.itemtypecode}</Table.Td>
-                </Table.Tr>
-              ))}
-              {!items.length && <Table.Tr><Table.Td colSpan={3} ta="center" c="dimmed" py="xl">{loading ? '조회 중입니다.' : '조회된 품목이 없습니다.'}</Table.Td></Table.Tr>}
-            </Table.Tbody>
-          </Table>
-        </ScrollArea>
-        <Group justify="space-between"><Text size="xs" c="dimmed">총 {total.toLocaleString()}개</Text>
-          <Pagination size="sm" color="red" value={page} onChange={setPage} total={Math.max(1, Math.ceil(total / pageSize))} withEdges /></Group>
-      </Stack>
-    </Modal>
-  );
+  return <SelectPickerModal opened={opened} onClose={onClose} size="md"
+    title="원소재 품목 선택" description="가공공정을 연결할 원소재 품목을 고릅니다." icon={<IconBox size={21} stroke={1.8} />}
+    searchValue={query} onSearchChange={(value) => { setQuery(value); setPage(1); }} searchPlaceholder="품목코드 또는 품목명 검색"
+    listTitle="원소재 품목" columns={MATERIAL_ITEM_PICKER_COLUMNS} rows={items} rowKey={(item) => item.itemcode} onSelect={onSelect}
+    loading={loading} total={total} page={page} pageCount={Math.max(1, Math.ceil(total / pageSize))} onPageChange={setPage}
+    emptyTitle="조회된 품목이 없습니다" emptyDescription="품목코드나 품목명을 바꿔 검색해 주세요." />;
 }
 
 function ItemAutoComplete({ row, disabled, onChange, onSelect, onOpenPicker, inputProps }) {
@@ -228,32 +218,12 @@ function ProcessPickerModal({ opened, onClose, options, onSelect }) {
   const pageCount = Math.max(1, Math.ceil(matches.length / pageSize));
   const pageItems = matches.slice((page - 1) * pageSize, page * pageSize);
 
-  return (
-    <Modal opened={opened} onClose={onClose} centered size={680}
-      classNames={{ content: inboundClasses.receiptFinderModalContent, header: inboundClasses.receiptFinderModalHeader,
-        title: inboundClasses.receiptFinderModalTitle, close: inboundClasses.receiptFinderModalClose }}
-      title={<Group gap={8}><IconSearch size={18} /><Text fw={700}>가공공정 선택</Text></Group>}>
-      <Stack gap="sm">
-        <TextInput value={query} onChange={(event) => { setQuery(event.currentTarget.value); setPage(1); }}
-          placeholder="공정코드 또는 가공공정명 검색" leftSection={<IconSearch size={15} />} autoFocus />
-        <ScrollArea className={classes.pickerResults} h={350} type="auto" scrollbarSize={6}>
-          <Table className={classes.pickerTable} withTableBorder withColumnBorders highlightOnHover>
-            <Table.Thead><Table.Tr><Table.Th>공정코드</Table.Th><Table.Th>가공공정명</Table.Th></Table.Tr></Table.Thead>
-            <Table.Tbody>
-              {pageItems.map((option) => (
-                <Table.Tr key={option.code} className={classes.pickerRow} onClick={() => onSelect(option)}>
-                  <Table.Td>{option.code}</Table.Td><Table.Td>{option.name}</Table.Td>
-                </Table.Tr>
-              ))}
-              {!pageItems.length && <Table.Tr><Table.Td colSpan={2} ta="center" c="dimmed" py="xl">등록된 가공공정이 없습니다.</Table.Td></Table.Tr>}
-            </Table.Tbody>
-          </Table>
-        </ScrollArea>
-        <Group justify="space-between"><Text size="xs" c="dimmed">총 {matches.length.toLocaleString()}개 공정</Text>
-          <Pagination size="sm" total={pageCount} value={page} onChange={setPage} withEdges color="red" /></Group>
-      </Stack>
-    </Modal>
-  );
+  return <SelectPickerModal opened={opened} onClose={onClose} size="sm"
+    title="가공공정 선택" description="원소재 품목에 연결할 가공공정을 고릅니다." icon={<IconTool size={21} stroke={1.8} />}
+    searchValue={query} onSearchChange={(value) => { setQuery(value); setPage(1); }} searchPlaceholder="공정코드 또는 가공공정명 검색"
+    listTitle="가공공정" columns={PROCESS_PICKER_COLUMNS} rows={pageItems} rowKey={(option) => option.code} onSelect={onSelect}
+    total={matches.length} page={page} pageCount={pageCount} onPageChange={setPage}
+    emptyTitle="등록된 가공공정이 없습니다" />;
 }
 
 function ProcessAutoComplete({ row, disabled, options, onChange, onSelect, onOpenPicker }) {
