@@ -294,9 +294,9 @@ export default function GrossProfit() {
     <Box className={`${sharedClasses.pageShell} ${classes.page} ${pageClasses.page}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>출고관리</Text>
+          <Text component="span" className={classes.breadcrumbParent}>매출관리</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-          <Text component="span" className={classes.breadcrumbCurrent}>매출이익분석</Text>
+          <Text component="span" className={classes.breadcrumbCurrent}>매출이익 분석</Text>
         </Group>
         {!filterOpen && <Button className={classes.filterToggle} variant="subtle" size="xs" leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
       </Box>

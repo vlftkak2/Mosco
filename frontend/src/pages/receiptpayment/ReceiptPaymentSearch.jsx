@@ -263,9 +263,9 @@ export default function ReceiptPaymentSearch() {
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>수금/지급관리</Text>
+          <Text component="span" className={classes.breadcrumbParent}>수금·지급</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-          <Text component="span" className={classes.breadcrumbCurrent}>수금/지급 현황</Text>
+          <Text component="span" className={classes.breadcrumbCurrent}>수금·지급 현황</Text>
         </Group>
         {!filterOpen && <Button className={classes.filterToggle} variant="subtle" size="xs" leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
       </Box>

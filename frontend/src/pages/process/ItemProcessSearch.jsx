@@ -215,9 +215,9 @@ export default function ItemProcessSearch() {
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>가공 관리</Text>
+          <Text component="span" className={classes.breadcrumbParent}>재고가공</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-          <Text component="span" className={classes.breadcrumbCurrent}>가공현황</Text>
+          <Text component="span" className={classes.breadcrumbCurrent}>재고가공 현황</Text>
         </Group>
         {!filterOpen && <Button className={classes.filterToggle} variant="subtle" size="xs" leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
       </Box>

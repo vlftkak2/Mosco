@@ -1362,9 +1362,9 @@ export default function ReceiptPayment() {
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
         <Group className={inboundClasses.breadcrumbTrail} gap={7}>
-          <Text component="span" className={inboundClasses.breadcrumbParent}>수금/지급관리</Text>
+          <Text component="span" className={inboundClasses.breadcrumbParent}>수금·지급</Text>
           <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
-          <Text component="span" className={inboundClasses.breadcrumbCurrent}>수금/지급 등록</Text>
+          <Text component="span" className={inboundClasses.breadcrumbCurrent}>수금·지급 등록</Text>
         </Group>
         {!filterOpen && (
           <Button className={inboundClasses.receiptFilterToggle} variant="subtle" size="xs"

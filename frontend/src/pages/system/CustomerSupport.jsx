@@ -123,7 +123,7 @@ export default function CustomerSupport() {
 
   return <Box className={`${sharedClasses.pageShell} ${classes.pageRoot}`}>
     <main className={classes.page}>
-      <ErpBreadcrumb parent="고객지원" current={selectedPost ? selectedPost.category : '상담게시판'} />
+      <ErpBreadcrumb parent="상담관리" current={selectedPost ? selectedPost.category : '상담게시판'} />
       {toast && <div className={classes.toast} role="status">{toast}</div>}
 
       <header className={classes.pageHeading}>

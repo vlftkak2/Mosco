@@ -234,9 +234,9 @@ export default function UserMenu() {
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
-        <Text component="span" className={classes.breadcrumbParent}>시스템관리</Text>
+        <Text component="span" className={classes.breadcrumbParent}>고객사 관리</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-        <Text component="span" className={classes.breadcrumbCurrent}>사용자 메뉴권한</Text>
+        <Text component="span" className={classes.breadcrumbCurrent}>고객사 권한관리</Text>
       </Box>
 
       <div className={classes.workspace}>

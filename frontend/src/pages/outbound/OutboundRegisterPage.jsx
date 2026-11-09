@@ -1066,6 +1066,18 @@ export default function OutboundRegisterPage() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
+  // Receipt being fetched after a list click: highlighted immediately so the click gets
+  // instant feedback; only the latest click's response is applied (see openReceipt).
+  const [openingReceiptno, setOpeningReceiptno] = useState('');
+  const openRequestRef = useRef({ id: 0, controller: null });
+  // Cancel a receipt still loading so its late response cannot overwrite a new draft.
+  const cancelPendingOpen = useCallback(() => {
+    if (!openRequestRef.current.controller) return;
+    openRequestRef.current.controller.abort();
+    openRequestRef.current = { id: openRequestRef.current.id + 1, controller: null };
+    setOpeningReceiptno('');
+    setDetailLoading(false);
+  }, []);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [filterOpen, setFilterOpen] = useState(true);
@@ -1419,9 +1431,17 @@ export default function OutboundRegisterPage() {
       notifications.show({ title: '저장되지 않은 변경사항', message: '현재 출고 내용을 먼저 저장해 주세요.', color: 'orange' });
       return false;
     }
+    openRequestRef.current.controller?.abort();
+    const controller = new AbortController();
+    const requestId = openRequestRef.current.id + 1;
+    openRequestRef.current = { id: requestId, controller };
+    const isLatest = () => openRequestRef.current.id === requestId;
+    setOpeningReceiptno(receiptno);
     setDetailLoading(true);
     try {
-      const { data } = await axios.get(`/api/outbound-register/receipts/${encodeURIComponent(receiptno)}`, authConfig());
+      const { data } = await axios.get(`/api/outbound-register/receipts/${encodeURIComponent(receiptno)}`, { ...authConfig(), signal: controller.signal });
+      // A newer click (or 추가) superseded this request: drop the stale response.
+      if (!isLatest()) return false;
       const receipt = data.receipt;
       const loadedRows = (receipt.items || []).map((item) => makeDetail({
         ...item,
@@ -1460,10 +1480,15 @@ export default function OutboundRegisterPage() {
       selectionAnchorRef.current = '';
       return true;
     } catch (error) {
+      if (!isLatest()) return false;
       notifications.show({ title: '출고 상세 조회 실패', message: errorMessage(error), color: 'red' });
       return false;
     } finally {
-      setDetailLoading(false);
+      if (isLatest()) {
+        openRequestRef.current.controller = null;
+        setOpeningReceiptno('');
+        setDetailLoading(false);
+      }
     }
   }, [hasPendingChanges]);
 
@@ -1703,6 +1728,7 @@ export default function OutboundRegisterPage() {
       notifications.show({ title: '저장되지 않은 변경사항', message: '기존 전표의 변경사항을 먼저 저장하거나 취소한 뒤 새 출고를 시작해 주세요.', color: 'orange' });
       return;
     }
+    cancelPendingOpen();
     if (selectedReceiptno) {
       setHeader({ ...EMPTY_HEADER, receptdate: localDate() });
       setReceiptMetadata({ companyid: '', companyname: '', created_at: '', updated_at: '' });
@@ -1718,7 +1744,7 @@ export default function OutboundRegisterPage() {
       selectionAnchorRef.current = '';
     }
     setStockPickerOpen(true);
-  }, [saving, selectedReceiptno, hasPendingChanges]);
+  }, [saving, selectedReceiptno, hasPendingChanges, cancelPendingOpen]);
 
   const handleAddAction = useCallback(() => {
     if (selectedReceiptno) {
@@ -2250,6 +2276,7 @@ export default function OutboundRegisterPage() {
   const openReceiptRef = useRef(openReceipt);
   useLayoutEffect(() => { openReceiptRef.current = openReceipt; }, [openReceipt]);
   const handleOpenReceipt = useCallback((receiptno) => { void openReceiptRef.current(receiptno, true); }, []);
+  const highlightedReceiptno = openingReceiptno || selectedReceiptno;
   const receiptTable = useMemo(() => (
     <Table className={inboundClasses.receiptFinderTable} stickyHeader highlightOnHover withTableBorder withColumnBorders
       style={{ width: `${receiptTableWidth}px`, minWidth: `${receiptTableWidth}px`, tableLayout: 'fixed' }}>
@@ -2257,7 +2284,7 @@ export default function OutboundRegisterPage() {
       <Table.Thead><Table.Tr>{RECEIPT_COLUMNS.map(renderReceiptHeader)}</Table.Tr></Table.Thead>
       <Table.Tbody>
         {receipts.map((receipt) => <Table.Tr key={receipt.receiptno}
-          className={`${classes.receiptFinderRow} ${selectedReceiptno === receipt.receiptno ? classes.receiptFinderRowActive : ''}`}
+          className={`${classes.receiptFinderRow} ${highlightedReceiptno === receipt.receiptno ? classes.receiptFinderRowActive : ''}`}
           onClick={() => handleOpenReceipt(receipt.receiptno)}>
           <Table.Td>{String(receipt.receptdate || '').slice(0, 10)}</Table.Td>
           <Table.Td>{receipt.customname || ''}</Table.Td>
@@ -2276,7 +2303,7 @@ export default function OutboundRegisterPage() {
         </Table.Tr>)}
       </Table.Tbody>
     </Table>
-  ), [receiptTableWidth, receiptColumnWidths, receiptAutoWidths, renderReceiptHeader, receipts, selectedReceiptno, handleOpenReceipt]);
+  ), [receiptTableWidth, receiptColumnWidths, receiptAutoWidths, renderReceiptHeader, receipts, highlightedReceiptno, handleOpenReceipt]);
   const allExpensesSelected = expenses.length > 0 && selectedExpenseIds.length === expenses.length;
   const expenseRowsValue = useMemo(() => ({ expenses, selectedExpenseSet, salesCustomerName: header.customname || '' }),
     [expenses, selectedExpenseSet, header.customname]);
@@ -2436,9 +2463,9 @@ export default function OutboundRegisterPage() {
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
         <Group className={inboundClasses.breadcrumbTrail} gap={7}>
-          <Text component="span" className={inboundClasses.breadcrumbParent}>출고관리</Text>
+          <Text component="span" className={inboundClasses.breadcrumbParent}>매출관리</Text>
           <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
-          <Text component="span" className={inboundClasses.breadcrumbCurrent}>출고등록</Text>
+          <Text component="span" className={inboundClasses.breadcrumbCurrent}>매출등록</Text>
         </Group>
         {!filterOpen && (
           <Button className={inboundClasses.receiptFilterToggle} variant="subtle" size="xs"
