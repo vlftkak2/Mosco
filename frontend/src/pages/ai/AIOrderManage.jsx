@@ -3,9 +3,10 @@ import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { ActionIcon, Box, Button, Group, Modal as MantineModal, Pagination, Paper, Popover, Select, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconAdjustments, IconFilter, IconPencil, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { IconAdjustments, IconCheck, IconFilter, IconPackages, IconPencil, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import ErpDateInput from '../../components/common/ErpDateInput';
+import PickerModal, { PickerEmpty, pickerClasses } from '../../components/common/PickerModal';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import { clearAIOrderDraft, readAIOrderDraft, writeAIOrderDraft } from './AIOrderDraft';
@@ -876,79 +877,77 @@ export default function AIOrderManage() {
         setModal((current) => current?.type === 'stock-match'
           ? { ...current, filters: { ...(current.filters || EMPTY_STOCK_FILTERS), [field]: value } } : current);
       };
-      return <Modal wide title="재고 선택" onClose={() => !modal.saving && setModal(null)}>
-        <div className={classes.info}>현재고를 조회해 주문 상세에 연결할 재고를 선택하세요. 연결은 재고를 예약하거나 차감하지 않습니다.</div>
-        <div className={classes.matchSummary}>
-          <span>주문 품명 <strong>{targetItem?.itemname || '—'}</strong></span>
-          <span>주문 규격 <strong>{targetItem?.size || '—'}</strong></span>
-          <span>두께 <strong>{targetItem?.thickness || '—'}</strong></span>
-        </div>
-        <form className={classes.matchFilter} onSubmit={(event) => { event.preventDefault(); searchStockCandidates(); }}>
-          <TextInput size="xs" label="품명" className={classes.matchFilterName}
-            value={modal.filters?.name ?? ''} onChange={setFilter('name')} disabled={modal.saving} />
-          <TextInput size="xs" label="표면" className={classes.matchFilterText}
-            value={modal.filters?.surface ?? ''} onChange={setFilter('surface')} disabled={modal.saving} />
-          <TextInput size="xs" label="두께 시작" type="number" step="0.01" min="0" className={classes.matchFilterThickness}
-            value={modal.filters?.thicknessFrom ?? ''} onChange={setFilter('thicknessFrom')} disabled={modal.saving} />
-          <TextInput size="xs" label="두께 끝" type="number" step="0.01" min="0" className={classes.matchFilterThickness}
-            value={modal.filters?.thicknessTo ?? ''} onChange={setFilter('thicknessTo')} disabled={modal.saving} />
-          <TextInput size="xs" label="폭" type="number" step="0.1" min="0" className={classes.matchFilterThickness}
-            value={modal.filters?.width ?? ''} onChange={setFilter('width')} disabled={modal.saving} />
-          <TextInput size="xs" label="길이" type="number" step="0.1" min="0" className={classes.matchFilterThickness}
-            value={modal.filters?.length ?? ''} onChange={setFilter('length')} disabled={modal.saving} />
-          <TextInput size="xs" label="창고" className={classes.matchFilterText}
-            value={modal.filters?.warehouse ?? ''} onChange={setFilter('warehouse')} disabled={modal.saving} />
-          <Button type="submit" size="xs" color="red" leftSection={<IconSearch size={14} />} loading={modal.loading} disabled={modal.saving}>조회</Button>
-        </form>
-        <div className={classes.matchTableScroll}><table className={classes.matchTable} style={{ width: `max(100%, ${matchTableWidth}px)`, minWidth: `${matchTableWidth}px` }}>
+      const filterInput = (field, label, width, numericProps) => <TextInput size="sm" label={label} style={{ width }} {...numericProps}
+        value={modal.filters?.[field] ?? ''} onChange={setFilter(field)} disabled={modal.saving} />;
+      return <PickerModal opened onClose={() => setModal(null)} closeDisabled={modal.saving}
+        title="재고 선택" description="주문 상세에 연결할 현재고를 고릅니다." icon={<IconPackages size={22} stroke={1.7} />}
+        filters={<form style={{ display: 'contents' }} onSubmit={(event) => { event.preventDefault(); searchStockCandidates(); }}>
+          {filterInput('name', '품명', 180)}
+          {filterInput('surface', '표면', 130)}
+          {filterInput('thicknessFrom', '두께 시작', 100, { type: 'number', step: '0.01', min: '0' })}
+          {filterInput('thicknessTo', '두께 끝', 100, { type: 'number', step: '0.01', min: '0' })}
+          {filterInput('width', '폭', 100, { type: 'number', step: '0.1', min: '0' })}
+          {filterInput('length', '길이', 100, { type: 'number', step: '0.1', min: '0' })}
+          {filterInput('warehouse', '창고', 130)}
+          <Button type="submit" size="sm" color="red" leftSection={<IconSearch size={15} />} loading={modal.loading} disabled={modal.saving}>조회</Button>
+        </form>}
+        guide={<>
+          <p>현재고를 조회해 주문 상세에 연결할 재고를 선택하세요. 연결은 재고를 예약하거나 차감하지 않습니다.</p>
+          <div className={pickerClasses.criteria}>
+            <span><b>주문 품명</b>{targetItem?.itemname || '—'}</span>
+            <span><b>주문 규격</b>{targetItem?.size || '—'}</span>
+            <span><b>두께</b>{targetItem?.thickness || '—'}</span>
+          </div>
+        </>}
+        listTitle="연결 가능 현재고" count={modal.total} loading={modal.loading}
+        selectedCount={modal.selectedKeys.length}
+        pagination={<>
+          <Pagination size="sm" color="red" total={Math.max(1, Math.ceil(modal.total / modal.pageSize))} value={modal.page}
+            onChange={(page) => changeStockCandidatePage(page)} siblings={1} disabled={modal.loading || modal.saving || !modal.total} />
+          <Select size="xs" w={100} aria-label="페이지당 표시 건수" data={STOCK_MATCH_PAGE_OPTIONS} value={String(modal.pageSize)}
+            allowDeselect={false} disabled={modal.loading || modal.saving}
+            onChange={(value) => { if (value) changeStockCandidatePage(1, Number(value)); }} />
+        </>}
+        footerActions={<>
+          <Button size="sm" variant="default" onClick={() => setModal(null)} disabled={modal.saving}>취소</Button>
+          <Button size="sm" variant="default" onClick={() => void saveStockLinks(true)} disabled={modal.saving}>연결 초기화</Button>
+          <Button size="sm" color="red" leftSection={<IconCheck size={15} />} onClick={() => void saveStockLinks(false)} loading={modal.saving}
+            disabled={modal.loading || !modal.selectedKeys.length}>선택 재고 연결{modal.selectedKeys.length ? ` (${number(modal.selectedKeys.length)})` : ''}</Button>
+        </>}>
+        <table className={pickerClasses.table} style={{ width: `max(100%, ${matchTableWidth}px)`, minWidth: `${matchTableWidth}px` }} aria-label="연결 가능 현재고">
           <colgroup>{MATCH_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${matchColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
-          <thead><tr>{MATCH_COLUMNS.map((column) => <th key={column.key} className={classes.resizableHeader} style={{ textAlign: column.align || 'left' }}>
-            {column.label}<span className={classes.columnResizeHandle} onPointerDown={(event) => resizeMatchColumn(event, column)} role="separator" aria-label={`${column.label} 열 너비 조절`} />
+          <thead><tr>{MATCH_COLUMNS.map((column) => <th key={column.key} className={`${pickerClasses.resizableHead} ${column.align ? pickerClasses[column.align] : ''}`}>
+            {column.label}<span className={pickerClasses.resizeHandle} onPointerDown={(event) => resizeMatchColumn(event, column)} role="separator" aria-label={`${column.label} 열 너비 조절`} />
           </th>)}</tr></thead>
-          <tbody>{modal.loading ? <tr><td colSpan={MATCH_COLUMNS.length} className={classes.empty}>현재고 후보를 불러오는 중입니다.</td></tr>
-            : modal.candidates.length ? modal.candidates.map((candidate) => {
-              const key = stockKey({ sourcetype: candidate.stocksourcetype, sourceno: candidate.stocksourceno, sourceline: candidate.stocksourceline });
-              const checked = modal.selectedKeys.includes(key);
-              const unavailable = Boolean(candidate.matched_elsewhere) && !checked;
-              const rowClass = [checked ? classes.matchSelectedRow : '', unavailable ? classes.matchUnavailableRow : ''].filter(Boolean).join(' ');
-              const toggleCandidate = () => { if (!unavailable) toggleStockCandidate(candidate); };
-              return <tr key={key} className={rowClass} title={unavailable ? '다른 주문 품목에 이미 연결된 현재고입니다.' : undefined} onClick={toggleCandidate}>
-                <td className={classes.center}><input type="checkbox" checked={checked} disabled={unavailable} onChange={toggleCandidate} onClick={(event) => event.stopPropagation()} /></td>
-                <td title={candidate.master_itemname || candidate.itemname || ''}>{candidate.master_itemname || candidate.itemname || ''}</td>
-                <td title={candidate.productname || ''}>{candidate.productname || ''}</td>
-                <td title={candidate.materialname || candidate.materialcode || ''}>{candidate.materialname || candidate.materialcode || ''}</td>
-                <td title={candidate.surfacename || candidate.surfacecode || ''}>{candidate.surfacename || candidate.surfacecode || ''}</td>
-                <td className={classes.numeric}>{dimension(candidate.thickness)}</td>
-                <td className={classes.numeric}>{dimension(candidate.width)}</td>
-                <td className={classes.numeric}>{dimension(candidate.length)}</td>
-                <td title={candidate.warehousecodename || candidate.warehousecode || ''}>{candidate.warehousecodename || candidate.warehousecode || ''}</td>
-                <td className={classes.numeric}>{number(candidate.qty)} {candidate.qtyunit || ''}</td>
-                <td className={classes.numeric}>{number(candidate.weight)}</td>
-                <td title={candidate.stocksourceno || ''}>{candidate.stocksourceno}</td>
-                <td className={classes.center}>{STOCK_SOURCE_LABELS[candidate.stocksourcetype] || candidate.stocksourcetype || ''}</td>
-                <td className={classes.center}>{dateText(candidate.receiptdate)}</td>
-                <td className={classes.center}>{candidate.stocksourceline}</td>
-              </tr>;
-            }) : <tr><td colSpan={MATCH_COLUMNS.length} className={classes.empty}>연결 가능한 현재고 후보가 없습니다. 두께 범위를 넓혀 조회하거나 재고 없음으로 처리할 수 있습니다.</td></tr>}
-          </tbody></table></div>
-        <div className={classes.matchPager}>
-          <div className={classes.matchPagerGroup}>
-            <span>총 {number(modal.total)}건</span>
-            <Select size="xs" w={100} aria-label="페이지당 표시 건수" data={STOCK_MATCH_PAGE_OPTIONS} value={String(modal.pageSize)}
-              allowDeselect={false} disabled={modal.loading || modal.saving}
-              onChange={(value) => { if (value) changeStockCandidatePage(1, Number(value)); }} />
-          </div>
-          <div className={classes.matchPagerGroup}>
-            <span>{number(modal.selectedKeys.length)}개 선택</span>
-            <Pagination size="sm" total={Math.max(1, Math.ceil(modal.total / modal.pageSize))} value={modal.page}
-              onChange={(page) => changeStockCandidatePage(page)} withEdges color="red" disabled={modal.loading || modal.saving || !modal.total} />
-            <Button variant="default" className={classes.matchActionButton} onClick={() => setModal(null)} disabled={modal.saving}>취소</Button>
-            <Button variant="default" className={classes.matchActionButton} onClick={() => void saveStockLinks(true)} disabled={modal.saving}>연결 초기화</Button>
-            <Button color="red" onClick={() => void saveStockLinks(false)} loading={modal.saving}
-              disabled={modal.loading || !modal.selectedKeys.length}>선택 재고 연결</Button>
-          </div>
-        </div>
-      </Modal>;
+          <tbody>{!modal.loading && modal.candidates.length ? modal.candidates.map((candidate) => {
+            const key = stockKey({ sourcetype: candidate.stocksourcetype, sourceno: candidate.stocksourceno, sourceline: candidate.stocksourceline });
+            const checked = modal.selectedKeys.includes(key);
+            const unavailable = Boolean(candidate.matched_elsewhere) && !checked;
+            const rowClass = checked ? pickerClasses.selectedRow : unavailable ? pickerClasses.disabledRow : undefined;
+            const toggleCandidate = () => { if (!unavailable) toggleStockCandidate(candidate); };
+            return <tr key={key} className={rowClass} title={unavailable ? '다른 주문 품목에 이미 연결된 현재고입니다.' : undefined} onClick={toggleCandidate}>
+              <td className={pickerClasses.center}><input className={pickerClasses.checkbox} type="checkbox" checked={checked} disabled={unavailable} onChange={toggleCandidate} onClick={(event) => event.stopPropagation()} aria-label={`${candidate.master_itemname || candidate.itemname || key} 선택`} /></td>
+              <td title={candidate.master_itemname || candidate.itemname || ''}>{candidate.master_itemname || candidate.itemname || ''}</td>
+              <td title={candidate.productname || ''}>{candidate.productname || ''}</td>
+              <td title={candidate.materialname || candidate.materialcode || ''}>{candidate.materialname || candidate.materialcode || ''}</td>
+              <td title={candidate.surfacename || candidate.surfacecode || ''}>{candidate.surfacename || candidate.surfacecode || ''}</td>
+              <td className={pickerClasses.right}>{dimension(candidate.thickness)}</td>
+              <td className={pickerClasses.right}>{dimension(candidate.width)}</td>
+              <td className={pickerClasses.right}>{dimension(candidate.length)}</td>
+              <td title={candidate.warehousecodename || candidate.warehousecode || ''}>{candidate.warehousecodename || candidate.warehousecode || ''}</td>
+              <td className={pickerClasses.right}>{number(candidate.qty)} {candidate.qtyunit || ''}</td>
+              <td className={pickerClasses.right}>{number(candidate.weight)}</td>
+              <td title={candidate.stocksourceno || ''}>{candidate.stocksourceno}</td>
+              <td className={pickerClasses.center}>{STOCK_SOURCE_LABELS[candidate.stocksourcetype] || candidate.stocksourcetype || ''}</td>
+              <td className={pickerClasses.center}>{dateText(candidate.receiptdate)}</td>
+              <td className={pickerClasses.center}>{candidate.stocksourceline}</td>
+            </tr>;
+          }) : <tr><td colSpan={MATCH_COLUMNS.length} className={pickerClasses.emptyCell}>
+            <PickerEmpty title={modal.loading ? '현재고 후보를 불러오는 중입니다' : '연결 가능한 현재고 후보가 없습니다'}
+              description={modal.loading ? '' : '두께 범위를 넓혀 조회하거나 재고 없음으로 처리할 수 있습니다.'} />
+          </td></tr>}
+          </tbody></table>
+      </PickerModal>;
     }
     if (modal.type === 'edit') return <Modal title="주문 변경" onClose={() => !saving && setModal(null)} actions={<><button type="button" className={classes.button} onClick={() => setModal(null)} disabled={saving}>닫기</button><button type="button" className={`${classes.button} ${classes.primary}`} onClick={() => void saveEdit()} disabled={saving}>{saving ? '저장 중…' : '저장'}</button></>}>
       <div className={classes.formGrid}>

@@ -2,15 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { LinkedOrderBadge } from '../../components/common/LinkedOrderNotice';
 import ErpDateInput from '../../components/common/ErpDateInput';
-import { Box, Button, Group, Loader, Modal, Pagination, Select, Stack, Table, Text, TextInput } from '@mantine/core';
+import { Button, Pagination, Select, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconSearch } from '@tabler/icons-react';
-import classes from '../../styles/pages/OutboundRegister.module.css';
+import { IconPackageExport, IconSearch } from '@tabler/icons-react';
+import PickerModal, { PickerEmpty, pickerClasses } from '../../components/common/PickerModal';
 
 const PAGE_SIZE = 50;
 const PAGE_OPTIONS = [{ value: '25', label: '25개씩' }, { value: '50', label: '50개씩' }, { value: '100', label: '100개씩' }];
 const STOCK_COLUMNS = [
-  { key: 'select', label: '', width: 42, minWidth: 42 },
+  { key: 'select', label: '', width: 52, minWidth: 52 },
   { key: 'sourcetype', label: '구분', width: 90, minWidth: 60 },
   { key: 'receiptdate', label: '입고일자', width: 100, minWidth: 90 },
   { key: 'customname', label: '매입처', width: 120, minWidth: 90 },
@@ -26,6 +26,7 @@ const STOCK_COLUMNS = [
   { key: 'weight', label: '출고중량(kg)', width: 125, minWidth: 100 },
   { key: 'productname', label: '제품번호', width: 260, minWidth: 150 },
 ];
+const RIGHT_COLUMNS = new Set(['thickness', 'width', 'length', 'currentqty', 'currentweight']);
 const initialColumnWidths = () => Object.fromEntries(STOCK_COLUMNS.map(({ key, width }) => [key, width]));
 const createDefaultFilters = () => {
   const today = new Date();
@@ -250,61 +251,76 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
     onApply(result);
   };
 
-  return <Modal opened={opened} onClose={onClose} title={<Text fw={700}>출고 재고 선택</Text>} centered size="95%" classNames={{ content: classes.receiptFinderModalContent, header: classes.receiptFinderModalHeader }}>
-    <Stack gap="sm" pt={8}>
-      <Box className={classes.modalHint}>기초·입고·가공 원천 재고에서 출고할 행과 수량·중량을 지정하세요. 매출처는 재고 반영 후 출고 상세에서 입력합니다.</Box>
-      <Group align="end" gap="xs" wrap="wrap">
-        <ErpDateInput label="기준일 시작" type="date" value={filterInputs.date_from} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_from: nextValue })); }} />
-        <ErpDateInput label="기준일 종료" type="date" value={filterInputs.date_to} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_to: nextValue })); }} />
-        <TextInput label="품목" placeholder="품목코드·품명·제품번호" value={filterInputs.item_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, item_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
-        <TextInput label="창고" placeholder="창고코드 또는 창고명" value={filterInputs.warehouse_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, warehouse_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
-        <TextInput label="매입처" placeholder="원천 거래처명" value={filterInputs.customname} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, customname: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
-        <Select label="재고구분" data={[{ value: '', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }]} value={filterInputs.sourcetype} onChange={(value) => setFilterInputs((current) => ({ ...current, sourcetype: value || '' }))} />
-        <Button color="red" leftSection={<IconSearch size={15} />} onClick={runSearch}>조회</Button>
-      </Group>
-      <Box pos="relative" className={classes.pickerResults}>
-        {loading && <Loader className={classes.pickerLoader} size="sm" color="red" />}
-        <Box style={{ overflow: 'auto', height: '100%' }}>
-          <Table className={classes.stockPickerTable} style={{ width: '100%', minWidth: tableWidth, tableLayout: 'fixed' }} stickyHeader highlightOnHover withTableBorder withColumnBorders>
-            <colgroup>{STOCK_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: columnWidths[column.key] ?? column.width }} />)}</colgroup>
-            <Table.Thead><Table.Tr>
-              {STOCK_COLUMNS.map((column, index) => <Table.Th key={column.key} className={index ? classes.stockPickerHeader : undefined} style={{ width: columnWidths[column.key] ?? column.width }}>
-                {column.label}{index > 0 && <span className={classes.stockPickerResizeHandle} onPointerDown={(event) => resizeColumn(event, column)} role="separator" aria-label={`${column.label} 열 너비 조절`} />}
-              </Table.Th>)}
-            </Table.Tr></Table.Thead>
-            <Table.Tbody>
-              {stocks.map((stock) => {
-                const key = sourceKey(stock);
-                const available = remaining(stock);
-                const draft = getDraft(stock);
-                const alreadyAdded = existingKeys.has(key);
-                return <Table.Tr key={key}>
-                  <Table.Td><input type="checkbox" checked={Boolean(selected[key])} disabled={alreadyAdded || loading || available.qty <= 0 || available.weight <= 0 || Boolean(stock.linked_orders)} onChange={(event) => toggle(stock, event.currentTarget.checked)} aria-label={`${stock.itemname} 재고 선택`} /></Table.Td>
-                  <Table.Td>{sourceName(stock.sourcetype)}<LinkedOrderBadge orders={stock.linked_orders} /></Table.Td>
-                  <Table.Td>{String(stock.receiptdate || '').slice(0, 10)}</Table.Td>
-                  <Table.Td>{stock.customname || '자체재고'}</Table.Td>
-                  <Table.Td>{stock.itemname}</Table.Td>
-                  <Table.Td>{dimensionValue(stock.thickness)}</Table.Td>
-                  <Table.Td>{dimensionValue(stock.width)}</Table.Td>
-                  <Table.Td>{dimensionValue(stock.length)}</Table.Td>
-                  <Table.Td>{stock.warehousecodename || stock.warehousecode}</Table.Td>
-                  <Table.Td ta="right">{numberText(stock.current_qty)}</Table.Td>
-                  <Table.Td ta="right">{numberText(stock.current_weight)}</Table.Td>
-                  <Table.Td><input ref={(element) => { const inputKey = `${key}:unitprice`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="text" inputMode="decimal" value={draftNumberText(draft.unitprice)} disabled={alreadyAdded} onChange={(event) => updateUnitPriceDraft(stock, event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'unitprice', event)} /></Table.Td>
-                  <Table.Td><input ref={(element) => { const inputKey = `${key}:qty`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="text" inputMode="decimal" value={draftNumberText(draft.qty)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'qty', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'qty', event)} /></Table.Td>
-                  <Table.Td><input ref={(element) => { const inputKey = `${key}:weight`; if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey); }} className={classes.stockDraftInput} type="text" inputMode="decimal" value={draftNumberText(draft.weight, 3)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'weight', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'weight', event)} /></Table.Td>
-                  <Table.Td>{stock.productname || ''}</Table.Td>
-                </Table.Tr>;
-              })}
-              {!stocks.length && <Table.Tr><Table.Td colSpan={15} className={classes.customerEmpty}>{loading ? '현재고를 조회하고 있습니다.' : '출고 가능한 재고가 없습니다.'}</Table.Td></Table.Tr>}
-            </Table.Tbody>
-          </Table>
-        </Box>
-      </Box>
-      <Group justify="space-between" align="center">
-        <Group gap="xs"><Text size="xs" c="dimmed">총 {total.toLocaleString()}건</Text><Select size="xs" w={100} data={PAGE_OPTIONS} value={String(pageSize)} onChange={(value) => { if (!value) return; const next = Number(value); setPageSize(next); void load(1, filters, next); }} /></Group>
-        <Group gap="xs"><Text size="xs" c="dimmed">{selectedCount.toLocaleString()}개 선택</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={(next) => load(next, filters)} withEdges color="red" disabled={loading || !total} /><Button variant="default" onClick={onClose}>취소</Button><Button color="red" onClick={apply} disabled={!selectedCount || loading}>선택 재고 반영</Button></Group>
-      </Group>
-    </Stack>
-  </Modal>;
+  const stockDisabledReason = (stock, alreadyAdded, available) => {
+    if (alreadyAdded) return '이미 출고 상세에 담긴 재고입니다.';
+    if (stock.linked_orders) return '주문서에 연결된 재고입니다.';
+    if (available.qty <= 0 || available.weight <= 0) return '출고 가능한 잔량이 없습니다.';
+    return '';
+  };
+  const draftInputRef = (key, field) => (element) => {
+    const inputKey = `${key}:${field}`;
+    if (element) draftInputRefs.current.set(inputKey, element); else draftInputRefs.current.delete(inputKey);
+  };
+  const stopRowToggle = (event) => event.stopPropagation();
+
+  return <PickerModal opened={opened} onClose={onClose}
+    title="출고 재고 선택" description="기초·입고·가공 원천 재고에서 출고할 행과 수량·중량·단가를 지정합니다." icon={<IconPackageExport size={22} stroke={1.7} />}
+    filters={<>
+      <ErpDateInput label="기준일 시작" type="date" value={filterInputs.date_from} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_from: nextValue })); }} />
+      <ErpDateInput label="기준일 종료" type="date" value={filterInputs.date_to} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_to: nextValue })); }} />
+      <TextInput size="sm" label="품목" placeholder="품목코드·품명·제품번호" leftSection={<IconSearch size={14} />} value={filterInputs.item_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, item_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+      <TextInput size="sm" label="창고" placeholder="창고코드 또는 창고명" value={filterInputs.warehouse_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, warehouse_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+      <TextInput size="sm" label="매입처" placeholder="원천 거래처명" value={filterInputs.customname} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, customname: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+      <Select size="sm" label="재고구분" data={[{ value: '', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }]} value={filterInputs.sourcetype} onChange={(value) => setFilterInputs((current) => ({ ...current, sourcetype: value || '' }))} />
+      <Button size="sm" color="red" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
+      <Button size="sm" variant="default" onClick={() => setFilterInputs(createDefaultFilters())}>초기화</Button>
+    </>}
+    guide={<p>체크한 행의 출고단가·수량·중량을 입력한 뒤 [선택 재고 반영]을 누르세요. 수량을 바꾸면 중량은 잔량 비율대로 계산됩니다. 매출처는 재고 반영 후 출고 상세에서 입력합니다.</p>}
+    listTitle="출고 가능 재고" count={total} loading={loading} listHint="행 또는 체크박스를 눌러 선택하고, 단가·수량·중량은 표에서 바로 입력하세요"
+    selectedCount={selectedCount} onClearSelection={() => setSelected({})}
+    pagination={<>
+      <Pagination size="sm" color="red" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={(next) => load(next, filters, pageSize)} siblings={1} disabled={loading || !total} />
+      <Select size="xs" w={92} data={PAGE_OPTIONS} value={String(pageSize)} aria-label="페이지당 행 수" onChange={(value) => { if (!value) return; const next = Number(value); setPageSize(next); void load(1, filters, next); }} />
+    </>}
+    onApply={apply} applyLabel="선택 재고 반영" applyDisabled={!selectedCount || loading}>
+    <table className={pickerClasses.table} style={{ width: `max(100%, ${tableWidth}px)`, minWidth: tableWidth }} aria-label="출고 가능 재고">
+      <colgroup>{STOCK_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: columnWidths[column.key] ?? column.width }} />)}</colgroup>
+      <thead><tr>
+        {STOCK_COLUMNS.map((column, index) => <th key={column.key} className={`${index ? pickerClasses.resizableHead : pickerClasses.center} ${RIGHT_COLUMNS.has(column.key) ? pickerClasses.right : ''}`}>
+          {index ? column.label : '선택'}{index > 0 && <span className={pickerClasses.resizeHandle} onPointerDown={(event) => resizeColumn(event, column)} role="separator" aria-label={`${column.label} 열 너비 조절`} />}
+        </th>)}
+      </tr></thead>
+      <tbody>
+        {stocks.map((stock) => {
+          const key = sourceKey(stock);
+          const available = remaining(stock);
+          const draft = getDraft(stock);
+          const alreadyAdded = existingKeys.has(key);
+          const picked = Boolean(selected[key]);
+          const reason = stockDisabledReason(stock, alreadyAdded, available);
+          const rowClass = picked ? pickerClasses.selectedRow : reason ? pickerClasses.disabledRow : '';
+          return <tr key={key} className={rowClass} title={reason || undefined} onClick={() => { if (!reason && !loading) toggle(stock, !picked); }}>
+            <td className={pickerClasses.center}><input className={pickerClasses.checkbox} type="checkbox" checked={picked} disabled={Boolean(reason) || loading} onClick={stopRowToggle} onChange={(event) => toggle(stock, event.currentTarget.checked)} aria-label={`${stock.itemname} 재고 선택`} /></td>
+            <td>{sourceName(stock.sourcetype)}<LinkedOrderBadge orders={stock.linked_orders} /></td>
+            <td>{String(stock.receiptdate || '').slice(0, 10)}</td>
+            <td title={stock.customname || ''}>{stock.customname || '자체재고'}</td>
+            <td title={stock.itemname || ''}>{stock.itemname}</td>
+            <td className={pickerClasses.right}>{dimensionValue(stock.thickness)}</td>
+            <td className={pickerClasses.right}>{dimensionValue(stock.width)}</td>
+            <td className={pickerClasses.right}>{dimensionValue(stock.length)}</td>
+            <td>{stock.warehousecodename || stock.warehousecode}</td>
+            <td className={pickerClasses.right}>{numberText(stock.current_qty)}</td>
+            <td className={pickerClasses.right}>{numberText(stock.current_weight)}</td>
+            <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'unitprice')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.unitprice)} disabled={alreadyAdded} onChange={(event) => updateUnitPriceDraft(stock, event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'unitprice', event)} aria-label={`${stock.itemname} 출고단가`} /></td>
+            <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'qty')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.qty)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'qty', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'qty', event)} aria-label={`${stock.itemname} 출고수량`} /></td>
+            <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'weight')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.weight, 3)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'weight', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'weight', event)} aria-label={`${stock.itemname} 출고중량`} /></td>
+            <td title={stock.productname || ''}>{stock.productname || ''}</td>
+          </tr>;
+        })}
+        {!stocks.length && <tr><td colSpan={STOCK_COLUMNS.length} className={pickerClasses.emptyCell}>
+          <PickerEmpty title={loading ? '현재고를 조회하고 있습니다' : '출고 가능한 재고가 없습니다'} description={loading ? '' : '조회 기간이나 검색 조건을 바꿔 다시 조회해 주세요.'} />
+        </td></tr>}
+      </tbody>
+    </table>
+  </PickerModal>;
 }

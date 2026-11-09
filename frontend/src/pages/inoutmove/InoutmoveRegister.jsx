@@ -3,9 +3,10 @@ import axios from 'axios';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import { LinkedOrderBadge } from '../../components/common/LinkedOrderNotice';
 import ErpDateInput from '../../components/common/ErpDateInput';
-import { ActionIcon, Box, Button, Group, Loader, Modal, Pagination, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
+import PickerModal, { PickerEmpty, pickerClasses } from '../../components/common/PickerModal';
+import { ActionIcon, Box, Button, Group, Modal, Pagination, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { IconArrowsExchange, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
 import XLSX from 'xlsx-js-style';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
@@ -84,7 +85,7 @@ const STOCK_PAGE_SIZE_OPTIONS = [
   { value: '25', label: '25개씩' }, { value: '50', label: '50개씩' }, { value: '100', label: '100개씩' },
 ];
 const STOCK_COLUMNS = [
-  { key: 'select', label: '', width: 42, minWidth: 42 },
+  { key: 'select', label: '', width: 52, minWidth: 52 },
   { key: 'sourcetype', label: '구분', width: 72, minWidth: 60 },
   { key: 'receiptdate', label: '입고일자', width: 108, minWidth: 90 },
   { key: 'warehouse', label: '출고창고', width: 145, minWidth: 100 },
@@ -97,6 +98,7 @@ const STOCK_COLUMNS = [
   { key: 'weight', label: '현재고중량', width: 140, minWidth: 100 },
   { key: 'productname', label: '제품번호', width: 260, minWidth: 130 },
 ];
+const STOCK_RIGHT_COLUMNS = new Set(['thickness', 'width', 'length', 'qty', 'weight']);
 const initialStockColumnWidths = () => Object.fromEntries(STOCK_COLUMNS.map(({ key, width }) => [key, width]));
 
 // Keep fast header text edits local so each keystroke does not rerender the
@@ -192,7 +194,7 @@ function StockPicker({ opened, fromWarehouse, toWarehouse, existingKeys, onClose
     }
     const next = Object.fromEntries(Object.entries(inputs).map(([key, value]) => [key, String(value || '').trim()]));
     setFilters(next);
-    void load(1, next);
+    void load(1, next, pageSize);
   };
   const toggle = (row, checked) => {
     const key = sourceKey(row);
@@ -201,55 +203,65 @@ function StockPicker({ opened, fromWarehouse, toWarehouse, existingKeys, onClose
   };
   const selectedItems = items.filter((row) => selected[sourceKey(row)] && !existingKeys.has(sourceKey(row)));
 
-  return <Modal opened={opened} onClose={onClose} title={<Text fw={700}>재고이전</Text>} size="95%" centered classNames={{ content: outboundClasses.receiptFinderModalContent, body: classes.modalBody, header: outboundClasses.receiptFinderModalHeader }}>
-    <Stack gap="sm" pt={8}>
-      <Box className={outboundClasses.modalHint}>이전할 현재고를 먼저 선택하세요. 선택한 재고의 출고 창고는 자동 지정되며, 입고 창고는 재고이전 상세에서 입력합니다{toWarehouse ? ` (${toWarehouse})` : ''}.</Box>
-      <Group className={classes.stockFilters} align="end" wrap="wrap" gap="xs">
-        <ErpDateInput label="기준일 시작" type="date" value={inputs.date_from} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((v) => ({ ...v, date_from: nextValue })); }} />
-        <ErpDateInput label="기준일 종료" type="date" value={inputs.date_to} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((v) => ({ ...v, date_to: nextValue })); }} />
-        <TextInput label="품목" placeholder="품목코드·품명·제품명" value={inputs.item_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((v) => ({ ...v, item_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
-        <Select label="재고 구분" data={[{ value: '', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }]} value={inputs.sourcetype} onChange={(value) => setInputs((v) => ({ ...v, sourcetype: value || '' }))} />
-        <TextInput label="두께" placeholder="두께" value={inputs.thickness} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((v) => ({ ...v, thickness: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
-        <TextInput label="폭" placeholder="폭" value={inputs.width} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((v) => ({ ...v, width: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
-        <TextInput label="길이" placeholder="길이" value={inputs.length} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((v) => ({ ...v, length: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
-        <Button color="red" leftSection={<IconSearch size={15} />} onClick={runSearch}>조회</Button>
-      </Group>
-      <Box className={outboundClasses.pickerResults}>
-        {loading && <Loader size="sm" color="red" className={outboundClasses.pickerLoader} />}
-        <Box style={{ overflow: 'auto', height: '100%' }}>
-        <Table className={`${outboundClasses.stockPickerTable} ${classes.table}`} style={{ width: '100%', minWidth: tableWidth, tableLayout: 'fixed' }} stickyHeader highlightOnHover withTableBorder withColumnBorders>
-          <colgroup>{STOCK_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: columnWidths[column.key] ?? column.width }} />)}</colgroup>
-          <Table.Thead><Table.Tr>
-            {STOCK_COLUMNS.map((column, index) => <Table.Th key={column.key} className={index ? `${codeClasses.resizableHeader} ${classes.stockColumnHeader}` : undefined} style={{ width: columnWidths[column.key] ?? column.width }}>
-              {column.label}{index > 0 && <span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeColumn(event, column)} role="separator" aria-label={`${column.label} 열 너비 조절`} />}
-            </Table.Th>)}
-          </Table.Tr></Table.Thead>
-          <Table.Tbody>{items.map((row) => {
-            const rowKey = sourceKey(row);
-            const alreadyAdded = existingKeys.has(rowKey);
-            return <Table.Tr key={rowKey} className={alreadyAdded ? classes.alreadyAddedStock : undefined} aria-disabled={alreadyAdded || undefined}>
-            <Table.Td><input type="checkbox" checked={Boolean(selected[rowKey]) && !alreadyAdded} disabled={loading || alreadyAdded || Boolean(row.linked_orders)} onChange={(event) => toggle(row, event.currentTarget.checked)} aria-label={`${row.itemname} 재고 선택`} /></Table.Td>
-            <Table.Td>{stockSourceTypeName(row.stocksourcetype, row.stocksourceno)}<LinkedOrderBadge orders={row.linked_orders} /></Table.Td>
-            <Table.Td>{String(row.receiptdate || '').slice(0, 10)}</Table.Td>
-            <Table.Td>{row.warehousecodename || row.warehousecode}</Table.Td>
-            <Table.Td>{row.itemname}</Table.Td>
-            <Table.Td>{row.materialname || row.myrtle || ''}</Table.Td>
-            <Table.Td ta="right">{number(row.thickness)}</Table.Td>
-            <Table.Td ta="right">{number(row.width)}</Table.Td>
-            <Table.Td ta="right">{number(row.length)}</Table.Td>
-            <Table.Td ta="right">{number(row.qty)}</Table.Td>
-            <Table.Td ta="right">{number(row.weight)}</Table.Td>
-            <Table.Td>{row.productname || ''}</Table.Td>
-          </Table.Tr>;})}{!items.length && !loading && <Table.Tr><Table.Td colSpan={STOCK_COLUMNS.length} className={classes.empty}>이전할 수 있는 재고가 없습니다.</Table.Td></Table.Tr>}</Table.Tbody>
-        </Table>
-        </Box>
-      </Box>
-      <Group justify="space-between" align="center">
-        <Group gap="xs"><Text size="xs" c="dimmed">총 {total.toLocaleString()}건</Text><Select size="xs" w={100} data={STOCK_PAGE_SIZE_OPTIONS} value={String(pageSize)} onChange={(value) => { if (!value) return; const nextSize = Number(value); setPageSize(nextSize); void load(1, filters, nextSize); }} /></Group>
-        <Group gap="xs"><Text size="xs" c="dimmed">{selectedItems.length.toLocaleString()}개 선택</Text><Pagination size="sm" color="red" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={(value) => void load(value, filters)} withEdges disabled={loading || !total} /><Button variant="default" onClick={onClose}>취소</Button><Button color="red" disabled={!selectedItems.length || loading} onClick={() => onApply(selectedItems)}>선택 반영</Button></Group>
-      </Group>
-    </Stack>
-  </Modal>;
+  const setInput = (field) => (event) => { const { value: nextValue } = event.currentTarget; setInputs((v) => ({ ...v, [field]: nextValue })); };
+  const searchOnEnter = (event) => { if (event.key === 'Enter') runSearch(); };
+
+  return <PickerModal opened={opened} onClose={onClose}
+    title="재고 선택" description="이동할 현재고를 선택합니다. 선택한 재고의 출고 창고는 자동으로 지정됩니다." icon={<IconArrowsExchange size={22} stroke={1.7} />}
+    badge={fromWarehouse ? `출고창고 ${fromWarehouse}` : undefined}
+    filters={<>
+      <ErpDateInput label="기준일 시작" type="date" value={inputs.date_from} onChange={setInput('date_from')} />
+      <ErpDateInput label="기준일 종료" type="date" value={inputs.date_to} onChange={setInput('date_to')} />
+      <TextInput size="sm" label="품목" placeholder="품목코드·품명·제품명" leftSection={<IconSearch size={14} />} value={inputs.item_search} onChange={setInput('item_search')} onKeyDown={searchOnEnter} />
+      <Select size="sm" label="재고 구분" data={[{ value: '', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }]} value={inputs.sourcetype} onChange={(value) => setInputs((v) => ({ ...v, sourcetype: value || '' }))} />
+      <TextInput size="sm" label="두께" placeholder="예: 1.2" value={inputs.thickness} onChange={setInput('thickness')} onKeyDown={searchOnEnter} style={{ width: 100 }} />
+      <TextInput size="sm" label="폭" placeholder="폭" value={inputs.width} onChange={setInput('width')} onKeyDown={searchOnEnter} style={{ width: 100 }} />
+      <TextInput size="sm" label="길이" placeholder="길이" value={inputs.length} onChange={setInput('length')} onKeyDown={searchOnEnter} style={{ width: 100 }} />
+      <Button size="sm" color="red" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
+      <Button size="sm" variant="default" onClick={() => setInputs(emptyStockFilters())}>초기화</Button>
+    </>}
+    guide={<p>이동할 재고를 체크한 뒤 [선택 반영]을 누르세요. 입고 창고는 재고이동 상세에서 입력합니다{toWarehouse ? ` (현재 입고 창고: ${toWarehouse})` : ''}.</p>}
+    listTitle="이동 가능 재고" count={total} loading={loading}
+    selectedCount={selectedItems.length} onClearSelection={() => setSelected({})}
+    pagination={<>
+      <Pagination size="sm" color="red" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={(value) => void load(value, filters, pageSize)} siblings={1} disabled={loading || !total} />
+      <Select size="xs" w={92} data={STOCK_PAGE_SIZE_OPTIONS} value={String(pageSize)} aria-label="페이지당 행 수" onChange={(value) => { if (!value) return; const nextSize = Number(value); setPageSize(nextSize); void load(1, filters, nextSize); }} />
+    </>}
+    onApply={() => onApply(selectedItems)} applyDisabled={!selectedItems.length || loading}>
+    <table className={pickerClasses.table} style={{ width: `max(100%, ${tableWidth}px)`, minWidth: tableWidth }} aria-label="이동 가능 재고">
+      <colgroup>{STOCK_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: columnWidths[column.key] ?? column.width }} />)}</colgroup>
+      <thead><tr>
+        {STOCK_COLUMNS.map((column, index) => <th key={column.key} className={`${index ? pickerClasses.resizableHead : pickerClasses.center} ${STOCK_RIGHT_COLUMNS.has(column.key) ? pickerClasses.right : ''}`}>
+          {index ? column.label : '선택'}{index > 0 && <span className={pickerClasses.resizeHandle} onPointerDown={(event) => resizeColumn(event, column)} role="separator" aria-label={`${column.label} 열 너비 조절`} />}
+        </th>)}
+      </tr></thead>
+      <tbody>{items.map((row) => {
+        const rowKey = sourceKey(row);
+        const alreadyAdded = existingKeys.has(rowKey);
+        const reason = alreadyAdded ? '이미 재고이동 상세에 담긴 재고입니다.' : row.linked_orders ? '주문서에 연결된 재고입니다.' : '';
+        const picked = Boolean(selected[rowKey]) && !alreadyAdded;
+        return <tr key={rowKey} className={picked ? pickerClasses.selectedRow : reason ? pickerClasses.disabledRow : ''} title={reason || undefined}
+          aria-disabled={Boolean(reason) || undefined} onClick={() => { if (!reason && !loading) toggle(row, !picked); }}>
+          <td className={pickerClasses.center}><input className={pickerClasses.checkbox} type="checkbox" checked={picked} disabled={loading || Boolean(reason)} onClick={(event) => event.stopPropagation()} onChange={(event) => toggle(row, event.currentTarget.checked)} aria-label={`${row.itemname} 재고 선택`} /></td>
+          <td>{stockSourceTypeName(row.stocksourcetype, row.stocksourceno)}<LinkedOrderBadge orders={row.linked_orders} /></td>
+          <td>{String(row.receiptdate || '').slice(0, 10)}</td>
+          <td>{row.warehousecodename || row.warehousecode}</td>
+          <td title={row.itemname || ''}>{row.itemname}</td>
+          <td>{row.materialname || row.myrtle || ''}</td>
+          <td className={pickerClasses.right}>{number(row.thickness)}</td>
+          <td className={pickerClasses.right}>{number(row.width)}</td>
+          <td className={pickerClasses.right}>{number(row.length)}</td>
+          <td className={pickerClasses.right}>{number(row.qty)}</td>
+          <td className={pickerClasses.right}>{number(row.weight)}</td>
+          <td title={row.productname || ''}>{row.productname || ''}</td>
+        </tr>;
+      })}
+      {!items.length && <tr><td colSpan={STOCK_COLUMNS.length} className={pickerClasses.emptyCell}>
+        <PickerEmpty title={loading ? '현재고를 조회하고 있습니다' : '이동할 수 있는 재고가 없습니다'} description={loading ? '' : '조회 기간이나 검색 조건을 바꿔 다시 조회해 주세요.'} />
+      </td></tr>}
+      </tbody>
+    </table>
+  </PickerModal>;
 }
 
 export default function InoutmoveRegister() {

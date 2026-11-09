@@ -1,5 +1,5 @@
 
-import { AppShell, Burger, Group, Text, Box, ScrollArea, Button, Stack, Modal, TextInput, PasswordInput, Menu } from '@mantine/core';
+import { AppShell, Burger, Group, Text, Box, ScrollArea, Button, Stack, Modal, PasswordInput, Menu } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { SidebarNav } from './MainLayoutLink';
 import classes from '../../styles/layout/MainLayout.module.css';
@@ -158,10 +158,10 @@ const mockdata = [
     label: '어드민',
     icon: <IconShieldLock {...ic} />,
     links: [
-      { label: '고객사 관리', links: [
+      { label: '고객사정보', links: [
         { label: '고객사등록', link: '/Company', MenuID: 'COMPANY_REGISTRATION' },
         { label: '고객사관리', link: '/User', MenuID: 'COMPANY_USER_MANAGEMENT' },
-        { label: '고객사 권한관리', link: '/UserMenu', MenuID: 'USER_MENU_PERMISSION' },
+        { label: '고객사 메뉴권한', link: '/UserMenu', MenuID: 'USER_MENU_PERMISSION' },
       ] },
     ],
   },

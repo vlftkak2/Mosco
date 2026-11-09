@@ -111,6 +111,7 @@
 .pickerCriteria { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 7px; color: #344c68; }
 .pickerCriteria > span { display: inline-flex; flex-wrap: wrap; gap: 7px; }
 .pickerCriteria b { color: #718197; font-size: 11px; font-weight: 500; }
+.pickerCriteria > span.pickerCriteriaEmpty { color: #9aa8b9; }
 .pickerList { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid #dce2ea; border-radius: 7px; background: #fff; }
 .pickerListHeader { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; min-height: 42px; padding: 9px 12px; border-bottom: 1px solid #e1e6ee; }
 .pickerListHeader > div { display: flex; align-items: center; gap: 8px; }
