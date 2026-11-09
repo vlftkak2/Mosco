@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { writeAIOrderDraft } from './AIOrderDraft';
 import { TableVirtuoso } from 'react-virtuoso';
 import {
   Badge, Box, Button, Group, Loader, Progress,
@@ -29,7 +30,7 @@ const NUMERIC_LINE_FIELDS = {
 const NUMERIC_EDIT_PATTERN = /^\d{0,12}(?:\.\d{0,3})?$/;
 const NUMERIC_VALUE_PATTERN = /^(?:\d{1,12}(?:\.\d{0,3})?|\.\d{1,3})$/;
 const LINE_COLUMNS = [
-  ['source_product_name', '품명', 180], ['steel_grade', '강종', 100], ['spec_raw', '규격 원문', 190],
+  ['source_product_name', '품명', 180], ['steel_grade', '강종', 100], ['surface', '표면', 90], ['spec_raw', '규격 원문', 190],
   ['thickness', '두께', 90], ['width', '폭', 90], ['length', '길이', 90],
   ['quantity', '수량', 110], ['quantity_unit', '단위', 90], ['weight_kg', '중량', 115], ['notes', '비고', 180],
 ];
@@ -50,7 +51,7 @@ function measureOrderColumnWidths(items) {
   if (!context) return {};
   context.font = '13px Arial, sans-serif';
   const maximumWidths = {
-    source_product_name: 320, steel_grade: 200, spec_raw: 320,
+    source_product_name: 320, steel_grade: 200, surface: 180, spec_raw: 320,
     thickness: 150, width: 150, length: 150, quantity: 150,
     quantity_unit: 150, weight_kg: 170, notes: 420,
   };
@@ -108,7 +109,7 @@ function findInvalidNumericLine(items = []) {
 
 function createManualOrderLine() {
   return {
-    source_product_name: null, steel_grade: null, spec_raw: null, thickness: null, width: null, length: null,
+    source_product_name: null, steel_grade: null, surface: null, spec_raw: null, thickness: null, width: null, length: null,
     quantity: null, quantity_raw: null, quantity_unit: null, weight_kg: null, weight_raw: null,
     notes: null, source_reference: null, source_locations: [],
     __manual: true,
@@ -855,27 +856,24 @@ export default function AIOrderPage() {
       setOrderConfirmTargetId(null);
       return;
     }
+    // 여기서는 저장하지 않는다. 주문서 관리로 넘기고, 주문서 관리에서 수정 후 [저장]할 때 저장된다.
     setConfirmingId(doc.id);
     try {
-      const { data } = await axios.post('/api/ai-order/confirmed', {
+      writeAIOrderDraft({
         analysis_request_id: doc.analysisRequestId,
         sourcefilename: doc.file.name,
         header: doc.extraction.header,
         items: doc.extraction.items,
-      }, authConfig());
+      });
       notifications.show({
-        title: data.already_confirmed ? '이미 확정된 주문' : '주문확정 완료',
-        message: data.already_confirmed
-          ? `${data.orderid} 주문을 불러왔습니다.`
-          : `${data.orderid} 주문과 상세 ${doc.extraction.items.length}건을 저장했습니다.`,
+        title: '주문서 관리로 넘겼습니다',
+        message: `상세 ${doc.extraction.items.length}건을 확인·수정한 뒤 [저장]하면 주문이 저장됩니다.`,
         color: 'teal',
       });
       setOrderConfirmTargetId(null);
-      const orderDate = String(doc.extraction?.header?.order_date || '').trim();
-      navigate(`/AIOrderManage?orderid=${encodeURIComponent(data.orderid)}&orderdate=${encodeURIComponent(orderDate)}`);
-    } catch (error) {
-      const detail = error.response?.data?.detail;
-      notifications.show({ title: '주문확정 실패', message: typeof detail === 'string' ? detail : '입력값과 서버 상태를 확인해주세요.', color: 'red' });
+      navigate('/AIOrderManage?draft=1');
+    } catch {
+      notifications.show({ title: '주문서 관리로 넘기지 못했습니다', message: '브라우저 저장공간을 확인한 뒤 다시 시도해 주세요.', color: 'red' });
     } finally {
       setConfirmingId(null);
     }
@@ -1143,11 +1141,11 @@ export default function AIOrderPage() {
         <Text className={classes.emptyStateFootnote} size="xs" c="dimmed">분석 결과는 확인용이며 ERP 전표와 재고에는 반영되지 않습니다.</Text>
       </Box>
     </Paper>}</Box>
-    <Modal opened={Boolean(orderConfirmTarget)} onClose={() => !confirmingId && setOrderConfirmTargetId(null)} title="주문확정 저장" size="sm" centered radius="md" overlayProps={{ backgroundOpacity: 0.5, blur: 2 }}>
+    <Modal opened={Boolean(orderConfirmTarget)} onClose={() => !confirmingId && setOrderConfirmTargetId(null)} title="주문서 관리로 넘기기" size="sm" centered radius="md" overlayProps={{ backgroundOpacity: 0.5, blur: 2 }}>
       <Stack gap="md">
         <Stack gap={3}>
-          <Text size="sm" c="dimmed">검토한 발주서와 상세 품목을 확정 주문으로 저장합니다.</Text>
-          <Text size="sm" c="dimmed">저장 후 주문서 확정 화면으로 이동합니다.</Text>
+          <Text size="sm" c="dimmed">검토한 발주서와 상세 품목을 주문서 관리로 넘깁니다.</Text>
+          <Text size="sm" c="dimmed">아직 저장되지 않으며, 주문서 관리에서 확인·수정 후 [저장]해야 주문이 저장됩니다.</Text>
         </Stack>
         <Paper withBorder p="sm" radius="sm" className={classes.analysisCostNotice}>
           <Group justify="space-between" gap="md"><Text size="sm" fw={700}>발주처</Text><Text size="sm">{orderConfirmTarget?.extraction?.header?.buyer || '미입력'}</Text></Group>
@@ -1156,7 +1154,7 @@ export default function AIOrderPage() {
         </Paper>
         <Group justify="flex-end">
           <Button variant="default" onClick={() => setOrderConfirmTargetId(null)} disabled={Boolean(confirmingId)}>취소</Button>
-          <Button color="red" leftSection={<IconPlayerPlay size={15} />} onClick={() => void confirmDocument()} loading={confirmingId === orderConfirmTargetId}>저장 후 이동</Button>
+          <Button color="red" leftSection={<IconPlayerPlay size={15} />} onClick={() => void confirmDocument()} loading={confirmingId === orderConfirmTargetId}>주문서 관리로 이동</Button>
         </Group>
       </Stack>
     </Modal>

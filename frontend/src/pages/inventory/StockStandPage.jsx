@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { usePageActivation } from '../../components/common/usePageReactivated';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import XLSX from 'xlsx-js-style';
 import {
@@ -999,6 +1000,7 @@ const StockGridRowCells = memo(function StockGridRowCells({ row, rowNumber, isSe
 });
 
 export default function StockStandPage() {
+  const pageActivation = usePageActivation(); // 탭에 돌아올 때마다 목록(코드·거래처)을 다시 불러온다
   const initialRange = currentMonthRange();
   const [standdate, setStanddate] = useState(localDate);
   const [dateFrom, setDateFrom] = useState(initialRange.from);
@@ -1181,12 +1183,14 @@ export default function StockStandPage() {
 
   useEffect(() => {
     loadRows(standdate, '', false, true);
-    Promise.all([loadCodes('QTY'), loadCodes('WAREHOUSE'), loadCodes('PRICE_UNIT'), loadCodes('MATERIAL'), loadCodes('SURFACE')])
-      .then(([quantity, warehouse, price, material, surface]) => setMasters({ quantity, warehouse, price, material, surface }))
-      .catch((error) => notifications.show({ title: '기초재고 코드 조회 실패', message: errorText(error), color: 'red' }));
   // Initial load; date changes are explicitly searched to protect edits.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    Promise.all([loadCodes('QTY'), loadCodes('WAREHOUSE'), loadCodes('PRICE_UNIT'), loadCodes('MATERIAL'), loadCodes('SURFACE')])
+      .then(([quantity, warehouse, price, material, surface]) => setMasters({ quantity, warehouse, price, material, surface }))
+      .catch((error) => notifications.show({ title: '기초재고 코드 조회 실패', message: errorText(error), color: 'red' }));
+  }, [loadCodes, pageActivation]);
 
   useEffect(() => {
     if (!masters.warehouse.length && !masters.material.length && !masters.surface.length) return;

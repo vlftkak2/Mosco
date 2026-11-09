@@ -3,9 +3,10 @@ import { AppShell, Burger, Group, Text, Box, ScrollArea, Button, Stack, Modal, T
 import { useDisclosure } from '@mantine/hooks';
 import { LinksGroup } from './MainLayoutLink';
 import classes from '../../styles/layout/MainLayout.module.css';
-import { createContext, useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate,useLocation } from 'react-router-dom';
+import { createContext, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useLocation, useOutlet } from 'react-router-dom';
 import { clearAIOrderPageSession } from '../../pages/ai/AIOrderPageSession';
+import { clearAIOrderDraft } from '../../pages/ai/AIOrderDraft';
 import { 
   IconAddressBook,
   IconAdjustmentsHorizontal,
@@ -41,6 +42,27 @@ import { IconCheck, IconX } from '@tabler/icons-react'; // 아이콘 추가
 import steel119HomeLogo from '../../assets/img/steel119-home.png';
 
 export const PageRibbonContext = createContext(null);
+
+// 열린 탭의 화면을 계속 띄워 두고(숨김만) 탭마다 리본을 따로 보관한다 → 탭을 옮겨도 화면 상태가 그대로.
+// 탭을 닫을 때만 화면이 지워진다.
+// 탭이 지금 보이는지 (숨었다가 다시 보이면 화면이 최신 데이터를 다시 불러올 수 있게)
+export const PageActiveContext = createContext(true);
+// 탭이 화면에 다시 나타난 횟수 (처음 열 때 1, 다른 탭에 갔다 돌아올 때마다 +1)
+export const PageActivationContext = createContext(0);
+
+const KeepAlivePage = memo(function KeepAlivePage({ path, active, activation, element, setRibbons, closeTabRef }) {
+  const ribbonContext = useMemo(() => ({
+    registerPageRibbon: (content) => setRibbons((current) => ({ ...current, [path]: content })),
+    closeActivePage: () => closeTabRef.current?.(null, path),
+  }), [path, setRibbons, closeTabRef]);
+  return <div style={{ display: active ? 'contents' : 'none' }} data-tab-path={path} aria-hidden={active ? undefined : true}>
+    <PageActiveContext.Provider value={active}>
+      <PageActivationContext.Provider value={activation}>
+        <PageRibbonContext.Provider value={ribbonContext}>{element}</PageRibbonContext.Provider>
+      </PageActivationContext.Provider>
+    </PageActiveContext.Provider>
+  </div>;
+});
 export const MenuAccessContext = createContext({ menuids: [], loaded: false, authority: 'USER', fallbackPath: null });
 
 const mockdata = [
@@ -116,8 +138,7 @@ const mockdata = [
     links: [
       { label: 'AI 주문서 인식', link: '/AIOrderPage', icon: '', MenuID: 'AI_ORDER_RECOGNITION' },
       { label: '주문서 관리', link: '/AIOrderManage', icon: '', MenuID: 'AI_ORDER_MANAGEMENT' },
-      { label: '가공 최적화(EX)', link: '/AIOrderOptimization', icon: '', MenuID: 'AI_OPTIMIZATION' },
-      { label: '가공기준 관리(EX)', link: '/AIProcessingStandards', icon: '', MenuID: 'AI_STANDARDS' },
+      { label: '가공 최적화', link: '/AIOrderOptimization', icon: '', MenuID: 'AI_OPTIMIZATION' },
 
         
     ],
@@ -189,7 +210,6 @@ function findMenuLabel(items, path) {
     '/aiorderpage': 'AI 가공솔루션',
     '/aiordermanage': '주문서 관리',
     '/aiorderoptimization': '가공 최적화',
-    '/aiprocessingstandards': '가공기준 관리',
     '/itemprocessmaster': '가공공정 관리',
     '/itemprocessregister': '가공등록',
     '/itemprocesssearch': '가공현황',
@@ -236,21 +256,26 @@ export default function MainLayout({ children }) {
     }
     return next;
   });
-  const { pathname } = useLocation(); // 2. 현재 경로 가져오기
+  const location = useLocation();
+  const { pathname } = location; // 2. 현재 경로 가져오기
+  const outlet = useOutlet();
   const isDashboard = String(pathname || '').replace(/\/+$/, '').toLowerCase() === '/homepage';
   const isInboundWorkspace = [
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
     '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage',
-    '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/aiprocessingstandards', '/itemprocessmaster', '/itemprocessregister', '/itemprocesssearch', '/customersupport',
+    '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/itemprocessmaster', '/itemprocessregister', '/itemprocesssearch', '/customersupport',
     '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/instrumentstatus', '/grossprofit', '/grossprofitdashboard', '/company', '/user', '/usermenu',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
-  const [pageRibbon, setPageRibbon] = useState(null);
-  const registerPageRibbon = useCallback((content) => setPageRibbon(() => content), []);
+  // 탭별 화면 / 리본 보관 (key = 경로)
+  const [pageCache, setPageCache] = useState({});
+  const [ribbons, setRibbons] = useState({});
+  const [activations, setActivations] = useState(() => ({ [pathname]: 1 }));
   const [tabState, setTabState] = useState(() => ({
     pathname,
     tabs: [{ path: pathname, label: findMenuLabel(mockdata, pathname) }],
   }));
   if (pathname !== tabState.pathname) {
+    setActivations((current) => ({ ...current, [pathname]: (current[pathname] || 0) + 1 }));
     const tab = { path: pathname, label: findMenuLabel(mockdata, pathname) };
     const tabs = tabState.tabs.some((item) => item.path === tab.path)
       ? tabState.tabs
@@ -275,16 +300,21 @@ export default function MainLayout({ children }) {
     if (String(path || '').replace(/\/+$/, '').toLowerCase() === '/aiorderpage') {
       clearAIOrderPageSession();
     }
+    // 주문서 관리 탭을 닫으면 저장 전 주문도 버린다 (탭이 열려 있는 동안은 다른 화면에 다녀와도 유지)
+    if (String(path || '').replace(/\/+$/, '').toLowerCase() === '/aiordermanage') {
+      clearAIOrderDraft();
+    }
     const remaining = pageTabs.filter((tab) => tab.path !== path);
     if (!remaining.length) remaining.push({ path: '/HomePage', label: findMenuLabel(mockdata, '/HomePage') });
     setTabState({ pathname, tabs: remaining });
+    // 닫은 탭의 화면과 리본을 지운다 (다시 열면 처음 상태로 시작)
+    setPageCache((current) => { const next = { ...current }; delete next[path]; return next; });
+    setRibbons((current) => { const next = { ...current }; delete next[path]; return next; });
     if (pathname === path) navigate(remaining[remaining.length - 1].path);
   }, [pageTabs, pathname, navigate]);
-  const closeActivePage = useCallback(() => closePageTab(null, pathname), [closePageTab, pathname]);
-  const pageRibbonContextValue = useMemo(
-    () => ({ registerPageRibbon, closeActivePage }),
-    [registerPageRibbon, closeActivePage],
-  );
+  // 화면별 리본의 [닫기]가 항상 최신 closePageTab 을 쓰도록
+  const closeTabRef = useRef(closePageTab);
+  useLayoutEffect(() => { closeTabRef.current = closePageTab; }, [closePageTab]);
 
   const [myPermissions, setMyPermissions] = useState([]);
   const [myPermissionsLoaded, setMyPermissionsLoaded] = useState(false);
@@ -436,6 +466,7 @@ const handlePasswordChange = async (e) => {
 
   const handleLogout = () =>{
     clearAIOrderPageSession();
+    clearAIOrderDraft();
     ['access_token', 'user_name', 'user_email', 'user_company', 'user_companyname', 'user_authority']
       .forEach((key) => localStorage.removeItem(key));
     navigate('/login');
@@ -480,6 +511,20 @@ useEffect(() => {
 const links = visibleMockdata.map((item) => (
   <LinksGroup {...item} pathname={pathname} collapsed={sidebarCollapsed} key={item.label} />
 ));
+
+// 대시보드 권한이 없으면 대시보드 화면을 띄우지 않고 안내 문구만 보인다
+const dashboardBlocked = isDashboard && !isPlatformMaster && (!myPermissionsLoaded || !myPermissions.includes('HOME'));
+// 처음 여는 탭이면 화면을 보관한다. 이미 열린 탭이라도 조건(주소 ?…, 전달값)을 들고 다시 열리면 새로 시작한다.
+const cachedPage = pageCache[pathname];
+const opensWithParams = Boolean(location.search) || location.state != null;
+// (닫은 탭은 이동이 끝나기 전 한 번 더 그려질 때 다시 보관되지 않도록, 열린 탭 목록에 있을 때만)
+const isOpenTab = pageTabs.some((tab) => tab.path === pathname);
+if (!dashboardBlocked && outlet && isOpenTab && (!cachedPage || (opensWithParams && cachedPage.locationKey !== location.key))) {
+  setPageCache((current) => ({
+    ...current,
+    [pathname]: { element: outlet, locationKey: location.key, version: (current[pathname]?.version || 0) + 1 },
+  }));
+}
 
 const menuAccessContextValue = {
   menuids: myPermissions,
@@ -547,7 +592,7 @@ const menuAccessContextValue = {
         </Box>
 
         <Box className={classes.headerActions}>
-          {pageRibbon}
+          {ribbons[pathname] ?? null}
         </Box>
 
         <Group className={classes.headerUser} gap={8} wrap="nowrap">
@@ -653,17 +698,17 @@ const menuAccessContextValue = {
         {/* 클래스 적용 */}
         <div className={`${classes.contentCard} ${isDashboard ? classes.dashboardContentCard : isInboundWorkspace ? classes.inboundContentCard : ''}`}>
           <MenuAccessContext.Provider value={menuAccessContextValue}>
-          <PageRibbonContext.Provider value={pageRibbonContextValue}>
-            {isDashboard && !isPlatformMaster && !myPermissionsLoaded
+            {dashboardBlocked && (!myPermissionsLoaded
               ? <Text c="dimmed" ta="center" mt="xl">메뉴 권한을 확인하고 있습니다.</Text>
-              : isDashboard && !isPlatformMaster && !myPermissions.includes('HOME')
-                ? <Text c="dimmed" ta="center" mt="xl">
-                    {noAccessibleMenus
-                      ? '접근할 수 있는 메뉴가 없습니다. 관리자에게 메뉴 권한을 요청해 주세요.'
-                      : '대시보드 권한이 없어 허용된 메뉴로 이동합니다.'}
-                  </Text>
-                : children}
-          </PageRibbonContext.Provider>
+              : <Text c="dimmed" ta="center" mt="xl">
+                  {noAccessibleMenus
+                    ? '접근할 수 있는 메뉴가 없습니다. 관리자에게 메뉴 권한을 요청해 주세요.'
+                    : '대시보드 권한이 없어 허용된 메뉴로 이동합니다.'}
+                </Text>)}
+            {Object.entries(pageCache).map(([path, entry]) => (
+              <KeepAlivePage key={`${path}#${entry.version}`} path={path} active={path === pathname && !dashboardBlocked} activation={activations[path] || 0}
+                element={entry.element} setRibbons={setRibbons} closeTabRef={closeTabRef} />
+            ))}
           </MenuAccessContext.Provider>
         </div>
       </AppShell.Main>

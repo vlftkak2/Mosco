@@ -33,6 +33,11 @@
 .detailActionButton { --button-bg: #ff505a; --button-hover: #ef4552; --button-color: #fff; min-height: 28px; border: 1px solid #ff505a; background: #ff505a; color: #fff; font-weight: 600; }
 .detailActionButton:hover { --button-bg: #ef4552; border-color: #ef4552; background: #ef4552; color: #fff; }
 .orderHeaderEditButton { margin-left: auto; }
+.detailHeaderActions { margin-left: auto; }
+.requiredMark { color: #e03131; font-weight: 700; }
+.secondaryActionButton { min-height: 28px; border-color: #cfd7e1 !important; color: #42536b !important; font-weight: 600; }
+.secondaryActionButton:hover:not(:disabled) { background: #f5f7fa !important; }
+.secondaryActionButton:disabled, .detailActionButton:disabled { border-color: #e3e7ed !important; background: #f1f3f5 !important; color: #adb5bd !important; cursor: not-allowed; }
 .toolbar,.panel,.button,.fields input,.fields select,.pager button { box-sizing: border-box; }
 .toolbar {
   display: flex;
@@ -136,7 +141,7 @@
 .detailPanel { display: flex; min-height: 0; flex: 1 1 0; flex-direction: column; }
 .modalBackdrop { position: fixed; z-index: 500; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; background: #141d2e85; }
 .modal { width: min(780px, 95vw); max-height: 90vh; overflow: auto; border: 1px solid #dce2ea; border-radius: 7px; background: white; box-shadow: 0 14px 45px #11182745; }
-.wideModal { width: min(1280px, 96vw); }
+.wideModal { width: min(1280px, calc(100vw - 40px)); }
 .modalHeader { display: flex; min-height: 48px; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid #e1e6ee; color: #1e2e45; font-size: 14px; }
 .closeIcon { display: inline-flex; align-items: center; justify-content: center; padding: 5px; border: 0; background: transparent; color: #718197; cursor: pointer; }
 .modalBody { padding: 16px; }.modalFooter { display: flex; justify-content: flex-end; gap: 7px; padding: 11px 16px; border-top: 1px solid #e1e6ee; }

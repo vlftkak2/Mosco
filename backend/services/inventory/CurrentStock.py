@@ -4,6 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+from services.ai.stock_links import ensure_not_linked
 import db as _shared_db
 from psycopg2.extras import execute_values
 from pydantic import BaseModel, Field, field_validator
@@ -528,6 +529,8 @@ def reverse_document(cursor, companyid: str, iniotype: str, receiptno: str, acto
         source_type = "OPENING" if iniotype == "ST" else "INBOUND"
         source_lines = [int(movement["lineno"]) for movement in movements]
         _lock_rows_sorted(cursor, companyid, [(source_type, receiptno, line_no) for line_no in source_lines])
+        # 주문에 연결됐거나 확정 계획에 잡힌 재고는 지우지 않는다 (연결·계획이 사라진 재고를 가리키지 않게)
+        ensure_not_linked(cursor, companyid, {(source_type, receiptno, line_no) for line_no in source_lines}, action="삭제")
         cursor.execute(
             """DELETE FROM CurrentStock01t
                WHERE companyid = %s AND sourcetype = %s AND sourceno = %s

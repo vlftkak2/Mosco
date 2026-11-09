@@ -25,7 +25,6 @@ import StockStandPage from "./pages/inventory/StockStandPage";
 import CurrentStockPage from "./pages/inventory/CurrentStockPage";
 import IniopStockPage from "./pages/inventory/IniopStockPage";
 import AIOrderPage from "./pages/ai/AIOrderPage";
-import AIProcessingStandards from "./pages/ai/AIProcessingStandards";
 import AIOrderOptimization from "./pages/ai/AIOrderOptimization";
 import AIOrderManage from "./pages/ai/AIOrderManage";
 import CustomerSupport from "./pages/system/CustomerSupport";
@@ -105,7 +104,6 @@ function App() {
           <Route path="/GrossProfitDashboard" element={menuPage('GROSS_PROFIT_DASHBOARD', <GrossProfitDashboard />)} />
           <Route path="/AIOrderPage" element={menuPage('AI_ORDER_RECOGNITION', <AIOrderPage />)} />
           <Route path="/AIOrderOptimization" element={menuPage('AI_OPTIMIZATION', <AIOrderOptimization />)} />
-          <Route path="/AIProcessingStandards" element={menuPage('AI_STANDARDS', <AIProcessingStandards />)} />
           <Route path="/AIOrderManage" element={menuPage('AI_ORDER_MANAGEMENT', <AIOrderManage />)} />
           <Route path="/CustomerSupport" element={<RequireAuthority allowed={['MASTER']}><CustomerSupport /></RequireAuthority>} />
           <Route path="/Company" element={<RequireAuthority allowed={['MASTER']}><Company /></RequireAuthority>} />

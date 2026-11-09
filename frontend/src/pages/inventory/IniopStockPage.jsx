@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import usePageReactivated from '../../components/common/usePageReactivated';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { ActionIcon, Box, Group, Loader, Pagination, Paper, Select, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -32,6 +33,8 @@ export default function IniopStockPage() {
   const [exporting, setExporting] = useState(false);
   const requestId = useRef(0);
   const load = useCallback(async () => { const id = ++requestId.current; setLoading(true); try { const params = { page, page_size: pageSize, ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)) }; const { data } = await axios.get('/api/iniop-stock/items', { ...authConfig(), params }); if (id !== requestId.current) return; setItems(data.items || []); setTotal(data.total || 0); } catch (error) { if (id === requestId.current) notifications.show({ title: '수불장 조회 실패', message: error.response?.data?.detail || '수불 내역을 조회하지 못했습니다.', color: 'red' }); } finally { if (id === requestId.current) setLoading(false); } }, [page, pageSize, filters]);
+  // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
+  usePageReactivated(() => { void load(); });
   useEffect(() => { void load(); }, [load]);
   const search = () => { if (inputs.date_from && inputs.date_to && inputs.date_from > inputs.date_to) { notifications.show({ title: "조회 조건 확인", message: "수불 시작일은 종료일보다 뒤일 수 없습니다.", color: "orange" }); return; } setFilters(Object.fromEntries(Object.entries(inputs).map(([key, value]) => [key, String(value || "").trim()]))); setPage(1); };
   const exportExcel = async () => { if (!total || exporting) return; setExporting(true); try { const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value)); const { data } = await axios.get('/api/iniop-stock/items/export', { ...authConfig(), params, responseType: 'blob' }); const url = URL.createObjectURL(data); const link = document.createElement('a'); link.href = url; link.download = `수불장_${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.xlsx`; document.body.appendChild(link); link.click(); link.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); } catch { notifications.show({ title: '엑셀 다운로드 실패', message: '수불장을 엑셀로 저장하지 못했습니다.', color: 'red' }); } finally { setExporting(false); } };
@@ -52,11 +55,11 @@ export default function IniopStockPage() {
         <Box>
           <Text size="xs" fw={700} mb={5}>재고기간</Text>
           <Stack gap={6}>
-            <ErpDateInput aria-label="재고기간 시작일" type="date" value={inputs.date_from} onChange={(event) => setInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
-            <ErpDateInput aria-label="재고기간 종료일" type="date" value={inputs.date_to} onChange={(event) => setInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
+            <ErpDateInput aria-label="재고기간 시작일" type="date" value={inputs.date_from} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, date_from: nextValue })); }} />
+            <ErpDateInput aria-label="재고기간 종료일" type="date" value={inputs.date_to} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, date_to: nextValue })); }} />
           </Stack>
         </Box>
-        {fields.map(([key, label]) => <TextInput key={key} label={label} placeholder={key === "customname" ? "거래처명 검색" : key === "item_search" ? "품목코드 또는 품목명" : key === "product_search" ? "제품번호 검색" : "창고코드 또는 창고명"} value={inputs[key] || ""} onChange={(event) => setInputs((current) => ({ ...current, [key]: event.currentTarget.value }))} onKeyDown={(event) => event.key === "Enter" && search()} />)}
+        {fields.map(([key, label]) => <TextInput key={key} label={label} placeholder={key === "customname" ? "거래처명 검색" : key === "item_search" ? "품목코드 또는 품목명" : key === "product_search" ? "제품번호 검색" : "창고코드 또는 창고명"} value={inputs[key] || ""} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, [key]: nextValue })); }} onKeyDown={(event) => event.key === "Enter" && search()} />)}
       </Stack>
     </Paper>}
     <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder><Group className={classes.resultsToolbar} justify="space-between"><Text className={classes.sectionTitle} fw={700}>재고수불현황</Text></Group>

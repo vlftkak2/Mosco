@@ -3,6 +3,7 @@
 // 계산식은 backend/services/outbound/GrossProfit.py 상단 설명 참고.
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import usePageReactivated from '../../components/common/usePageReactivated';
 import XLSX from 'xlsx-js-style';
 import { ActionIcon, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -167,7 +168,8 @@ export default function GrossProfit() {
   // 현황판에서 넘어온 조건 (?customer=&date_from=&date_to=) 적용
   const location = useLocation();
   const [appliedSearch, setAppliedSearch] = useState('');
-  if (location.search && location.search !== appliedSearch) {
+  // 탭이 숨어 있는 동안 다른 화면 주소를 읽지 않도록 자기 경로일 때만 적용
+  if (location.pathname.toLowerCase() === '/grossprofit' && location.search && location.search !== appliedSearch) {
     setAppliedSearch(location.search);
     const query = new URLSearchParams(location.search);
     const next = { ...makeFilters() };
@@ -193,6 +195,8 @@ export default function GrossProfit() {
       if (id === requestId.current) setLoading(false);
     }
   }, []);
+  // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
+  usePageReactivated(() => { void load(filters); });
   useEffect(() => { void load(filters); }, [load, filters]);
 
   const search = useCallback(() => {
@@ -329,7 +333,7 @@ export default function GrossProfit() {
                     collapsed={collapsed.has(groupKey(block.group))} onToggle={toggleGroup} />)
                     : !loading && <tr><td colSpan={COLUMNS.length} className={pageClasses.emptyCell}>조회된 매출이 없습니다. 기간과 조건을 확인해 주세요.</td></tr>}
                 </tbody>
-                {total && blocks.length > 0 && <tfoot><tr className={`${TR} ${pageClasses.totalRow}`}><SummaryCells entry={total} label="합계" /></tr></tfoot>}
+                {total && blocks.length > 0 ? <tfoot><tr className={`${TR} ${pageClasses.totalRow}`}><SummaryCells entry={total} label="합계" /></tr></tfoot> : null}
               </Table>
             </Box>
           </Box>

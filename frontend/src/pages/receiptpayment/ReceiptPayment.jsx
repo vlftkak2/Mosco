@@ -1,5 +1,6 @@
 import { memo, useCallback, useContext, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { usePageActivation } from '../../components/common/usePageReactivated';
 import XLSX from 'xlsx-js-style';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import { INSTRUMENT_OPTIONS_BY_FIELD, INSTRUMENT_TYPE_OPTIONS, instrumentLabel } from '../../utils/instrumentCodes';
@@ -667,6 +668,7 @@ const ReceiptBankPickerModal = memo(function ReceiptBankPickerModal({ opened, on
 });
 
 export default function ReceiptPayment() {
+  const pageActivation = usePageActivation(); // 탭에 돌아올 때마다 목록(코드·거래처)을 다시 불러온다
   const ribbon = useContext(PageRibbonContext);
   const registerRibbon = ribbon?.registerPageRibbon;
   const closePage = ribbon?.closeActivePage;
@@ -798,7 +800,7 @@ export default function ReceiptPayment() {
       if (!cancelled) notifications.show({ title: '거래처 조회 실패', message: errorText(error), color: 'red' });
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [pageActivation]);
 
   useEffect(() => {
     let cancelled = false;
@@ -821,7 +823,7 @@ export default function ReceiptPayment() {
     };
     void loadBankOptions().catch(() => { if (!cancelled) setBankOptions([]); });
     return () => { cancelled = true; };
-  }, []);
+  }, [pageActivation]);
 
   const loadDocuments = useCallback(async (nextPage = 1, query = filters, size = pageSize) => {
     const request = ++listRequest.current;
@@ -1421,7 +1423,7 @@ export default function ReceiptPayment() {
               <Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>수금/지급 상세</Text><Badge variant="light" color="gray">{items.length}행</Badge>{header.receiptno && <Badge variant="light" color="gray">{header.receiptno}</Badge>}</Group>
             </Group>
             <Box className={`${inboundClasses.sharedReceiptFields} ${classes.headerFields}`}>
-              <Box className={inboundClasses.sharedReceiptField}><Text className={classes.fieldLabel}>수금/지급일 <i>*</i></Text><ErpDateInput type="date" value={header.receiptdate} disabled={saving || isSavedDocument} onChange={(event) => setHeader((v) => ({ ...v, receiptdate: event.currentTarget.value }))} /></Box>
+              <Box className={inboundClasses.sharedReceiptField}><Text className={classes.fieldLabel}>수금/지급일 <i>*</i></Text><ErpDateInput type="date" value={header.receiptdate} disabled={saving || isSavedDocument} onChange={(event) => { const { value: nextValue } = event.currentTarget; setHeader((v) => ({ ...v, receiptdate: nextValue })); }} /></Box>
               <Box className={inboundClasses.sharedReceiptField}><Text className={classes.fieldLabel}>구분 <i>*</i></Text><Select data={TRANSACTION_OPTIONS} value={header.transactiontype} disabled={saving || isSavedDocument || hasHeldRows} title={hasHeldRows ? '보유증권 행이 있어 구분을 바꿀 수 없습니다.' : undefined} onChange={changeTransactionType} /></Box>
               <Box className={`${inboundClasses.sharedReceiptField} ${classes.customerField}`}><Text className={classes.fieldLabel}>거래처 <i>*</i></Text>
                 <Box onDoubleClick={() => { if (!saving && !isSavedDocument) setCustomerPickerOpen(true); }}>

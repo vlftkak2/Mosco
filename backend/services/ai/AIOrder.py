@@ -35,7 +35,7 @@ if _configured_reasoning_effort not in _SUPPORTED_REASONING_EFFORTS:
     logger.warning("Unsupported AI_ORDER_REASONING_EFFORT; using low")
     _configured_reasoning_effort = "low"
 REASONING_EFFORT = _configured_reasoning_effort
-EXTRACTION_SCHEMA_VERSION = 20
+EXTRACTION_SCHEMA_VERSION = 21  # 21: 품목 표면(surface) 추가
 DAILY_LIMIT = max(1, int(os.getenv("AI_ORDER_DAILY_LIMIT", "100")))
 COMPANY_DAILY_LIMIT = max(1, int(os.getenv("AI_ORDER_COMPANY_DAILY_LIMIT", "100")))
 MONTHLY_BUDGET_USD = max(0.01, float(os.getenv("AI_ORDER_MONTHLY_BUDGET_USD", "20")))
@@ -138,6 +138,8 @@ class OrderLine(BaseModel):
 
     source_product_name: str | None = Field(description="문서에 적힌 품명 원문")
     steel_grade: str | None = Field(description="문서에서 명확하게 읽은 강종")
+    # 기본값 None: 표면 항목이 생기기 전에 만든 결과도 그대로 읽힌다
+    surface: str | None = Field(default=None, description="문서에서 명확하게 읽은 표면(도금·표면처리)")
     spec_raw: str | None = Field(description="규격 원문. 기호와 숫자를 그대로 보존")
     thickness: float | None = Field(description="문서에서 명확한 두께")
     width: float | None = Field(description="문서에서 명확한 폭")
@@ -204,6 +206,7 @@ def _strict_schema() -> dict[str, Any]:
     line = object_schema({
         "source_product_name": nullable_string,
         "steel_grade": nullable_string,
+        "surface": nullable_string,
         "spec_raw": nullable_string,
         "thickness": nullable_number,
         "width": nullable_number,
@@ -236,7 +239,8 @@ SYSTEM_PROMPT = """당신은 철강 주문서 데이터 추출기입니다. 입�
 숫자 쉼표는 제거해 수량·중량 숫자를 반환하고, 수량 원문과 중량 원문도 보존하세요. 수량이 나머지, 전량, -, 기타 문자이면 quantity는 null, quantity_raw는 원문입니다.
 단위 KG, TON, EA, SHEET 등을 구별하세요. 수량 칸에 수량(KG)처럼 단위가 붙으면 quantity_unit을 KG로 쓰고, 별도 중량이 표시되지 않는 한 weight_kg를 중복해서 채우지 마세요. 중량이 별도 칸에 TON으로 명시되면 weight_kg로 환산할 수 있지만 weight_raw에 원문을 보존하세요.
 날짜는 발주일자와 납기일/입고일을 구별하고, 모호하지 않을 때만 YYYY-MM-DD로 표준화하세요. 발주처와 수신처를 읽을 때 법인 표기 '(주)', '㈜', '주식회사'를 생략하지 말고 원문대로 보존하세요. 납품 장소는 문서 전체에서 찾으세요. 상단 헤더뿐 아니라 품목 표 아래의 번호 조항, 하단 안내문, 비고와 Remarks도 빠짐없이 읽으세요. '납품장소는 X 납품을 원칙으로 합니다', 'X로 납품', '납품처: X'처럼 장소를 직접 지정한 문장은 실제 배송 위치를 가리키는 근거로 사용하세요. '도착지: 당사/자사/본사'처럼 도착지가 발주처를 가리키는 상대 표현이면 발주처(주문서를 발행한 회사)를 식별하고, 그 회사 정보 블록에 인쇄된 유일한 주소를 delivery_location으로 사용하세요. 위와 같은 명시적 납품 지시가 없고 발주처 정보 블록에 '주소'라고 표시된 주소가 하나만 있으면, 그 주소를 기본 delivery_location으로 사용하고 needs_review=true로 표시하세요. 이 기본값 규칙은 발주처 주소에만 적용하며, 수신처 주소나 라벨이 없는 주소를 납품장소로 대신 사용하지 마세요. 주소가 여러 개이거나 발주처 주소인지 분명하지 않으면 임의로 고르지 말고 delivery_location을 null로 두세요. source_locations에는 주소 원문과 회사명을 근거로 남기세요. 다만 X가 회사명이나 창고명이고 같은 문서의 해당 회사 정보 블록에 도로명 주소가 있으면, delivery_location에는 창고명 대신 도로명 주소를 원문 그대로 기록하세요. 도로명 주소와 산단·공단의 별도 지번/부지 표기가 함께 있으면 도로명 주소를 우선하고 별도 부지 표기는 덧붙이지 마세요. source_locations에는 납품 지시 문구와 주소 원문을 각각 인용하세요. 프롬프트의 예시용 X 또는 다른 예시 문구는 문서 증거가 아니므로, 원문에서 확인하지 못한 값은 결과에 복사하지 마세요. 주소가 외부 지식으로 보완되지 않도록 하고 문서에 인쇄된 주소를 그대로 사용하세요. 우편번호가 문서에 있으면 주소 앞에 '(우편번호) 주소' 형식으로 작성하고, 없으면 주소만 작성하세요.
-품목은 품명, 강종, 규격 원문, 두께, 폭, 길이, 수량, 단위, 중량, 품목별 비고를 추출하세요. 규격 원문은 기호와 숫자를 그대로 보존하세요. 두께·폭·길이는 규격에 각 치수가 명확하게 구분될 때만 채우고, 강종이 명시되지 않으면 품명에서 추측하지 마세요.
+품목은 품명, 강종, 표면, 규격 원문, 두께, 폭, 길이, 수량, 단위, 중량, 품목별 비고를 추출하세요. 규격 원문은 기호와 숫자를 그대로 보존하세요. 두께·폭·길이는 규격에 각 치수가 명확하게 구분될 때만 채우고, 강종이 명시되지 않으면 품명에서 추측하지 마세요.
+표면은 도금·표면처리 표기(예: Z12, Z27, AZ150, 유분, 무유, 크로메이트, 스킨패스)가 표면/도금/코팅 칸이나 규격·품명에 별도 항목으로 명확히 적힌 경우에만 원문 그대로 추출하세요. 강종과 표면을 섞지 말고, 표면이 명시되지 않으면 품명이나 강종에서 추측하지 말고 null로 두세요.
 헤더는 발주처, 수신처, 발주일자, 납기일(입고일), 납품 장소만 추출하세요. 발주번호와 헤더 공통 비고는 추출하지 마세요. 헤더의 각 값과 상세 항목에는 source_locations를 제공하되 실제 확인한 원문과 페이지 번호만 적으세요. 좌표 상자를 추측하지 마세요. 불명확하면 null로 두고 needs_review=true와 구체적인 review_reasons를 작성하세요."""
 
 
@@ -494,12 +498,12 @@ def _ai_order_audit_connection():
 
 
 _AI_ORDER_RULE_TARGET_FIELDS = {
-    "delivery_location", "source_product_name", "steel_grade", "spec_raw",
+    "delivery_location", "source_product_name", "steel_grade", "surface", "spec_raw",
     "thickness", "width", "length", "quantity", "quantity_unit",
     "weight_kg", "notes",
 }
 _AI_ORDER_RULE_FIELD_LABELS = {
-    "source_product_name": "품명", "steel_grade": "강종", "spec_raw": "규격 원문",
+    "source_product_name": "품명", "steel_grade": "강종", "surface": "표면", "spec_raw": "규격 원문",
     "thickness": "두께", "width": "폭", "length": "길이",
     "quantity": "수량", "quantity_unit": "단위", "weight_kg": "중량",
     "notes": "비고", "delivery_location": "납품 장소",

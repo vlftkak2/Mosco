@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { LinkedOrderBadge } from '../../components/common/LinkedOrderNotice';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { Box, Button, Group, Loader, Modal, Pagination, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -253,11 +254,11 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
     <Stack gap="sm" pt={8}>
       <Box className={classes.modalHint}>기초·입고·가공 원천 재고에서 출고할 행과 수량·중량을 지정하세요. 매출처는 재고 반영 후 출고 상세에서 입력합니다.</Box>
       <Group align="end" gap="xs" wrap="wrap">
-        <ErpDateInput label="기준일 시작" type="date" value={filterInputs.date_from} onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
-        <ErpDateInput label="기준일 종료" type="date" value={filterInputs.date_to} onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
-        <TextInput label="품목" placeholder="품목코드·품명·제품번호" value={filterInputs.item_search} onChange={(event) => setFilterInputs((current) => ({ ...current, item_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
-        <TextInput label="창고" placeholder="창고코드 또는 창고명" value={filterInputs.warehouse_search} onChange={(event) => setFilterInputs((current) => ({ ...current, warehouse_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
-        <TextInput label="매입처" placeholder="원천 거래처명" value={filterInputs.customname} onChange={(event) => setFilterInputs((current) => ({ ...current, customname: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+        <ErpDateInput label="기준일 시작" type="date" value={filterInputs.date_from} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_from: nextValue })); }} />
+        <ErpDateInput label="기준일 종료" type="date" value={filterInputs.date_to} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_to: nextValue })); }} />
+        <TextInput label="품목" placeholder="품목코드·품명·제품번호" value={filterInputs.item_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, item_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+        <TextInput label="창고" placeholder="창고코드 또는 창고명" value={filterInputs.warehouse_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, warehouse_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+        <TextInput label="매입처" placeholder="원천 거래처명" value={filterInputs.customname} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, customname: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
         <Select label="재고구분" data={[{ value: '', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }]} value={filterInputs.sourcetype} onChange={(value) => setFilterInputs((current) => ({ ...current, sourcetype: value || '' }))} />
         <Button color="red" leftSection={<IconSearch size={15} />} onClick={runSearch}>조회</Button>
       </Group>
@@ -278,8 +279,8 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
                 const draft = getDraft(stock);
                 const alreadyAdded = existingKeys.has(key);
                 return <Table.Tr key={key}>
-                  <Table.Td><input type="checkbox" checked={Boolean(selected[key])} disabled={alreadyAdded || loading || available.qty <= 0 || available.weight <= 0} onChange={(event) => toggle(stock, event.currentTarget.checked)} aria-label={`${stock.itemname} 재고 선택`} /></Table.Td>
-                                    <Table.Td>{sourceName(stock.sourcetype)}</Table.Td>
+                  <Table.Td><input type="checkbox" checked={Boolean(selected[key])} disabled={alreadyAdded || loading || available.qty <= 0 || available.weight <= 0 || Boolean(stock.linked_orders)} onChange={(event) => toggle(stock, event.currentTarget.checked)} aria-label={`${stock.itemname} 재고 선택`} /></Table.Td>
+                  <Table.Td>{sourceName(stock.sourcetype)}<LinkedOrderBadge orders={stock.linked_orders} /></Table.Td>
                   <Table.Td>{String(stock.receiptdate || '').slice(0, 10)}</Table.Td>
                   <Table.Td>{stock.customname || '자체재고'}</Table.Td>
                   <Table.Td>{stock.itemname}</Table.Td>
