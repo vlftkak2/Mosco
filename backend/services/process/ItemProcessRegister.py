@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
+from services.ai.stock_links import ensure_not_linked, linked_orders_sql
 import db as _shared_db
 from services.inventory.CurrentStock import user_name_sql
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -237,8 +238,9 @@ def list_available_stock(
             f"""SELECT sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
                        itemcode, itemname, productname, materialcode, materialname, surfacecode,
                        surfacename, myrtle, manager, thickness, width, length, qty, qtyunit,
-                       weight, unit, unitprice, warehousecode, warehousecodename
-                FROM CurrentStock01t WHERE {' AND '.join(where)}
+                       weight, unit, unitprice, warehousecode, warehousecodename,
+                       {linked_orders_sql("stock")} AS linked_orders
+                FROM CurrentStock01t AS stock WHERE {' AND '.join(where)}
                 ORDER BY receiptdate, sourcetype, sourceno, sourceline
                 LIMIT %s OFFSET %s""",
             (*params, page_size, (page - 1) * page_size),
@@ -488,6 +490,8 @@ def _restore_document_for_edit(cursor, companyid: str, processno: str, actor: st
     output_lines = [row[0] for row in cursor.fetchall()]
     if not output_lines:
         raise ValueError("가공전표의 가공품 내역을 찾을 수 없습니다.")
+    # 가공품이 주문에 연결됐거나 확정 계획에 잡혀 있으면 수정하지 않는다
+    ensure_not_linked(cursor, companyid, {(t, processno, line) for line in output_lines for t in ("INBOUND", "PROCESS")}, action="수정")
 
     for output_line in output_lines:
         cursor.execute(
@@ -529,6 +533,17 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
         # 등록자/수정자: a new document is created by `actor`; an edited document keeps its original creator
         # (its detail / ledger / stock rows are deleted and re-inserted below) and records `actor` as modifier.
         detail_created_by, detail_updated_by = actor or None, None
+        # 주문서 관리에서 주문에 연결된 재고는 가공 원소재로 쓸 수 없다 (수정 중인 문서에 원래 있던 원소재는 허용)
+        existing_sources = set()
+        if processno:
+            cursor.execute(
+                """SELECT DISTINCT UPPER(stocksourcetype), stocksourceno, stocksourceline FROM Process02t
+                   WHERE companyid=%s AND processno=%s AND linetype='SOURCE'""", (companyid, processno),
+            )
+            existing_sources = {(t, n, int(l)) for t, n, l in cursor.fetchall()}
+        ensure_not_linked(cursor, companyid, {
+            (source["stocksourcetype"], source["stocksourceno"], source["stocksourceline"]) for source in payload["sources"]
+        }, existing_sources)
         if processno:
             cursor.execute("SELECT created_by FROM Process01t WHERE companyid=%s AND processno=%s", (companyid, processno))
             original = cursor.fetchone()
@@ -823,6 +838,8 @@ def delete_documents(companyid: str, processnos: list[str], actor: str | None = 
                     raise ValueError(
                         f"{processno} 가공품이 출고·재고이전·후속 가공에 사용되어 전표를 삭제할 수 없습니다."
                     )
+            ensure_not_linked(cursor, companyid, {(t, processno, line) for line in output_lines for t in ("INBOUND", "PROCESS")},
+                              action="삭제")
             for output_line in output_lines:
                 cursor.execute(
                     """DELETE FROM CurrentStock01t

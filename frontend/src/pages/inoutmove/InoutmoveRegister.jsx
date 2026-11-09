@@ -1,5 +1,7 @@
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import usePageReactivated from '../../components/common/usePageReactivated';
+import { LinkedOrderBadge } from '../../components/common/LinkedOrderNotice';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { ActionIcon, Box, Button, Group, Loader, Modal, Pagination, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -194,7 +196,7 @@ function StockPicker({ opened, fromWarehouse, toWarehouse, existingKeys, onClose
   };
   const toggle = (row, checked) => {
     const key = sourceKey(row);
-    if (existingKeys.has(key)) return;
+    if (existingKeys.has(key) || row.linked_orders) return;
     setSelected((current) => ({ ...current, [key]: checked }));
   };
   const selectedItems = items.filter((row) => selected[sourceKey(row)] && !existingKeys.has(sourceKey(row)));
@@ -203,13 +205,13 @@ function StockPicker({ opened, fromWarehouse, toWarehouse, existingKeys, onClose
     <Stack gap="sm" pt={8}>
       <Box className={outboundClasses.modalHint}>이전할 현재고를 먼저 선택하세요. 선택한 재고의 출고 창고는 자동 지정되며, 입고 창고는 재고이전 상세에서 입력합니다{toWarehouse ? ` (${toWarehouse})` : ''}.</Box>
       <Group className={classes.stockFilters} align="end" wrap="wrap" gap="xs">
-        <ErpDateInput label="기준일 시작" type="date" value={inputs.date_from} onChange={(event) => setInputs((v) => ({ ...v, date_from: event.currentTarget.value }))} />
-        <ErpDateInput label="기준일 종료" type="date" value={inputs.date_to} onChange={(event) => setInputs((v) => ({ ...v, date_to: event.currentTarget.value }))} />
-        <TextInput label="품목" placeholder="품목코드·품명·제품명" value={inputs.item_search} onChange={(event) => setInputs((v) => ({ ...v, item_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+        <ErpDateInput label="기준일 시작" type="date" value={inputs.date_from} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((v) => ({ ...v, date_from: nextValue })); }} />
+        <ErpDateInput label="기준일 종료" type="date" value={inputs.date_to} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((v) => ({ ...v, date_to: nextValue })); }} />
+        <TextInput label="품목" placeholder="품목코드·품명·제품명" value={inputs.item_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((v) => ({ ...v, item_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
         <Select label="재고 구분" data={[{ value: '', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }]} value={inputs.sourcetype} onChange={(value) => setInputs((v) => ({ ...v, sourcetype: value || '' }))} />
-        <TextInput label="두께" placeholder="두께" value={inputs.thickness} onChange={(event) => setInputs((v) => ({ ...v, thickness: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
-        <TextInput label="폭" placeholder="폭" value={inputs.width} onChange={(event) => setInputs((v) => ({ ...v, width: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
-        <TextInput label="길이" placeholder="길이" value={inputs.length} onChange={(event) => setInputs((v) => ({ ...v, length: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+        <TextInput label="두께" placeholder="두께" value={inputs.thickness} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((v) => ({ ...v, thickness: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+        <TextInput label="폭" placeholder="폭" value={inputs.width} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((v) => ({ ...v, width: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+        <TextInput label="길이" placeholder="길이" value={inputs.length} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((v) => ({ ...v, length: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
         <Button color="red" leftSection={<IconSearch size={15} />} onClick={runSearch}>조회</Button>
       </Group>
       <Box className={outboundClasses.pickerResults}>
@@ -226,8 +228,8 @@ function StockPicker({ opened, fromWarehouse, toWarehouse, existingKeys, onClose
             const rowKey = sourceKey(row);
             const alreadyAdded = existingKeys.has(rowKey);
             return <Table.Tr key={rowKey} className={alreadyAdded ? classes.alreadyAddedStock : undefined} aria-disabled={alreadyAdded || undefined}>
-            <Table.Td><input type="checkbox" checked={Boolean(selected[rowKey]) && !alreadyAdded} disabled={loading || alreadyAdded} onChange={(event) => toggle(row, event.currentTarget.checked)} aria-label={`${row.itemname} 재고 선택`} /></Table.Td>
-            <Table.Td>{stockSourceTypeName(row.stocksourcetype, row.stocksourceno)}</Table.Td>
+            <Table.Td><input type="checkbox" checked={Boolean(selected[rowKey]) && !alreadyAdded} disabled={loading || alreadyAdded || Boolean(row.linked_orders)} onChange={(event) => toggle(row, event.currentTarget.checked)} aria-label={`${row.itemname} 재고 선택`} /></Table.Td>
+            <Table.Td>{stockSourceTypeName(row.stocksourcetype, row.stocksourceno)}<LinkedOrderBadge orders={row.linked_orders} /></Table.Td>
             <Table.Td>{String(row.receiptdate || '').slice(0, 10)}</Table.Td>
             <Table.Td>{row.warehousecodename || row.warehousecode}</Table.Td>
             <Table.Td>{row.itemname}</Table.Td>
@@ -353,6 +355,8 @@ export default function InoutmoveRegister() {
       notifications.show({ title: '재고이전 조회 실패', message: error.response?.data?.detail || '재고이전 목록을 조회하지 못했습니다.', color: 'red' });
     } finally { setLoading(false); }
   }, [filters, selectedReceiptno, resetDraft, pageSize]);
+  // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
+  usePageReactivated(() => { void loadWarehouses(); });
   useEffect(() => {
     void loadWarehouses();
     void loadDocuments(1, emptyFilters());
@@ -582,7 +586,7 @@ export default function InoutmoveRegister() {
                 <colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
                 <Table.Thead><Table.Tr>{DETAIL_COLUMNS.map(renderDetailHeader)}</Table.Tr></Table.Thead>
                 {!!items.length && <Table.Tbody>{items.map((row, index) => <Table.Tr key={sourceKey(row)} className={readOnly ? classes.savedRow : selectedSet.has(sourceKey(row)) ? classes.selectedRow : ''}>
-                  <Table.Td className={`${codeClasses.checkCol} ${classes.checkCell}`}><input type="checkbox" checked={selectedSet.has(sourceKey(row))} disabled={readOnly} onChange={(event) => setSelectedIds((current) => event.currentTarget.checked ? [...current, sourceKey(row)] : current.filter((key) => key !== sourceKey(row)))} /></Table.Td>
+                  <Table.Td className={`${codeClasses.checkCol} ${classes.checkCell}`}><input type="checkbox" checked={selectedSet.has(sourceKey(row))} disabled={readOnly} onChange={(event) => { const { checked: nextChecked } = event.currentTarget; setSelectedIds((current) => nextChecked ? [...current, sourceKey(row)] : current.filter((key) => key !== sourceKey(row))); }} /></Table.Td>
                   <Table.Td>{index + 1}</Table.Td><Table.Td>이동</Table.Td>
                   <Table.Td>{String(header.receptdate || '').slice(0, 10)}</Table.Td><Table.Td>{row.fromwarehousename || fromWarehouse}</Table.Td><Table.Td>{row.towarehousename || toWarehouse}</Table.Td>
                   <Table.Td>{row.itemname}</Table.Td><Table.Td>{row.productname}</Table.Td><Table.Td>{row.materialname || row.myrtle || ''}</Table.Td>
@@ -604,9 +608,9 @@ export default function InoutmoveRegister() {
       {filterOpen && <Paper component="aside" className={`${inboundClasses.receiptFilterSidebar} ${classes.outboundFilterSidebar}`} withBorder>
         <Group className={inboundClasses.receiptFilterHeader} justify="space-between" align="center"><Text fw={700}>조회조건</Text><ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon></Group>
         <Stack gap="sm" className={inboundClasses.receiptFilterFields}>
-          <Box><Text size="xs" fw={700} mb={5}>이전기간</Text><Stack gap={6}><ErpDateInput type="date" aria-label="이전기간 시작" value={filterInputs.date_from} onChange={(event) => setFilterInputs((v) => ({ ...v, date_from: event.currentTarget.value }))} /><ErpDateInput type="date" aria-label="이전기간 종료" value={filterInputs.date_to} onChange={(event) => setFilterInputs((v) => ({ ...v, date_to: event.currentTarget.value }))} /></Stack></Box>
-          <TextInput label="재고이전전표" placeholder="전표번호" value={filterInputs.receiptno} onChange={(event) => setFilterInputs((v) => ({ ...v, receiptno: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
-          <TextInput label="창고" placeholder="출발 또는 도착 창고명" value={filterInputs.warehouse} onChange={(event) => setFilterInputs((v) => ({ ...v, warehouse: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+          <Box><Text size="xs" fw={700} mb={5}>이전기간</Text><Stack gap={6}><ErpDateInput type="date" aria-label="이전기간 시작" value={filterInputs.date_from} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((v) => ({ ...v, date_from: nextValue })); }} /><ErpDateInput type="date" aria-label="이전기간 종료" value={filterInputs.date_to} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((v) => ({ ...v, date_to: nextValue })); }} /></Stack></Box>
+          <TextInput label="재고이전전표" placeholder="전표번호" value={filterInputs.receiptno} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((v) => ({ ...v, receiptno: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+          <TextInput label="창고" placeholder="출발 또는 도착 창고명" value={filterInputs.warehouse} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((v) => ({ ...v, warehouse: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
         </Stack>
         <Box className={outboundClasses.outboundStockLookup}>
           <Text fw={700} size="sm">재고 조회</Text>

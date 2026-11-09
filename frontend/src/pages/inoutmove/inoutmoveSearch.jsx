@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import axios from 'axios';
+import usePageReactivated from '../../components/common/usePageReactivated';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { ActionIcon, Box, Group, Loader, Pagination, Paper, Select, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -68,6 +69,8 @@ export default function InoutmoveSearch() {
   }, [filters, page, pageSize]);
 
   const loadInitial = useEffectEvent(() => { void load(1, filters, pageSize); });
+  // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
+  usePageReactivated(() => { void load(page, filters, pageSize); });
   useEffect(() => { loadInitial(); }, []);
 
   const search = useCallback(() => {

@@ -34,6 +34,7 @@ class Header(BaseModel):
 class Line(BaseModel):
     source_product_name: str | None = Field(default=None, max_length=255)
     steel_grade: str | None = Field(default=None, max_length=100)
+    surface: str | None = Field(default=None, max_length=100)
     spec_raw: str | None = None
     thickness: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
     width: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
@@ -66,6 +67,7 @@ class ConfirmedItemUpdate(BaseModel):
     lineno: int | None = Field(default=None, gt=0)
     itemname: str | None = Field(default=None, max_length=255)
     steelgrade: str | None = Field(default=None, max_length=100)
+    surface: str | None = Field(default=None, max_length=100)
     size: str | None = None
     thickness: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
     width: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=3)
@@ -89,12 +91,12 @@ class StockSource(BaseModel):
 
 
 class StockMatchesUpdate(BaseModel):
-    status: Literal["UNREVIEWED", "MATCHED", "NO_STOCK"]
+    # 빈 목록 = 연결 초기화
     sources: list[StockSource] = Field(default_factory=list, max_length=100)
 
 
-class ProcessingStatusUpdate(BaseModel):
-    status: Literal["PROCESSING_REVIEW", "PROCESSING_DONE", "NOT_REQUIRED"]
+class OptimizeSendRequest(BaseModel):
+    linenos: list[int] = Field(min_length=1, max_length=1000)
 
 
 async def authorized_user(user: dict = Depends(get_current_user)):
@@ -127,9 +129,10 @@ async def list_confirmed(
     buyer: str | None = Query(default=None, max_length=100),
     orderid: str | None = Query(default=None, max_length=100),
     page: int = Query(default=1, ge=1), page_size: int = Query(default=30, ge=1, le=100),
+    progress: Literal["NONE", "PARTIAL", "SENT", "DONE"] | None = None,
     user: dict = Depends(authorized_user),
 ):
-    return await asyncio.to_thread(service.list_orders, user["companyid"], start_date, end_date, buyer, orderid, page, page_size)
+    return await asyncio.to_thread(service.list_orders, user["companyid"], start_date, end_date, buyer, orderid, page, page_size, progress)
 
 
 @router.get("/{orderid}")
@@ -176,6 +179,8 @@ async def update_confirmed_items(orderid: str, payload: ConfirmedItemsUpdate, us
 async def cancel_confirmed(orderid: str, user: dict = Depends(authorized_user)):
     try:
         cancelled = await asyncio.to_thread(service.cancel_order, user["companyid"], orderid)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
         logger.exception("Order cancellation failed company=%s error_type=%s", user["companyid"], type(exc).__name__)
         raise HTTPException(500, "주문확정 취소에 실패했습니다. 다시 시도해주세요.") from exc
@@ -215,7 +220,7 @@ async def update_stock_matches(orderid: str, lineno: int, payload: StockMatchesU
     try:
         updated = await asyncio.to_thread(
             service.save_stock_matches, user["companyid"], orderid, lineno,
-            payload.status, payload.sources, user["email"],
+            payload.sources, user["email"],
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -224,20 +229,32 @@ async def update_stock_matches(orderid: str, lineno: int, payload: StockMatchesU
         raise HTTPException(500, "재고매칭 저장에 실패했습니다. 다시 시도해 주세요.") from exc
     if not updated:
         raise HTTPException(404, "확정 주문 또는 품목을 찾을 수 없습니다.")
-    return {"orderid": orderid, "lineno": lineno, "status": payload.status, "updated": True}
+    return {"orderid": orderid, "lineno": lineno, "linked": len(payload.sources), "updated": True}
 
 
-@router.put("/{orderid}/items/{lineno}/processing-status")
-async def update_processing_status(orderid: str, lineno: int, payload: ProcessingStatusUpdate, user: dict = Depends(authorized_user)):
+async def _set_optimize_status(orderid: str, payload: OptimizeSendRequest, user: dict, send: bool):
     try:
-        updated = await asyncio.to_thread(
-            service.update_processing_status, user["companyid"], orderid, lineno, payload.status, user["email"],
+        result = await asyncio.to_thread(
+            service.set_optimize_status, user["companyid"], orderid, payload.linenos, send, user["email"],
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
-        logger.exception("AI order processing status update failed company=%s error_type=%s", user["companyid"], type(exc).__name__)
-        raise HTTPException(500, "가공상태 저장에 실패했습니다. 다시 시도해 주세요.") from exc
-    if not updated:
-        raise HTTPException(404, "확정 주문 또는 품목을 찾을 수 없습니다.")
-    return {"orderid": orderid, "lineno": lineno, "status": payload.status, "updated": True}
+        logger.exception("AI order optimize status update failed company=%s error_type=%s", user["companyid"], type(exc).__name__)
+        raise HTTPException(500, "가공 최적화 상태 저장에 실패했습니다. 다시 시도해 주세요.") from exc
+    if result is None:
+        raise HTTPException(404, "확정 주문을 찾을 수 없습니다.")
+    changed, skipped = result
+    return {"orderid": orderid, "changed": changed, "skipped": skipped}
+
+
+@router.post("/{orderid}/send-to-optimization")
+async def send_to_optimization(orderid: str, payload: OptimizeSendRequest, user: dict = Depends(authorized_user)):
+    """선택 품목을 가공 최적화로 보낸다 (미전송 → 최적화 대기)."""
+    return await _set_optimize_status(orderid, payload, user, True)
+
+
+@router.post("/{orderid}/recall-from-optimization")
+async def recall_from_optimization(orderid: str, payload: OptimizeSendRequest, user: dict = Depends(authorized_user)):
+    """아직 최적화 대기인 품목만 되돌린다 (최적화 대기 → 미전송). 계획확정 이후는 가공 최적화에서 처리."""
+    return await _set_optimize_status(orderid, payload, user, False)

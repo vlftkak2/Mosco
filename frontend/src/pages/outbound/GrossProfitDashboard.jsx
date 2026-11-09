@@ -1,15 +1,17 @@
 // 매출이익 현황판 (메뉴: GROSS_PROFIT_DASHBOARD) - 경영자용
-// 거래처·품목·담당자별 매출 / 비용 / 순이익, 전월 대비, 최근 12개월 추이. 세로 스크롤 · 세로 막대 · 원형(도넛) 차트.
+// 거래처별 매출 / 비용 / 순이익, 전월·전년 동월 대비, 톤당 이익, 이익률 하락 거래처, 최근 12개월 추이.
+// 세로 스크롤 · 세로 막대 · 원형(도넛) 차트.
 // 숫자는 매출이익분석과 같은 계산 (backend/services/outbound/GrossProfitDashboard.py).
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import usePageReactivated from '../../components/common/usePageReactivated';
 import XLSX from 'xlsx-js-style';
 import { useNavigate } from 'react-router-dom';
 import { Box, Button, Group, Loader, Paper, SegmentedControl, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconArrowDownRight, IconArrowUpRight, IconBuildingStore, IconCash, IconChevronRight, IconCopy, IconDeviceFloppy,
-  IconFileSpreadsheet, IconPercentage, IconPlus, IconReceipt, IconSearch, IconTrash, IconTrendingUp, IconX,
+  IconArrowDownRight, IconArrowUpRight, IconCash, IconChevronRight, IconCopy, IconDeviceFloppy,
+  IconFileSpreadsheet, IconPercentage, IconPlus, IconReceipt, IconScale, IconSearch, IconTrash, IconTrendingUp, IconX,
 } from '@tabler/icons-react';
 import {
   Bar, BarChart, CartesianGrid, Cell, ComposedChart, LabelList, Legend, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -53,14 +55,15 @@ const pct = (value) => (value === null || value === undefined ? '–' : `${Numbe
 const shortName = (name, max = 7) => (String(name || '').length > max ? `${String(name).slice(0, max)}…` : String(name || ''));
 const changeRate = (current, previous) => (previous ? ((current - previous) / Math.abs(previous)) * 100 : null);
 
-function Delta({ current, previous, unit = '%', lowerIsBetter = false }) {
-  const diff = unit === '%p' ? (current === null || previous === null || previous === undefined ? null : current - previous) : changeRate(current, previous);
-  if (diff === null || diff === undefined || !Number.isFinite(diff)) return <span className={pageClasses.deltaNone}>전월 비교 없음</span>;
+function Delta({ current, previous, unit = '%', lowerIsBetter = false, label = '전월' }) {
+  const diff = unit === '%p' ? (current === null || current === undefined || previous === null || previous === undefined ? null : current - previous) : changeRate(current, previous);
+  // 비교할 기간 데이터가 없으면 아무것도 표시하지 않는다
+  if (diff === null || diff === undefined || !Number.isFinite(diff)) return null;
   const up = diff > 0;
   const good = lowerIsBetter ? !up : up;
   const Icon = up ? IconArrowUpRight : IconArrowDownRight;
   return <span className={`${pageClasses.delta} ${diff === 0 ? pageClasses.deltaFlat : good ? pageClasses.deltaGood : pageClasses.deltaBad}`}>
-    {diff !== 0 && <Icon size={13} stroke={2.4} />}전월 대비 {up ? '+' : ''}{diff.toFixed(1)}{unit}
+    {diff !== 0 && <Icon size={13} stroke={2.4} />}{label} 대비 {up ? '+' : ''}{diff.toFixed(1)}{unit}
   </span>;
 }
 
@@ -149,9 +152,9 @@ const CustomerChart = memo(function CustomerChart({ rows, onPick }) {
   </ResponsiveContainer>;
 });
 
-// 최근 12개월 (매출 막대 + 순이익 선, 같은 금액 축 하나)
+// 최근 12개월 (매출 막대 + 순이익 선, 같은 금액 축 하나) · 회색 = 전년 같은 달
 const TrendChart = memo(function TrendChart({ months }) {
-  const data = months.map((row) => ({ name: `${row.month.slice(2, 4)}.${row.month.slice(5)}`, fullName: row.month, sales: row.sales, profit: row.profit, margin: row.margin_rate }));
+  const data = months.map((row) => ({ name: `${row.month.slice(2, 4)}.${row.month.slice(5)}`, fullName: row.month, sales: row.sales, profit: row.profit, lySales: row.ly_sales, lyProfit: row.ly_profit, margin: row.margin_rate }));
   return <ResponsiveContainer width="100%" height={260}>
     <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
       <CartesianGrid vertical={false} stroke="#eef1f5" />
@@ -159,7 +162,9 @@ const TrendChart = memo(function TrendChart({ months }) {
       <YAxis tickFormatter={compact} width={52} tick={{ fontSize: 10, fill: '#8b95a3' }} axisLine={false} tickLine={false} />
       <Tooltip content={<ChartTooltip extra={(row) => `마진율 ${pct(row.margin)}`} />} cursor={{ fill: '#f3f6fa' }} />
       <Legend verticalAlign="top" align="right" height={26} iconSize={9} wrapperStyle={{ fontSize: 11 }} />
-      <Bar dataKey="sales" name="매출" fill={COLOR.sales} maxBarSize={22} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+      <Bar dataKey="lySales" name="작년 매출" fill={OTHER} maxBarSize={14} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+      <Bar dataKey="sales" name="매출" fill={COLOR.sales} maxBarSize={14} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+      <Line dataKey="lyProfit" name="작년 순이익" stroke="#8b95a3" strokeWidth={2} strokeDasharray="5 4" dot={false} isAnimationActive={false} />
       <Line dataKey="profit" name="순이익" stroke={COLOR.profit} strokeWidth={2} dot={{ r: 4, fill: COLOR.profit, strokeWidth: 0 }} isAnimationActive={false} />
     </ComposedChart>
   </ResponsiveContainer>;
@@ -199,6 +204,44 @@ const PrevCompareChart = memo(function PrevCompareChart({ rows }) {
   </ResponsiveContainer>;
 });
 
+// 월별 톤당 매출(막대) · 톤당 이익(선), 원/톤. 중량 없는 달은 비움
+const tonFormat = (value) => (value === null || value === undefined ? '–' : `${compact(value)}원`);
+const PerTonChart = memo(function PerTonChart({ months }) {
+  const data = months.map((row) => ({ name: `${row.month.slice(2, 4)}.${row.month.slice(5)}`, fullName: row.month, sales: row.sales_per_ton, profit: row.profit_per_ton, ton: Number(row.weight || 0) / 1000 }));
+  return <ResponsiveContainer width="100%" height={250}>
+    <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+      <CartesianGrid vertical={false} stroke="#eef1f5" />
+      <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#d5dbe3' }} tickLine={false} />
+      <YAxis tickFormatter={compact} width={52} tick={{ fontSize: 10, fill: '#8b95a3' }} axisLine={false} tickLine={false} />
+      <Tooltip content={<ChartTooltip extra={(row) => `판매 ${row.ton.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}톤`} />} cursor={{ fill: '#f3f6fa' }} />
+      <Legend verticalAlign="top" align="right" height={26} iconSize={9} wrapperStyle={{ fontSize: 11 }} />
+      <Bar dataKey="sales" name="톤당 매출" fill={COLOR.sales} maxBarSize={22} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+      <Line dataKey="profit" name="톤당 이익" stroke={COLOR.profit} strokeWidth={2} dot={{ r: 4, fill: COLOR.profit, strokeWidth: 0 }} connectNulls isAnimationActive={false} />
+    </ComposedChart>
+  </ResponsiveContainer>;
+});
+
+// 전월보다 이익률이 떨어진 거래처 (하락폭 큰 순) · 회색 = 전월, 주황 = 이번 기간
+const MarginDropChart = memo(function MarginDropChart({ data }) {
+  return <ResponsiveContainer width="100%" height={250}>
+    <BarChart data={data} margin={{ top: 22, right: 8, bottom: 4, left: 0 }} barGap={2} barCategoryGap="26%">
+      <CartesianGrid vertical={false} stroke="#eef1f5" />
+      <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#d5dbe3' }} tickLine={false} interval={0} />
+      <YAxis tickFormatter={pct} width={48} tick={{ fontSize: 10, fill: '#8b95a3' }} axisLine={false} tickLine={false} />
+      <Tooltip formatter={(value, name) => [pct(value), name]} labelFormatter={(_, payload) => {
+        const row = payload?.[0]?.payload;
+        return row ? `${row.fullName} · ${row.drop.toFixed(1)}%p` : '';
+      }} cursor={{ fill: '#f3f6fa' }} />
+      <Legend verticalAlign="top" align="right" height={26} iconType="square" iconSize={9} wrapperStyle={{ fontSize: 11 }} />
+      <Bar dataKey="prev" name="전월 마진율" fill={OTHER} maxBarSize={16} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+      <Bar dataKey="margin" name="이번 마진율" fill={COLOR.cost} maxBarSize={16} radius={[4, 4, 0, 0]} isAnimationActive={false}>
+        {data.map((row) => <Cell key={row.fullName} fill={row.margin < 0 ? COLOR.loss : COLOR.cost} />)}
+        <LabelList dataKey="drop" position="top" formatter={(value) => `${Number(value).toFixed(1)}%p`} style={{ fontSize: 10, fill: '#b42323', fontWeight: 700 }} />
+      </Bar>
+    </BarChart>
+  </ResponsiveContainer>;
+});
+
 const topSlices = (rows, valueKey, nameKey) => {
   const positive = rows.filter((row) => row[valueKey] > 0);
   const top = positive.slice(0, 5).map((row, index) => ({ name: row[nameKey] || '(없음)', value: row[valueKey], color: PALETTE[index] }));
@@ -230,6 +273,8 @@ export default function GrossProfitDashboard() {
       if (id === requestId.current) setLoading(false);
     }
   }, []);
+  // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
+  usePageReactivated(() => { void load(period); });
   useEffect(() => { void load(period); }, [load, period]);
 
   const search = useCallback(() => {
@@ -255,7 +300,8 @@ export default function GrossProfitDashboard() {
       거래처: row.customname, 매출: Math.round(row.sales), 매입원가: Math.round(row.cost_of_goods), 판매비용: Math.round(row.selling_cost),
       비용합계: Math.round(row.cost), 순이익: Math.round(row.profit), '마진율(%)': row.margin_rate, '매출비중(%)': row.share,
       전월매출: Math.round(row.prev_sales), '매출 전월대비(%)': changeRate(row.sales, row.prev_sales) === null ? '' : Number(changeRate(row.sales, row.prev_sales).toFixed(1)),
-      전월순이익: Math.round(row.prev_profit),
+      전월순이익: Math.round(row.prev_profit), '전월 마진율(%)': row.prev_margin_rate ?? '',
+      '톤당 매출(원)': row.sales_per_ton ?? '', '톤당 이익(원)': row.profit_per_ton ?? '',
     }));
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.json_to_sheet(sheetRows);
@@ -287,8 +333,8 @@ export default function GrossProfitDashboard() {
 
   const total = data?.total;
   const prev = data?.prev_total;
+  const yoy = data?.yoy_total;
   const salesSlices = useMemo(() => topSlices(data?.customers || [], 'sales', 'customname'), [data]);
-  const managerSlices = useMemo(() => topSlices(data?.managers || [], 'sales', 'manager'), [data]);
   const costSlices = useMemo(() => (total ? [
     { name: '매입금액', value: total.purchase_amt, color: PALETTE[0] },
     { name: '매입비용', value: total.purchase_cost, color: PALETTE[1] },
@@ -297,14 +343,25 @@ export default function GrossProfitDashboard() {
   ].filter((slice) => slice.value > 0) : []), [total]);
   const marginData = useMemo(() => (data?.customers || []).filter((row) => row.margin_rate !== null).slice(0, TOP_N)
     .map((row) => ({ name: shortName(row.customname, 6), fullName: row.customname, margin: row.margin_rate })).sort((a, b) => b.margin - a.margin), [data]);
-  const itemData = useMemo(() => (data?.items || []).slice(0, TOP_N).map((row) => ({ name: shortName(row.itemname || '(품목 없음)', 8), fullName: row.itemname, profit: row.profit })), [data]);
+  const marginDrops = useMemo(() => (data?.customers || [])
+    .filter((row) => row.margin_rate !== null && row.prev_margin_rate !== null && row.prev_margin_rate !== undefined && row.margin_rate < row.prev_margin_rate)
+    .map((row) => ({ name: shortName(row.customname, 6), fullName: row.customname, prev: row.prev_margin_rate, margin: row.margin_rate, drop: row.margin_rate - row.prev_margin_rate }))
+    .sort((a, b) => a.drop - b.drop).slice(0, TOP_N), [data]);
+  const hasPrevMargins = useMemo(() => (data?.customers || []).some((row) => row.prev_margin_rate !== null && row.prev_margin_rate !== undefined), [data]);
 
+  const deltas = (key, options = {}) => [
+    <Delta key="m" current={total[key]} previous={prev[key]} {...options} />,
+    <Delta key="y" current={total[key]} previous={yoy?.[key]} label="전년 동월" {...options} />,
+  ];
+  const tons = (Number(total?.weight || 0) / 1000).toLocaleString('ko-KR', { maximumFractionDigits: 1 });
   const kpis = total ? [
-    { key: 'sales', label: '매출', icon: IconCash, value: won(total.sales), delta: <Delta current={total.sales} previous={prev.sales} />, hint: `판매 ${won(total.sales_goods)} + 매출비용(+) ${won(total.sales_plus)}` },
-    { key: 'cost', label: '비용', icon: IconReceipt, value: won(total.cost), delta: <Delta current={total.cost} previous={prev.cost} lowerIsBetter />, hint: `매입원가 ${won(total.cost_of_goods)} + 판매비용 ${won(total.selling_cost)}` },
-    { key: 'profit', label: '순이익', icon: IconTrendingUp, value: won(total.profit), delta: <Delta current={total.profit} previous={prev.profit} />, hint: '매출 − 비용', loss: total.profit < 0 },
-    { key: 'margin', label: '마진율', icon: IconPercentage, value: pct(total.margin_rate), delta: <Delta current={total.margin_rate} previous={prev.margin_rate} unit="%p" />, hint: '순이익 ÷ 매출', loss: total.profit < 0, gauge: true },
-    { key: 'customers', label: '거래처', icon: IconBuildingStore, value: `${total.customer_count}곳`, delta: <Delta current={total.customer_count} previous={prev.customer_count} />, hint: `손실 거래처 ${total.loss_customer_count}곳`, sub: total.loss_customer_count ? `손실 ${total.loss_customer_count}곳` : null },
+    { key: 'sales', label: '매출', icon: IconCash, value: won(total.sales), deltas: deltas('sales'), hint: `판매 ${won(total.sales_goods)} + 매출비용(+) ${won(total.sales_plus)}` },
+    { key: 'cost', label: '비용', icon: IconReceipt, value: won(total.cost), deltas: deltas('cost', { lowerIsBetter: true }), hint: `매입원가 ${won(total.cost_of_goods)} + 판매비용 ${won(total.selling_cost)}` },
+    { key: 'profit', label: '순이익', icon: IconTrendingUp, value: won(total.profit), deltas: deltas('profit'), hint: '매출 − 비용', loss: total.profit < 0 },
+    { key: 'margin', label: '마진율', icon: IconPercentage, value: pct(total.margin_rate), deltas: deltas('margin_rate', { unit: '%p' }), hint: '순이익 ÷ 매출', loss: total.profit < 0, gauge: true },
+    { key: 'perton', label: '톤당 이익', icon: IconScale, value: total.profit_per_ton === null ? '–' : won(total.profit_per_ton), deltas: deltas('profit_per_ton'),
+      hint: `순이익 ÷ 판매중량 · 톤당 매출 ${tonFormat(total.sales_per_ton)}`, loss: (total.profit_per_ton ?? 0) < 0,
+      story: Number(total.weight) > 0 ? <>판매 <b>{tons}톤</b> · 순이익 <b className={total.profit < 0 ? pageClasses.kpiLoss : pageClasses.storyProfit}>{compact(total.profit)}원</b></> : null },
   ] : [];
 
   return (
@@ -318,20 +375,19 @@ export default function GrossProfitDashboard() {
       </Box>
 
       <Paper className={pageClasses.filterBar} withBorder>
-        <Group gap={10} wrap="wrap">
+        <Group className={pageClasses.filterMain} gap={10} wrap="wrap">
           <SegmentedControl size="xs" value={preset} onChange={choosePreset} color="red"
             data={[{ value: 'this', label: '이번 달' }, { value: 'last', label: '지난달' }, { value: 'quarter', label: '최근 3개월' }, { value: 'year', label: '올해' }, { value: 'custom', label: '직접 입력' }]} />
           <Group gap={6} wrap="nowrap">
             <ErpDateInput aria-label="시작일" type="date" value={inputs.date_from} onChange={(event) => { const { value } = event.currentTarget; setPreset('custom'); setInputs((current) => ({ ...current, date_from: value })); }} />
             <Text size="xs" c="dimmed">~</Text>
             <ErpDateInput aria-label="종료일" type="date" value={inputs.date_to} onChange={(event) => { const { value } = event.currentTarget; setPreset('custom'); setInputs((current) => ({ ...current, date_to: value })); }} />
-            <Button size="xs" color="red" leftSection={<IconSearch size={14} />} onClick={search}>조회</Button>
+            <Button className={pageClasses.filterButton} size="xs" color="red" leftSection={<IconSearch size={14} />} onClick={search}>조회</Button>
           </Group>
+          {data && <Text className={pageClasses.compareNote}>비교: 전월 {String(data.period.prev_from).slice(0, 10)} ~ {String(data.period.prev_to).slice(0, 10)}
+            {' · '}전년 동월 {String(data.period.yoy_from).slice(0, 10)} ~ {String(data.period.yoy_to).slice(0, 10)}</Text>}
         </Group>
-        <Group gap={10} wrap="nowrap">
-          {data && <Text size="xs" c="dimmed">비교: 전월 {String(data.period.prev_from).slice(0, 10)} ~ {String(data.period.prev_to).slice(0, 10)}</Text>}
-          <Button size="xs" variant="light" color="gray" rightSection={<IconChevronRight size={14} />} onClick={() => openDetail('')}>거래처별 상세 보기</Button>
-        </Group>
+        <Button className={pageClasses.detailButton} size="xs" variant="default" rightSection={<IconChevronRight size={14} />} onClick={() => openDetail('')}>거래처별 상세 보기</Button>
       </Paper>
 
       <Box className={pageClasses.scroll}>
@@ -343,10 +399,11 @@ export default function GrossProfitDashboard() {
                 <Box style={{ minWidth: 0 }}>
                   <Text className={pageClasses.kpiLabel}>{kpi.label}</Text>
                   <Text className={`${pageClasses.kpiValue} ${kpi.loss ? pageClasses.kpiLoss : ''}`}>{kpi.value}</Text>
+                  {kpi.story && <Text className={pageClasses.kpiStory}>{kpi.story}</Text>}
                 </Box>
                 {kpi.gauge ? <MarginGauge value={total.margin_rate} /> : <span className={pageClasses.kpiIcon}><Icon size={20} stroke={1.8} /></span>}
               </Group>
-              <Group gap={8} wrap="nowrap">{kpi.delta}{kpi.sub && <span className={pageClasses.kpiWarn}>{kpi.sub}</span>}</Group>
+              <Box className={pageClasses.kpiDeltas}>{kpi.deltas}</Box>
             </Paper>;
           })}
           {!total && <Box className={pageClasses.kpiEmpty}><Empty loading={loading} /></Box>}
@@ -362,11 +419,22 @@ export default function GrossProfitDashboard() {
         </Box>
 
         <Box className={pageClasses.row2_1}>
-          <Panel title="최근 12개월 추이" sub="매출(막대) · 순이익(선)">
+          <Panel title="최근 12개월 추이" sub="매출(막대) · 순이익(선) · 회색 = 작년 같은 달">
             {data ? <TrendChart months={data.trend} /> : <Empty loading={loading} />}
           </Panel>
           <Panel title="비용 구성" sub="어디에 돈이 들었나">
             {costSlices.length ? <Donut slices={costSlices} centerLabel="총 비용" centerValue={compact(total.cost)} /> : <Empty loading={loading} />}
+          </Panel>
+        </Box>
+
+        <Box className={pageClasses.row1_1}>
+          <Panel title="톤당 매출 · 톤당 이익" sub="월별 · 원/톤 (판매중량 기준)">
+            {data ? <PerTonChart months={data.trend} /> : <Empty loading={loading} />}
+          </Panel>
+          <Panel title="이익률 하락 거래처" sub={`전월보다 마진율이 떨어진 곳 · 하락폭 큰 순 ${TOP_N}곳`}>
+            {marginDrops.length ? <MarginDropChart data={marginDrops} />
+              : hasData ? <Box className={pageClasses.empty}>{hasPrevMargins ? '전월보다 이익률이 떨어진 거래처가 없습니다.' : '전월 거래가 없어 비교할 수 없습니다.'}</Box>
+                : <Empty loading={loading} />}
           </Panel>
         </Box>
 
@@ -376,15 +444,6 @@ export default function GrossProfitDashboard() {
           </Panel>
           <Panel title="전월 대비 순이익" sub={`매출 상위 ${TOP_N}곳`}>
             {hasData && prev?.sales ? <PrevCompareChart rows={data.customers} /> : hasData ? <Box className={pageClasses.empty}>전월 매출이 없어 비교할 수 없습니다.</Box> : <Empty loading={loading} />}
-          </Panel>
-        </Box>
-
-        <Box className={pageClasses.row1_1}>
-          <Panel title="품목별 순이익" sub={`상위 ${TOP_N}개 · 손실은 빨강`}>
-            {itemData.length ? <ColumnChart data={itemData} valueKey="profit" format={compact} label="순이익" /> : <Empty loading={loading} />}
-          </Panel>
-          <Panel title="담당자별 매출 비중" sub="출고 담당자 기준">
-            {managerSlices.length ? <Donut slices={managerSlices} centerLabel="담당자" centerValue={`${(data?.managers || []).length}명`} /> : <Empty loading={loading} />}
           </Panel>
         </Box>
 

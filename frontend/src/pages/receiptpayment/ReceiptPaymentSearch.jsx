@@ -1,5 +1,6 @@
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import usePageReactivated from '../../components/common/usePageReactivated';
 import XLSX from 'xlsx-js-style';
 import { ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -104,12 +105,12 @@ const DetailFilterSidebar = memo(function DetailFilterSidebar({ filterInputs, se
     <Group className={classes.filterHeader} justify="space-between" align="center"><Text fw={700}>조회조건</Text><ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={onClose}><IconX size={16} /></ActionIcon></Group>
     <Stack gap="sm" className={classes.filterFields}>
       <Box><Text size="xs" fw={700} mb={5}>수금/지급 기간</Text><Stack gap={6}>
-        <ErpDateInput aria-label="수금/지급 시작일" type="date" value={filterInputs.date_from} onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
-        <ErpDateInput aria-label="수금/지급 종료일" type="date" value={filterInputs.date_to} onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
+        <ErpDateInput aria-label="수금/지급 시작일" type="date" value={filterInputs.date_from} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_from: nextValue })); }} />
+        <ErpDateInput aria-label="수금/지급 종료일" type="date" value={filterInputs.date_to} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_to: nextValue })); }} />
       </Stack></Box>
       <Select label="구분" data={TRANSACTION_FILTER_OPTIONS} value={filterInputs.transactiontype} onChange={(value) => setFilterInputs((current) => ({ ...current, transactiontype: value || '' }))} />
-      <TextInput label="거래처" placeholder="거래처코드 또는 거래처명" value={filterInputs.customer} onChange={(event) => setFilterInputs((current) => ({ ...current, customer: event.currentTarget.value }))} onKeyDown={onKeyDown} />
-      <TextInput label="전표번호" placeholder="전표번호" value={filterInputs.receiptno} onChange={(event) => setFilterInputs((current) => ({ ...current, receiptno: event.currentTarget.value }))} onKeyDown={onKeyDown} />
+      <TextInput label="거래처" placeholder="거래처코드 또는 거래처명" value={filterInputs.customer} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, customer: nextValue })); }} onKeyDown={onKeyDown} />
+      <TextInput label="전표번호" placeholder="전표번호" value={filterInputs.receiptno} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, receiptno: nextValue })); }} onKeyDown={onKeyDown} />
       <Select label="증권 상태" data={DETAIL_STATUS_OPTIONS} value={filterInputs.instrumentstatus} onChange={(value) => setFilterInputs((current) => ({ ...current, instrumentstatus: value || '' }))} />
       <Select label="수표/어음 종류" data={INSTRUMENT_TYPE_FILTER_OPTIONS} value={filterInputs.instrumenttype} onChange={(value) => setFilterInputs((current) => ({ ...current, instrumenttype: value || '' }))} />
       <Select label="발행구분" data={ISSUE_KIND_FILTER_OPTIONS} value={filterInputs.issuekind} onChange={(value) => setFilterInputs((current) => ({ ...current, issuekind: value || '' }))} />
@@ -189,6 +190,8 @@ export default function ReceiptPaymentSearch() {
     }
   }, []);
 
+  // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
+  usePageReactivated(() => { void loadItems(page, filters, pageSize); });
   useEffect(() => { void loadItems(page, filters, pageSize); }, [loadItems, page, filters, pageSize]);
 
   const runSearch = useCallback(() => {

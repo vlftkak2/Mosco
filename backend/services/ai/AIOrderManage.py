@@ -1,4 +1,10 @@
-"""Confirmed AI orders and read-only stock candidates."""
+"""Confirmed AI orders and read-only stock candidates.
+
+주문 품목 진행상태 (aiorder02t.optimize_status) 는 가공 최적화가 관리한다.
+  NONE(미전송) → WAITING(최적화 대기) → PLANNED(계획확정) → DONE(가공완료)
+주문서 관리는 NONE ↔ WAITING (보내기 / 보내기 취소) 만 바꾸고, NONE 이 아닌 품목은 수정·재고매칭·삭제를 막는다.
+연결 재고를 그대로 쓸지 잘라서 쓸지는 가공 최적화가 규격(폭·길이)으로 판단한다.
+"""
 
 import re
 from contextlib import contextmanager
@@ -11,6 +17,17 @@ from psycopg2.extras import RealDictCursor
 
 from config import DB_CONFIG
 import db as _shared_db
+
+OPTIMIZE_STATUSES = ("NONE", "WAITING", "PLANNED", "DONE")
+LOCKED_MESSAGE = "가공 최적화로 보낸 품목은 수정할 수 없습니다. 가공 최적화에서 돌려받은 뒤 수정해 주세요."
+ORDER_PROGRESS = ("NONE", "PARTIAL", "SENT", "DONE")
+# 주문 진행: NONE 전부 미전송 / PARTIAL 일부 전송 / SENT 전부 전송 / DONE 전부 가공완료
+_PROGRESS_SQL = """COALESCE((SELECT CASE
+        WHEN COUNT(*) = 0 OR BOOL_AND(d.optimize_status = 'NONE') THEN 'NONE'
+        WHEN BOOL_AND(d.optimize_status = 'DONE') THEN 'DONE'
+        WHEN BOOL_OR(d.optimize_status = 'NONE') THEN 'PARTIAL'
+        ELSE 'SENT' END
+      FROM aiorder02t d WHERE d.companyid=h.companyid AND d.orderid=h.orderid), 'NONE')"""
 
 
 @contextmanager
@@ -54,6 +71,19 @@ def confirm_order(companyid, companyname, username, email, payload):
             if existing:
                 return {"orderid": existing["orderid"], "already_confirmed": True}
 
+            # 주문서 관리 저장과 같은 필수값: 품명 · 수량 · 중량 (숫자 또는 AI 원문 값)
+            missing_rows = []
+            for position, item in enumerate(payload.items, start=1):
+                missing = [label for label, present in (
+                    ("품명", str(item.source_product_name or "").strip()),
+                    ("수량", item.quantity is not None or str(item.quantity_raw or "").strip()),
+                    ("중량", item.weight_kg is not None or str(item.weight_raw or "").strip()),
+                ) if not present]
+                if missing:
+                    missing_rows.append(f"{position}행 {', '.join(missing)}")
+            if missing_rows:
+                raise ValueError("필수값을 입력해 주세요: " + " / ".join(missing_rows[:5]))
+
             prefix = datetime.now(ZoneInfo("Asia/Seoul")).strftime("AI%Y%m%d")
             # Advisory transaction lock serializes numbering only within this company.
             cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"ai-order-sequence:{companyid}",))
@@ -86,19 +116,19 @@ def confirm_order(companyid, companyname, username, email, payload):
             for lineno, item in enumerate(payload.items, start=1):
                 cur.execute("""
                     INSERT INTO aiorder02t
-                        (companyid, companyname, orderid, lineno, itemname, steelgrade, size,
+                        (companyid, companyname, orderid, lineno, itemname, steelgrade, surface, size,
                          thickness, width, length, quantity, quantity_unit, weight_kg, notes,
                          quantity_raw, weight_raw, created_by)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (companyid, companyname, orderid, lineno, item.source_product_name,
-                      item.steel_grade, item.spec_raw, item.thickness, item.width, item.length,
+                      item.steel_grade, item.surface, item.spec_raw, item.thickness, item.width, item.length,
                       item.quantity, item.quantity_unit, item.weight_kg, item.notes,
                       item.quantity_raw, item.weight_raw, email or None))
         conn.commit()
     return {"orderid": orderid, "already_confirmed": False}
 
 
-def list_orders(companyid, start_date=None, end_date=None, buyer=None, orderid=None, page=1, page_size=30):
+def list_orders(companyid, start_date=None, end_date=None, buyer=None, orderid=None, page=1, page_size=30, progress=None):
     clauses = ["h.companyid = %s"]
     args = [companyid]
     for condition, value in (
@@ -109,6 +139,9 @@ def list_orders(companyid, start_date=None, end_date=None, buyer=None, orderid=N
         if value is not None:
             clauses.append(condition)
             args.append(value)
+    if progress in ORDER_PROGRESS:
+        clauses.append(f"{_PROGRESS_SQL} = %s")
+        args.append(progress)
     where = " AND ".join(clauses)
     with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(f"SELECT COUNT(*) AS total FROM aiorder01t h WHERE {where}", args)
@@ -122,14 +155,7 @@ def list_orders(companyid, start_date=None, end_date=None, buyer=None, orderid=N
                    (SELECT COUNT(*) FROM aiorder02t d WHERE d.companyid=h.companyid AND d.orderid=h.orderid) AS item_count,
                    (SELECT COALESCE(SUM(d.weight_kg), 0) FROM aiorder02t d
                     WHERE d.companyid=h.companyid AND d.orderid=h.orderid) AS total_weight,
-                   COALESCE((SELECT CASE
-                       WHEN COUNT(*) = 0 THEN 'PROCESSING_REVIEW'
-                       WHEN BOOL_OR(d.processing_status = 'PROCESSING_REVIEW') THEN 'PROCESSING_REVIEW'
-                       WHEN BOOL_OR(d.processing_status = 'PROCESSING_DONE') THEN 'PROCESSING_DONE'
-                       WHEN BOOL_AND(d.processing_status = 'NOT_REQUIRED') THEN 'NOT_REQUIRED'
-                       ELSE 'PROCESSING_REVIEW' END
-                     FROM aiorder02t d WHERE d.companyid=h.companyid AND d.orderid=h.orderid),
-                     'PROCESSING_REVIEW') AS progress
+                   {_PROGRESS_SQL} AS progress
             FROM aiorder01t h WHERE {where}
             ORDER BY h.created_at DESC, h.orderid DESC LIMIT %s OFFSET %s
         """, args + [page_size, (page - 1) * page_size])
@@ -148,9 +174,9 @@ def get_order(companyid, orderid):
                     {"c": header.get("created_by") or header.get("useremail"), "u": header.get("updated_by")})
         header.update(cur.fetchone())
         cur.execute("""
-            SELECT lineno, itemname, steelgrade, size, thickness, width, length,
+            SELECT lineno, itemname, steelgrade, surface, size, thickness, width, length,
                    quantity, quantity_unit, weight_kg, notes, quantity_raw, weight_raw,
-                   stock_match_status, processing_status, created_at, updated_at,
+                   optimize_status, created_at, updated_at,
                    COALESCE((SELECT u.username FROM user01t u WHERE u.email = aiorder02t.created_by LIMIT 1), aiorder02t.created_by) AS created_by,
                    COALESCE((SELECT u.username FROM user01t u WHERE u.email = aiorder02t.updated_by LIMIT 1), aiorder02t.updated_by) AS updated_by
             FROM aiorder02t WHERE companyid=%s AND orderid=%s ORDER BY lineno
@@ -223,42 +249,64 @@ def update_order_items(companyid, orderid, items, actor=None):
                 return False
 
             cur.execute(
-                "SELECT lineno FROM aiorder02t WHERE companyid=%s AND orderid=%s ORDER BY lineno FOR UPDATE",
+                "SELECT lineno, optimize_status FROM aiorder02t WHERE companyid=%s AND orderid=%s ORDER BY lineno FOR UPDATE",
                 (companyid, orderid),
             )
-            existing_lines = [row["lineno"] for row in cur.fetchall()]
+            line_status = {row["lineno"]: row["optimize_status"] for row in cur.fetchall()}
+            existing_lines = list(line_status)
+            locked_lines = {lineno for lineno, status in line_status.items() if status != "NONE"}
             submitted_lines = [item.lineno for item in items if item.lineno is not None]
             if len(set(submitted_lines)) != len(submitted_lines) or not set(submitted_lines).issubset(existing_lines):
                 raise ValueError("주문에 포함되지 않은 상세 행이 있습니다. 다시 조회한 뒤 저장해 주세요.")
 
             removed_lines = set(existing_lines) - set(submitted_lines)
+            if removed_lines & locked_lines:
+                raise ValueError(LOCKED_MESSAGE)
             if removed_lines:
                 cur.execute(
                     "DELETE FROM aiorder02t WHERE companyid=%s AND orderid=%s AND lineno = ANY(%s)",
                     (companyid, orderid, list(removed_lines)),
                 )
 
+            # 필수값: 품명 · 수량 · 중량 (숫자 또는 AI 원문 값). 보낸 품목은 잠겨 있어 검사하지 않는다
+            missing_rows = []
+            for position, item in enumerate(items, start=1):
+                if item.lineno in locked_lines:
+                    continue
+                missing = [label for label, present in (
+                    ("품명", str(item.itemname or "").strip()),
+                    ("수량", item.quantity is not None or str(item.quantity_raw or "").strip()),
+                    ("중량", item.weight_kg is not None or str(item.weight_raw or "").strip()),
+                ) if not present]
+                if missing:
+                    missing_rows.append(f"{position}행 {', '.join(missing)}")
+            if missing_rows:
+                raise ValueError("필수값을 입력해 주세요: " + " / ".join(missing_rows[:5]))
+
             next_lineno = max(existing_lines, default=0)
 
             for item in items:
+                if item.lineno in locked_lines:
+                    continue  # 보낸 품목은 그대로 둔다 (화면에서도 잠김)
+                text = lambda value: (str(value).strip() or None) if value is not None else None  # 빈칸은 NULL 로
                 values = (
-                    item.itemname, item.steelgrade, item.size, item.thickness, item.width,
-                    item.length, item.quantity, item.quantity_unit, item.weight_kg,
-                    item.notes, item.quantity_raw, item.weight_raw,
+                    text(item.itemname), text(item.steelgrade), text(item.surface), text(item.size), item.thickness, item.width,
+                    item.length, item.quantity, text(item.quantity_unit), item.weight_kg,
+                    text(item.notes), text(item.quantity_raw), text(item.weight_raw),
                 )
                 if item.lineno is None:
                     next_lineno += 1
                     cur.execute("""
                         INSERT INTO aiorder02t
-                            (companyid, companyname, orderid, lineno, itemname, steelgrade, size,
+                            (companyid, companyname, orderid, lineno, itemname, steelgrade, surface, size,
                              thickness, width, length, quantity, quantity_unit, weight_kg, notes,
                              quantity_raw, weight_raw, created_by)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (companyid, header["companyname"], orderid, next_lineno, *values, actor or None))
                 else:
                     cur.execute("""
                         UPDATE aiorder02t
-                        SET itemname=%s, steelgrade=%s, size=%s, thickness=%s, width=%s,
+                        SET itemname=%s, steelgrade=%s, surface=%s, size=%s, thickness=%s, width=%s,
                             length=%s, quantity=%s, quantity_unit=%s, weight_kg=%s,
                             notes=%s, quantity_raw=%s, weight_raw=%s,
                             updated_at=CURRENT_TIMESTAMP, updated_by=COALESCE(%s, updated_by)
@@ -284,17 +332,18 @@ def cancel_order(companyid, orderid):
             )
             if cur.fetchone() is None:
                 return False
+            cur.execute("SELECT 1 FROM aiorder02t WHERE companyid=%s AND orderid=%s AND optimize_status <> 'NONE' LIMIT 1",
+                        (companyid, orderid))
+            if cur.fetchone():
+                raise ValueError("가공 최적화로 보낸 품목이 있어 주문을 삭제할 수 없습니다.")
             cur.execute("DELETE FROM aiorder02t WHERE companyid=%s AND orderid=%s", (companyid, orderid))
             cur.execute("DELETE FROM aiorder01t WHERE companyid=%s AND orderid=%s", (companyid, orderid))
         conn.commit()
     return True
 
 
-def save_stock_matches(companyid, orderid, lineno, status, sources, actor=None):
-    """Replace the stock links and match state for one tenant-owned order line."""
-    status = str(status or "").strip().upper()
-    if status not in {"UNREVIEWED", "MATCHED", "NO_STOCK"}:
-        raise ValueError("재고매칭 상태를 확인해 주세요.")
+def save_stock_matches(companyid, orderid, lineno, sources, actor=None):
+    """Replace the stock links for one tenant-owned order line. Empty = 연결 초기화."""
     normalized = []
     for source in sources:
         source_type = str(source.sourcetype or "").strip().upper()
@@ -305,19 +354,17 @@ def save_stock_matches(companyid, orderid, lineno, status, sources, actor=None):
         normalized.append((source_type, source_no, source_line))
     if len(normalized) != len(set(normalized)):
         raise ValueError("같은 현재고를 중복 선택할 수 없습니다.")
-    if status == "MATCHED" and not normalized:
-        raise ValueError("재고 연결을 선택해 주세요.")
-    if status != "MATCHED" and normalized:
-        raise ValueError("재고를 연결할 때만 선택 재고를 전달해 주세요.")
 
     with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("""
-            SELECT companyname FROM aiorder02t
+            SELECT companyname, optimize_status FROM aiorder02t
             WHERE companyid=%s AND orderid=%s AND lineno=%s FOR UPDATE
         """, (companyid, orderid, lineno))
         line = cur.fetchone()
         if not line:
             return False
+        if line["optimize_status"] != "NONE":
+            raise ValueError(LOCKED_MESSAGE)
 
         if normalized:
             tuples_sql = ",".join(["(%s,%s,%s)"] * len(normalized))
@@ -333,12 +380,9 @@ def save_stock_matches(companyid, orderid, lineno, status, sources, actor=None):
                 FOR UPDATE
             """, params)
             available = {(row["sourcetype"], row["sourceno"], int(row["sourceline"])) for row in cur.fetchall()}
-            missing = set(normalized) - available
-            if missing:
+            if set(normalized) - available:
                 raise ValueError("현재고가 변경되었거나 사용할 수 없는 재고가 있습니다. 현재고를 다시 조회해 주세요.")
 
-        if normalized:
-            tuples_sql = ",".join(["(%s,%s,%s)"] * len(normalized))
             source_params = [value for source in normalized for value in source]
             cur.execute(f"""
                 SELECT 1 FROM aiorder03t
@@ -351,35 +395,66 @@ def save_stock_matches(companyid, orderid, lineno, status, sources, actor=None):
                 raise ValueError("선택한 현재고는 다른 주문 품목에 이미 연결되어 있습니다. 다른 현재고를 선택해 주세요.")
 
         cur.execute("DELETE FROM aiorder03t WHERE companyid=%s AND orderid=%s AND lineno=%s", (companyid, orderid, lineno))
-        for matchlineno, (source_type, source_no, source_line) in enumerate(normalized, start=1):
+        for matchlineno, key in enumerate(normalized, start=1):
             cur.execute("""
                 INSERT INTO aiorder03t
                     (companyid, companyname, orderid, lineno, matchlineno,
                      stocksourcetype, stocksourceno, stocksourceline, created_by)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """, (companyid, line["companyname"], orderid, lineno, matchlineno,
-                  source_type, source_no, source_line, actor or None))
+            """, (companyid, line["companyname"], orderid, lineno, matchlineno, *key, actor or None))
         cur.execute("""
-            UPDATE aiorder02t SET stock_match_status=%s, updated_at=CURRENT_TIMESTAMP, updated_by=COALESCE(%s, updated_by)
+            UPDATE aiorder02t SET updated_at=CURRENT_TIMESTAMP, updated_by=COALESCE(%s, updated_by)
             WHERE companyid=%s AND orderid=%s AND lineno=%s
-        """, (status, actor or None, companyid, orderid, lineno))
+        """, (actor or None, companyid, orderid, lineno))
         conn.commit()
     return True
 
 
-def update_processing_status(companyid, orderid, lineno, status, actor=None):
-    allowed = {"PROCESSING_REVIEW", "PROCESSING_DONE", "NOT_REQUIRED"}
-    status = str(status or "").strip().upper()
-    if status not in allowed:
-        raise ValueError("가공상태를 확인해 주세요.")
-    with connection() as conn, conn.cursor() as cur:
+def set_optimize_status(companyid, orderid, linenos, send, actor=None):
+    """주문서 관리의 '가공 최적화로 보내기'(NONE → WAITING) / '보내기 취소'(WAITING → NONE).
+
+    계획확정·가공완료 상태는 여기서 바꾸지 않는다 (가공 최적화 담당).
+    Returns (changed linenos, skipped linenos) or None if the order does not exist.
+    """
+    linenos = sorted({int(n) for n in linenos})
+    if not linenos:
+        raise ValueError("품목을 선택해 주세요.")
+    source, target = ("NONE", "WAITING") if send else ("WAITING", "NONE")
+    with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("SELECT 1 FROM aiorder01t WHERE companyid=%s AND orderid=%s FOR UPDATE", (companyid, orderid))
+        if cur.fetchone() is None:
+            return None
         cur.execute("""
-            UPDATE aiorder02t SET processing_status=%s, updated_at=CURRENT_TIMESTAMP, updated_by=COALESCE(%s, updated_by)
-            WHERE companyid=%s AND orderid=%s AND lineno=%s
-        """, (status, actor or None, companyid, orderid, lineno))
-        updated = cur.rowcount == 1
+            SELECT lineno, optimize_status FROM aiorder02t
+            WHERE companyid=%s AND orderid=%s AND lineno = ANY(%s) ORDER BY lineno FOR UPDATE
+        """, (companyid, orderid, linenos))
+        rows = cur.fetchall()
+        if len(rows) != len(linenos):
+            raise ValueError("주문에 포함되지 않은 품목이 있습니다. 다시 조회해 주세요.")
+        changed = [row["lineno"] for row in rows if row["optimize_status"] == source]
+        skipped = [row["lineno"] for row in rows if row["optimize_status"] != source]
+        if not send and changed:
+            # 가공 최적화에서 임시저장·확정한 계획에 들어 있는 품목은 되돌리지 않는다 (계획이 고아가 되지 않게)
+            cur.execute("""SELECT DISTINCT d.orderlineno, p.planno FROM aiplan02t d
+                           JOIN aiplan01t p ON p.companyid = d.companyid AND p.planno = d.planno
+                           WHERE d.companyid = %s AND d.orderid = %s AND d.orderlineno = ANY(%s)
+                             AND p.status IN ('DRAFT', 'CONFIRMED')""", (companyid, orderid, changed))
+            planned = cur.fetchall()
+            if planned:
+                raise ValueError("가공 최적화의 계획에 들어 있는 품목은 되돌릴 수 없습니다: "
+                                 + ", ".join(f"{r['orderlineno']}행({r['planno']})" for r in planned[:5])
+                                 + ". 가공 최적화에서 계획을 삭제·취소한 뒤 되돌려 주세요.")
+        if changed:
+            cur.execute("""
+                UPDATE aiorder02t SET optimize_status=%s, updated_at=CURRENT_TIMESTAMP, updated_by=COALESCE(%s, updated_by)
+                WHERE companyid=%s AND orderid=%s AND lineno = ANY(%s)
+            """, (target, actor or None, companyid, orderid, changed))
+            cur.execute(
+                "UPDATE aiorder01t SET updated_at=CURRENT_TIMESTAMP, updated_by=COALESCE(%s, updated_by) WHERE companyid=%s AND orderid=%s",
+                (actor or None, companyid, orderid),
+            )
         conn.commit()
-    return updated
+    return changed, skipped
 
 
 def dimensions(size):

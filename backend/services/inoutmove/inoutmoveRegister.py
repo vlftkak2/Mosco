@@ -1,4 +1,5 @@
 from psycopg2.extras import execute_values
+from services.ai.stock_links import ensure_not_linked, linked_orders_sql
 import logging
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -144,7 +145,8 @@ def list_available_stock(
                        stock.thickness, stock.width, stock.length,
                        stock.qty, COALESCE(qty_code.code_name, stock.qtyunit) AS qtyunit,
                        stock.weight, stock.unit, stock.unitprice,
-                       stock.warehousecode, stock.warehousecodename
+                       stock.warehousecode, stock.warehousecodename,
+                       {linked_orders_sql("stock")} AS linked_orders
                 FROM CurrentStock01t AS stock
                 LEFT JOIN CodeMaster01t AS qty_code
                   ON qty_code.companyid = stock.companyid
@@ -290,6 +292,10 @@ def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | 
             from_code, to_code = payload["fromwarehousecode"], payload["towarehousecode"]
             if from_code == to_code:
                 raise ValueError("출발 창고와 도착 창고는 달라야 합니다.")
+            # 주문서 관리에서 주문에 연결된 재고는 이전할 수 없다
+            ensure_not_linked(cursor, companyid, {
+                (item["stocksourcetype"], item["stocksourceno"], item["stocksourceline"]) for item in payload["items"]
+            })
             receiptno = _next_receiptno(cursor, companyid)
             cursor.execute(
                 """INSERT INTO inoutmove01t
@@ -463,6 +469,9 @@ def delete_transfer(companyid: str, receiptno: str, actor: str | None = None):
         )
         if cursor.fetchone()[0] != len(details) * 2:
             raise ValueError("재고이전 수불 내역이 완전하지 않아 삭제할 수 없습니다.")
+        # 이전으로 생긴 현재고(또는 예전 방식으로 창고만 옮긴 원천 재고)가 주문·계획에 잡혀 있으면 삭제하지 않는다
+        ensure_not_linked(cursor, companyid, {("INBOUND", receiptno, lineno * 2) for lineno, *_ in details}
+                          | {(t, n, int(l)) for _lineno, t, n, l, _q, _w in details}, action="삭제")
         for lineno, source_type, source_no, source_line, qty, weight in details:
             cursor.execute(
                 """SELECT qty, weight, originalqty, originalweight, warehousecode

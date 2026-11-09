@@ -1,5 +1,7 @@
 import { useCallback, useContext, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { usePageActivation } from '../../components/common/usePageReactivated';
+import { LinkedOrderBadge } from '../../components/common/LinkedOrderNotice';
 import XLSX from 'xlsx-js-style';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination,
@@ -380,9 +382,9 @@ function StockPicker({ opened, onClose, onApply, existingKeys, existingWarehouse
         <Table stickyHeader withTableBorder withColumnBorders className={classes.pickerTable}><Table.Thead><Table.Tr>
           <Table.Th /><Table.Th>구분</Table.Th><Table.Th>입고일자</Table.Th><Table.Th>창고</Table.Th><Table.Th>품명</Table.Th><Table.Th>제품명</Table.Th><Table.Th>강종</Table.Th><Table.Th>두께</Table.Th><Table.Th>폭</Table.Th><Table.Th>길이</Table.Th><Table.Th>현재수량</Table.Th><Table.Th>현재중량</Table.Th>
         </Table.Tr></Table.Thead><Table.Tbody>{items.map((row) => {
-          const key = sourceKey(row); const disabled = existingKeys.has(key) || Boolean((selectionWarehouseCode || existingWarehouseCode) && row.warehousecode !== (selectionWarehouseCode || existingWarehouseCode));
+          const key = sourceKey(row); const disabled = existingKeys.has(key) || Boolean(row.linked_orders) || Boolean((selectionWarehouseCode || existingWarehouseCode) && row.warehousecode !== (selectionWarehouseCode || existingWarehouseCode));
           return <Table.Tr key={key}><Table.Td><input className={classes.pickerCheckbox} type="checkbox" checked={Boolean(selected[key])} disabled={disabled} onChange={(e) => toggle(row, e.currentTarget.checked)} /></Table.Td>
-            <Table.Td>{row.sourcetype === 'OPENING' ? '기초' : row.sourcetype === 'INBOUND' ? '입고' : '가공'}</Table.Td><Table.Td>{String(row.receiptdate || '').slice(0, 10)}</Table.Td><Table.Td>{row.warehousecodename}</Table.Td><Table.Td>{row.itemname}</Table.Td><Table.Td>{row.productname}</Table.Td><Table.Td>{row.materialname || row.myrtle}</Table.Td><Table.Td>{numberText(row.thickness)}</Table.Td><Table.Td>{numberText(row.width)}</Table.Td><Table.Td>{numberText(row.length)}</Table.Td><Table.Td ta="right">{numberText(row.qty)}</Table.Td><Table.Td ta="right">{numberText(row.weight)}</Table.Td>
+            <Table.Td>{row.sourcetype === 'OPENING' ? '기초' : row.sourcetype === 'INBOUND' ? '입고' : '가공'}<LinkedOrderBadge orders={row.linked_orders} /></Table.Td><Table.Td>{String(row.receiptdate || '').slice(0, 10)}</Table.Td><Table.Td>{row.warehousecodename}</Table.Td><Table.Td>{row.itemname}</Table.Td><Table.Td>{row.productname}</Table.Td><Table.Td>{row.materialname || row.myrtle}</Table.Td><Table.Td>{numberText(row.thickness)}</Table.Td><Table.Td>{numberText(row.width)}</Table.Td><Table.Td>{numberText(row.length)}</Table.Td><Table.Td ta="right">{numberText(row.qty)}</Table.Td><Table.Td ta="right">{numberText(row.weight)}</Table.Td>
             </Table.Tr>;
         })}{!items.length && <Table.Tr><Table.Td colSpan={12} className={classes.empty}>가공 가능한 현재고가 없습니다.</Table.Td></Table.Tr>}</Table.Tbody></Table>
       </Box>
@@ -393,6 +395,7 @@ function StockPicker({ opened, onClose, onApply, existingKeys, existingWarehouse
 
 
 export default function ItemProcessRegister() {
+  const pageActivation = usePageActivation(); // 탭에 돌아올 때마다 목록(코드·거래처)을 다시 불러온다
   const pageLayout = useContext(PageRibbonContext);
   const [filterOpen, setFilterOpen] = useState(true);
   const [header, setHeader] = useState(emptyHeader);
@@ -468,7 +471,7 @@ export default function ItemProcessRegister() {
   useEffect(() => { void loadDocuments(); }, [loadDocuments]);
   useEffect(() => {
     axios.get('/api/item-process-register/options', authConfig()).then(({ data }) => setOptions(data)).catch(() => notifications.show({ title: '기준정보 조회 실패', message: '가공처·창고·가공공정을 조회하지 못했습니다.', color: 'red' }));
-  }, []);
+  }, [pageActivation]);
 
   const fetchDocument = useCallback((processno) => {
     const cache = documentCacheRef.current;
@@ -1010,11 +1013,11 @@ export default function ItemProcessRegister() {
   ), [documents, documentTotal, documentPage, documentPageSize, documentTableWidth, documentColumnWidths, selectedProcessno, prefetchDocument, openDocument, loadDocuments, loading, documentSubtotals, syncDocumentScroll]);
   const headerFields = useMemo(() => (
     <Box className={classes.headerGrid}>
-            <ErpDateInput label="가공일자" disabled={readOnly} value={header.processdate} onChange={(e) => setHeader((h) => ({ ...h, processdate: e.currentTarget.value }))} />
+            <ErpDateInput label="가공일자" disabled={readOnly} value={header.processdate} onChange={(e) => { const { value: nextValue } = e.currentTarget; setHeader((h) => ({ ...h, processdate: nextValue })); }} />
             <Select label="가공처" searchable autoSelectOnBlur disabled={readOnly} data={customerData} value={header.customcode || null} onChange={(value) => { const item = options.customers.find((x) => x.code === value); setHeader((h) => ({ ...h, customcode: value || '', customname: item?.name || '' })); }} />
             <Select label="입고창고" searchable autoSelectOnBlur disabled={readOnly || hasSources} data={warehouseData} value={header.warehousecode || null} onChange={(value) => { const item = options.warehouses.find((x) => x.code === value); setHeader((h) => ({ ...h, warehousecode: value || '', warehousecodename: item?.name || '' })); }} />
-            <TextInput label="담당자" disabled={readOnly} value={header.manager} onChange={(e) => setHeader((h) => ({ ...h, manager: e.currentTarget.value }))} />
-            <TextInput label="비고" disabled={readOnly} value={header.description} onChange={(e) => setHeader((h) => ({ ...h, description: e.currentTarget.value }))} />
+            <TextInput label="담당자" disabled={readOnly} value={header.manager} onChange={(e) => { const { value: nextValue } = e.currentTarget; setHeader((h) => ({ ...h, manager: nextValue })); }} />
+            <TextInput label="비고" disabled={readOnly} value={header.description} onChange={(e) => { const { value: nextValue } = e.currentTarget; setHeader((h) => ({ ...h, description: nextValue })); }} />
           </Box>
   ), [header, readOnly, customerData, warehouseData, options.customers, options.warehouses, hasSources]);
   const filterPanel = useMemo(() => (
@@ -1027,18 +1030,25 @@ export default function ItemProcessRegister() {
           <Box>
             <Text size="xs" fw={700} mb={5}>가공기간</Text>
             <Stack gap={6}>
-              <ErpDateInput aria-label="가공기간 시작일" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.currentTarget.value }))} />
-              <ErpDateInput aria-label="가공기간 종료일" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.currentTarget.value }))} />
+              <ErpDateInput aria-label="가공기간 시작일" value={filters.date_from} onChange={(e) => { const { value: nextValue } = e.currentTarget; setFilters((f) => ({ ...f, date_from: nextValue })); }} />
+              <ErpDateInput aria-label="가공기간 종료일" value={filters.date_to} onChange={(e) => { const { value: nextValue } = e.currentTarget; setFilters((f) => ({ ...f, date_to: nextValue })); }} />
             </Stack>
           </Box>
-          <TextInput label="가공처" placeholder="가공처명 입력" value={filters.customer} onChange={(e) => setFilters((f) => ({ ...f, customer: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
-          <TextInput label="가공창고" placeholder="가공창고명 입력" value={filters.warehouse} onChange={(e) => setFilters((f) => ({ ...f, warehouse: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
-          <TextInput label="가공전표번호" placeholder="가공전표번호 입력" value={filters.processno} onChange={(e) => setFilters((f) => ({ ...f, processno: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
-          <TextInput label="품목정보" placeholder="품목코드 또는 품명 입력" value={filters.iteminfo} onChange={(e) => setFilters((f) => ({ ...f, iteminfo: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
-          <TextInput label="제품정보" placeholder="제품명 또는 제품번호 입력" value={filters.productinfo} onChange={(e) => setFilters((f) => ({ ...f, productinfo: e.currentTarget.value }))} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
+          <TextInput label="가공처" placeholder="가공처명 입력" value={filters.customer} onChange={(e) => { const { value: nextValue } = e.currentTarget; setFilters((f) => ({ ...f, customer: nextValue })); }} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
+          <TextInput label="가공창고" placeholder="가공창고명 입력" value={filters.warehouse} onChange={(e) => { const { value: nextValue } = e.currentTarget; setFilters((f) => ({ ...f, warehouse: nextValue })); }} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
+          <TextInput label="가공전표번호" placeholder="가공전표번호 입력" value={filters.processno} onChange={(e) => { const { value: nextValue } = e.currentTarget; setFilters((f) => ({ ...f, processno: nextValue })); }} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
+          <TextInput label="품목정보" placeholder="품목코드 또는 품명 입력" value={filters.iteminfo} onChange={(e) => { const { value: nextValue } = e.currentTarget; setFilters((f) => ({ ...f, iteminfo: nextValue })); }} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
+          <TextInput label="제품정보" placeholder="제품명 또는 제품번호 입력" value={filters.productinfo} onChange={(e) => { const { value: nextValue } = e.currentTarget; setFilters((f) => ({ ...f, productinfo: nextValue })); }} onKeyDown={(e) => e.key === 'Enter' && loadDocuments()} />
         </Stack>
+        <Box className={outboundClasses.outboundStockLookup}>
+          <Text fw={700} size="sm">재고 조회</Text>
+          <Text size="xs" c="dimmed">가공할 원소재를 선택합니다.</Text>
+          <Button fullWidth color="red" leftSection={<IconSearch size={15} />} onClick={() => setStockOpen(true)} disabled={readOnly}>
+            현재고 조회
+          </Button>
+        </Box>
       </Paper>
-  ), [filters, loadDocuments]);
+  ), [filters, loadDocuments, readOnly]);
 
   return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
     <ErpBreadcrumb parent="AI 가공관리" current="가공등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
@@ -1047,7 +1057,7 @@ export default function ItemProcessRegister() {
         {documentListPanel}
 
         <Paper withBorder className={`${sharedClasses.panel} ${classes.detailPanel}`}>
-          <Group className={classes.sectionHeader} justify="space-between"><Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>가공 상세</Text><Badge color="gray" variant="light" className={classes.count}>{selectedProcessno || '신규'} · {sources.length}개 원소재</Badge></Group><Group gap="sm"><Text size="xs" c={Math.abs(totalSourceWeight - totalLeafWeight) <= 0.001 ? 'teal' : 'red'}>투입 {numberText(totalSourceWeight)} KG · 최종제품 {numberText(totalLeafWeight)} KG</Text><Button size="xs" variant="light" color="red" disabled={readOnly} onClick={() => setStockOpen(true)}>현재고 조회</Button></Group></Group>
+          <Group className={classes.sectionHeader} justify="space-between"><Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>가공 상세</Text><Badge color="gray" variant="light" className={classes.count}>{selectedProcessno || '신규'} · {sources.length}개 원소재</Badge></Group><Group gap="sm"><Text size="xs" c={Math.abs(totalSourceWeight - totalLeafWeight) <= 0.001 ? 'teal' : 'red'}>투입 {numberText(totalSourceWeight)} KG · 최종제품 {numberText(totalLeafWeight)} KG</Text></Group></Group>
           {headerFields}
           <Box className={classes.detailViewport}>
             <table className={classes.detailTable} style={{ width: `${detailTableWidth}px`, minWidth: `${detailTableWidth}px` }}><colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{DETAIL_COLUMNS.map((column) => <th key={column.key} className={classes.resizableHeader} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }}>{column.key === 'select' ? detailRowIds.length > 0 && <input type="checkbox" aria-label="상세 전체 선택" checked={allDetailsSelected} disabled={readOnly} onChange={(event) => { setSelectedDetailIds(event.currentTarget.checked ? detailRowIds : []); selectionAnchorRef.current = ''; }} /> : column.label}<span className={classes.columnResizeHandle} data-column-key={column.key} onPointerDown={(event) => startTableColumnResize(event, DETAIL_COLUMNS, detailColumnWidths, setDetailColumnWidths, 1320)} role="separator" aria-label={`${column.label || '선택'} 열 너비 조절`} /></th>)}</tr></thead>

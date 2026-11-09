@@ -23,6 +23,10 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0', // 타 PC에서 접근 가능하도록 허용
+    // Cloudflare Tunnel 외부 접속 허용
+    // allowedHosts: [
+    //   'analyze-characteristic-wizard-susan.trycloudflare.com',
+    // ],    
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000', // FastAPI backend (backend/main.py)

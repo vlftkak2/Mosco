@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import usePageReactivated from '../../components/common/usePageReactivated';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack,
@@ -171,6 +172,8 @@ export default function OutboundSearchPage() {
     }
   }, []);
 
+  // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
+  usePageReactivated(() => { void loadItems(page, filters, pageSize); });
   useEffect(() => {
     void loadItems(page, filters, pageSize);
   }, [loadItems, page, filters, pageSize]);
@@ -332,14 +335,14 @@ export default function OutboundSearchPage() {
             <Text size="xs" fw={700} mb={5}>출고기간</Text>
             <Stack gap={6}>
               <ErpDateInput aria-label="출고 시작일" type="date" value={filterInputs.date_from}
-                onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
+                onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_from: nextValue })); }} />
               <ErpDateInput aria-label="출고 종료일" type="date" value={filterInputs.date_to}
-                onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
+                onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_to: nextValue })); }} />
             </Stack>
           </Box>
           {FILTERS.map(({ key, label, placeholder }) => (
             <TextInput key={key} label={label} placeholder={placeholder} value={filterInputs[key]}
-              onChange={(event) => setFilterInputs((current) => ({ ...current, [key]: event.currentTarget.value }))}
+              onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, [key]: nextValue })); }}
               onKeyDown={handleFilterKeyDown} />
           ))}
         </Stack>

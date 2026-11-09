@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import usePageReactivated from '../../components/common/usePageReactivated';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { ActionIcon, Box, Group, Loader, Pagination, Paper, Select, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -57,6 +58,8 @@ export default function CurrentStockPage() {
     } finally { if (id === requestId.current) setLoading(false); }
   }, [page, pageSize, filters, includeZero]);
 
+  // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
+  usePageReactivated(() => { void load(); });
   useEffect(() => { void load(); }, [load]);
   const search = () => { setFilters(Object.fromEntries(Object.entries(inputs).map(([key, value]) => [key, value.trim()]))); setPage(1); };
   const exportExcel = async () => {
@@ -88,15 +91,15 @@ export default function CurrentStockPage() {
         <Box>
           <Text size="xs" fw={700} mb={5}>재고기간</Text>
           <Stack gap={6}>
-            <ErpDateInput type="date" aria-label="재고기간 시작일" value={inputs.date_from} onChange={(event) => setInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
-            <ErpDateInput type="date" aria-label="재고기간 종료일" value={inputs.date_to} onChange={(event) => setInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
+            <ErpDateInput type="date" aria-label="재고기간 시작일" value={inputs.date_from} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, date_from: nextValue })); }} />
+            <ErpDateInput type="date" aria-label="재고기간 종료일" value={inputs.date_to} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, date_to: nextValue })); }} />
           </Stack>
         </Box>
-        <TextInput label="거래처명" placeholder="거래처명 검색" value={inputs.customname} onChange={(event) => setInputs((current) => ({ ...current, customname: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && search()} />
-        <TextInput label="품목" placeholder="품목코드 또는 품목명" value={inputs.item_search} onChange={(event) => setInputs((current) => ({ ...current, item_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && search()} />
-        <TextInput label="제품번호" placeholder="제품번호 검색" value={inputs.product_search} onChange={(event) => setInputs((current) => ({ ...current, product_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && search()} />
-        <TextInput label="창고" placeholder="창고코드 또는 창고명" value={inputs.warehouse_search} onChange={(event) => setInputs((current) => ({ ...current, warehouse_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && search()} />
-        <TextInput label="전표" placeholder="전표번호" value={inputs.receipt_search} onChange={(event) => setInputs((current) => ({ ...current, receipt_search: event.currentTarget.value }))} onKeyDown={(event) => event.key === 'Enter' && search()} />
+        <TextInput label="거래처명" placeholder="거래처명 검색" value={inputs.customname} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, customname: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && search()} />
+        <TextInput label="품목" placeholder="품목코드 또는 품목명" value={inputs.item_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, item_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && search()} />
+        <TextInput label="제품번호" placeholder="제품번호 검색" value={inputs.product_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, product_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && search()} />
+        <TextInput label="창고" placeholder="창고코드 또는 창고명" value={inputs.warehouse_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, warehouse_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && search()} />
+        <TextInput label="전표" placeholder="전표번호" value={inputs.receipt_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, receipt_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && search()} />
         <Select label="잔량 0 표시" data={[{ value: 'N', label: '제외' }, { value: 'Y', label: '포함' }]} value={includeZero ? 'Y' : 'N'} onChange={(value) => { setIncludeZero(value === 'Y'); setPage(1); }} />
       </Stack>
     </Paper>}

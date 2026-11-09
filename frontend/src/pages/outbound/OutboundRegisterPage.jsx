@@ -1,5 +1,6 @@
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { usePageActivation } from '../../components/common/usePageReactivated';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper, Popover,
@@ -1038,6 +1039,7 @@ const OutboundExpenseTableRows = memo(function OutboundExpenseTableRows({
 });
 
 export default function OutboundRegisterPage() {
+  const pageActivation = usePageActivation(); // 탭에 돌아올 때마다 목록(코드·거래처)을 다시 불러온다
   const pageLayout = useContext(PageRibbonContext);
   const registerPageRibbon = pageLayout?.registerPageRibbon;
   const closeActivePage = pageLayout?.closeActivePage;
@@ -1275,7 +1277,7 @@ export default function OutboundRegisterPage() {
         if (!cancelled) notifications.show({ title: '단위 코드 조회 실패', message: errorMessage(error), color: 'red' });
       });
     return () => { cancelled = true; };
-  }, [loadUnitOptions]);
+  }, [loadUnitOptions, pageActivation]);
 
   const addExpense = useCallback(() => {
     if (saving || readOnly) return;
@@ -2375,19 +2377,19 @@ export default function OutboundRegisterPage() {
               <Text size="xs" fw={700} mb={5}>출고기간</Text>
               <Stack gap={6}>
                 <ErpDateInput type="date" aria-label="출고기간 시작일" value={filterInputs.date_from}
-                  onChange={(event) => setFilterInputs((current) => ({ ...current, date_from: event.currentTarget.value }))} />
+                  onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_from: nextValue })); }} />
                 <ErpDateInput type="date" aria-label="출고기간 종료일" value={filterInputs.date_to}
-                  onChange={(event) => setFilterInputs((current) => ({ ...current, date_to: event.currentTarget.value }))} />
+                  onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_to: nextValue })); }} />
               </Stack>
             </Box>
             <TextInput label="매출처" placeholder="매출처코드 또는 매출처명" value={filterInputs.customer}
-              onChange={(event) => setFilterInputs((current) => ({ ...current, customer: event.currentTarget.value }))}
+              onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, customer: nextValue })); }}
               onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
             <TextInput label="창고" placeholder="창고코드 또는 창고명" value={filterInputs.warehouse}
-              onChange={(event) => setFilterInputs((current) => ({ ...current, warehouse: event.currentTarget.value }))}
+              onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, warehouse: nextValue })); }}
               onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
             <TextInput label="출고전표번호" placeholder="전표번호" value={filterInputs.receiptno}
-              onChange={(event) => setFilterInputs((current) => ({ ...current, receiptno: event.currentTarget.value }))}
+              onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, receiptno: nextValue })); }}
               onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
           </Stack>
           <Box className={classes.outboundStockLookup}>

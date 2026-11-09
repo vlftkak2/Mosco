@@ -3,6 +3,7 @@
 // 요약 카드(누르면 목록이 그 조건으로 걸러짐) + 만기 구간 차트/표(막대·행을 누르면 그 구간으로 걸러짐) + 증권 목록.
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import usePageReactivated from '../../components/common/usePageReactivated';
 import XLSX from 'xlsx-js-style';
 import { ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack, Table, Text, TextInput, UnstyledButton } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -209,6 +210,8 @@ export default function InstrumentStatus() {
     }
   }, []);
   // 탭을 열 때마다 현재 기준으로 다시 조회
+  // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
+  usePageReactivated(() => { void load(filters, page, pageSize); });
   useEffect(() => { void load(filters, page, pageSize); }, [load, filters, page, pageSize]);
   const hasItems = data.items.length > 0;
 
@@ -384,12 +387,12 @@ export default function InstrumentStatus() {
           <Select label="상태" data={STATUS_OPTIONS} value={filterInputs.status} onChange={(value) => setFilterInputs((current) => ({ ...current, status: value ?? 'OPEN' }))} />
           <Select label="만기 구간" data={BUCKET_OPTIONS} value={filterInputs.bucket} onChange={(value) => setFilterInputs((current) => ({ ...current, bucket: value || '' }))} />
           <Box><Text size="xs" fw={700} mb={5}>만기일 기간</Text><Stack gap={6}>
-            <ErpDateInput aria-label="만기 시작일" type="date" value={filterInputs.maturity_from} onChange={(event) => setFilterInputs((current) => ({ ...current, maturity_from: event.currentTarget.value }))} />
-            <ErpDateInput aria-label="만기 종료일" type="date" value={filterInputs.maturity_to} onChange={(event) => setFilterInputs((current) => ({ ...current, maturity_to: event.currentTarget.value }))} />
+            <ErpDateInput aria-label="만기 시작일" type="date" value={filterInputs.maturity_from} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, maturity_from: nextValue })); }} />
+            <ErpDateInput aria-label="만기 종료일" type="date" value={filterInputs.maturity_to} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, maturity_to: nextValue })); }} />
           </Stack></Box>
-          <TextInput label="거래처" placeholder="거래처코드 또는 거래처명" value={filterInputs.customer} onChange={(event) => setFilterInputs((current) => ({ ...current, customer: event.currentTarget.value }))} onKeyDown={onFilterKey} />
+          <TextInput label="거래처" placeholder="거래처코드 또는 거래처명" value={filterInputs.customer} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, customer: nextValue })); }} onKeyDown={onFilterKey} />
           <Select label="종류" data={[{ value: '', label: '전체' }, ...INSTRUMENT_TYPE_OPTIONS]} value={filterInputs.instrumenttype} onChange={(value) => setFilterInputs((current) => ({ ...current, instrumenttype: value || '' }))} />
-          <TextInput label="번호·발행회사·전표" placeholder="어음번호, 발행회사, 전표번호" value={filterInputs.keyword} onChange={(event) => setFilterInputs((current) => ({ ...current, keyword: event.currentTarget.value }))} onKeyDown={onFilterKey} />
+          <TextInput label="번호·발행회사·전표" placeholder="어음번호, 발행회사, 전표번호" value={filterInputs.keyword} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, keyword: nextValue })); }} onKeyDown={onFilterKey} />
         </Stack>
       </Paper>}
     </Box>

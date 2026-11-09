@@ -1,5 +1,6 @@
 import { memo, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import usePageReactivated from '../../components/common/usePageReactivated';
 // xlsx-js-style: same API as 'xlsx', but actually writes cell styles (red header via applyExcelHeaderStyle).
 import XLSX from 'xlsx-js-style';
 import {
@@ -407,6 +408,8 @@ export default function ItemProcessMaster() {
     }
   }, [query, processFilter, itemtypeFilter, outputNameFilter]);
 
+  // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
+  usePageReactivated(() => { void loadOptions(); });
   useEffect(() => { void loadOptions(); }, [loadOptions]);
   useEffect(() => { void loadRows(); }, [loadRows]);
 
@@ -764,7 +767,8 @@ export default function ItemProcessMaster() {
                     selected={selectedIds.includes(row.id)} saving={saving} processOptions={processOptions}
                     onToggleSelection={toggleRowSelection} onChangeRow={changeRow} onSelectItem={selectItem}
                     onSelectProcess={selectProcess} onClearProcess={clearProcess}
-                    setPickerTarget={setPickerTarget} setProcessPickerTarget={setProcessPickerTarget} />)}                  {!rows.length && <tr><td className={classes.emptyCell} colSpan={11}>등록된 가공공정이 없습니다.</td></tr>}
+                    setPickerTarget={setPickerTarget} setProcessPickerTarget={setProcessPickerTarget} />)}
+                  {!rows.length && <tr><td className={classes.emptyCell} colSpan={11}>등록된 가공공정이 없습니다.</td></tr>}
                 </tbody>
               </table>
             )}

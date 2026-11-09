@@ -1,4 +1,5 @@
 from psycopg2.extras import execute_values
+from services.ai.stock_links import ensure_not_linked, linked_orders_sql
 import logging
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -392,7 +393,8 @@ def list_available_stock(
                        stock.qtyunit, COALESCE(qty_code.code_name, stock.qtyunit) AS qtyunit_name,
                        stock.weight AS current_weight,
                        stock.weight + COALESCE(own.weight, 0) AS available_weight,
-                       stock.unit, stock.warehousecode, stock.warehousecodename
+                       stock.unit, stock.warehousecode, stock.warehousecodename,
+                       {linked_orders_sql("stock")} AS linked_orders
                 FROM CurrentStock01t AS stock
                 LEFT JOIN own_allocation AS own
                   ON own.stocksourcetype = stock.sourcetype
@@ -478,7 +480,7 @@ def _insert_outbound_expenses(cursor, companyid: str, companyname: str, receiptn
 
 
 
-def _prefetch_source_rows(cursor, companyid: str, items: list[dict]) -> dict:
+def _prefetch_source_rows(cursor, companyid: str, items: list[dict], allowed_keys=frozenset()) -> dict:
     """Lock and load every referenced stock source row with one query (sorted lock order).
 
     Keys with an invalid source type are skipped so the per-line validation that follows
@@ -495,6 +497,8 @@ def _prefetch_source_rows(cursor, companyid: str, items: list[dict]) -> dict:
             keys.add(key)
     if not keys:
         return {}
+    # 주문서 관리에서 주문에 연결된 재고는 출고할 수 없다 (수정 중인 전표에 원래 있던 재고는 허용)
+    ensure_not_linked(cursor, companyid, keys, allowed_keys)
     keys = sorted(keys)
     cursor.execute(
         """SELECT sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
@@ -828,11 +832,19 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
             # record the editor as the modifier.
             detail_created_by = (existing[3] if existing else actor) or None
             detail_updated_by = (actor or None) if existing else None
+            existing_sources = set()
+            if existing:
+                cursor.execute(
+                    """SELECT DISTINCT UPPER(stocksourcetype), stocksourceno, stocksourceline
+                       FROM Outbound02t WHERE companyid = %s AND receiptno = %s""",
+                    (companyid, receiptno),
+                )
+                existing_sources = {(t, n, int(l)) for t, n, l in cursor.fetchall()}
 
             quantity_unit_codes, quantity_unit_names = _load_quantity_unit_maps(cursor, companyid)
             source_cache = {}
             demands = {}
-            prefetched_sources = _prefetch_source_rows(cursor, companyid, items)
+            prefetched_sources = _prefetch_source_rows(cursor, companyid, items, existing_sources)
             for index, item in enumerate(items, start=1):
                 source_key = (
                     item["stocksourcetype"].strip().upper(),

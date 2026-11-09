@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import usePageReactivated from '../../components/common/usePageReactivated';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack,
@@ -147,6 +148,8 @@ export default function ItemProcessSearch() {
     }
   }, []);
 
+  // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
+  usePageReactivated(() => { void loadItems(page, filters, pageSize); });
   useEffect(() => { void loadItems(page, filters, pageSize); }, [loadItems, page, filters, pageSize]);
 
   const runSearch = useCallback(() => {

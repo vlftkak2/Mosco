@@ -15,7 +15,6 @@ VALUES
     ('AI_ORDER_RECOGNITION',    'AI 주문서 인식',    'COMPANY',  TRUE,   9, 'Y'),
     ('AI_ORDER_MANAGEMENT',     '주문서 관리',       'COMPANY',  TRUE,  10, 'Y'),
     ('AI_OPTIMIZATION',         '가공 최적화',       'COMPANY',  TRUE,  11, 'Y'),
-    ('AI_STANDARDS',            '가공기준 관리',     'COMPANY',  TRUE,  12, 'Y'),
     ('ITEM_PROCESS_MASTER',     '가공공정 관리',     'COMPANY',  TRUE,  13, 'Y'),
     ('ITEM_PROCESS_REGISTER',   '가공등록',          'COMPANY',  TRUE,  14, 'Y'),
     ('ITEM_PROCESS_SEARCH',     '가공현황',          'COMPANY',  TRUE,  15, 'Y'),

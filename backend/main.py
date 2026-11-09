@@ -55,6 +55,7 @@ from routes.receiptpayment import ReceiptPaymentSearch_routes as ReceiptPaymentS
 from routes.receiptpayment import InstrumentStatus_routes as InstrumentStatus_routes
 from routes.ai import AIOrder_routes as AIOrder_routes
 from routes.ai import AIOrderManage_routes as AIOrderManage_routes
+from routes.ai import AIOrderOptimization_routes as AIOrderOptimization_routes
 
 import uvicorn
 
@@ -153,6 +154,7 @@ app.include_router(InstrumentStatus_routes.router)  # 수표/어음 현황
 # Isolated AI order recognition test API (does not touch ERP transaction tables).
 app.include_router(AIOrder_routes.router)
 app.include_router(AIOrderManage_routes.router)
+app.include_router(AIOrderOptimization_routes.router)  # 가공 최적화
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

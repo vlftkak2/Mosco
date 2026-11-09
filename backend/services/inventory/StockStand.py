@@ -1,4 +1,5 @@
 from psycopg2.extras import execute_values
+from services.ai.stock_links import ensure_not_linked
 import logging
 from contextlib import contextmanager
 from datetime import date
@@ -592,6 +593,8 @@ def delete_stand_lines(companyid: str, linenos: list[int]):
             raise ValueError("사용된 기초재고는 삭제할 수 없습니다. " + " / ".join(blocked[:5])
                              + (f" 외 {len(blocked) - 5}건" if len(blocked) > 5 else ""))
 
+        ensure_not_linked(cursor, companyid, {("OPENING", sourceno, lineno) for lineno, _i, _p, sourceno, _b in rows if sourceno},
+                          action="삭제")
         cursor.execute(
             """DELETE FROM CurrentStock01t
                WHERE companyid = %s AND sourcetype = 'OPENING' AND sourceline = ANY(%s)
