@@ -70,7 +70,7 @@ export default function CurrentStockPage() {
       const { data } = await axios.get('/api/current-stock/items/export', { ...authConfig(), params, responseType: 'blob' });
       const url = URL.createObjectURL(data);
       const link = document.createElement('a');
-      link.href = url; link.download = `현재고_${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.xlsx`;
+      link.href = url; link.download = `현재고현황_${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.xlsx`;
       document.body.appendChild(link); link.click(); link.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch { notifications.show({ title: '엑셀 다운로드 실패', message: '현재고를 엑셀로 저장하지 못했습니다.', color: 'red' }); }
     finally { setExporting(false); }

@@ -307,7 +307,7 @@ export default function GrossProfitDashboard() {
     const worksheet = XLSX.utils.json_to_sheet(sheetRows);
     applyExcelHeaderStyle(worksheet, Object.keys(sheetRows[0]).length);
     XLSX.utils.book_append_sheet(workbook, worksheet, '거래처별 매출이익');
-    XLSX.writeFile(workbook, `매출이익현황판_${period.date_from.replaceAll('-', '')}_${period.date_to.replaceAll('-', '')}.xlsx`);
+    XLSX.writeFile(workbook, `매출이익현황_${period.date_from.replaceAll('-', '')}_${period.date_to.replaceAll('-', '')}.xlsx`);
   }, [data, period]);
 
   const hasData = Boolean(data?.customers?.length);

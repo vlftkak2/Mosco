@@ -172,7 +172,7 @@ export default function ItemProcessSearch() {
       const downloadUrl = URL.createObjectURL(data);
       const link = document.createElement('a');
       link.href = downloadUrl;
-      link.download = `가공현황_${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.xlsx`;
+      link.download = `재고가공현황_${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();

@@ -911,12 +911,12 @@ export default function ItemProcessRegister() {
     applyExcelHeaderStyle(worksheet, rows[0].length);
     worksheet['!cols'] = rows[0].map((label) => ({ wch: Math.min(28, Math.max(12, String(label).length + 4)) }));
     worksheet['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length - 1, c: rows[0].length - 1 } }) };
-    XLSX.utils.book_append_sheet(workbook, worksheet, '가공상세');
+    XLSX.utils.book_append_sheet(workbook, worksheet, '재고가공상세');
 
     const safeFilePart = (value) => [...String(value || '').trim()]
       .map((character) => character.charCodeAt(0) < 32 || '<>:"/\\|?*'.includes(character) ? '_' : character)
       .join('').replace(/\s+/g, '_') || '가공전표';
-    XLSX.writeFile(workbook, `가공전표_${safeFilePart(selectedProcessno)}.xlsx`);
+    XLSX.writeFile(workbook, `재고가공전표_${safeFilePart(selectedProcessno)}.xlsx`);
   }, [selectedProcessno, sources, documents, detailLoading]);
 
   // The ribbon lives in the layout: re-registering it re-renders the whole layout, and the actions below change on

@@ -180,7 +180,7 @@ def write_documents_excel(
     """
 
     workbook = xlsxwriter.Workbook(output_path, {"constant_memory": True})
-    worksheet = workbook.add_worksheet("가공현황")
+    worksheet = workbook.add_worksheet("재고가공현황")
     header_format = workbook.add_format({
         "bold": True, "font_color": "#B4232D", "bg_color": "#FFF3F3",
         "border": 1, "border_color": "#E5BFC2", "valign": "vcenter",

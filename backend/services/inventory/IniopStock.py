@@ -121,7 +121,7 @@ def write_iniop_stock_excel(companyid: str, output_path: str, **filters):
         "등록자", "수정자",
     ]
     workbook = xlsxwriter.Workbook(output_path, {"constant_memory": True})
-    worksheet = workbook.add_worksheet("수불장")
+    worksheet = workbook.add_worksheet("재고수불현황")
     header_format = workbook.add_format({"bold": True, "font_color": "#B4232D", "bg_color": "#FFF3F3", "border": 1, "border_color": "#E5BFC2"})
     date_format = workbook.add_format({"num_format": "yyyy-mm-dd"})
     integer_format = workbook.add_format({"num_format": "#,##0;[Red]-#,##0;0"})

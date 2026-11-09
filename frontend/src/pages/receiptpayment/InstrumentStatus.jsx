@@ -249,8 +249,8 @@ export default function InstrumentStatus() {
       const workbook = XLSX.utils.book_new();
       const worksheet = XLSX.utils.json_to_sheet(sheetRows);
       applyExcelHeaderStyle(worksheet, Object.keys(sheetRows[0]).length);
-      XLSX.utils.book_append_sheet(workbook, worksheet, '수표어음현황');
-      XLSX.writeFile(workbook, `수표어음현황_${dateString(new Date()).replaceAll('-', '')}.xlsx`);
+      XLSX.utils.book_append_sheet(workbook, worksheet, '수표어음관리');
+      XLSX.writeFile(workbook, `수표어음관리_${dateString(new Date()).replaceAll('-', '')}.xlsx`);
     } catch (error) {
       notifications.show({ title: '엑셀 다운로드 실패', message: error.response?.data?.detail || '수표/어음 현황을 파일로 저장하지 못했습니다.', color: 'red' });
     }

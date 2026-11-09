@@ -207,7 +207,7 @@ export default function InboundSearchPage() {
       const link = document.createElement('a');
       const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
       link.href = downloadUrl;
-      link.download = `입고현황_${date}.xlsx`;
+      link.download = `매입현황_${date}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();

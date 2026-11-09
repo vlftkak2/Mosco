@@ -95,7 +95,7 @@ export default function InoutmoveSearch() {
       link.href = url;
       // Local (KST) date: toISOString() is UTC and gave the previous day before 09:00.
       const now = new Date();
-      link.download = `재고이전현황_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.xlsx`;
+      link.download = `재고이동현황_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
