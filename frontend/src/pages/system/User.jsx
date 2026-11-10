@@ -6,6 +6,7 @@ import {
   Box,
   Button,
   Group,
+  Pagination,
   Paper,
   PasswordInput,
   ScrollArea,
@@ -16,7 +17,15 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { modals } from '@mantine/modals';
-import { IconKey } from '@tabler/icons-react';
+import {
+  IconBuilding,
+  IconInbox,
+  IconKey,
+  IconLock,
+  IconSearch,
+  IconUserCircle,
+  IconUsersGroup,
+} from '@tabler/icons-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
@@ -44,6 +53,9 @@ const AUTHORITY_LABELS = {
   SUBMASTER: '고객사 관리자',
   USER: '일반 사용자',
 };
+const AUTHORITY_COLORS = { MASTER: 'red', SUBMASTER: 'indigo', USER: 'gray' };
+const PAGE_SIZE_OPTIONS = [15, 20, 50, 100].map((value) => ({ value: String(value), label: `${value}개씩` }));
+const DEFAULT_PAGE_SIZE = 15;
 
 export default function User() {
   const location = useLocation();
@@ -71,6 +83,9 @@ export default function User() {
   const isNewRef = useRef(isNew);
   const companyDropdownWasOpen = useRef(false);
   const saveInProgressRef = useRef(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const pageSizeRef = useRef(DEFAULT_PAGE_SIZE);
 
   useEffect(() => { selectedEmailRef.current = selectedEmail; }, [selectedEmail]);
   useEffect(() => { isNewRef.current = isNew; }, [isNew]);
@@ -123,6 +138,7 @@ export default function User() {
       setCompanyInfo(null);
       setCompanyname('');
       setUsers([]);
+      setPage(1);
       setSelectedEmail('');
       setDraft(emptyUser());
       return;
@@ -139,6 +155,9 @@ export default function User() {
       });
       setCompanyname(data.company.companyname || '');
       setUsers(data.items || []);
+      // 선택된 계정이 있는 페이지를 보여준다 (없으면 첫 페이지)
+      const preferredIndex = (data.items || []).findIndex((item) => item.email === preferredEmail);
+      setPage(preferredIndex >= 0 ? Math.floor(preferredIndex / pageSizeRef.current) + 1 : 1);
       if (!preserveDraft && !isNewRef.current) {
         const selected = (data.items || []).find((item) => item.email === preferredEmail) || null;
         setSelectedEmail(selected?.email || '');
@@ -149,6 +168,7 @@ export default function User() {
       setCompanyInfo(null);
       setCompanyname('');
       setUsers([]);
+      setPage(1);
     } finally {
       setLoadingUsers(false);
     }
@@ -333,6 +353,16 @@ export default function User() {
     useSaveColor: false,
   });
 
+  const pageCount = Math.max(1, Math.ceil(users.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pagedUsers = useMemo(
+    () => users.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [currentPage, pageSize, users],
+  );
+  const remainingSeats = companyInfo
+    ? Math.max(0, Number(companyInfo.licensed_seats || 0) - Number(companyInfo.active_users || 0))
+    : 0;
+
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
@@ -343,22 +373,22 @@ export default function User() {
 
       <div className={classes.workspace}>
         <Paper className={classes.listPanel} withBorder>
-          <Group className={classes.panelHeader} justify="space-between">
-            <Group gap={7}>
+          <Group className={classes.panelHeader} justify="space-between" wrap="wrap">
+            <Group gap={8} wrap="nowrap">
+              <span className={classes.titleIcon}><IconUsersGroup size={15} /></span>
               <Text className={classes.sectionTitle} fw={700}>고객사 계정 목록</Text>
-              <Badge variant="light" color="gray">{users.length}건</Badge>
+              <Badge className={classes.countBadge} variant="light" color="gray" radius="sm">{users.length.toLocaleString('ko-KR')}건</Badge>
             </Group>
             {companyInfo && (
-              <Group gap={8} wrap="nowrap">
+              <Group gap={6} wrap="nowrap">
                 <Badge
                   variant="light"
+                  radius="sm"
                   color={companyInfo.company_status === 'ACTIVE' ? 'teal' : companyInfo.company_status === 'SUSPENDED' ? 'orange' : 'gray'}
                 >
                   {COMPANY_STATUS_LABELS[companyInfo.company_status] || companyInfo.company_status}
                 </Badge>
-                <Text size="xs" c="dimmed">
-                  활성 계정 {companyInfo.active_users} / 허용 {companyInfo.licensed_seats}명
-                </Text>
+                <span className={classes.chip}>활성 계정 <b>{companyInfo.active_users}</b> / 허용 <b>{companyInfo.licensed_seats}</b>명</span>
               </Group>
             )}
           </Group>
@@ -368,6 +398,7 @@ export default function User() {
               className={classes.companySelect}
               label="고객사"
               placeholder="고객사 선택"
+              leftSection={<IconBuilding size={15} />}
               data={companies.map((company) => ({ value: company.companyid, label: `${company.companyid} - ${company.companyname}` }))}
               renderOption={({ option }) => {
                 const company = companies.find((item) => item.companyid === option.value);
@@ -397,6 +428,7 @@ export default function User() {
               <TextInput
                 className={classes.companySelect}
                 label="고객사"
+                leftSection={<IconBuilding size={15} />}
                 value={`${companyid} - ${companyInfo?.companyname || ''}`}
                 readOnly
                 disabled
@@ -405,6 +437,15 @@ export default function User() {
           </Group>
           <ScrollArea className={classes.tableWrap} type="always" scrollbars="xy" scrollbarSize={12}>
             <Table className={`${sharedClasses.table} ${classes.table}`} highlightOnHover>
+              <colgroup>
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '27%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '10%' }} />
+              </colgroup>
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>사용자명</Table.Th>
@@ -417,127 +458,176 @@ export default function User() {
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {users.length ? users.map((user) => (
+                {pagedUsers.length ? pagedUsers.map((user) => (
                   <Table.Tr
                     key={`${user.companyid}:${user.email}`}
                     className={selectedEmail === user.email ? classes.selectedRow : ''}
                     onClick={() => handleSelectUser(user)}
                   >
-                    <Table.Td>{user.username}</Table.Td>
+                    <Table.Td className={classes.nameCell} title={user.username}>{user.username}</Table.Td>
                     <Table.Td title={user.email}>{user.email}</Table.Td>
-                    <Table.Td>{user.team || '-'}</Table.Td>
-                    <Table.Td>{AUTHORITY_LABELS[user.authority] || user.authority || AUTHORITY_LABELS.USER}</Table.Td>
+                    <Table.Td title={user.team || '-'}>{user.team || '-'}</Table.Td>
+                    <Table.Td>
+                      <Badge size="sm" variant="light" radius="sm" color={AUTHORITY_COLORS[user.authority] || 'gray'}>
+                        {AUTHORITY_LABELS[user.authority] || user.authority || AUTHORITY_LABELS.USER}
+                      </Badge>
+                    </Table.Td>
                     <Table.Td>
                       <Badge size="sm" variant="light" color={user.useyn === 'Y' ? 'teal' : 'gray'}>
                         {user.useyn === 'Y' ? '사용중' : '사용중지'}
                       </Badge>
                     </Table.Td>
-                    <Table.Td>{user.created_by || ''}</Table.Td>
-                    <Table.Td>{user.updated_by || ''}</Table.Td>
+                    <Table.Td title={user.created_by || ''}>{user.created_by || ''}</Table.Td>
+                    <Table.Td title={user.updated_by || ''}>{user.updated_by || ''}</Table.Td>
                   </Table.Tr>
                 )) : (
-                  <Table.Tr>
-                    <Table.Td colSpan={7} className={classes.empty}>
-                      {loadingUsers ? '조회 중...' : companyid ? '등록된 계정이 없습니다.' : '고객사를 선택해 주세요.'}
+                  <Table.Tr className={classes.emptyRow}>
+                    <Table.Td colSpan={7} className={classes.emptyCell}>
+                      <div className={classes.empty}>
+                        <span className={classes.emptyIcon}>
+                          {loadingUsers ? <IconSearch size={20} /> : companyid ? <IconInbox size={22} /> : <IconBuilding size={20} />}
+                        </span>
+                        <strong>{loadingUsers ? '조회 중...' : companyid ? '등록된 계정이 없습니다.' : '고객사를 선택해 주세요.'}</strong>
+                      </div>
                     </Table.Td>
                   </Table.Tr>
                 )}
               </Table.Tbody>
             </Table>
           </ScrollArea>
-          <Group className={sharedClasses.footer} justify="space-between">
-            <Text size="xs" c="dimmed">
-              {companyInfo?.company_status === 'ACTIVE'
-                ? `남은 계정 ${Math.max(0, Number(companyInfo.licensed_seats || 0) - Number(companyInfo.active_users || 0))}개`
-                : 'ACTIVE 고객사만 계정 등록 가능'}
-            </Text>
-            <Text size="xs" c="dimmed">{users.length}개 계정</Text>
+          <Group className={classes.paginationBar} justify="space-between" wrap="wrap">
+            <Group gap="xs" wrap="nowrap">
+              <Text component="span" className={classes.totalText}>총 <b>{users.length.toLocaleString('ko-KR')}</b>건</Text>
+              <Select
+                aria-label="페이지당 표시 건수"
+                data={PAGE_SIZE_OPTIONS}
+                value={String(pageSize)}
+                w={96}
+                size="xs"
+                allowDeselect={false}
+                onChange={(value) => {
+                  if (!value) return;
+                  pageSizeRef.current = Number(value);
+                  setPageSize(Number(value));
+                  setPage(1);
+                }}
+              />
+              <Text component="span" className={classes.seatHint}>
+                {companyInfo?.company_status === 'ACTIVE'
+                  ? `남은 계정 ${remainingSeats}개`
+                  : 'ACTIVE 고객사만 계정 등록 가능'}
+              </Text>
+            </Group>
+            <Pagination size="sm" color="red" withEdges value={currentPage} total={pageCount} onChange={setPage} disabled={loadingUsers || !users.length} />
           </Group>
         </Paper>
 
         <Paper className={classes.formPanel} withBorder>
-          <Group className={classes.panelHeader} justify="space-between">
-            <Text className={classes.sectionTitle} fw={700}>사용자 계정 정보</Text>
+          <Group className={classes.panelHeader} justify="space-between" wrap="nowrap">
             <Group gap={8} wrap="nowrap">
-              {companyid && (
-                <Button
-                  size="xs"
-                  variant="light"
-                  color="red"
-                  leftSection={<IconKey size={14} />}
-                  onClick={() => {
-                    if (selectedEmail && String(draft.authority || '').toUpperCase() === 'MASTER') {
-                      notifications.show({
-                        title: '메뉴 권한 설정 불필요',
-                        message: '플랫폼 관리자는 모든 메뉴 권한을 가지고 있어 개별 메뉴 권한을 설정하지 않습니다.',
-                        color: 'red',
-                      });
-                      return;
-                    }
-                    navigate('/UserMenu', {
-                      state: { companyid, useremail: selectedEmail || undefined },
-                    });
-                  }}
-                >
-                  메뉴 권한
-                </Button>
-              )}
-              <Badge variant="light" color={isNew ? 'red' : draft.email ? 'gray' : 'gray'}>
+              <Text className={classes.sectionTitle} fw={700}>사용자 계정 정보</Text>
+              <Badge variant="light" radius="sm" color={isNew ? 'red' : 'gray'}>
                 {isNew ? '신규 등록' : draft.email ? '수정' : '선택 대기'}
               </Badge>
             </Group>
+            {companyid && (
+              <Button
+                size="xs"
+                variant="light"
+                color="red"
+                leftSection={<IconKey size={14} />}
+                onClick={() => {
+                  if (selectedEmail && String(draft.authority || '').toUpperCase() === 'MASTER') {
+                    notifications.show({
+                      title: '메뉴 권한 설정 불필요',
+                      message: '플랫폼 관리자는 모든 메뉴 권한을 가지고 있어 개별 메뉴 권한을 설정하지 않습니다.',
+                      color: 'red',
+                    });
+                    return;
+                  }
+                  navigate('/UserMenu', {
+                    state: { companyid, useremail: selectedEmail || undefined },
+                  });
+                }}
+              >
+                메뉴 권한
+              </Button>
+            )}
           </Group>
           <ScrollArea className={classes.formBody} type="auto">
-            <div className={classes.formGrid}>
-              <TextInput label="고객사코드" value={companyid} readOnly disabled />
-              <TextInput
-                label="고객사명 *"
-                value={companyname}
-                maxLength={100}
-                readOnly
-                disabled
-              />
-              <TextInput label="사용자명 *" value={draft.username} onChange={(event) => updateDraft('username', event.currentTarget.value)} maxLength={20} disabled={readOnlyExisting} />
-              <TextInput label="이메일 *" type="email" value={draft.email} onChange={(event) => updateDraft('email', event.currentTarget.value)} maxLength={50} disabled={readOnlyExisting} />
-              <TextInput label="부서" value={draft.team} onChange={(event) => updateDraft('team', event.currentTarget.value)} maxLength={50} disabled={readOnlyExisting} />
-              <Select
-                label="권한 *"
-                data={companyid === '001'
-                  ? [
-                    { value: 'MASTER', label: '플랫폼 관리자' },
-                    { value: 'USER', label: '일반 사용자' },
-                  ]
-                  : [
-                    { value: 'SUBMASTER', label: '고객사 관리자' },
-                    { value: 'USER', label: '일반 사용자' },
-                  ]}
-                value={draft.authority || 'USER'}
-                onChange={(value) => updateDraft('authority', value || 'USER')}
-                allowDeselect={false}
-                disabled={readOnlyExisting}
-              />
-              <Select
-                label="사용여부"
-                data={[{ value: 'Y', label: '사용중' }, { value: 'N', label: '사용중지' }]}
-                value={draft.useyn || 'Y'}
-                onChange={(value) => updateDraft('useyn', value || 'Y')}
-                allowDeselect={false}
-                disabled={isSubmaster && (isNew || readOnlyExisting)}
-              />
-              {(isNew || (draft.email && (isPlatformMaster || (isSubmaster && !readOnlyExisting)))) && (
-                <Group className={classes.fullWidth} align="flex-end" gap="xs" wrap="nowrap">
-                  <PasswordInput
-                    style={{ flex: 1 }}
-                    label={isNew ? '초기 비밀번호 *' : '새 비밀번호 / 관리자 재설정'}
-                    description={isNew ? '초기 비밀번호를 입력해 주세요.' : <>변경할 때만 입력 후 저장하세요.<br />비워두면 기존 비밀번호를 유지합니다.</>}
-                    value={draft.password}
-                    onChange={(event) => updateDraft('password', event.currentTarget.value)}
-                    autoComplete="new-password"
+            <div className={classes.formSections}>
+              <section className={classes.formSection}>
+                <div className={classes.formSectionHead}><IconBuilding size={15} />소속 고객사</div>
+                <div className={classes.formGrid}>
+                  <TextInput label="고객사코드" value={companyid} readOnly disabled />
+                  <TextInput
+                    label="고객사명"
+                    withAsterisk
+                    value={companyname}
+                    maxLength={100}
+                    readOnly
+                    disabled
                   />
-                  <Button size="xs" variant="light" color="gray" onClick={generateTemporaryPassword}>
-                    임시값 생성
-                  </Button>
-                </Group>
+                </div>
+              </section>
+
+              <section className={classes.formSection}>
+                <div className={classes.formSectionHead}>
+                  <IconUserCircle size={15} />계정 정보
+                  {readOnlyExisting && <span className={classes.formSectionHint}>조회 전용 계정</span>}
+                </div>
+                <div className={classes.formGrid}>
+                  <TextInput label="사용자명" withAsterisk value={draft.username} onChange={(event) => updateDraft('username', event.currentTarget.value)} maxLength={20} disabled={readOnlyExisting} />
+                  <TextInput label="이메일" withAsterisk type="email" value={draft.email} onChange={(event) => updateDraft('email', event.currentTarget.value)} maxLength={50} disabled={readOnlyExisting} />
+                  <TextInput label="부서" value={draft.team} onChange={(event) => updateDraft('team', event.currentTarget.value)} maxLength={50} disabled={readOnlyExisting} />
+                  <Select
+                    label="권한"
+                    withAsterisk
+                    data={companyid === '001'
+                      ? [
+                        { value: 'MASTER', label: '플랫폼 관리자' },
+                        { value: 'USER', label: '일반 사용자' },
+                      ]
+                      : [
+                        { value: 'SUBMASTER', label: '고객사 관리자' },
+                        { value: 'USER', label: '일반 사용자' },
+                      ]}
+                    value={draft.authority || 'USER'}
+                    onChange={(value) => updateDraft('authority', value || 'USER')}
+                    allowDeselect={false}
+                    disabled={readOnlyExisting}
+                  />
+                  <Select
+                    label="사용여부"
+                    data={[{ value: 'Y', label: '사용중' }, { value: 'N', label: '사용중지' }]}
+                    value={draft.useyn || 'Y'}
+                    onChange={(value) => updateDraft('useyn', value || 'Y')}
+                    allowDeselect={false}
+                    disabled={isSubmaster && (isNew || readOnlyExisting)}
+                  />
+                </div>
+              </section>
+
+              {(isNew || (draft.email && (isPlatformMaster || (isSubmaster && !readOnlyExisting)))) && (
+                <section className={classes.formSection}>
+                  <div className={classes.formSectionHead}><IconLock size={15} />비밀번호</div>
+                  <div className={classes.formGrid}>
+                    <Group className={classes.fullWidth} align="flex-end" gap="xs" wrap="nowrap">
+                      <PasswordInput
+                        style={{ flex: 1 }}
+                        label={isNew ? '초기 비밀번호' : '새 비밀번호 / 관리자 재설정'}
+                        withAsterisk={isNew}
+                        description={isNew ? '초기 비밀번호를 입력해 주세요.' : <>변경할 때만 입력 후 저장하세요.<br />비워두면 기존 비밀번호를 유지합니다.</>}
+                        value={draft.password}
+                        onChange={(event) => updateDraft('password', event.currentTarget.value)}
+                        autoComplete="new-password"
+                      />
+                      <Button size="xs" variant="light" color="gray" onClick={generateTemporaryPassword}>
+                        임시값 생성
+                      </Button>
+                    </Group>
+                  </div>
+                </section>
               )}
             </div>
           </ScrollArea>

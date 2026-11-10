@@ -356,3 +356,66 @@
   .logoutButton { padding-right: 7px; padding-left: 7px; }
   .logoutButton span { display: none; }
 }
+
+/* 상단 명령 버튼 (조회 · 추가 · 복사 · 엑셀 · 저장 · 삭제 · 인쇄 · 닫기)
+   화면마다 따로 있는 ribbonTool 스타일을 여기 한 곳에서 덮어써 모든 화면이 같은 모양이 되게 한다. */
+.headerActions :global(.mantine-Group-root) { gap: 4px !important; }
+.headerActions :global(.mantine-Button-root) {
+  height: 32px !important; min-height: 32px !important; padding: 0 12px !important;
+  border: 1px solid transparent !important; border-radius: 8px !important;
+  background: transparent !important; color: #3f4d61 !important;
+  font-weight: 600 !important;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.headerActions :global(.mantine-Button-root .mantine-Button-label) { font-size: 12px !important; letter-spacing: -.1px; }
+.headerActions :global(.mantine-Button-root .mantine-Button-section) { margin-inline-end: 6px; }
+.headerActions :global(.mantine-Button-root svg) { width: 16px !important; height: 16px !important; stroke-width: 1.9; color: #6b7a8f; transition: color 120ms ease; }
+.headerActions :global(.mantine-Button-root:hover:not(:disabled):not([data-disabled])) {
+  border-color: #e3e8ef !important; background: #f4f6f9 !important; color: #1f2a3a !important;
+}
+.headerActions :global(.mantine-Button-root:active:not(:disabled):not([data-disabled])) { transform: translateY(1px); }
+.headerActions :global(.mantine-Button-root:focus-visible) { outline: 2px solid #f0444c !important; outline-offset: 1px !important; }
+
+/* 동작별 아이콘 색 */
+.headerActions :global(.mantine-Button-root:has(.tabler-icon-plus) svg) { color: #2a78d6; }
+.headerActions :global(.mantine-Button-root:has(.tabler-icon-copy) svg) { color: #7a5fc7; }
+.headerActions :global(.mantine-Button-root:has(.tabler-icon-file-spreadsheet) svg) { color: #16834a; }
+.headerActions :global(.mantine-Button-root:has(.tabler-icon-printer) svg) { color: #52607a; }
+.headerActions :global(.mantine-Button-root:has(.tabler-icon-trash) svg) { color: #d0454c; }
+.headerActions :global(.mantine-Button-root:has(.tabler-icon-trash):hover:not(:disabled):not([data-disabled])) { border-color: #f6d4d6 !important; background: #fff4f4 !important; color: #c4363f !important; }
+.headerActions :global(.mantine-Button-root:has(.tabler-icon-x):hover:not(:disabled):not([data-disabled])) { color: #1f2a3a !important; }
+
+/* 조회 = 주 동작: 브랜드 빨강으로 채움 */
+.headerActions :global(.mantine-Button-root:has(.tabler-icon-search)) {
+  background: #f0444c !important; color: #fff !important; box-shadow: 0 1px 2px #c21f2733;
+}
+.headerActions :global(.mantine-Button-root:has(.tabler-icon-search) svg) { color: #fff; }
+.headerActions :global(.mantine-Button-root:has(.tabler-icon-search):hover:not(:disabled):not([data-disabled])) {
+  border-color: transparent !important; background: #dc323a !important; color: #fff !important; box-shadow: 0 2px 6px #c21f2740;
+}
+/* 저장 = 두 번째로 중요한 동작: 옅은 빨강 바탕 */
+.headerActions :global(.mantine-Button-root:has(.tabler-icon-device-floppy)) { border-color: #f8d3d5 !important; background: #fff5f5 !important; color: #d93a42 !important; }
+.headerActions :global(.mantine-Button-root:has(.tabler-icon-device-floppy) svg) { color: #e0434b; }
+.headerActions :global(.mantine-Button-root:has(.tabler-icon-device-floppy):hover:not(:disabled):not([data-disabled])) { border-color: #f2b7ba !important; background: #ffeaea !important; color: #c4363f !important; }
+
+/* 쓸 수 없는 버튼: 흐리게, 배경 없이 */
+.headerActions :global(.mantine-Button-root:disabled),
+.headerActions :global(.mantine-Button-root[data-disabled]) {
+  border-color: transparent !important; background: transparent !important; box-shadow: none !important; color: #b3bcc8 !important; cursor: not-allowed;
+}
+.headerActions :global(.mantine-Button-root:disabled svg),
+.headerActions :global(.mantine-Button-root[data-disabled] svg) { color: #c9d0d9 !important; }
+
+/* 구분선 */
+.headerActions [class*="ribbonSeparator"] { width: 1px !important; height: 20px !important; margin: 0 6px !important; background: #e6eaf0 !important; }
+
+/* 브레드크럼 (예: 매출관리 › 매출현황): 모든 화면을 '자금관리 › 거래처 잔액 현황'과 같은 글꼴 · 색 · 크기로.
+   화면마다 CSS 모듈이 따로라 이름에 breadcrumb/crumb 이 들어간 클래스를 본문 영역에서 한 번에 맞춘다. */
+.appMain [class*="_breadcrumbParent_"], .appMain [class*="_crumbParent_"],
+.appMain [class*="_breadcrumbChevron_"], .appMain [class*="_crumbChevron_"],
+.appMain [class*="_breadcrumbCurrent_"], .appMain [class*="_crumbCurrent_"] {
+  font-family: 'Malgun Gothic', Arial, sans-serif !important; font-size: 14px !important; line-height: 18px !important; letter-spacing: normal !important;
+}
+.appMain [class*="_breadcrumbParent_"], .appMain [class*="_crumbParent_"] { color: #a2abb9 !important; font-weight: 600 !important; }
+.appMain [class*="_breadcrumbChevron_"], .appMain [class*="_crumbChevron_"] { color: #a2abb9 !important; font-weight: 400 !important; }
+.appMain [class*="_breadcrumbCurrent_"], .appMain [class*="_crumbCurrent_"] { color: #233148 !important; font-weight: 700 !important; }

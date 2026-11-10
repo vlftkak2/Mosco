@@ -6,6 +6,7 @@ import {
   Button,
   Group,
   Modal,
+  NumberInput,
   Pagination,
   Paper,
   Select,
@@ -16,21 +17,29 @@ import {
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
+  IconBuildingStore,
   IconCopy,
   IconDeviceFloppy,
-  IconDownload,
   IconFileSpreadsheet,
+  IconInfoCircle,
+  IconLoader2,
+  IconLock,
+  IconMapPin,
   IconPlus,
+  IconScale,
   IconSearch,
+  IconSearchOff,
   IconTrash,
-  IconUpload,
+  IconUserPlus,
   IconX,
 } from "@tabler/icons-react";
 import XLSX from "xlsx-js-style";
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import sharedClasses from "../../styles/pages/ManagementShared.module.css";
 import classes from "../../styles/pages/CustomerPage.module.css";
-import { PageRibbonContext } from "../../components/layout/MainLayout";
+import { MenuAccessContext, PageRibbonContext } from "../../components/layout/MainLayout";
+import OpeningBalanceModal from "./OpeningBalanceModal";
+import ExcelBulkActions from '../../components/common/ExcelBulkActions';
 
 const PAGE_SIZE_OPTIONS = [
   { value: "15", label: "15개씩" },
@@ -62,6 +71,20 @@ const loadPostcodeService = () => {
     });
   }
   return postcodeScriptPromise;
+};
+
+// 기초 미수금/미지급금은 MASTER/SUBMASTER만 설정·변경할 수 있습니다 (서버에서도 동일하게 검사).
+const OPENING_BALANCE_AUTHORITIES = ["MASTER", "SUBMASTER"];
+const OPENING_BALANCE_MAX = 9999999999999.99; // NUMERIC(15, 2)
+const OPENING_BALANCE_HELP = "원장 시작일 이전부터 남아 있던 잔액";
+
+// Returns a non-negative amount rounded to 2 decimals, 0 for blanks, or null when the value is not a valid amount.
+const parseOpeningAmount = (value) => {
+  const text = String(value ?? "").replaceAll(",", "").trim();
+  if (!text) return 0;
+  const amount = Number(text);
+  if (!Number.isFinite(amount) || amount < 0 || amount > OPENING_BALANCE_MAX) return null;
+  return Math.round(amount * 100) / 100;
 };
 
 const displayUseyn = (value) => (value === "N" || value === "미사용" || value === "사용중지" ? "사용중지" : "사용중");
@@ -96,6 +119,8 @@ const emptyCustomer = () => ({
   address: "",
   useryn: "Y",
   remark: "",
+  openingreceivable: 0,
+  openingpayable: 0,
 });
 
 const toCustomer = (row) => ({
@@ -119,6 +144,8 @@ const toCustomer = (row) => ({
   address: row.address ?? "",
   useryn: displayUseyn(row.useryn ?? row.useyn),
   remark: row.remark ?? "",
+  openingreceivable: parseOpeningAmount(row.openingreceivable) ?? 0,
+  openingpayable: parseOpeningAmount(row.openingpayable) ?? 0,
 });
 
 const errorMessage = (error, fallback) => {
@@ -127,6 +154,35 @@ const errorMessage = (error, fallback) => {
   return detail || error.response?.data?.message || error.message || fallback;
 };
 
+const TRADETYPE_TONE = { 매입처: "purchase", 매출처: "sales", 매입매출처: "both" };
+const OPENING_BALANCE_LOCKED_TITLE = "MASTER/SUBMASTER 권한만 변경할 수 있습니다.";
+
+const StatusTag = ({ value }) => (
+  <span className={`${classes.tag} ${value === "사용중" ? classes.tagActive : classes.tagInactive}`}>
+    {value}
+  </span>
+);
+
+const TradetypeTag = ({ value }) =>
+  value ? (
+    <span className={`${classes.tag} ${classes[`trade_${TRADETYPE_TONE[value] || "etc"}`]}`}>
+      {value}
+    </span>
+  ) : (
+    "-"
+  );
+
+const FormSection = ({ title, hint, aside, children }) => (
+  <section className={classes.formSection}>
+    <div className={classes.formSectionHead}>
+      <span className={classes.formSectionTitle}>{title}</span>
+      {hint && <span className={classes.formSectionHint}>{hint}</span>}
+      {aside}
+    </div>
+    <div className={classes.customerFormGrid}>{children}</div>
+  </section>
+);
+
 const CustomerTable = memo(function CustomerTable({
   customers,
   selectedCode,
@@ -134,20 +190,29 @@ const CustomerTable = memo(function CustomerTable({
   onSelect,
 }) {
   return (
-    <Table
-      className={`${sharedClasses.table} ${classes.partnerTable}`}
-      highlightOnHover
-    >
+    <Table className={classes.partnerTable}>
+      <colgroup>
+        <col style={{ width: 38 }} />
+        <col style={{ width: 112 }} />
+        <col />
+        <col style={{ width: 104 }} />
+        <col style={{ width: 120 }} />
+        <col style={{ width: 120 }} />
+        <col style={{ width: 120 }} />
+        <col style={{ width: 96 }} />
+        <col style={{ width: 86 }} />
+      </colgroup>
       <Table.Thead>
         <Table.Tr>
-          <Table.Th w={34}></Table.Th>
+          <Table.Th aria-label="선택"></Table.Th>
           <Table.Th>코드</Table.Th>
           <Table.Th>상호</Table.Th>
           <Table.Th>대표자</Table.Th>
           <Table.Th>사업자번호</Table.Th>
           <Table.Th>전화</Table.Th>
           <Table.Th>팩스</Table.Th>
-          <Table.Th>사용여부</Table.Th>
+          <Table.Th className={classes.centerCell}>거래구분</Table.Th>
+          <Table.Th className={classes.centerCell}>사용여부</Table.Th>
         </Table.Tr>
       </Table.Thead>
       <Table.Tbody>
@@ -162,7 +227,7 @@ const CustomerTable = memo(function CustomerTable({
               }
               onClick={() => onSelect(customer)}
             >
-              <Table.Td>
+              <Table.Td className={classes.centerCell}>
                 <span
                   className={`${classes.radio} ${customer.customercode === selectedCode ? classes.radioSelected : ""}`}
                 />
@@ -177,40 +242,38 @@ const CustomerTable = memo(function CustomerTable({
                 className={classes.partnerNameCell}
                 title={customer.customername}
               >
-                <span className={classes.partnerNameText}>
-                  {customer.customername}
-                </span>
+                {customer.customername}
               </Table.Td>
               <Table.Td title={customer.ceoname || "-"}>
                 {customer.ceoname || "-"}
               </Table.Td>
-              <Table.Td title={customer.businessno || "-"}>
+              <Table.Td className={classes.numCell} title={customer.businessno || "-"}>
                 {customer.businessno || "-"}
               </Table.Td>
-              <Table.Td title={customer.phone || "-"}>
+              <Table.Td className={classes.numCell} title={customer.phone || "-"}>
                 {customer.phone || "-"}
               </Table.Td>
-              <Table.Td title={customer.fax || "-"}>
+              <Table.Td className={classes.numCell} title={customer.fax || "-"}>
                 {customer.fax || "-"}
               </Table.Td>
-              <Table.Td>
-                <Badge
-                  color={customer.useryn === "사용중" ? "teal" : "gray"}
-                  variant="light"
-                  styles={{
-                    root: { minWidth: 72, overflow: "visible" },
-                    label: { overflow: "visible", textOverflow: "clip" },
-                  }}
-                >
-                  {customer.useryn}
-                </Badge>
+              <Table.Td className={classes.centerCell} title={customer.tradetype || "-"}>
+                <TradetypeTag value={customer.tradetype} />
+              </Table.Td>
+              <Table.Td className={classes.centerCell}>
+                <StatusTag value={customer.useryn} />
               </Table.Td>
             </Table.Tr>
           ))
         ) : (
-          <Table.Tr>
-            <Table.Td colSpan={8} className={classes.emptyState}>
-              {loading ? "불러오는 중..." : "검색 결과가 없습니다."}
+          <Table.Tr className={classes.emptyRow}>
+            <Table.Td colSpan={9} className={classes.emptyCell}>
+              <div className={classes.emptyState}>
+                <span className={classes.emptyIcon}>
+                  {loading ? <IconLoader2 size={22} className={classes.spin} /> : <IconSearchOff size={22} />}
+                </span>
+                <strong>{loading ? "불러오는 중..." : "검색 결과가 없습니다."}</strong>
+                {!loading && <span>검색어나 사용 여부·거래 구분 조건을 바꿔 보세요.</span>}
+              </div>
             </Table.Td>
           </Table.Tr>
         )}
@@ -239,69 +302,34 @@ const CustomerListPanel = memo(function CustomerListPanel({
   onPageSizeChange,
   onDownloadTemplate,
   onUpload,
+  onOpenOpeningBalances,
   onSelect,
   selectedCode,
 }) {
   return (
-    <Paper className={classes.customerListPanel} withBorder>
-      <Group
-        className={`${sharedClasses.panelHeader} ${classes.panelHeader}`}
-        justify="space-between"
-        wrap="wrap"
-      >
-        <Group gap="xs">
+    <Paper className={`${classes.panel} ${classes.customerListPanel}`} withBorder>
+      <div className={classes.toolbar}>
+        <div className={classes.toolbarTitle}>
           <Text className={classes.sectionTitle} fw={700}>거래처 목록</Text>
-          <Badge color="gray" variant="light">
-            {total}건
+          <Badge color="gray" variant="light" className={classes.countBadge}>
+            {Number(total || 0).toLocaleString()}건
           </Badge>
-        </Group>
-        <Group gap={6} wrap="wrap" align="flex-end">
-          <Select
-            label="사용 여부"
-            aria-label="사용 여부 필터"
-            value={statusFilter}
-            onChange={onStatusChange}
-            data={["전체", "사용중", "사용중지"]}
-            w={126}
-            size="xs"
+        </div>
+        <div className={classes.toolbarActions}>
+          <ExcelBulkActions
+            onDownloadTemplate={onDownloadTemplate}
+            templateTitle="거래처 일괄등록 샘플 양식을 내려받습니다"
+            inputRef={uploadInputRef}
+            onUpload={onUpload}
+            uploading={Boolean(uploadProgress)}
+            uploadProgressLabel={uploadProgress}
+            uploadDisabled={loading && !uploadProgress}
+            uploadTitle="샘플 양식으로 작성한 엑셀 파일로 거래처를 한 번에 등록합니다"
+            extraActions={[{ key: "opening", label: "기초잔액 엑셀", icon: IconScale, onClick: onOpenOpeningBalances, title: "이미 등록된 거래처의 기초 미수금·미지급금을 엑셀로 한 번에 바꿉니다" }]}
           />
-          <Select
-            label="거래 구분"
-            aria-label="거래구분 필터"
-            value={tradetypeFilter}
-            onChange={onTradetypeChange}
-            data={["전체", "매입처", "매출처", "매입매출처"]}
-            w={146}
-            size="xs"
-          />
-          <Button
-            variant="default"
-            size="xs"
-            leftSection={<IconDownload size={14} />}
-            onClick={onDownloadTemplate}
-          >
-            샘플양식
-          </Button>
-          <Button
-            size="xs"
-            variant="light"
-            leftSection={<IconUpload size={14} />}
-            onClick={() => uploadInputRef.current?.click()}
-            loading={Boolean(uploadProgress)}
-            disabled={loading && !uploadProgress}
-          >
-            {uploadProgress || "엑셀 일괄등록"}
-          </Button>
-          <input
-            ref={uploadInputRef}
-            type="file"
-            accept=".xlsx,.xls"
-            onChange={onUpload}
-            hidden
-          />
-        </Group>
-      </Group>
-      <Group className={sharedClasses.toolbar} gap={6} wrap="nowrap">
+        </div>
+      </div>
+      <div className={classes.filterBar}>
         <TextInput
           className={classes.searchInput}
           placeholder="코드 또는 거래처명을 입력해주세요"
@@ -311,7 +339,29 @@ const CustomerListPanel = memo(function CustomerListPanel({
           leftSection={<IconSearch size={15} />}
           size="sm"
         />
-      </Group>
+        <div className={classes.filterField}>
+          <span className={classes.filterLabel}>사용 여부</span>
+          <Select
+            aria-label="사용 여부 필터"
+            value={statusFilter}
+            onChange={onStatusChange}
+            data={["전체", "사용중", "사용중지"]}
+            w={112}
+            size="xs"
+          />
+        </div>
+        <div className={classes.filterField}>
+          <span className={classes.filterLabel}>거래 구분</span>
+          <Select
+            aria-label="거래구분 필터"
+            value={tradetypeFilter}
+            onChange={onTradetypeChange}
+            data={["전체", "매입처", "매출처", "매입매출처"]}
+            w={128}
+            size="xs"
+          />
+        </div>
+      </div>
       <div className={classes.customerTableWrap}>
         <CustomerTable
           customers={customers}
@@ -321,7 +371,7 @@ const CustomerListPanel = memo(function CustomerListPanel({
         />
       </div>
       <Group
-        className={`${sharedClasses.footer} ${classes.customerListFooter}`}
+        className={classes.customerListFooter}
         justify="space-between"
         wrap="wrap"
       >
@@ -355,6 +405,7 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
   onChange,
   banks,
   managers,
+  canEditOpeningBalances,
 }) {
   const [addressOpen, setAddressOpen] = useState(false);
   const postcodeContainerRef = useRef(null);
@@ -387,22 +438,48 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
       });
   }, [addressOpen, onChange]);
 
+  const hasCustomer = isNew || Boolean(draft.customercode);
+  const headerName = isNew
+    ? "신규 거래처"
+    : draft.customername || (hasCustomer ? "(거래처명 미입력)" : "선택된 거래처 없음");
+  const headerUseyn = displayUseyn(draft.useryn);
+
   return (
-    <Paper className={`${sharedClasses.panel} ${classes.formPanel}`} withBorder>
-      <Group
-        className={`${sharedClasses.panelHeader} ${classes.panelHeader}`}
-        justify="space-between"
-      >
-        <Group gap="xs">
+    <Paper className={`${classes.panel} ${classes.formPanel}`} withBorder>
+      <div className={classes.toolbar}>
+        <div className={classes.toolbarTitle}>
           <Text className={classes.sectionTitle} fw={700}>상세 정보 입력 및 수정</Text>
-        </Group>
-        <Badge color="gray" variant="light">
+        </div>
+        <Badge color={isNew ? "red" : "gray"} variant="light">
           {isNew ? "신규 등록" : "조회 모드"}
         </Badge>
-      </Group>
+      </div>
+      <div className={`${classes.identityStrip} ${isNew ? classes.identityStripNew : ""}`}>
+        <span className={classes.identityIcon}>
+          {isNew ? <IconUserPlus size={19} /> : <IconBuildingStore size={19} />}
+        </span>
+        <div className={classes.identityText}>
+          <strong title={headerName}>{headerName}</strong>
+          <div className={classes.identityMeta}>
+            {hasCustomer ? (
+              <>
+                <span className={classes.identityCode}>{draft.customercode || "코드 미발급"}</span>
+                {isNew && draft.customername && (
+                  <span className={classes.identityName} title={draft.customername}>{draft.customername}</span>
+                )}
+                <TradetypeTag value={draft.tradetype} />
+                <StatusTag value={headerUseyn} />
+              </>
+            ) : (
+              <span>왼쪽 목록에서 거래처를 선택하거나 [추가]를 누르세요.</span>
+            )}
+          </div>
+        </div>
+      </div>
       <Box className={classes.formBody}>
-        <Box className={classes.customerFormGrid}>
+        <FormSection title="기본정보">
           <TextInput
+            className={classes.codeInput}
             label="거래처 코드"
             value={draft.customercode}
             onChange={(event) =>
@@ -410,13 +487,13 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
             }
             disabled={!isNew}
           />
-          <Select
-            label="거래구분"
-            value={draft.tradetype}
-            onChange={(value) => onChange("tradetype", value || "")}
-            data={["매입처", "매출처", "매입매출처"]}
+          <TextInput
+            label="대표자"
+            value={draft.ceoname}
+            onChange={(event) => onChange("ceoname", event.currentTarget.value)}
           />
           <TextInput
+            className={classes.fullRow}
             label="거래처명"
             value={draft.customername}
             onChange={(event) =>
@@ -424,11 +501,9 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
             }
             required
           />
-          <TextInput
-            label="대표자"
-            value={draft.ceoname}
-            onChange={(event) => onChange("ceoname", event.currentTarget.value)}
-          />
+        </FormSection>
+
+        <FormSection title="사업자·연락처">
           <TextInput
             label="사업자등록번호"
             value={draft.businessno}
@@ -453,37 +528,6 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
             value={draft.industry}
             onChange={(event) => onChange("industry", event.currentTarget.value)}
           />
-          <Select
-            className={classes.dropdownSelect}
-            label="담당자"
-            value={managers.includes(draft.manager) ? draft.manager : null}
-            onChange={(value) => onChange("manager", value || "")}
-            data={managers}
-            searchable
-            clearable
-            placeholder="담당자 선택"
-          />
-          <Group className={`${classes.addressField} ${classes.fullRow}`} align="flex-end" gap="xs" wrap="nowrap">
-            <TextInput
-              className={classes.zipcodeField}
-              label="우편번호"
-              value={draft.zipcode}
-              placeholder="주소 검색"
-              inputMode="numeric"
-              maxLength={5}
-              onChange={(event) => onChange("zipcode", event.currentTarget.value)}
-              style={{ flex: "0 0 120px" }}
-            />
-            <TextInput
-              label="주소"
-              value={draft.address}
-              onChange={(event) => onChange("address", event.currentTarget.value)}
-              style={{ flex: 1 }}
-            />
-            <Button variant="light" onClick={() => setAddressOpen(true)}>
-              주소 검색
-            </Button>
-          </Group>
           <TextInput
             label="전화"
             value={draft.phone}
@@ -495,10 +539,46 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
             onChange={(event) => onChange("fax", event.currentTarget.value)}
           />
           <TextInput
+            className={classes.fullRow}
             label="이메일"
             type="email"
             value={draft.email}
             onChange={(event) => onChange("email", event.currentTarget.value)}
+          />
+          <Group className={`${classes.addressField} ${classes.fullRow}`} align="flex-end" gap="xs" wrap="nowrap">
+            <TextInput
+              className={classes.zipcodeField}
+              label="우편번호"
+              value={draft.zipcode}
+              placeholder="주소 검색"
+              inputMode="numeric"
+              maxLength={5}
+              onChange={(event) => onChange("zipcode", event.currentTarget.value)}
+              style={{ flex: "0 0 104px" }}
+            />
+            <TextInput
+              label="주소"
+              value={draft.address}
+              onChange={(event) => onChange("address", event.currentTarget.value)}
+              style={{ flex: 1 }}
+            />
+            <Button
+              className={classes.addressButton}
+              variant="default"
+              leftSection={<IconMapPin size={14} />}
+              onClick={() => setAddressOpen(true)}
+            >
+              주소 검색
+            </Button>
+          </Group>
+        </FormSection>
+
+        <FormSection title="거래·담당">
+          <Select
+            label="거래구분"
+            value={draft.tradetype}
+            onChange={(value) => onChange("tradetype", value || "")}
+            data={["매입처", "매출처", "매입매출처"]}
           />
           <Select
             label="사용 여부"
@@ -506,6 +586,19 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
             onChange={(value) => onChange("useryn", value || "")}
             data={["사용중", "사용중지"]}
           />
+          <Select
+            className={classes.dropdownSelect}
+            label="담당자"
+            value={managers.includes(draft.manager) ? draft.manager : null}
+            onChange={(value) => onChange("manager", value || "")}
+            data={managers}
+            searchable
+            clearable
+            placeholder="담당자 선택"
+          />
+        </FormSection>
+
+        <FormSection title="계좌">
           <Select
             className={classes.dropdownSelect}
             label="은행"
@@ -521,16 +614,72 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
             value={draft.accountno}
             onChange={(event) => onChange("accountno", event.currentTarget.value)}
           />
+        </FormSection>
+
+        <FormSection
+          title="기초잔액"
+          hint={OPENING_BALANCE_HELP}
+          aside={
+            !canEditOpeningBalances && (
+              <span className={classes.lockChip} title={OPENING_BALANCE_LOCKED_TITLE}>
+                <IconLock size={12} />
+                읽기 전용
+              </span>
+            )
+          }
+        >
+          <NumberInput
+            className={classes.amountInput}
+            label="기초 미수금"
+            value={draft.openingreceivable}
+            onChange={(value) => onChange("openingreceivable", value)}
+            disabled={!canEditOpeningBalances}
+            title={canEditOpeningBalances ? undefined : OPENING_BALANCE_LOCKED_TITLE}
+            thousandSeparator=","
+            decimalScale={2}
+            allowNegative={false}
+            min={0}
+            max={OPENING_BALANCE_MAX}
+            clampBehavior="strict"
+            hideControls
+            styles={{ input: { textAlign: "right" } }}
+          />
+          <NumberInput
+            className={classes.amountInput}
+            label="기초 미지급금"
+            value={draft.openingpayable}
+            onChange={(value) => onChange("openingpayable", value)}
+            disabled={!canEditOpeningBalances}
+            title={canEditOpeningBalances ? undefined : OPENING_BALANCE_LOCKED_TITLE}
+            thousandSeparator=","
+            decimalScale={2}
+            allowNegative={false}
+            min={0}
+            max={OPENING_BALANCE_MAX}
+            clampBehavior="strict"
+            hideControls
+            styles={{ input: { textAlign: "right" } }}
+          />
+          {!canEditOpeningBalances && (
+            <p className={`${classes.lockNote} ${classes.fullRow}`}>
+              <IconInfoCircle size={13} />
+              기초 미수금·미지급금은 MASTER/SUBMASTER 권한만 변경할 수 있습니다.
+            </p>
+          )}
+        </FormSection>
+
+        <FormSection title="비고">
           <Textarea
             className={classes.fullRow}
-            label="비고사항"
+            aria-label="비고사항"
+            placeholder="비고사항"
             value={draft.remark}
             onChange={(event) => onChange("remark", event.currentTarget.value)}
             minRows={2}
             autosize
             maxRows={4}
           />
-        </Box>
+        </FormSection>
       </Box>
       <Modal
         opened={addressOpen}
@@ -550,6 +699,10 @@ export default function CustomerPage() {
   const pageLayout = useContext(PageRibbonContext);
   const registerPageRibbon = pageLayout?.registerPageRibbon;
   const closeActivePage = pageLayout?.closeActivePage;
+  const menuAccess = useContext(MenuAccessContext);
+  const canEditOpeningBalances = OPENING_BALANCE_AUTHORITIES.includes(
+    String(menuAccess?.authority || "USER").toUpperCase(),
+  );
   const companyid = localStorage.getItem("user_company") || "";
   const companyname = localStorage.getItem("user_companyname") || "";
   const [customers, setCustomers] = useState([]);
@@ -774,6 +927,11 @@ export default function CustomerPage() {
     setIsNew(false);
   }, []);
 
+  // 기초잔액 엑셀 (이미 등록된 거래처의 기초 미수금·미지급금 일괄 반영)
+  const [openingModalOpen, setOpeningModalOpen] = useState(false);
+  const openOpeningBalances = useCallback(() => setOpeningModalOpen(true), []);
+  const closeOpeningBalances = useCallback(() => setOpeningModalOpen(false), []);
+
   const handleQueryChange = useCallback((value) => setQuery(value), []);
   const handleSearch = useCallback(() => {
     setPage(1);
@@ -825,6 +983,19 @@ export default function CustomerPage() {
     }
   }, [companyid]);
 
+  // 반영 후: 목록을 다시 읽고, 폼에 열려 있는 거래처의 기초잔액도 새 금액으로 맞춘다.
+  const applyOpeningToDraft = useCallback((appliedRows) => {
+    const toAmount = (value) => {
+      const number = Number(String(value ?? "").replace(/,/g, "").trim() || 0);
+      return Number.isFinite(number) ? Math.round(number * 100) / 100 : 0;
+    };
+    const byCode = new Map((appliedRows || []).map((row) => [String(row.customercode).toLowerCase(), row]));
+    setDraft((current) => {
+      const row = current?.customercode && byCode.get(String(current.customercode).toLowerCase());
+      return row ? { ...current, openingreceivable: toAmount(row.openingreceivable), openingpayable: toAmount(row.openingpayable) } : current;
+    });
+  }, []);
+
   const refreshAfterWrite = useCallback(
     async (resetFilters = false) => {
       customerCacheEpochRef.current += 1;
@@ -846,6 +1017,10 @@ export default function CustomerPage() {
     },
     [appliedQuery, loadCustomers, page, statusFilter, tradetypeFilter],
   );
+  const handleOpeningApplied = useCallback((appliedRows) => {
+    applyOpeningToDraft(appliedRows);
+    void refreshAfterWrite();
+  }, [applyOpeningToDraft, refreshAfterWrite]);
 
   const saveCustomer = useCallback(async () => {
     if (!draft.customername.trim()) {
@@ -879,6 +1054,8 @@ export default function CustomerPage() {
       ...draft,
       customercode: draft.customercode.trim(),
       customername: draft.customername.trim(),
+      openingreceivable: parseOpeningAmount(draft.openingreceivable) ?? 0,
+      openingpayable: parseOpeningAmount(draft.openingpayable) ?? 0,
     };
     setSaving(true);
     try {
@@ -938,10 +1115,12 @@ export default function CustomerPage() {
       "계좌번호",
       "사용여부",
       "비고",
+      "기초미수금",
+      "기초미지급금",
     ];
     const worksheet = XLSX.utils.aoa_to_sheet([
       headers,
-      ["CUST001", "거래처명", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+      ["CUST001", "거래처명", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 0, 0],
     ]);
     applyExcelHeaderStyle(worksheet, headers.length);
     worksheet["!cols"] = headers.map(() => ({ wch: 18 }));
@@ -984,6 +1163,8 @@ export default function CustomerPage() {
         "계좌번호",
         "사용여부",
         "비고",
+        "기초미수금",
+        "기초미지급금",
         "등록자",
         "수정자",
       ];
@@ -1014,6 +1195,8 @@ export default function CustomerPage() {
           customer.accountno ?? "",
           displayUseyn(customer.useryn ?? customer.useyn),
           customer.remark ?? "",
+          parseOpeningAmount(customer.openingreceivable) ?? 0,
+          parseOpeningAmount(customer.openingpayable) ?? 0,
           customer.createdbyname ?? "",
           customer.updatedbyname ?? "",
         ]),
@@ -1096,6 +1279,8 @@ export default function CustomerPage() {
           address: ["address", "주소", "사업장 주소"],
           useryn: ["useryn", "사용여부", "사용 여부"],
           remark: ["remark", "비고"],
+          openingreceivable: ["openingreceivable", "기초미수금", "기초 미수금"],
+          openingpayable: ["openingpayable", "기초미지급금", "기초 미지급금"],
         };
         const imported = rows
           .map((row, rowIndex) => {
@@ -1120,10 +1305,16 @@ export default function CustomerPage() {
                 || banks.find((bank) => bank.bankname.trim().toLocaleLowerCase() === importedBankValue)
               : null;
             if (bankMatch) customer.bankcode = bankMatch.bankcode;
+            // Only MASTER/SUBMASTER may set opening balances; others always register 0 (the server enforces the same).
+            const openingReceivable = canEditOpeningBalances ? parseOpeningAmount(customer.openingreceivable) : 0;
+            const openingPayable = canEditOpeningBalances ? parseOpeningAmount(customer.openingpayable) : 0;
+            customer.openingreceivable = openingReceivable ?? 0;
+            customer.openingpayable = openingPayable ?? 0;
             return {
               customer,
               excelRow: rowIndex + 2,
               bankError: Boolean(importedBankValue && !bankMatch),
+              openingError: openingReceivable === null || openingPayable === null,
             };
           })
           .filter(({ customer }) => customer.customercode || customer.customername);
@@ -1134,11 +1325,12 @@ export default function CustomerPage() {
           );
         const failures = [];
         const validCustomers = [];
-        imported.forEach(({ customer, excelRow, bankError }) => {
+        imported.forEach(({ customer, excelRow, bankError, openingError }) => {
           const rowErrors = [];
           if (!customer.customercode) rowErrors.push("거래처코드 필수");
           if (!customer.customername) rowErrors.push("거래처명 필수");
           if (bankError) rowErrors.push("코드마스터에 등록되지 않은 은행명/은행코드");
+          if (openingError) rowErrors.push("기초미수금/기초미지급금은 0 이상의 숫자");
           if (rowErrors.length) failures.push(`${excelRow}행: ${rowErrors.join(", ")}`);
           else validCustomers.push(customer);
         });
@@ -1175,7 +1367,7 @@ export default function CustomerPage() {
         setUploadProgress("");
       }
     },
-    [banks, companyid, companyname, refreshAfterWrite],
+    [banks, canEditOpeningBalances, companyid, companyname, refreshAfterWrite],
   );
 
   useEffect(() => {
@@ -1227,6 +1419,7 @@ export default function CustomerPage() {
           onPageSizeChange={handlePageSizeChange}
           onDownloadTemplate={downloadTemplate}
           onUpload={uploadCustomers}
+          onOpenOpeningBalances={openOpeningBalances}
           onSelect={selectCustomer}
           selectedCode={selectedCode}
         />
@@ -1236,8 +1429,10 @@ export default function CustomerPage() {
           onChange={updateDraft}
           banks={banks}
           managers={managers}
+          canEditOpeningBalances={canEditOpeningBalances}
         />
       </div>
+      <OpeningBalanceModal opened={openingModalOpen} onClose={closeOpeningBalances} canEdit={canEditOpeningBalances} onApplied={handleOpeningApplied} />
     </Box>
   );
 }

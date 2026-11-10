@@ -2,7 +2,6 @@ import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } f
 import axios from 'axios';
 import {
   ActionIcon,
-  Badge,
   Box,
   Button,
   Group,
@@ -20,11 +19,12 @@ import {
   Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconDownload, IconSearch, IconTrash, IconUpload, IconX } from '@tabler/icons-react';
+import { IconAdjustmentsHorizontal, IconDatabaseOff, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
 import XLSX from 'xlsx-js-style';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
+import ExcelBulkActions from '../../components/common/ExcelBulkActions';
 import ErpRibbon from '../../components/common/ErpRibbon';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
@@ -32,6 +32,8 @@ import classes from '../../styles/pages/ItemMaster.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import outboundClasses from '../../styles/pages/OutboundRegister.module.css';
 import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
+// 품목코드 관리 화면 전용 스타일 (공유 CSS는 수정하지 않고 이 모듈로 덮어씁니다)
+import s from '../../styles/pages/ItemMasterScreen.module.css';
 
 const authHeaders = () => ({
   Authorization: `Bearer ${localStorage.getItem('access_token') || ''}`,
@@ -181,19 +183,19 @@ const ItemCells = memo(function ItemCells({ item, index, selected, disabled, sha
   };
   return (
     <>
-      <Table.Td className={codeClasses.checkCol}>
+      <Table.Td className={s.checkCol}>
         <input type="checkbox" aria-label={`${item.itemcode || '새 품목'} 선택`} checked={selected} onChange={(event) => onSelect(item.id, event.nativeEvent.shiftKey)} />
       </Table.Td>
-      <Table.Td className={codeClasses.rowNumber}>{index + 1}</Table.Td>
+      <Table.Td className={s.rowNumber}>{index + 1}</Table.Td>
       {FIELDS.map(({ key, label }) => (
-        <Table.Td key={key}>
+        <Table.Td key={key} className={key === 'use_yn' ? s.useCell : undefined}>
           {key === 'itemtypecode' ? (
             <Popover opened={isEditingShape && shapeMatches.length > 0} position="bottom-start" withinPortal width="target" shadow="none" offset={0} zIndex={500}>
               <Popover.Target>
                 <div className={classes.shapeInputTarget}>
                   <input
                     ref={(element) => registerCellInput(item.id, key, element)}
-                    className={`${codeClasses.cellInput} ${outboundClasses.itemCodePickerInput} ${classes.shapePickerInput}`}
+                    className={`${s.cellInput} ${outboundClasses.itemCodePickerInput} ${classes.shapePickerInput}`}
                     aria-label={label}
                     aria-autocomplete="list"
                     aria-expanded={isEditingShape && shapeMatches.length > 0}
@@ -250,7 +252,7 @@ const ItemCells = memo(function ItemCells({ item, index, selected, disabled, sha
               </Popover.Dropdown>
             </Popover>
           ) : key === 'use_yn' ? (
-            <select ref={(element) => registerCellInput(item.id, key, element)} className={codeClasses.cellSelect} aria-label={label} data-row-id={item.id} data-field={key} value={item.use_yn || 'Y'} disabled={disabled} onFocus={() => onFocusCell(item.id, key)} onKeyDown={onCellKeyDown} onPaste={handlePaste(key)} onChange={(event) => onChange(item.id, key, event.currentTarget.value)}>
+            <select ref={(element) => registerCellInput(item.id, key, element)} className={`${s.cellSelect} ${s.useSelect} ${(item.use_yn || 'Y') === 'N' ? s.useOff : s.useOn}`} aria-label={label} data-row-id={item.id} data-field={key} value={item.use_yn || 'Y'} disabled={disabled} onFocus={() => onFocusCell(item.id, key)} onKeyDown={onCellKeyDown} onPaste={handlePaste(key)} onChange={(event) => onChange(item.id, key, event.currentTarget.value)}>
               <option value="Y">사용중</option>
               <option value="N">사용중지</option>
             </select>
@@ -260,7 +262,7 @@ const ItemCells = memo(function ItemCells({ item, index, selected, disabled, sha
                 if (key === 'itemcode') registerCodeInput(item.id, element);
                 registerCellInput(item.id, key, element);
               }}
-              className={codeClasses.cellInput}
+              className={s.cellInput}
               aria-label={label}
               data-row-id={item.id}
               data-field={key}
@@ -276,7 +278,7 @@ const ItemCells = memo(function ItemCells({ item, index, selected, disabled, sha
           )}
         </Table.Td>
       ))}
-      <Table.Td className={codeClasses.actionCol}>
+      <Table.Td className={s.actionCell}>
         <Tooltip label="품목 삭제">
           <ActionIcon variant="subtle" color="red" aria-label="품목 삭제" disabled={disabled} onClick={() => onDelete(item)}><IconTrash size={16} /></ActionIcon>
         </Tooltip>
@@ -337,21 +339,25 @@ const ShapePickerModal = memo(function ShapePickerModal({ opened, onClose, optio
 });
 
 const VirtualRow = ({ item, className, ...props }) => (
-  <Table.Tr {...props} className={[className, item?.is_new && codeClasses.newRow].filter(Boolean).join(' ')} />
+  <Table.Tr {...props} className={[className, item?.is_new && s.newRow].filter(Boolean).join(' ')} />
 );
 
 const virtuosoComponents = {
   Table: ({ style, ...props }) => (
-    <Table {...props} className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0} style={{ ...style, width: '100%', tableLayout: 'fixed' }} />
+    <Table {...props} className={s.table} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0} style={{ ...style, width: '100%', tableLayout: 'fixed' }} />
   ),
   TableHead: Table.Thead,
   TableBody: Table.Tbody,
   TableRow: VirtualRow,
   EmptyPlaceholder: ({ context = {} }) => (
     <Table.Tbody>
-      <Table.Tr className={classes.itemEmptyRow}>
-        <Table.Td colSpan={Math.max(1, Number(context.columnCount) || 1)} className={`${codeClasses.emptyPlaceholder} ${classes.itemEmptyPlaceholder}`}>
-          {context.emptyMessage || '등록된 품목이 없습니다.'}
+      <Table.Tr className={s.emptyRow}>
+        <Table.Td colSpan={Math.max(1, Number(context.columnCount) || 1)} className={s.emptyCell}>
+          <div className={s.empty}>
+            <span className={s.emptyIcon}>{context.searching ? <IconSearch size={20} /> : <IconDatabaseOff size={20} />}</span>
+            <strong>{context.emptyMessage || '등록된 품목이 없습니다.'}</strong>
+            <span>{context.searching ? '조회조건의 품목정보 또는 사용 여부를 바꿔 보세요.' : '리본의 [추가]로 새 품목을 입력하거나 엑셀로 일괄등록하세요.'}</span>
+          </div>
         </Table.Td>
       </Table.Tr>
     </Table.Tbody>
@@ -949,54 +955,57 @@ export default function ItemMaster() {
     />
   ), [selectedSet, saving, uploading, shapeOptions, toggleSelection, changeCell, pasteRange, openShapePicker, registerCodeInput, registerCellInput, setActiveCell, handleTableKeyDown, deleteOneRow]);
   const headerColumns = [
-    { key: 'select', width: 46, minWidth: 42, className: codeClasses.checkCol, label: <input type="checkbox" aria-label="현재 목록 전체 선택" checked={filteredRows.length > 0 && filteredRows.every((row) => selectedSet.has(row.id))} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
-    { key: 'number', width: 62, minWidth: 48, className: codeClasses.numberCol, label: 'No.' },
-    ...FIELDS.map(({ key, label, width, required }) => ({ key, width, minWidth: 70, label: <>{label}{required && <span className={codeClasses.required}> *</span>}</> })),
-    { key: 'action', width: 76, minWidth: 50, className: codeClasses.actionCol, label: '관리' },
+    { key: 'select', width: 46, minWidth: 42, className: s.checkCol, label: <input type="checkbox" aria-label="현재 목록 전체 선택" checked={filteredRows.length > 0 && filteredRows.every((row) => selectedSet.has(row.id))} onChange={(event) => toggleAll(event.currentTarget.checked)} /> },
+    { key: 'number', width: 62, minWidth: 48, className: s.centerCol, label: 'No.' },
+    ...FIELDS.map(({ key, label, width, required }) => ({ key, width, minWidth: 70, className: key === 'use_yn' ? s.centerCol : undefined, label: <>{label}{required && <span className={s.required}> *</span>}</> })),
+    { key: 'action', width: 76, minWidth: 50, className: s.centerCol, label: '관리' },
   ];
   const tableWidth = headerColumns.reduce((totalWidth, column) => totalWidth + (columnWidths[column.key] ?? column.width), 0);
   const renderResizableHeader = (column) => {
     const width = columnWidths[column.key] ?? column.width;
     return (
-      <Table.Th key={column.key} className={[codeClasses.resizableHeader, classes.itemTableHeader, column.className].filter(Boolean).join(' ')} style={{ width }}>
+      <Table.Th key={column.key} className={column.className} style={{ width }}>
         {column.label}
-        <span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeColumn(event, column.key, column.width, column.minWidth, tableWidth)} role="separator" aria-label={`${column.key} 열 너비 조절`} />
+        <span className={s.resizeHandle} onPointerDown={(event) => resizeColumn(event, column.key, column.width, column.minWidth, tableWidth)} role="separator" aria-label={`${column.key} 열 너비 조절`} />
       </Table.Th>
     );
   };
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+    <Box className={`${sharedClasses.pageShell} ${classes.page} ${s.screen}`}>
       <ErpBreadcrumb parent="기준정보" current="품목코드 관리" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
 
-      <Box className={classes.workspace}>
-      <Paper className={`${sharedClasses.panel} ${codeClasses.codePanel}`} withBorder>
-        <Group className={codeClasses.codeHeader} justify="space-between" align="flex-start" wrap="wrap" gap="sm">
-          <Box>
-            <Group gap={9} align="center"><Text className={classes.itemTitle}>품목 등록</Text><Badge className={classes.itemCount}>{rows.length}개</Badge></Group>
-            <Text size="xs" c="dimmed" mt={5}>회사별 품목코드, 품목명, 형태구분 및 사용 여부를 관리합니다.</Text>
+      <Box className={s.workspace}>
+      <Paper className={s.panel} withBorder>
+        <div className={s.panelHead}>
+          <Box miw={0}>
+            <div className={s.panelTitle}>
+              <strong>품목 등록</strong>
+              <span className={s.countBadge}>{rows.length}개</span>
+              <div className={s.chips}>
+                <span className={s.chip}>조회<b>{filteredRows.length.toLocaleString()}</b></span>
+                {(query.trim() || statusFilter !== 'all') && <span className={`${s.chip} ${s.chipFilter}`}>조건<b>{[query.trim(), statusFilter === 'Y' ? '사용중' : statusFilter === 'N' ? '사용중지' : ''].filter(Boolean).join(' · ')}</b></span>}
+                {selectedIds.length > 0 && <span className={`${s.chip} ${s.chipSelected}`}>선택<b>{selectedIds.length.toLocaleString()}</b></span>}
+              </div>
+            </div>
+            <div className={s.panelHint}>회사별 품목코드, 품목명, 형태구분 및 사용 여부를 관리합니다.</div>
           </Box>
-          <Group gap={7} align="center" wrap="wrap">
-            <Button variant="default" size="xs" leftSection={<IconDownload size={14} />} onClick={downloadTemplate}>샘플양식</Button>
-            <Button size="xs" variant="light" leftSection={<IconUpload size={14} />} onClick={() => uploadRef.current?.click()} disabled={loading || saving} loading={uploading}>엑셀 일괄등록</Button>
-            <input ref={uploadRef} type="file" accept=".xlsx,.xls" onChange={uploadExcel} hidden />
-          </Group>
-        </Group>
+          <div className={s.headRight}>
+            <ExcelBulkActions onDownloadTemplate={downloadTemplate} templateTitle="품목코드 일괄등록 샘플 양식을 내려받습니다"
+              inputRef={uploadRef} onUpload={uploadExcel} uploading={uploading} uploadDisabled={loading || saving}
+              uploadTitle="샘플 양식으로 작성한 엑셀 파일로 품목코드를 한 번에 등록합니다" />
+          </div>
+        </div>
 
-        {selectedIds.length > 0 && (
-          <Group className={`${sharedClasses.toolbar} ${codeClasses.toolbar}`} justify="flex-start" wrap="wrap" gap={6}>
-            <Text size="xs" c="dimmed">{selectedIds.length}개 선택</Text>
-          </Group>
-        )}
-
-        <Box className={`${codeClasses.tableWrap} ${filteredRows.length === 0 ? classes.emptyItemTable : ''}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }}>
-          {loading ? <Box className={classes.loading}><Loader color="red" size="sm" /></Box> : (
+        <Box className={`${codeClasses.tableWrap} ${s.tableWrap}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }}>
+          {loading ? <Box className={s.loading}><Loader color="red" size="sm" /></Box> : (
             <TableVirtuoso
               ref={virtuosoRef}
               data={filteredRows}
               context={{
                 columnCount: headerColumns.length,
                 emptyMessage: query.trim() ? '검색 결과가 없습니다.' : '등록된 품목이 없습니다.',
+                searching: Boolean(query.trim()) || statusFilter !== 'all',
               }}
               style={{ height: '100%' }}
               components={virtuosoComponents}
@@ -1010,21 +1019,28 @@ export default function ItemMaster() {
           )}
         </Box>
 
-        <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="space-between" wrap="wrap">
-          <Text size="xs" c="dimmed">조회 {filteredRows.length}개 · 엑셀 셀 범위를 복사해 표에 붙여넣은 뒤 저장할 수 있습니다.</Text>
-        </Group>
+        <div className={s.panelFoot}>
+          <span>조회 <b>{filteredRows.length}</b>개</span>
+          <span className={s.footHint}>엑셀 셀 범위를 복사해 표에 붙여넣은 뒤 저장할 수 있습니다. · 형태구분은 F2 / Space / 더블클릭으로 선택</span>
+        </div>
       </Paper>
-      {filterOpen && <Paper component="aside" className={classes.filterSidebar} withBorder>
-        <Group className={classes.filterHeader} justify="space-between" align="center">
-          <Text fw={700}>조회조건</Text>
+      {filterOpen && <Paper component="aside" className={s.filterSidebar} withBorder>
+        <div className={s.filterHead}>
+          <Group gap={6} wrap="nowrap"><IconAdjustmentsHorizontal size={16} color="#8290a5" /><strong>조회조건</strong></Group>
           <ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon>
-        </Group>
-        <Stack gap="sm" className={classes.filterFields}>
-          <TextInput label="품목정보" placeholder="품목코드 또는 품목명" value={queryInput} onChange={(event) => setQueryInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') applySearch(); }} />
-          <Select label="사용 여부" value={statusFilter === 'Y' ? '사용중' : statusFilter === 'N' ? '사용중지' : '전체'}
-            onChange={(value) => { setStatusFilter(value === '사용중' ? 'Y' : value === '사용중지' ? 'N' : 'all'); setSelectedIds([]); selectionAnchorRef.current = ''; }}
-            data={['전체', '사용중', '사용중지']} allowDeselect={false} disabled={loading} />
-        </Stack>
+        </div>
+        <div className={s.filterBody}>
+          <div className={s.section}>
+            <div className={s.sectionTitle}>검색</div>
+            <TextInput label="품목정보" placeholder="품목코드 또는 품목명" leftSection={<IconSearch size={14} />} value={queryInput} onChange={(event) => setQueryInput(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') applySearch(); }} />
+          </div>
+          <div className={s.section}>
+            <div className={s.sectionTitle}>상태</div>
+            <Select label="사용 여부" value={statusFilter === 'Y' ? '사용중' : statusFilter === 'N' ? '사용중지' : '전체'}
+              onChange={(value) => { setStatusFilter(value === '사용중' ? 'Y' : value === '사용중지' ? 'N' : 'all'); setSelectedIds([]); selectionAnchorRef.current = ''; }}
+              data={['전체', '사용중', '사용중지']} allowDeselect={false} disabled={loading} />
+          </div>
+        </div>
       </Paper>}
       </Box>
 

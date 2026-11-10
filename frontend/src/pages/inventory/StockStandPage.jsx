@@ -9,7 +9,7 @@ import {
   Select, Stack, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconBox, IconBuildingStore, IconDownload, IconListDetails, IconTrash, IconUpload, IconX } from '@tabler/icons-react';
+import { IconBox, IconBuildingStore, IconListDetails, IconTrash, IconX } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
@@ -20,6 +20,7 @@ import classes from '../../styles/pages/StockStand.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
+import ExcelBulkActions from '../../components/common/ExcelBulkActions';
 
 const STOCK_EXCEL_COLUMNS = [
   ['standdate', '기초일자'], ['customname', '거래처'], ['warehousecodename', '창고'], ['productname', '제품번호'],
@@ -1982,9 +1983,17 @@ export default function StockStandPage() {
           {selectedNewCount > 1 && <Text size="xs" c="red" fw={600}>마스터 값 변경 시 {selectedNewCount}개 행에 일괄 적용됩니다.</Text>}
         </Group>
         <Group className={classes.headerActions} gap={7} align="center" wrap="wrap">
-          <Button variant="default" size="xs" leftSection={<IconDownload size={15} />} onClick={downloadTemplate} disabled={loading || uploading}>샘플양식</Button>
-          <Button variant="light" size="xs" leftSection={<IconUpload size={15} />} onClick={() => uploadInputRef.current?.click()} loading={uploading} disabled={saving || loading}>엑셀 일괄등록</Button>
-          <input ref={uploadInputRef} type="file" accept=".xlsx,.xls" onChange={uploadExcel} hidden />
+          <ExcelBulkActions
+            onDownloadTemplate={downloadTemplate}
+            templateDisabled={loading || uploading}
+            templateTitle="기초재고 일괄등록 샘플 양식을 내려받습니다"
+            inputRef={uploadInputRef}
+            onUpload={uploadExcel}
+            uploading={uploading}
+            uploadDisabled={saving || loading}
+            uploadTitle="샘플 양식으로 작성한 엑셀 파일로 기초재고를 한 번에 등록합니다"
+            accept=".xlsx,.xls"
+          />
         </Group>
       </Group>
       <Box className={`${codeClasses.tableWrap} ${classes.tableViewport} ${hasSavedStock ? classes.savedTableViewport : ''}`} style={{ '--code-table-min-width': `${Math.max(1730, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>

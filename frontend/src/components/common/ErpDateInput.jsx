@@ -142,6 +142,17 @@ export default function ErpDateInput({
       return;
     }
 
+    // Tab: 년 → 월 → 일 칸으로 이동 (일 칸에서는 원래대로 다음 입력칸), Shift+Tab 은 거꾸로
+    if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      const index = segmentRef.current;
+      const next = event.shiftKey ? index - 1 : index + 1;
+      if (next >= 0 && next <= 2 && draft) {
+        event.preventDefault();
+        focusSegment(next);
+        return;
+      }
+    }
+
     if (event.key === 'Enter') {
       event.preventDefault();
       event.stopPropagation();

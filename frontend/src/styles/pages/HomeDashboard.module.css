@@ -1,0 +1,120 @@
+/* 대시보드 (pages/dashboard/HomePage.jsx) */
+.page { display: flex !important; flex-direction: column !important; height: 100%; min-height: 0; }
+.scroll { display: flex; min-height: 0; flex: 1 1 0; flex-direction: column; gap: 12px; overflow-x: hidden; overflow-y: auto; padding: 0 4px 12px 0; }
+
+/* 월별 요약의 증감 줄 */
+.statTrend { display: flex; min-height: 20px; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+
+/* 패널 */
+.row2_1, .row1_1 { display: grid; flex: 0 0 auto; gap: 12px; }
+.row2_1 { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.row1_1 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.panel { display: flex; min-width: 0; flex-direction: column; border-color: #e0e6ef !important; border-radius: 10px !important; background: #fff !important; }
+.panelHead { display: flex; min-height: 46px; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px; border-bottom: 1px solid #edf0f4; }
+.panelTitleWrap { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
+.panelTitle { color: #1f2a3a !important; font-size: 14px !important; font-weight: 700 !important; white-space: nowrap; }
+.panelSub { overflow: hidden; color: #8b95a3 !important; font-size: 11px !important; text-overflow: ellipsis; white-space: nowrap; }
+.panelBody { min-width: 0; flex: 1 1 auto; padding: 12px 14px; }
+.empty { display: flex; min-height: 140px; align-items: center; justify-content: center; color: #8b95a3; font-size: 12px; }
+.moreLink { display: inline-flex; flex: none; align-items: center; gap: 2px; padding: 4px 6px 4px 8px; border: 0; border-radius: 6px; background: transparent; color: #5d6b80; font: inherit; font-size: 11.5px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.moreLink:hover { background: #f2f5f9; color: #1f2a3a; }
+.tooltip { min-width: 190px; padding: 9px 11px; background: #fff; }
+.tooltipRow { display: flex; align-items: center; gap: 6px; color: #6b788b; font-size: 12px; line-height: 1.7; }
+.tooltipRow b { margin-left: auto; padding-left: 14px; color: #182538; font-weight: 600; }
+.tooltipTotal { margin-top: 3px; padding-top: 3px; border-top: 1px solid #eef1f5; }
+.swatch { display: inline-block; width: 9px; height: 9px; flex: 0 0 9px; border-radius: 2px; }
+
+/* 월별 매출 */
+.monthSummary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+.monthStat { display: flex; min-width: 0; flex-direction: column; gap: 3px; padding: 9px 12px; border-radius: 9px; background: #f6f8fb; }
+.monthStatLabel { display: flex; align-items: center; gap: 6px; color: #5d6b80; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.monthStatValue { overflow: hidden; color: #15233a; font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.3px; text-overflow: ellipsis; white-space: nowrap; }
+.monthStatValue.profitText { color: #11774f; }
+.monthLegend { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 14px; margin-bottom: 2px; color: #5d6b80; font-size: 11px; }
+.monthLegend span { display: inline-flex; align-items: center; gap: 5px; }
+.monthLegend .current { color: #1f2a3a; font-weight: 700; }
+
+/* 오늘: 시계 · 날씨 · 철강 이슈 */
+.todayPanel { overflow: hidden; }
+.todayTop { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); background: linear-gradient(135deg, #1f2b3e 0%, #2c3d57 55%, #3a4f6e 100%); color: #fff; }
+.clock { display: flex; min-width: 0; flex-direction: column; justify-content: center; gap: 2px; padding: 18px 18px 16px; }
+.clockAmpm { color: #aebbd0; font-size: 12px; font-weight: 600; letter-spacing: .5px; }
+.clockTime { font-size: 38px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -1.2px; line-height: 1.05; }
+.clockTime small { margin-left: 4px; color: #8fa0ba; font-size: 15px; font-weight: 700; letter-spacing: 0; }
+.clockDate { margin-top: 4px; color: #d3dceb; font-size: 12.5px; font-weight: 600; }
+.weather { display: flex; min-width: 0; flex-direction: column; justify-content: center; gap: 3px; padding: 16px 16px 14px; border-left: 1px solid #ffffff1f; }
+.weatherMain { display: flex; align-items: center; gap: 8px; }
+.weatherIcon { flex: none; color: #ffd166; }
+.weatherTemp { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -1px; line-height: 1; }
+.weatherCondition { color: #d3dceb; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.weatherRange { color: #aebbd0; font-size: 11.5px; white-space: nowrap; }
+.weatherRange b { font-weight: 700; }
+.high { color: #ffb4a8; }
+.low { color: #9cc9ff; }
+.weatherMeta { display: flex; gap: 10px; color: #aebbd0; font-size: 11px; }
+.weatherMeta span { display: inline-flex; align-items: center; gap: 3px; }
+.weatherEmpty { color: #aebbd0; font-size: 12px; }
+.newsHead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 12px 16px 6px; }
+.newsTitle { display: inline-flex; align-items: center; gap: 6px; color: #1f2a3a; font-size: 14px; font-weight: 700; }
+.newsTitle svg { color: #e5444b; }
+.newsSub { color: #9aa5b4; font-size: 11px; }
+.newsList { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; padding: 0 8px 8px; overflow-y: auto; }
+.newsItem { display: flex; align-items: flex-start; gap: 10px; padding: 9px 8px; border-radius: 8px; color: inherit; text-decoration: none; }
+.newsItem + .newsItem { border-top: 1px solid #f0f3f7; }
+.newsItem:hover { background: #f6f8fb; }
+.newsItem:hover .newsText { color: #c4363f; }
+.newsItem:focus-visible { outline: 2px solid #2a78d6; outline-offset: -2px; }
+.newsRank { display: inline-flex; width: 20px; height: 20px; flex: 0 0 20px; align-items: center; justify-content: center; margin-top: 1px; border-radius: 6px; background: #f1f4f8; color: #5d6b80; font-size: 11px; font-weight: 800; }
+.newsItem:first-child .newsRank { background: #fdeaea; color: #d23d45; }
+.newsBody { display: flex; min-width: 0; flex: 1 1 auto; flex-direction: column; gap: 3px; }
+.newsText { display: -webkit-box; overflow: hidden; color: #22324a; font-size: 12.5px; font-weight: 600; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; transition: color 120ms ease; }
+.newsMeta { color: #9aa5b4; font-size: 11px; }
+.newsLink { flex: none; margin-top: 3px; color: #c3cad4; }
+.newsEmpty { display: flex; min-height: 120px; align-items: center; justify-content: center; color: #8b95a3; font-size: 12px; }
+
+/* 최근 전표 */
+.tableHead { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; margin-top: 2px; }
+.sectionTitle { color: #1f2a3a !important; font-size: 14px !important; font-weight: 700 !important; }
+.tableSearch { width: 280px; }
+.tableSearch :global(.mantine-Input-input) { height: 30px; min-height: 30px; border-color: #dbe2ea; border-radius: 7px; font-size: 12px; }
+.tablePanel .panelBody { padding: 0; }
+.tableScroll { max-height: 300px; overflow: auto; }
+.table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.table th { position: sticky; z-index: 1; top: 0; height: 32px; padding: 0 10px; border-bottom: 1px solid #dfe5ed; background: #f6f8fb; color: #5d6b80; font-size: 11px; font-weight: 650; text-align: left; white-space: nowrap; }
+.table td { height: 34px; padding: 0 10px; border-bottom: 1px solid #eef1f5; color: #26364e; white-space: nowrap; }
+.table tbody tr:hover td { background: #f8fafd; }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.table th.num { text-align: right; }
+.strong { font-weight: 700; }
+.dateCell { color: #5d6b80 !important; font-variant-numeric: tabular-nums; }
+.nameCell { max-width: 150px; overflow: hidden; font-weight: 600; text-overflow: ellipsis; }
+.itemCell { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.spec { color: #6b788b; font-variant-numeric: tabular-nums; }
+.more { color: #8b95a3; font-size: 11px; }
+.kindTag { margin-left: 5px; padding: 0 5px; border-radius: 4px; background: #eef1f5; color: #5d6b80; font-size: 10px; font-weight: 700; }
+.oldText { color: #c4363f !important; font-weight: 700; }
+
+/* 장기재고 */
+.aging { display: flex; flex-direction: column; gap: 12px; }
+.agingHead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; }
+.agingBig { margin-right: 8px; color: #182538; font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.4px; }
+.agingBigLabel { color: #5d6b80; font-size: 12px; font-weight: 600; }
+.agingTotals { color: #6b788b; font-size: 12px; }
+.agingTotals b { color: #182538; font-weight: 700; }
+.agingBar { display: flex; height: 28px; gap: 2px; overflow: hidden; }
+.agingPart { display: flex; min-width: 4px; flex-basis: 0; align-items: center; padding-left: 7px; border-radius: 4px; }
+.agingText { color: #fff; font-size: 11px; font-weight: 700; }
+.agingTextDark { color: #142033; font-size: 11px; font-weight: 700; }
+.agingLegend { display: flex; flex-direction: column; gap: 4px; }
+.agingRow { display: grid; grid-template-columns: 12px minmax(0, 1fr) 80px 52px 70px; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; }
+.agingName { color: #4b5b70; }
+.agingWeight { color: #182538; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.agingPct { color: #6b788b; font-variant-numeric: tabular-nums; text-align: right; }
+.agingAmount { color: #8b95a3; font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
+
+@media (max-width: 980px) {
+  .row2_1, .row1_1 { grid-template-columns: minmax(0, 1fr); }
+  .monthSummary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tableSearch { width: 100%; }
+  .tableHead { flex-direction: column; align-items: stretch; }
+}

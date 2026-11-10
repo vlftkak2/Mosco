@@ -301,3 +301,38 @@ def get_home_market_summary():
         _HOME_MARKET_CACHE["expires_at"] = now + CACHE_TTL
 
     return result
+
+
+_WEATHER_CACHE = {"expires_at": None, "data": None}
+_WEATHER_LOCK = threading.Lock()
+
+
+def _cached_weather():
+    now = datetime.now()
+    with _WEATHER_LOCK:
+        if _WEATHER_CACHE["expires_at"] and now < _WEATHER_CACHE["expires_at"]:
+            return copy.deepcopy(_WEATHER_CACHE["data"])
+    try:
+        data = get_weather()
+    except Exception as error:  # 외부 서비스가 안 되면 날씨 칸만 비운다
+        logger.warning("Weather unavailable: %s", type(error).__name__)
+        data = None
+    with _WEATHER_LOCK:
+        # 실패도 10분은 기억해 매번 기다리지 않게 한다
+        _WEATHER_CACHE.update({"expires_at": now + (CACHE_TTL if data else timedelta(minutes=10)), "data": copy.deepcopy(data)})
+    return data
+
+
+def get_today_info(news_limit=6):
+    """대시보드 '오늘' 칸: 서울 날씨 + 철강 뉴스 (각각 30분 캐시, 둘을 동시에 받아온다)."""
+    result = {}
+    threads = [
+        threading.Thread(target=lambda: result.__setitem__("weather", _cached_weather())),
+        threading.Thread(target=lambda: result.__setitem__("news", get_steel_news(news_limit))),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=8)
+    news = result.get("news") or {"items": [], "available": False}
+    return {"weather": result.get("weather"), "news": news.get("items", []), "news_available": news.get("available", False)}

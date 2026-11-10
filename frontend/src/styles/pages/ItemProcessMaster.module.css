@@ -1,4 +1,4 @@
-.page {
+.page.page {
   display: flex;
   height: 100%;
   min-height: 0;
@@ -28,6 +28,9 @@
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
+  border-color: #e0e6ef !important;
+  border-radius: 8px !important;
+  background: #fff !important;
 }
 
 .header {
@@ -37,16 +40,30 @@
 }
 
 .title { color: #252a32; font-size: 14px; font-weight: 700; }
+.subtitle { color: #8290a5 !important; font-size: 11px !important; }
 .count {
   min-height: 20px;
-  padding: 3px 7px;
+  padding: 3px 8px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #eef2f7 !important;
-  color: #738098 !important;
+  color: #4b5b70 !important;
   font-size: 11px;
-  font-weight: 400;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
 }
+
+/* 저장 전 변경 상태 칩 */
+.statusChips { align-self: center; }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid #e1e6ee; border-radius: 20px; background: #f8fafc; color: #64758d; font-size: 11px; white-space: nowrap; }
+.chip b { color: #1e2e45; font-size: 12px; font-variant-numeric: tabular-nums; }
+.chipSelected { border-color: #f5cfd2; background: #fff4f5; }
+.chipSelected b { color: #c9373d; }
+.chipNew { border-color: #f3dfbd; background: #fffaf0; }
+.chipNew b { color: #a76400; }
+.chipDirty { border-color: #cfe0fb; background: #f2f7ff; }
+.chipDirty b { color: #1f5fd1; }
+.chipHint { color: #a0a9b6; font-size: 11px; }
 
 .tableViewport {
   height: calc(100vh - 260px);
@@ -62,20 +79,23 @@
 .tableViewport::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
 .tableViewport::-webkit-scrollbar-track { background: #f1f4f7; }
 
-.table { min-width: 1400px; border-collapse: collapse; table-layout: fixed; }
+.table { min-width: 1400px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
 .table thead th {
   position: sticky;
   z-index: 3;
   top: 0;
   height: 34px;
-  padding: 5px 7px;
-  border: 1px solid #e0e6ef;
-  background: #f0f3f7;
-  color: #354052;
+  padding: 0 8px;
+  border-right: 1px solid #e3e8ef;
+  border-bottom: 1px solid #d6dee8;
+  background: #f4f6f9;
+  color: #4b5b70;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 650;
+  text-align: center;
   white-space: nowrap;
 }
+.required { color: #e45159; font-weight: 700; }
 .columnResizer {
   position: absolute;
   top: 0;
@@ -100,19 +120,27 @@
 .table tbody td {
   height: 34px;
   padding: 0;
-  border: 1px solid #c8ced7;
-  color: #293a52;
+  border-right: 1px solid #edf0f4;
+  border-bottom: 1px solid #e9edf2;
+  color: #26364e;
   font-size: 12px;
   white-space: nowrap;
 }
-.table tbody tr:hover td { background: #f7faff; }
+.table thead th:last-child,
+.table tbody td:last-child { border-right: 0; }
+.table tbody tr:hover td { background: #f5f9ff; }
 .table tbody tr.newRow td { background: #fffbf4; }
-.table tbody tr.selectedRow td { background: #fff0f0; }
-.table tbody tr.selectedRow td:first-child { box-shadow: inset 3px 0 #ff4d57; }
+.table tbody tr.newRow td:first-child { box-shadow: inset 3px 0 #f0b44c; }
+.table tbody tr.dirtyRow td { background: #f7faff; }
+.table tbody tr.dirtyRow td:first-child { box-shadow: inset 3px 0 #7aa7e8; }
+.table tbody tr.selectedRow td { background: #fff0f1; }
+.table tbody tr.selectedRow td:first-child { box-shadow: inset 3px 0 #e45159; }
+.table tbody tr.emptyRow td,
+.table tbody tr.emptyRow:hover td { background: #fff; }
 
 .checkCell { width: 42px; text-align: center; }
-.checkCell input, .flagInput { width: 16px; height: 16px; accent-color: #ff4d57; cursor: pointer; vertical-align: middle; }
-.numberCell { width: 52px; color: #7a8799 !important; text-align: center; }
+.checkCell input, .flagInput { width: 16px; height: 16px; accent-color: #e45159; cursor: pointer; vertical-align: middle; }
+.numberCell { width: 52px; color: #8290a5 !important; font-size: 11px !important; font-variant-numeric: tabular-nums; text-align: center; }
 .flagCell { width: 66px; text-align: center; }
 .codeCell { width: 125px; }
 .nameCell { width: 210px; }
@@ -138,6 +166,27 @@
 .cellInput:focus, .cellSelect:focus { position: relative; z-index: 2; outline: 2px solid #4c83d3; outline-offset: -2px; background: inherit; }
 .cellInput:read-only, .cellSelect:disabled { background: #f1f3f5; color: #7e8998; }
 .cellSelect { cursor: pointer; }
+
+/* 규격 적용 가능/불가: 배지처럼 보이는 선택 상자 */
+.flagSelect {
+  width: calc(100% - 12px);
+  height: 22px;
+  margin: 0 auto;
+  padding: 0 4px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 650;
+  text-align: center;
+  text-align-last: center;
+  appearance: none;
+}
+.flagYes { background: #e6f6ee; color: #18794e; }
+.flagNo { background: #f1f3f6; color: #7a8799; }
+.flagSelect:focus { outline-offset: 0; }
+.flagSelect.flagYes:focus { background: #e6f6ee; }
+.flagSelect.flagNo:focus { background: #f1f3f6; }
+.flagSelect:disabled { opacity: .7; }
+.flagSelect option { background: #fff; color: #293a52; }
 
 .itemPickerCell { position: relative; }
 .itemPickerInput { padding-right: 29px; cursor: zoom-in; }
@@ -201,7 +250,18 @@
   font-size: 14px !important;
   text-align: center;
 }
+.emptyState { display: flex; min-height: 220px; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #8290a5; font-size: 12px; white-space: normal; }
+.emptyState strong { color: #4b5b70; font-size: 13px; }
+.emptyIcon { display: inline-flex; width: 46px; height: 46px; align-items: center; justify-content: center; margin-bottom: 4px; border: 1px solid #e3e8ef; border-radius: 50%; background: #f7f9fc; color: #9aa7b8; }
 .loading { display: grid; height: 100%; min-height: 220px; place-items: center; }
+
+.footer { flex-wrap: wrap; row-gap: 4px; }
+.legend { color: #8290a5; font-size: 11px; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.legendNew { border-left: 3px solid #f0b44c; background: #fffbf4; }
+.legendDirty { border-left: 3px solid #7aa7e8; background: #f7faff; }
+.legendSelected { border-left: 3px solid #e45159; background: #fff0f1; }
 
 .filterSidebar {
   width: 207px;
@@ -210,7 +270,7 @@
   overflow: auto;
   padding: 13px;
   border-color: #e0e6ef !important;
-  border-radius: 8px;
+  border-radius: 8px !important;
   background: #fff;
 }
 .filterHeader {

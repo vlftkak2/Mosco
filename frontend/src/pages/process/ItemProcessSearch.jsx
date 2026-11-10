@@ -7,7 +7,10 @@ import {
   Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import {
+  IconCoin, IconCopy, IconDeviceFloppy, IconFileInvoice, IconFileSpreadsheet, IconFilter, IconListDetails, IconPlus,
+  IconScale, IconSearch, IconSearchOff, IconStack2, IconTrash, IconX,
+} from '@tabler/icons-react';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import classes from '../../styles/pages/ItemProcessSearch.module.css';
@@ -224,20 +227,25 @@ export default function ItemProcessSearch() {
 
       <Box className={classes.summaryGrid} aria-label="가공현황 요약">
         {[
-          ['가공전표 수', `${displayNumber(summary.process_count, 0)}건`],
-          ['상세건수', `${displayNumber(summary.detail_count, 0)}건`],
-          ['총 가공수량', displayNumber(summary.total_qty)],
-          ['총 가공중량', `${displayNumber(summary.total_weight)} KG`],
-          ['총 가공금액', `${displayNumber(summary.total_amount, 0)} 원`],
-        ].map(([label, value]) => <Paper className={classes.summaryCard} withBorder key={label}>
-          <Text className={classes.summaryLabel}>{label}</Text><Text className={classes.summaryValue}>{value}</Text>
+          ['가공전표 수', displayNumber(summary.process_count, 0), '건', IconFileInvoice, classes.toneSlate],
+          ['상세건수', displayNumber(summary.detail_count, 0), '건', IconListDetails, classes.toneBlue],
+          ['총 가공수량', displayNumber(summary.total_qty), '', IconStack2, classes.toneTeal],
+          ['총 가공중량', displayNumber(summary.total_weight), 'KG', IconScale, classes.toneAmber],
+          ['총 가공금액', displayNumber(summary.total_amount, 0), '원', IconCoin, classes.toneOrange],
+        ].map(([label, value, unit, Icon, tone]) => <Paper className={`${classes.summaryCard} ${tone}`} withBorder key={label}>
+          <Box className={classes.summaryCopy}>
+            <Text className={classes.summaryLabel}>{label}</Text>
+            <Text className={classes.summaryValue}>{value || 0}{unit && <span className={classes.summaryUnit}>{unit}</span>}</Text>
+          </Box>
+          <span className={classes.summaryIcon} aria-hidden="true"><Icon size={18} stroke={1.8} /></span>
         </Paper>)}
       </Box>
 
       <Box className={classes.workspace}>
         <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder>
           <Group className={classes.resultsToolbar} justify="space-between">
-            <Group gap={8}><Text className={classes.sectionTitle} fw={700}>가공현황</Text><Badge color="gray" variant="light">{total.toLocaleString()}건</Badge></Group>
+            <Group gap={8}><Text className={classes.sectionTitle} fw={700}>가공현황</Text><Badge className={classes.countBadge} variant="light">{total.toLocaleString()}건</Badge></Group>
+            {(filters.date_from || filters.date_to) && <Text className={classes.toolbarHint}>가공기간 {filters.date_from || '처음'} ~ {filters.date_to || '현재'}</Text>}
           </Group>
           <Box className={classes.tableWrap}>
             {loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}
@@ -247,22 +255,26 @@ export default function ItemProcessSearch() {
                 <colgroup>{COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${columnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
                 <Table.Thead><Table.Tr>{COLUMNS.map(renderHeader)}</Table.Tr></Table.Thead>
                 <Table.Tbody>{items.map((item, index) => <Table.Tr key={item.processno}>
-                  <Table.Td ta="center">{(page - 1) * pageSize + index + 1}</Table.Td>
-                  <Table.Td>{displayDate(item.processdate)}</Table.Td>
-                  <Table.Td>{item.customname}</Table.Td><Table.Td>{item.warehousecodename}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.detail_count, 0)}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.qty)}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.weight)}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.supplyamt, 0)}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.vat, 0)}</Table.Td>
-                  <Table.Td ta="right" fw={600}>{displayNumber(item.unitamt, 0)}</Table.Td>
-                  <Table.Td>{item.processno}</Table.Td>
-                  <Table.Td>{item.manager}</Table.Td><Table.Td>{item.description}</Table.Td>
-                  <Table.Td>{displayDateTime(item.createdat)}</Table.Td><Table.Td>{displayDateTime(item.updatedat)}</Table.Td>
-                  <Table.Td>{item.created_by || ''}</Table.Td><Table.Td>{item.updated_by || ''}</Table.Td>
+                  <Table.Td ta="center" className={classes.rowNumber}>{(page - 1) * pageSize + index + 1}</Table.Td>
+                  <Table.Td ta="center" className={classes.num}>{displayDate(item.processdate)}</Table.Td>
+                  <Table.Td title={item.customname || undefined}>{item.customname}</Table.Td><Table.Td title={item.warehousecodename || undefined}>{item.warehousecodename}</Table.Td>
+                  <Table.Td ta="center"><span className={classes.countPill}>{displayNumber(item.detail_count, 0)}</span></Table.Td>
+                  <Table.Td ta="right" className={classes.num}>{displayNumber(item.qty)}</Table.Td>
+                  <Table.Td ta="right" className={classes.num}>{displayNumber(item.weight)}</Table.Td>
+                  <Table.Td ta="right" className={classes.num}>{displayNumber(item.supplyamt, 0)}</Table.Td>
+                  <Table.Td ta="right" className={classes.num}>{displayNumber(item.vat, 0)}</Table.Td>
+                  <Table.Td ta="right" fw={600} className={`${classes.num} ${classes.amount}`}>{displayNumber(item.unitamt, 0)}</Table.Td>
+                  <Table.Td><span className={classes.docNo}>{item.processno}</span></Table.Td>
+                  <Table.Td>{item.manager}</Table.Td><Table.Td title={item.description || undefined}>{item.description}</Table.Td>
+                  <Table.Td className={classes.meta}>{displayDateTime(item.createdat)}</Table.Td><Table.Td className={classes.meta}>{displayDateTime(item.updatedat)}</Table.Td>
+                  <Table.Td className={classes.meta}>{item.created_by || ''}</Table.Td><Table.Td className={classes.meta}>{item.updated_by || ''}</Table.Td>
                 </Table.Tr>)}</Table.Tbody>
               </Table>
-            </Box> : !loading && <Box className={classes.emptyState}>조회된 가공 내역이 없습니다.</Box>}
+            </Box> : !loading && <Box className={classes.emptyState}>
+              <span className={classes.emptyIcon}><IconSearchOff size={24} stroke={1.6} /></span>
+              <strong>조회된 가공 내역이 없습니다.</strong>
+              <span>가공기간이나 조회조건을 바꿔 다시 조회해 보세요.</span>
+            </Box>}
           </Box>
           <Group className={classes.paginationBar} justify="space-between" wrap="wrap">
             <Group gap="xs"><Text size="xs" c="dimmed">총 {total.toLocaleString()}건</Text>

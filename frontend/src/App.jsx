@@ -34,6 +34,8 @@ import InoutmoveSearch from "./pages/inoutmove/inoutmoveSearch";
 import ReceiptPayment from "./pages/receiptpayment/ReceiptPayment";
 import ReceiptPaymentSearch from "./pages/receiptpayment/ReceiptPaymentSearch";
 import InstrumentStatus from "./pages/receiptpayment/InstrumentStatus";
+import CustomerLedger from "./pages/receiptpayment/CustomerLedger";
+import CustomerBalanceDashboard from "./pages/receiptpayment/CustomerBalanceDashboard";
 import GrossProfit from "./pages/outbound/GrossProfit";
 import GrossProfitDashboard from "./pages/outbound/GrossProfitDashboard";
 
@@ -100,6 +102,8 @@ function App() {
           <Route path="/ReceiptPayment" element={menuPage('RECEIPT_PAYMENT', <ReceiptPayment />)} />
           <Route path="/ReceiptPaymentSearch" element={menuPage('RECEIPT_PAYMENT_SEARCH', <ReceiptPaymentSearch />)} />
           <Route path="/InstrumentStatus" element={menuPage('INSTRUMENT_STATUS', <InstrumentStatus />)} />
+          <Route path="/CustomerLedger" element={menuPage('CUSTOMER_LEDGER', <CustomerLedger />)} />
+          <Route path="/CustomerBalanceDashboard" element={menuPage('CUSTOMER_BALANCE_DASHBOARD', <CustomerBalanceDashboard />)} />
           <Route path="/GrossProfit" element={menuPage('GROSS_PROFIT', <GrossProfit />)} />
           <Route path="/GrossProfitDashboard" element={menuPage('GROSS_PROFIT_DASHBOARD', <GrossProfitDashboard />)} />
           <Route path="/AIOrderPage" element={menuPage('AI_ORDER_RECOGNITION', <AIOrderPage />)} />

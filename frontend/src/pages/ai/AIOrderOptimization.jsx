@@ -539,7 +539,7 @@ export default function AIOrderOptimization() {
 
   // 두 불러오기 창은 제목·검색·목록·하단 동작의 같은 틀을 쓴다.
   const pickerModal = <Modal opened={pickerOpen} onClose={() => setPickerOpen(false)} centered size="min(1440px, calc(100vw - 32px))" xOffset={16} yOffset={16}
-    classNames={PICKER_MODAL_CLASSES} closeButtonProps={{ 'aria-label': '품목 불러오기 닫기' }}
+    classNames={PICKER_MODAL_CLASSES} className={classes.optScope} closeButtonProps={{ 'aria-label': '품목 불러오기 닫기' }}
     title={<PickerTitle title="품목 불러오기" description="주문서 관리에서 보낸 대기 품목을 선택해 최적화 대상에 담습니다." material={material} icon={<IconListCheck size={22} stroke={1.7} />} />}>
     <div className={classes.pickerWorkspace}>
       <div className={classes.pickerFilters}>
@@ -596,7 +596,7 @@ export default function AIOrderOptimization() {
 
   // 계획 불러오기 창
   const planPickerModal = <Modal opened={planPickerOpen} onClose={() => setPlanPickerOpen(false)} centered size="min(1440px, calc(100vw - 32px))" xOffset={16} yOffset={16}
-    classNames={PICKER_MODAL_CLASSES} closeButtonProps={{ 'aria-label': '계획 불러오기 닫기' }}
+    classNames={PICKER_MODAL_CLASSES} className={classes.optScope} closeButtonProps={{ 'aria-label': '계획 불러오기 닫기' }}
     title={<PickerTitle title="계획 불러오기" description="임시저장한 계획을 이어서 작업하거나 확정된 계획을 확인합니다." material={material} icon={<IconFolderOpen size={22} stroke={1.7} />} />}>
     <div className={classes.pickerWorkspace}>
       <div className={`${classes.pickerFilters} ${classes.planPickerFilters}`}>
@@ -632,7 +632,7 @@ export default function AIOrderOptimization() {
   const summary = shownAnalysis?.summary;
   const confirmedDetail = viewingConfirmed ? activePlan.detail : null;
 
-  return <Box className={`${sharedClasses.pageShell} ${reg.page}`}>
+  return <Box className={`${sharedClasses.pageShell} ${reg.page} ${classes.optScope}`}>
     <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
       <Group className={inboundClasses.breadcrumbTrail} gap={7}>
         <Text component="span" className={inboundClasses.breadcrumbParent}>AI 가공솔루션</Text>
@@ -799,7 +799,7 @@ export default function AIOrderOptimization() {
 
     {pickerModal}
     {planPickerModal}
-    <Modal opened={Boolean(confirmAction)} onClose={() => !saving && setConfirmAction(null)} centered size="sm"
+    <Modal opened={Boolean(confirmAction)} onClose={() => !saving && setConfirmAction(null)} centered size="sm" className={classes.optScope}
       title={<Text fw={700}>{confirmAction === 'confirm' ? '계획 확정' : confirmAction === 'cancel' ? (editingDraft ? '임시저장 삭제' : '계획 취소') : '주문서 관리로 돌려보내기'}</Text>}>
       <Stack gap="md">
         <Text size="sm" c="dimmed">{confirmAction === 'confirm' ? `${chosenPlan?.id || ''}안으로 계획을 확정합니다. 품목은 계획확정이 되고, 현재고 원자재는 이 계획에 잡혀 다른 메뉴에서 쓸 수 없습니다.`
@@ -812,7 +812,7 @@ export default function AIOrderOptimization() {
       </Stack>
     </Modal>
 
-    <Modal opened={Boolean(editLine)} onClose={() => !saving && setEditLine(null)} centered size="sm" title={<Text fw={700}>품목 값 보완 {editLine ? `· ${editLine.row.orderid}-${editLine.row.lineno}` : ''}</Text>}>
+    <Modal opened={Boolean(editLine)} onClose={() => !saving && setEditLine(null)} centered size="sm" className={classes.optScope} title={<Text fw={700}>품목 값 보완 {editLine ? `· ${editLine.row.orderid}-${editLine.row.lineno}` : ''}</Text>}>
       {editLine && <Stack gap="sm">
         <Text size="xs" c="dimmed">빠진 값: {editLine.row.missing.join(', ')}. 코일은 중량, 시트(길이 있음)는 수량이 필요합니다.</Text>
         {[['thickness', '두께 (mm)'], ['width', '폭 (mm)'], ['length', '길이 (mm, 코일은 비움)'], ['quantity', '수량'], ['weight_kg', '중량 (kg)']].map(([key, label]) => <NumberInput key={key} label={label} hideControls min={0}

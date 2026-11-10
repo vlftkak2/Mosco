@@ -1,4 +1,4 @@
-.page {
+.page.page {
   display: flex;
   box-sizing: border-box;
   width: 100%;
@@ -131,13 +131,14 @@
 
 .table tbody tr { cursor: pointer; }
 .detailPanel .table tbody tr { cursor: default; }
-.table tbody tr:hover td { background: #f5f9fd; }
-.selectedRow td { background: #fff0f0 !important; }
+.table tbody tr:hover td { background: #f5f9ff; }
+.selectedRow td { background: #fff0f1 !important; }
 .listPanel .table tbody td:first-child { padding-left: 8px !important; }
-.listPanel .selectedRow td:first-child { box-shadow: inset 3px 0 #f0444c; }
-.detailSelectedRow td { background: #e7f1fc !important; }
+.listPanel .selectedRow td:first-child { box-shadow: inset 3px 0 #e45159; }
+.detailSelectedRow td { background: #fff0f1 !important; }
+.detailSelectedRow td:first-child { box-shadow: inset 3px 0 #e45159; }
 
-.subtotalRow td { height: 34px; background: #e8edf3 !important; font-weight: 700; }
+.subtotalRow td { height: 34px; background: #eef2f7 !important; color: #1e2e45; font-weight: 700; font-variant-numeric: tabular-nums; }
 .listFooter { min-height: 34px; flex: 0 0 auto; padding-top: 2px; }
 
 .headerFields {
@@ -151,11 +152,11 @@
 }
 
 .headerFields > div { min-width: 0; }
-.fieldLabel { display: block; margin-bottom: 4px; color: #536179; font-size: 12px; font-weight: 700; }
-.fieldLabel i { color: #f0444c; font-style: normal; }
+.fieldLabel { display: block; margin-bottom: 4px; color: #4b5b70; font-size: 12px; font-weight: 700; }
+.fieldLabel i { color: #e45159; font-style: normal; }
 .customerField :global(input), .headerFields :global(input), .headerFields :global(button) { height: 33px; min-height: 33px; font-size: 12px; }
-.detailToolbar { flex: 0 0 auto; min-height: 42px; padding: 0 13px; border-bottom: 1px solid #dce2e9; background: #f8fafc; }
-.detailToolbar :global(.mantine-Text-root) { color: #252a32; font-size: 14px; }
+.detailToolbar { flex: 0 0 auto; min-height: 42px; padding: 0 13px; border-bottom: 1px solid #e0e6ef; background: #f7f9fc; }
+.detailToolbar :global(.mantine-Text-root) { color: #1e2e45; font-size: 14px; }
 .detailToolbar :global(.mantine-Button-root) { min-height: 32px; font-size: 11px; }
 .detailTableWrap .table input[type='checkbox'] { accent-color: #ff4d55; }
 .detailTableWrap :global(.mantine-NumberInput-input), .detailTableWrap :global(.mantine-TextInput-input), .detailTableWrap :global(.mantine-Autocomplete-input) {
@@ -180,8 +181,8 @@
   background: transparent; color: #293a52; font-size: 11px; text-align: left; box-shadow: none;
 }
 .detailTableWrap :global(.mantine-Select-input:focus) { outline: 2px solid #4c83d3; outline-offset: -2px; background: #fff; }
-.calculatedAmount { color: #18324f; font-weight: 600; }
-.detailFooter { flex: 0 0 auto; min-height: 44px; margin-top: auto; padding: 7px 13px; border-top: 1px solid #dce2e9; background: #f8fafc; }
+.calculatedAmount { color: #1e2e45; font-weight: 650; }
+.detailFooter { flex: 0 0 auto; min-height: 44px; margin-top: auto; padding: 7px 13px; border-top: 1px solid #e0e6ef; background: #fbfcfd; font-variant-numeric: tabular-nums; }
 
 .filters { min-height: 0; overflow: auto; }
 .filters :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #536179; font-size: 12px; font-weight: 700; }
@@ -194,7 +195,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #8293a8;
+  color: #8290a5;
+  font-size: 13px;
   pointer-events: none;
 }
 
@@ -243,7 +245,9 @@
 .table tbody tr:hover td.readonlyCell { background: #f1f3f5; }
 
 /* 보유증권 불러오기 */
-.heldSourceRow td { background: #fffaf0; }
+.heldSourceRow td { background: #fffaf2; }
+.heldSourceRow td:first-child { box-shadow: inset 3px 0 #f2b37a; }
+.heldSourceRow.detailSelectedRow td:first-child { box-shadow: inset 3px 0 #e45159; }
 .heldBadge, .usedBadge { display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: 3px; font-size: 10px; line-height: 15px; vertical-align: middle; }
 .heldBadge { background: #fff1e6; color: #c2410c; }
 .usedBadge { background: #eef2f7; color: #526079; }
@@ -265,10 +269,10 @@
 .table td.statusSETTLED { color: #0f766e; font-weight: 600; }
 .table td.statusDISCOUNTED { color: #1d4ed8; font-weight: 600; }
 .table td.statusDISHONORED { color: #dc2626; font-weight: 700; }
-.processTableWrap { max-height: 320px; overflow: auto; border: 1px solid #dce2e9; }
+.processTableWrap { max-height: 320px; overflow: auto; border: 1px solid #e0e6ef; border-radius: 6px; }
 .processTable { width: 100%; border-collapse: collapse; font-size: 12px; }
 .processTable th, .processTable td { height: 32px; padding: 0 8px; border-bottom: 1px solid #e5e9ef; white-space: nowrap; }
-.processTable th { position: sticky; top: 0; background: #f0f3f7; color: #354052; font-size: 11px; text-align: left; }
-.processTable td[data-align='right'] { text-align: right; }
-.processTable tfoot td { background: #f8fafc; font-weight: 700; }
+.processTable th { position: sticky; top: 0; border-bottom-color: #d6dee8; background: #f4f6f9; color: #4b5b70; font-size: 11px; font-weight: 650; text-align: left; }
+.processTable td[data-align='right'] { text-align: right; font-variant-numeric: tabular-nums; }
+.processTable tfoot td { border-top: 1px solid #ccd6e3; background: #eef2f7; color: #1e2e45; font-weight: 700; font-variant-numeric: tabular-nums; }
 .processTable :global(.mantine-NumberInput-input) { text-align: right; }

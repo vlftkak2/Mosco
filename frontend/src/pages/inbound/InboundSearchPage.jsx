@@ -3,13 +3,13 @@ import axios from 'axios';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import {
-  ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack,
+  ActionIcon, Box, Button, Group, Loader, Pagination, Paper, Select, Stack,
   Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus,
-  IconSearch, IconTrash, IconX,
+  IconCalendar, IconCoin, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconInbox,
+  IconPlus, IconReceipt, IconScale, IconSearch, IconStack2, IconTrash, IconX,
 } from '@tabler/icons-react';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
@@ -74,6 +74,19 @@ const FILTERS = [
   { key: 'receiptno', label: '입고전표번호', placeholder: '전표번호' },
   { key: 'iteminfo', label: '품목정보', placeholder: '품목코드 또는 품목명' },
 ];
+
+const periodText = (from, to) => (from || to ? `${from || '처음'} ~ ${to || '끝'}` : '전체 기간');
+function SummaryCard({ label, value, unit, icon: Icon, accent }) {
+  return (
+    <Paper className={`${classes.summaryCard} ${classes.summaryCardRow} ${accent}`} withBorder>
+      <Box className={classes.summaryText}>
+        <Text className={classes.summaryLabel}>{label}</Text>
+        <Text className={classes.summaryValue} title={`${value} ${unit}`.trim()}>{value}{unit && <span className={classes.summaryUnit}>{unit}</span>}</Text>
+      </Box>
+      <span className={classes.summaryIcon}><Icon size={18} stroke={1.8} /></span>
+    </Paper>
+  );
+}
 
 export default function InboundSearchPage() {
   const pageLayout = useContext(PageRibbonContext);
@@ -253,31 +266,20 @@ export default function InboundSearchPage() {
       </Box>
 
       <Box className={classes.summaryGrid} aria-label="입고현황 요약">
-        <Paper className={classes.summaryCard} withBorder>
-          <Text className={classes.summaryLabel}>입고전표 수</Text>
-          <Text className={classes.summaryValue}>{displayNumber(summary.receipt_count, 0)}건</Text>
-        </Paper>
-        <Paper className={classes.summaryCard} withBorder>
-          <Text className={classes.summaryLabel}>총 입고수량</Text>
-          <Text className={classes.summaryValue}>{displayNumber(summary.total_qty)}</Text>
-        </Paper>
-        <Paper className={classes.summaryCard} withBorder>
-          <Text className={classes.summaryLabel}>총 입고중량</Text>
-          <Text className={classes.summaryValue}>{displayNumber(summary.total_weight)} KG</Text>
-        </Paper>
-        <Paper className={classes.summaryCard} withBorder>
-          <Text className={classes.summaryLabel}>총 입고금액</Text>
-          <Text className={classes.summaryValue}>{displayNumber(summary.total_amount, 0)} 원</Text>
-        </Paper>
+        <SummaryCard label="입고전표 수" value={displayNumber(summary.receipt_count, 0)} unit="건" icon={IconReceipt} accent={classes.accentSlate} />
+        <SummaryCard label="총 입고수량" value={displayNumber(summary.total_qty)} icon={IconStack2} accent={classes.accentBlue} />
+        <SummaryCard label="총 입고중량" value={displayNumber(summary.total_weight)} unit="KG" icon={IconScale} accent={classes.accentAmber} />
+        <SummaryCard label="총 입고금액" value={displayNumber(summary.total_amount, 0)} unit="원" icon={IconCoin} accent={classes.accentOrange} />
       </Box>
 
       <Box className={classes.inboundWorkspace}>
       <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder>
         <Group className={classes.resultsToolbar} justify="space-between" wrap="wrap">
-          <Group gap={8}>
+          <Box className={classes.toolbarTitle}>
             <Text className={classes.sectionTitle} fw={700}>매입현황</Text>
-            <Badge color="gray" variant="light">{total.toLocaleString()}건</Badge>
-          </Group>
+            <span className={classes.countBadge}>{total.toLocaleString()}건</span>
+          </Box>
+          <span className={classes.toolbarMeta} title="조회 기간 (입고일자)"><IconCalendar size={13} />{periodText(filters.date_from, filters.date_to)}</span>
         </Group>
 
         <Box className={classes.tableWrap}>
@@ -289,10 +291,10 @@ export default function InboundSearchPage() {
               <Table.Thead><Table.Tr>{TABLE_COLUMNS.map(renderHeader)}</Table.Tr></Table.Thead>
               <Table.Tbody>{items.length ? items.map((item, index) => <Table.Tr key={`${item.receiptno}:${item.lineno}`}>
                   <Table.Td ta="center">{(page - 1) * pageSize + index + 1}</Table.Td>
-                  <Table.Td>{displayDate(item.receptdate)}</Table.Td><Table.Td>{item.receiptno}</Table.Td>
-                  <Table.Td>{item.customname}</Table.Td><Table.Td>{item.warehousecodename}</Table.Td>
-                  <Table.Td>{item.productname}</Table.Td><Table.Td>{item.itemname}</Table.Td>
-                  <Table.Td>{item.materialname}</Table.Td><Table.Td>{item.surfacename}</Table.Td>
+                  <Table.Td ta="center">{displayDate(item.receptdate)}</Table.Td><Table.Td title={item.receiptno || undefined}>{item.receiptno}</Table.Td>
+                  <Table.Td title={item.customname || undefined}>{item.customname}</Table.Td><Table.Td title={item.warehousecodename || undefined}>{item.warehousecodename}</Table.Td>
+                  <Table.Td title={item.productname || undefined}>{item.productname}</Table.Td><Table.Td title={item.itemname || undefined}>{item.itemname}</Table.Td>
+                  <Table.Td title={item.materialname || undefined}>{item.materialname}</Table.Td><Table.Td title={item.surfacename || undefined}>{item.surfacename}</Table.Td>
                   <Table.Td ta="right">{displayNumber(item.myrtle)}</Table.Td>
                   <Table.Td ta="right">{displayNumber(item.thickness)}</Table.Td>
                   <Table.Td ta="right">{displayNumber(item.width)}</Table.Td>
@@ -306,12 +308,18 @@ export default function InboundSearchPage() {
                   <Table.Td ta="right">{displayNumber(item.other_cost_amount, 2)}</Table.Td>
                   <Table.Td>{item.qtyunit}</Table.Td><Table.Td>{item.unit}</Table.Td>
                   <Table.Td>{item.manager}</Table.Td>
-                  <Table.Td>{item.description}</Table.Td>
-                  <Table.Td>{displayDateTime(item.created_at)}</Table.Td>
-                  <Table.Td>{displayDateTime(item.updated_at)}</Table.Td>
+                  <Table.Td title={item.description || undefined}>{item.description}</Table.Td>
+                  <Table.Td ta="center">{displayDateTime(item.created_at)}</Table.Td>
+                  <Table.Td ta="center">{displayDateTime(item.updated_at)}</Table.Td>
                   <Table.Td>{item.created_by}</Table.Td>
                   <Table.Td>{item.updated_by}</Table.Td>
-                </Table.Tr>) : !loading && <Table.Tr><Table.Td colSpan={TABLE_COLUMNS.length} style={{ height: 180, textAlign: 'center', color: '#7c899b' }}>표시할 입고 상세 내역이 없습니다.</Table.Td></Table.Tr>}</Table.Tbody>
+                </Table.Tr>) : !loading && <Table.Tr><Table.Td colSpan={TABLE_COLUMNS.length} className={classes.emptyCell}>
+                  <Box className={classes.emptyState}>
+                    <span className={classes.emptyIcon}><IconInbox size={22} stroke={1.6} /></span>
+                    <span className={classes.emptyTitle}>표시할 입고 상세 내역이 없습니다.</span>
+                    <span>입고기간이나 조회조건을 바꿔 다시 조회해 보세요.</span>
+                  </Box>
+                </Table.Td></Table.Tr>}</Table.Tbody>
             </Table>
           </Box>
         </Box>
@@ -332,7 +340,7 @@ export default function InboundSearchPage() {
         </Group>
         <Stack gap="sm" className={classes.filterFields}>
           <Box>
-            <Text size="xs" fw={700} mb={5}>입고기간</Text>
+            <Text className={classes.filterGroupLabel}>입고기간</Text>
             <Stack gap={6}>
               <ErpDateInput aria-label="입고 시작일" type="date" value={filterInputs.date_from}
                 onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_from: nextValue })); }} />

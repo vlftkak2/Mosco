@@ -1,0 +1,73 @@
+/* 거래처원장: 위 = 거래처별 잔액, 아래 = 선택한 거래처 원장 */
+.mainColumn { display: flex; min-width: 0; min-height: 0; grid-column: 1; grid-row: 1; flex-direction: column; gap: 11px; }
+
+.panel {
+  display: flex !important;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-color: #e0e6ef !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+}
+.balancePanel { flex: 1 1 0; }
+.ledgerPanel { flex: 1.25 1 0; }
+
+.toolbar { display: flex; min-height: 44px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px 14px; flex-wrap: wrap; padding: 8px 13px; border-bottom: 1px solid #e0e6ef; }
+.toolbarTitle { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.toolbarHint { color: #8290a5; font-size: 11px; }
+.closingChips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid #e1e6ee; border-radius: 20px; background: #f8fafc; color: #64758d; font-size: 11px; white-space: nowrap; }
+.chip b { color: #1e2e45; font-size: 12px; font-variant-numeric: tabular-nums; }
+.chipRecv { border-color: #cfe0fb; background: #f2f7ff; }
+.chipRecv b { color: #1f5fd1; }
+.chipPay { border-color: #f6d9c4; background: #fff7f1; }
+.chipPay b { color: #c2561b; }
+
+.tableWrap { position: relative; min-width: 0; min-height: 0; flex: 1 1 0; overflow: auto; overscroll-behavior: contain; scrollbar-color: #aab6c4 #f1f4f7; }
+.tableWrap::-webkit-scrollbar { width: 11px; height: 11px; }
+.tableWrap::-webkit-scrollbar-thumb { border: 3px solid #f1f4f7; border-radius: 8px; background: #aab6c4; }
+.tableWrap::-webkit-scrollbar-track,
+.tableWrap::-webkit-scrollbar-corner { background: #f1f4f7; }
+.loader { position: absolute; z-index: 6; top: 12px; right: 16px; }
+
+.table { border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: 12px; }
+.table th { position: sticky; z-index: 2; padding: 0 8px; border-right: 1px solid #e3e8ef; border-bottom: 1px solid #d6dee8; background: #f4f6f9; color: #4b5b70; font-size: 11px; font-weight: 650; text-align: center; white-space: nowrap; }
+.table thead tr:first-child th { top: 0; height: 28px; }
+.table thead tr:nth-child(2) th { top: 28px; height: 28px; }
+.table thead tr:only-child th { height: 34px; }
+.table th.groupRecv { background: #eaf2ff; color: #24426e; }
+.table th.groupPay { background: #fff1e6; color: #8a3f12; }
+.table td { height: 34px; overflow: hidden; padding: 0 8px; border-right: 1px solid #edf0f4; border-bottom: 1px solid #e9edf2; color: #26364e; text-overflow: ellipsis; white-space: nowrap; }
+.table th:last-child,
+.table td:last-child { border-right: 0; }
+.table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.table td.center { text-align: center; }
+.table td.balance { font-weight: 650; }
+.table td.negative { color: #d03a43; }
+.table td.recvCol { background: #fbfdff; }
+.table td.payCol { background: #fffcf9; }
+.table tbody tr:hover td { background: #f5f9ff; }
+
+.table tbody tr.clickable { cursor: pointer; }
+.table tbody tr.selected td { background: #fff0f1; }
+.table tbody tr.selected td:first-child { box-shadow: inset 3px 0 #e45159; }
+.table tbody tr.carry td { background: #f7f9fc; color: #56677e; font-weight: 600; }
+
+.table tfoot td { position: sticky; z-index: 2; bottom: 0; height: 34px; border-top: 1px solid #ccd6e3; background: #eef2f7 !important; font-weight: 700; }
+
+.kind { display: inline-block; min-width: 34px; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 650; text-align: center; }
+.kindSALES { background: #e7f0ff; color: #1f5fd1; }
+.kindRECEIPT { background: #e6f6ee; color: #18794e; }
+.kindPURCHASE { background: #fff0e3; color: #c2561b; }
+.kindPAYMENT { background: #f2ecff; color: #6a3fc8; }
+.kindCOST { background: #f1f3f6; color: #5d6b7e; }
+
+.empty { display: flex; min-height: 140px; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #8290a5; font-size: 12px; text-align: center; }
+.empty strong { color: #4b5b70; font-size: 13px; }
+
+/* 조회조건 안의 원장 시작일 */
+.startBox { margin-top: 18px; padding: 11px 11px 12px; border: 1px solid #e1e8f2; border-radius: 7px; background: #f7f9fc; }
+.startBox p { margin: 6px 0 0; color: #7a889b; font-size: 11px; line-height: 1.5; }
+.startValue { color: #1e2e45; font-size: 13px; font-weight: 700; }

@@ -2,17 +2,34 @@
 /* 페이지 루트: 공통 pageShell 이 block 으로 덮어쓰므로 세로 flex 를 강제해 화면 높이를 채운다 */
 .page { display: flex !important; flex-direction: column !important; height: 100%; min-height: 0; }
 
-/* 요약 카드 5개 */
+/* 요약 카드 5개 (매출이익 현황판 KPI 카드와 같은 모양: 왼쪽 색 막대 + 아이콘) */
 .cardGrid { display: grid; flex: 0 0 auto; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
-.statCard { display: flex; min-width: 0; flex-direction: column; gap: 3px; padding: 10px 14px !important; border-color: #e0e6ef !important; border-radius: 8px !important; background: #fff !important; }
+.statCard { position: relative; display: flex; min-width: 0; flex-direction: column; gap: 3px; overflow: hidden; padding: 10px 14px 10px 16px !important; border-color: #e0e6ef !important; border-radius: 10px !important; background: #fff !important; }
+.statCard::before { position: absolute; top: 0; bottom: 0; left: 0; width: 4px; background: #aab6c4; content: ''; }
+.statHead { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; }
+.statIcon { display: inline-flex; width: 28px; height: 28px; flex: 0 0 28px; align-items: center; justify-content: center; border-radius: 50%; background: #f1f4f8; color: #52607a; }
+.statSales::before { background: #2a78d6; }
+.statSales .statIcon { background: #e8f1fc; color: #2a78d6; }
+.statCost::before { background: #eb6834; }
+.statCost .statIcon { background: #fdeee7; color: #c4521f; }
+.statExpense::before { background: #eda100; }
+.statExpense .statIcon { background: #fdf3dc; color: #a06b00; }
+.statProfit::before { background: #1baf7a; }
+.statProfit .statIcon { background: #e5f6ef; color: #12805a; }
+.statMargin::before { background: #1baf7a; }
+.statMargin .statIcon { background: #e5f6ef; color: #12805a; }
 .statLabel { color: #5d6b80 !important; font-size: 12px !important; font-weight: 600 !important; }
-.statValue { color: #182538 !important; font-size: 18px !important; font-weight: 700 !important; font-variant-numeric: tabular-nums; letter-spacing: -.2px; white-space: nowrap; }
-.statSub { overflow: hidden; color: #7b8798 !important; font-size: 11px !important; text-overflow: ellipsis; white-space: nowrap; }
+.statValue { overflow: hidden; color: #182538 !important; font-size: 18px !important; font-weight: 700 !important; font-variant-numeric: tabular-nums; letter-spacing: -.2px; text-overflow: ellipsis; white-space: nowrap; }
+.statSub { overflow: hidden; color: #8b95a3 !important; font-size: 11px !important; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .toneGain { color: #182538 !important; }
 .toneLoss { color: #dc2626 !important; }
 
+/* 결과 머리줄 왼쪽 (제목 · 건수 · 기간 · 안내): 좁으면 안내 문구가 잘린다 */
+.toolbarLeft { min-width: 0; overflow: hidden; }
+.toolbarLeft > :global(.mantine-Text-root:not(:first-child)) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* 표 */
-.profitTable tbody td, .profitTable tfoot td { height: 30px; font-variant-numeric: tabular-nums; }
+.profitTable tbody td, .profitTable tfoot td { height: 34px; font-variant-numeric: tabular-nums; }
 .profitCell { font-weight: 700; }
 .table .profitUp, .profitTable td.profitUp { color: #dc2626 !important; }
 .table .profitDown, .profitTable td.profitDown { color: #1d4ed8 !important; }
@@ -22,12 +39,13 @@
 .lossRow .marginDown { color: #1d4ed8; }
 .marginNone { color: #a0a9b6; }
 .groupRow { cursor: pointer; }
-.groupRow > td { height: 32px; padding: 0 10px !important; background: #f7f9fc !important; color: #1f4f8f !important; text-align: left !important; }
-.groupRow:hover > td { background: #eef3fa !important; }
+.groupRow > td { height: 34px; padding: 0 10px !important; background: #f7f9fc !important; box-shadow: inset 3px 0 #9fb3cc; color: #1f4f8f !important; text-align: left !important; }
+.groupRow:hover > td { background: #eef3fa !important; box-shadow: inset 3px 0 #2a78d6; }
 .groupTitle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
-.groupMeta { margin-left: 8px; color: #6b7a90; font-size: 11px; font-weight: 500; }
-.subtotalRow > td { background: #e8edf3 !important; color: #233148 !important; font-weight: 700; }
-.totalRow > td { position: sticky; bottom: 0; z-index: 2; background: #dfe6ef !important; color: #182538 !important; font-weight: 700; box-shadow: 0 -1px 0 #c8d2de; }
+.groupTitle b { color: #1e2e45; font-weight: 700; }
+.groupMeta { margin-left: 8px; padding: 1px 8px; border: 1px solid #e1e6ee; border-radius: 20px; background: #fff; color: #64758d; font-size: 11px; font-variant-numeric: tabular-nums; font-weight: 500; }
+.subtotalRow > td { background: #f1f4f8 !important; color: #233148 !important; font-weight: 700; }
+.totalRow > td { position: sticky; bottom: 0; z-index: 2; background: #eef2f7 !important; color: #182538 !important; font-weight: 700; box-shadow: 0 -1px 0 #ccd6e3; }
 .emptyCell { height: 160px; color: #7c899b; text-align: center; }
 
 @media (max-width: 1200px) {
