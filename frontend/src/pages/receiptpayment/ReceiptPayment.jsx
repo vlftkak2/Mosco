@@ -13,7 +13,7 @@ import {
   IconBuildingBank, IconBuildingStore, IconChevronDown, IconCopy, IconDeviceFloppy, IconFileDollar, IconFileSpreadsheet, IconFilter, IconPlus, IconSearch, IconTrash, IconX,
 } from '@tabler/icons-react';
 import ErpDateInput from '../../components/common/ErpDateInput';
-import PickerModal, { PickerEmpty, SelectPickerModal, pickerClasses } from '../../components/common/PickerModal';
+import PickerModal, { ColumnResizeHandle, PickerEmpty, SelectPickerModal, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
@@ -463,7 +463,6 @@ const HELD_COLUMNS = [
   { key: 'receiptdate', label: '수금일', width: 100 },
   { key: 'receiptno', label: '수금전표', width: 150 },
 ];
-const HELD_TABLE_WIDTH = HELD_COLUMNS.reduce((sum, column) => sum + column.width, 0);
 const CUSTOMER_PICKER_COLUMNS = [
   { key: 'customercode', label: '거래처코드', width: 130 },
   { key: 'customername', label: '거래처명', width: 260 },
@@ -475,6 +474,7 @@ const BANK_PICKER_COLUMNS = [
   { key: 'name', label: '은행명', width: 260 },
 ];
 const HeldInstrumentPickerModal = memo(function HeldInstrumentPickerModal({ opened, onClose, excludedKeys, onApply }) {
+  const heldColumns = useResizableColumns(HELD_COLUMNS);
   const [filters, setFilters] = useState({ maturity_from: '', maturity_to: '', customer: '', keyword: '', instrumenttype: '' });
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -538,11 +538,11 @@ const HeldInstrumentPickerModal = memo(function HeldInstrumentPickerModal({ open
     selectedCount={selectedRows.length} selectionLabel={`선택 · 합계 ${formatted(selectedAmount)}원`}
     pagination={<Pagination size="sm" color="red" total={Math.max(1, Math.ceil(total / HELD_PAGE_SIZE))} value={page} onChange={(nextPage) => void load(nextPage, filters)} siblings={1} disabled={loading} />}
     onApply={() => { onApply(selectedRows); onClose(); }} applyLabel="선택 적용">
-    <table className={pickerClasses.table} style={{ width: `max(100%, ${HELD_TABLE_WIDTH}px)` }} aria-label="보관 중인 증권">
-      <colgroup>{HELD_COLUMNS.map((column) => <col key={column.key} style={{ width: column.width }} />)}</colgroup>
+    <table className={pickerClasses.table} style={{ width: `max(100%, ${heldColumns.tableWidth}px)` }} aria-label="보관 중인 증권">
+      <colgroup>{HELD_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: heldColumns.widthOf(column) }} />)}</colgroup>
       <thead><tr>
         <th className={pickerClasses.center}><input className={pickerClasses.checkbox} type="checkbox" aria-label="전체 선택" checked={allVisibleSelected} disabled={!visibleRows.length} onChange={(event) => toggleAllVisible(event.currentTarget.checked)} /></th>
-        {HELD_COLUMNS.slice(1).map((column) => <th key={column.key} className={column.align ? pickerClasses[column.align] : undefined}>{column.label}</th>)}
+        {HELD_COLUMNS.slice(1).map((column) => <th key={column.key} className={`${pickerClasses.resizableHead} ${column.align ? pickerClasses[column.align] : ''}`}>{column.label}<ColumnResizeHandle column={column} columns={heldColumns} /></th>)}
       </tr></thead>
       <tbody>
         {visibleRows.map((row) => {

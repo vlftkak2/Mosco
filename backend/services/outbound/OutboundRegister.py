@@ -232,6 +232,85 @@ def list_receipts(
     return {"receipts": receipts, "total": total, "page": page, "page_size": page_size}
 
 
+def get_print_document(companyid: str, receiptno: str):
+    """거래명세서·송장 출력용 데이터. 출력할 때마다 DB 에서 저장된 전표를 다시 읽는다.
+
+    공급자 = 로그인 회사(company01t), 공급받는자 = 전표 매출처(customer01t).
+    기타비용(Outbound03t)과 매입단가는 출력하지 않는다.
+    """
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT receiptno, receptdate, customcode, customname, manager, description
+               FROM Outbound01t WHERE companyid = %s AND receiptno = %s""",
+            (companyid, receiptno),
+        )
+        header_row = cursor.fetchone()
+        if not header_row:
+            return None
+        header = _row_dict(cursor, header_row)
+
+        cursor.execute(
+            """SELECT companyname, businessno, ceoname, phone, email, zipcode,
+                      NULLIF(BTRIM(CONCAT_WS(' ', NULLIF(BTRIM(address1), ''), NULLIF(BTRIM(address2), ''))), '') AS address
+               FROM company01t WHERE companyid = %s""",
+            (companyid,),
+        )
+        supplier_row = cursor.fetchone()
+        supplier = _row_dict(cursor, supplier_row) if supplier_row else {}
+        # company01t 에는 업태·종목 칸이 없다 (필요하면 회사 정보에 칸을 추가해야 함).
+        supplier.setdefault("businesstype", None)
+        supplier.setdefault("industry", None)
+
+        cursor.execute(
+            """SELECT customername, businessno, ceoname, businesstype, industry,
+                      zipcode, address, phone, fax, manager
+               FROM customer01t WHERE companyid = %s AND customercode = %s""",
+            (companyid, header["customcode"]),
+        )
+        buyer_row = cursor.fetchone()
+        buyer = _row_dict(cursor, buyer_row) if buyer_row else {}
+        # 거래처가 삭제·변경돼도 전표에 저장된 매출처명은 항상 보이게 한다.
+        buyer["customername"] = buyer.get("customername") or header["customname"]
+
+        _, unit_names = _load_quantity_unit_maps(cursor, companyid)
+        cursor.execute(
+            """SELECT lineno, itemcode, itemname, productname, materialname, surfacename,
+                      thickness, width, length, qty, qtyunit, weight, unit,
+                      unitprice, supplyamt, vat, unitamt, warehousecodename, description
+               FROM Outbound02t WHERE companyid = %s AND receiptno = %s
+               ORDER BY lineno""",
+            (companyid, receiptno),
+        )
+        items = [_row_dict(cursor, row) for row in cursor.fetchall()]
+
+    def _number(value):
+        return Decimal(str(value)) if value is not None else Decimal("0")
+
+    for item in items:
+        qtyunit = str(item.get("qtyunit") or "").strip()
+        unit = str(item.get("unit") or "").strip()
+        item["qtyunitname"] = unit_names.get(qtyunit, qtyunit)
+        item["unitname"] = unit_names.get(unit, unit)
+        supply = _number(item.get("supplyamt"))
+        vat = _number(item.get("vat"))
+        item["totalamt"] = supply + vat
+
+    totals = {
+        "qty": sum((_number(item.get("qty")) for item in items), Decimal("0")),
+        "weight": sum((_number(item.get("weight")) for item in items), Decimal("0")),
+        "supplyamt": sum((_number(item.get("supplyamt")) for item in items), Decimal("0")),
+        "vat": sum((_number(item.get("vat")) for item in items), Decimal("0")),
+    }
+    totals["totalamt"] = totals["supplyamt"] + totals["vat"]
+    warehouses = []
+    for item in items:
+        name = str(item.get("warehousecodename") or "").strip()
+        if name and name not in warehouses:
+            warehouses.append(name)
+    header["warehouses"] = warehouses
+    return {"header": header, "supplier": supplier, "buyer": buyer, "items": items, "totals": totals}
+
+
 def get_receipt(companyid: str, receiptno: str):
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(

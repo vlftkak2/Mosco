@@ -261,3 +261,12 @@
   .editorPanel > :global(.mantine-Group-root:first-child) > :global(.mantine-Group-root:last-child) { justify-content: flex-end; }
   .editorPanel { height: 100%; }
 }
+
+/* 출고 기본 제목 줄의 거래명세서·송장 출력 버튼 */
+.printActions { flex: 0 0 auto; margin-left: auto; }
+.printActions :global(.mantine-Button-root) { height: 28px; overflow: visible; padding: 0 10px; border-color: #d3dbe6; color: #3a4d68; font-size: 12px; font-weight: 600; }
+.printActions :global(.mantine-Button-root:not(:disabled):hover) { border-color: #e45159; background: #fff5f5; color: #c9373d; }
+.printActions :global(.mantine-Button-section) { color: #e45159; }
+.printActions :global(.mantine-Button-root:disabled .mantine-Button-section) { color: inherit; }
+/* 출고 기본 제목 줄에 출력 버튼(28px)이 들어가도 줄 높이(42px)가 그대로이도록 위아래 여백만 줄인다 */
+.receiptToolbarWithActions { padding-top: 7px !important; padding-bottom: 7px !important; }
