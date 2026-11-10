@@ -5,10 +5,13 @@ import { writeAIOrderDraft } from './AIOrderDraft';
 import { TableVirtuoso } from 'react-virtuoso';
 import {
   Badge, Box, Button, Group, Loader, Progress,
-  Modal, Paper, ScrollArea, SimpleGrid, Stack, Table, Text, TextInput, Textarea, ThemeIcon, Title,
+  Modal, Paper, ScrollArea, SimpleGrid, Stack, Table, Text, TextInput, Textarea, ThemeIcon,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconBraces, IconFileTypePdf, IconPhoto, IconFileUpload, IconPlus, IconPlayerPlay, IconTrash, IconZoomIn, IconZoomOut } from '@tabler/icons-react';
+import {
+  IconAlertTriangle, IconBraces, IconCheck, IconClipboardCheck, IconClipboardOff, IconFileSearch, IconFileTypePdf, IconFiles, IconPhoto, IconFileUpload,
+  IconFolderOpen, IconPlus, IconPlayerPlay, IconSparkles, IconTrash, IconZoomIn, IconZoomOut,
+} from '@tabler/icons-react';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
@@ -542,6 +545,33 @@ function documentFileIcon(file) {
   </span>;
 }
 
+// 진행 단계: 단계마다 카드 · 아이콘 (진행 중 = 빨강 강조, 완료 = 초록 체크)
+const STEP_ICONS = [IconFileUpload, IconSparkles, IconClipboardCheck];
+function WorkflowSteps({ steps }) {
+  return <Box component="ol" className={classes.steps} aria-label="AI 주문서인식 진행 단계">
+    {steps.map((step, index) => {
+      const Icon = STEP_ICONS[index] || IconCheck;
+      return <li key={step.label} className={`${classes.step} ${classes[`step_${step.state}`] || ''}`} aria-current={step.state === 'active' ? 'step' : undefined}>
+        <span className={classes.stepIcon}>{step.state === 'done' ? <IconCheck size={18} stroke={2.6} /> : <Icon size={18} stroke={1.9} />}</span>
+        <span className={classes.stepCopy}>
+          <span className={classes.stepNo}>STEP {index + 1}{step.state === 'done' ? ' · 완료' : step.state === 'active' ? ' · 진행 중' : ''}</span>
+          <b>{step.label}</b><small>{step.description}</small>
+        </span>
+      </li>;
+    })}
+  </Box>;
+}
+
+function PanelPrompt({ icon, tone = 'gray', title, description }) {
+  return <Box className={`${classes.selectOrderPrompt} ${tone === 'red' ? classes.promptRed : ''}`}>
+    <Box className={classes.promptInner}>
+      <span className={classes.promptIcon}>{icon}</span>
+      <Text className={classes.promptTitle}>{title}</Text>
+      {description && <Text className={classes.promptDescription}>{description}</Text>}
+    </Box>
+  </Box>;
+}
+
 function AnalysisLoading({ queued = false }) {
   return <Box className={classes.analysisLoading} role="status" aria-live="polite">
     <Group gap="sm" wrap="nowrap">
@@ -755,32 +785,39 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
     setDeleteRowsRequest(null);
     notifications.show({ title: '삭제 완료', message: `상세 품목 ${requestedRows.length}개를 삭제했습니다.`, color: 'teal' });
   };
+  const [statusLabel, statusColor] = documentStatus(doc);
   return <>
-    {doc.error && <Text className={classes.documentError} size="sm" c="red">{doc.error}</Text>}
+    {doc.error && <Group className={classes.documentError} gap={8} wrap="nowrap"><IconAlertTriangle size={16} className={classes.documentErrorIcon} /><Text size="sm" c="red">{doc.error}</Text></Group>}
     <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="md" className={classes.workspace}>
       <Paper className={`${sharedClasses.panel} ${classes.workPanel}`} withBorder>
-        <Group className={classes.panelHeader} justify="space-between"><Text fw={700}>원본 주문서</Text><Badge variant="light" color="gray">{doc.file.name.split('.').pop()?.toUpperCase()}</Badge></Group>
+        <Group className={classes.panelHeader} justify="space-between" wrap="nowrap">
+          <Group gap={8} wrap="nowrap" className={classes.panelTitleGroup}><span className={classes.panelIcon}>{documentFileIcon(doc.file)}</span><Box className={classes.panelTitleCopy}><Text fw={700} className={classes.panelTitle}>원본 주문서</Text><Text className={classes.panelSubtitle} title={doc.file.name}>{doc.file.name}</Text></Box></Group>
+          <Badge variant="light" color="gray" className={classes.extBadge}>{doc.file.name.split('.').pop()?.toUpperCase()}</Badge>
+        </Group>
         <Box className={classes.previewArea}><Preview file={previewFile} previewUrl={previewUrl} currentPage={currentPage} setCurrentPage={setCurrentPage} pageCount={pageCount} setPageCount={setPageCount} correctedPages={doc.correctedPages || []} /></Box>
       </Paper>
       <Paper className={`${sharedClasses.panel} ${classes.workPanel}`} withBorder>
-        <Group className={classes.panelHeader} justify="space-between"><Text fw={700}>AI 추출 결과</Text><Group gap="sm">{doc.cacheHit && <Badge size="md" fw={700} variant="light" color="gray">저장된 분석 결과</Badge>}{extraction && <Button size="xs" color="red" loading={confirming} disabled={!doc.analysisRequestId || !extraction.items?.length} onClick={() => onConfirm(doc)}>주문확정</Button>}</Group></Group>
+        <Group className={classes.panelHeader} justify="space-between" wrap="nowrap">
+          <Group gap={8} wrap="nowrap" className={classes.panelTitleGroup}><span className={`${classes.panelIcon} ${classes.panelIconAi}`}><IconBraces size={17} /></span><Text fw={700} className={classes.panelTitle}>AI 추출 결과</Text><Badge size="sm" variant="light" color={statusColor}>{statusLabel}</Badge></Group>
+          <Group gap="sm" wrap="nowrap">{doc.cacheHit && <Badge size="md" fw={700} variant="light" color="gray">저장된 분석 결과</Badge>}{extraction && <Button size="xs" color="red" loading={confirming} disabled={!doc.analysisRequestId || !extraction.items?.length} onClick={() => onConfirm(doc)}>주문확정</Button>}</Group>
+        </Group>
         {!extraction
           ? doc.status === 'analyzing'
             ? <AnalysisLoading />
             : doc.status === 'queued'
               ? <AnalysisLoading queued />
               : doc.status === 'failed'
-                ? <Box className={classes.selectOrderPrompt}>분석에 실패했습니다. 오류 내용을 확인하고 다시 실행해주세요.</Box>
-                : <Box className={classes.selectOrderPrompt}>목록에서 발주서를 선택하고 분석을 실행해주세요.</Box> : <Box className={classes.resultContent}>
-          <Box className={classes.resultContentInner}><Box className={classes.orderHeaderSection}><Group gap="xs" mb="xs"><Text size="sm" fw={700}>주문서 헤더</Text>{extraction.header.needs_review && <Badge size="xs" color="orange" variant="light" title={(extraction.header.review_reasons || []).join(' · ')}>납품장소 확인 필요</Badge>}</Group>
+                ? <PanelPrompt tone="red" icon={<IconAlertTriangle size={24} stroke={1.7} />} title="분석에 실패했습니다." description="오류 내용을 확인하고 다시 실행해주세요." />
+                : <PanelPrompt icon={<IconFileSearch size={24} stroke={1.7} />} title="목록에서 발주서를 선택하고 분석을 실행해주세요." description="AI 일괄 분석을 실행하면 추출 결과가 여기에 표시됩니다." /> : <Box className={classes.resultContent}>
+          <Box className={classes.resultContentInner}><Box className={classes.orderHeaderSection}><Group gap="xs" mb="xs"><Text size="sm" fw={700} className={classes.sectionTitle}>주문서 헤더</Text>{extraction.header.needs_review && <Badge size="xs" color="orange" variant="light" title={(extraction.header.review_reasons || []).join(' · ')}>납품장소 확인 필요</Badge>}</Group>
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
               {HEADER_FIELDS.map(([key, label]) => <TextInput key={key} type={['order_date', 'due_date'].includes(key) ? 'date' : 'text'} style={key === 'delivery_location' ? { gridColumn: '1 / -1' } : undefined} label={<ExtractionFieldLabel label={label} source={aiSourceFor(extraction.header, key)} />} value={['order_date', 'due_date'].includes(key) ? dateInputValue(extraction.header[key]) : (extraction.header[key] || '')} onChange={(event) => updateHeader(key, event.currentTarget.value)} />)}
             </SimpleGrid>
             </Box><Paper className={classes.detailSection} withBorder>
-            <Group className={`${sharedClasses.toolbar} ${outboundTableClasses.toolbar} ${classes.detailToolbar}`} justify="space-between" align="center" wrap="wrap"><Group gap={8}><Text size="sm" fw={700}>상세 품목</Text>{extraction.items.some((item) => !item.__manual && LINE_COLUMNS.some(([key]) => aiSourceFor(item, key))) && <Badge className={classes.sectionAiBadge} size="sm" variant="light" color="gray">AI 추출</Badge>}</Group><Group gap={7} wrap="nowrap">
+            <Group className={`${sharedClasses.toolbar} ${outboundTableClasses.toolbar} ${classes.detailToolbar}`} justify="space-between" align="center" wrap="wrap"><Group gap={8}><Text size="sm" fw={700} className={classes.sectionTitle}>상세 품목</Text><Badge size="sm" variant="light" className={classes.countBadge}>{extraction.items.length.toLocaleString()}행</Badge>{extraction.items.some((item) => item.needs_review) && <Badge size="sm" variant="light" color="orange" leftSection={<IconAlertTriangle size={11} />}>확인 필요 {extraction.items.filter((item) => item.needs_review).length.toLocaleString()}</Badge>}{extraction.items.some((item) => !item.__manual && LINE_COLUMNS.some(([key]) => aiSourceFor(item, key))) && <Badge className={classes.sectionAiBadge} size="sm" variant="light" color="gray">AI 추출</Badge>}</Group><Group gap={7} wrap="nowrap">
               {selectedRows.length > 0 && <Text size="xs" c="dimmed">{selectedRows.length}개 선택</Text>}<Button size="xs" variant="subtle" color="red" leftSection={<IconTrash size={14} />} disabled={!selectedRows.length} onClick={requestDeleteSelectedRows}>선택 삭제</Button><Button size="xs" color="red" leftSection={<IconPlus size={14} />} onClick={addLine}>행 추가</Button>
             </Group></Group>
-            {!extraction.items.length ? <Box className={classes.resultEmpty}>인식된 품목 행이 없습니다.</Box> : <Box ref={tableWrapRef} className={`${outboundTableClasses.tableWrap} ${classes.gridScroll}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }} onKeyDown={handleGridKeyDown}>
+            {!extraction.items.length ? <Box className={classes.resultEmpty}><Box className={classes.promptInner}><span className={classes.promptIcon}><IconClipboardOff size={22} stroke={1.7} /></span><Text className={classes.promptTitle}>인식된 품목 행이 없습니다.</Text><Text className={classes.promptDescription}>[행 추가]로 원본을 보며 직접 입력할 수 있습니다.</Text></Box></Box> : <Box ref={tableWrapRef} className={`${outboundTableClasses.tableWrap} ${classes.gridScroll}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }} onKeyDown={handleGridKeyDown}>
               <TableVirtuoso
                 ref={virtuosoRef}
                 data={extraction.items}
@@ -833,6 +870,7 @@ export default function AIOrderPage() {
   }, []);
   const [analysisConfirm, setAnalysisConfirm] = useState(null);
   const [validating, setValidating] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
   const [confirmingId, setConfirmingId] = useState(null);
   const [orderConfirmTargetId, setOrderConfirmTargetId] = useState(null);
@@ -1051,7 +1089,15 @@ export default function AIOrderPage() {
     setSelectedId((current) => targetIds.includes(current) ? current : (targetIds[0] || current));
     setAnalysisConfirm(null);
   };
+  // 목록 비우기: 올린 주문서 · 분석 결과 · 수정 내용이 모두 지워지므로 반드시 한 번 확인한다
+  // (위쪽 공통 버튼의 [삭제]도 여기로 온다 — 행 하나를 지우려면 상세 품목의 [선택 삭제])
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const requestClearDocuments = () => {
+    if (!documents.length || activeRequests.current.size) return;
+    setClearConfirmOpen(true);
+  };
   const clearDocuments = () => {
+    setClearConfirmOpen(false);
     if (activeRequests.current.size) return;
     setDocuments([]); setSelectedId(null);
   };
@@ -1061,9 +1107,29 @@ export default function AIOrderPage() {
     return counts;
   }, {});
 
+  const runningCount = documents.filter((doc) => ['analyzing', 'queued'].includes(doc.status)).length;
+  const completedCount = documents.filter((doc) => doc.status === 'completed').length;
+  const workflowSteps = [
+    {
+      label: '주문서 등록',
+      description: documents.length ? `${documents.length}개 파일 등록됨` : 'PDF · 이미지 파일 추가',
+      state: validating ? 'active' : documents.length ? 'done' : 'active',
+    },
+    {
+      label: 'AI 분석',
+      description: runningCount ? `${runningCount}건 진행 중` : completedCount ? `${completedCount}건 분석 완료` : 'AI 일괄 분석 실행',
+      state: runningCount ? 'active' : completedCount ? 'done' : documents.length ? 'active' : 'todo',
+    },
+    {
+      label: '검토 · 주문확정',
+      description: selectedDoc?.extraction ? '원본과 대조 후 주문확정' : '원본과 추출 결과 비교',
+      state: selectedDoc?.extraction ? 'active' : 'todo',
+    },
+  ];
+
   useErpPageRibbon({
     onAdd: () => fileInputRef.current?.click(),
-    onDelete: clearDocuments,
+    onDelete: requestClearDocuments,
     showPrint: false,
     useSaveColor: false,
   });
@@ -1072,16 +1138,24 @@ export default function AIOrderPage() {
     <ErpBreadcrumb parent="AI 가공솔루션" current="AI 주문서인식" />
 
     <Paper className={`${sharedClasses.panel} ${classes.uploadPanel}`} withBorder>
+      <WorkflowSteps steps={workflowSteps} />
       <Group justify="space-between" align="center" wrap="wrap" gap="md">
-        <Box className={classes.uploadDropzone} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void validateAndAdd(event.dataTransfer.files); }}>
+        <Box className={`${classes.uploadDropzone} ${dragging ? classes.uploadDragging : ''}`} onClick={() => { if (!validating) fileInputRef.current?.click(); }}
+          onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
+          onDragOver={(event) => event.preventDefault()}
+          onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false); }}
+          onDrop={(event) => { event.preventDefault(); setDragging(false); void validateAndAdd(event.dataTransfer.files); }}>
           <input ref={fileInputRef} className={classes.hiddenFileInput} type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,.tif,.tiff" onChange={(event) => { void validateAndAdd(event.currentTarget.files); event.currentTarget.value = ''; }} />
-          <Box className={classes.uploadIcon}><IconFileUpload size={22} /></Box><Box className={classes.uploadCopy}>
-            <Text size="sm" fw={700}>{validating ? '파일 형식과 PDF 페이지를 확인하고 있습니다.' : '주문서 여러 개를 선택하거나 여기에 끌어놓으세요.'}</Text>
-            <Text size="xs" c="dimmed">PDF · JPG · PNG · HEIC · TIFF · 파일당 최대 30MB · 문서 최대 10페이지 · 최대 {MAX_FILES}개</Text>
-          </Box><Button variant="default" size="sm" onClick={() => fileInputRef.current?.click()} disabled={validating}>파일 선택</Button>
+          <Box className={classes.uploadIcon}><IconFileUpload size={24} stroke={1.8} /></Box><Box className={classes.uploadCopy}>
+            <span className={classes.uploadTitle}>{validating ? '파일 형식과 PDF 페이지를 확인하고 있습니다.' : dragging ? '여기에 놓으면 목록에 추가됩니다' : '주문서 파일을 여기에 끌어놓거나 눌러서 선택하세요'}</span>
+            <span className={classes.uploadMeta}>
+              {['PDF', 'JPG', 'PNG', 'HEIC', 'TIFF'].map((type) => <span key={type} className={classes.typeChip}>{type}</span>)}
+              <span className={classes.uploadLimit}>파일당 최대 30MB · 문서 최대 10페이지 · 한 번에 최대 {MAX_FILES}개</span>
+            </span>
+          </Box><button type="button" className={classes.pickButton} onClick={(event) => { event.stopPropagation(); fileInputRef.current?.click(); }} disabled={validating}><IconFolderOpen size={16} stroke={1.9} />파일 선택</button>
         </Box>
-        <Group gap="xs"><Button variant="default" leftSection={<IconTrash size={15} />} onClick={clearDocuments} disabled={!documents.length || activeRequests.current.size > 0}>목록 비우기</Button>
-          <Button color="red" leftSection={<IconPlayerPlay size={15} />} onClick={startBatch} disabled={validating || !documents.length}>AI 일괄 분석</Button>
+        <Group gap={8}><button type="button" className={classes.clearButton} onClick={requestClearDocuments} disabled={!documents.length || activeRequests.current.size > 0}><IconTrash size={15} stroke={1.9} />목록 비우기</button>
+          <button type="button" className={classes.analyzeButton} onClick={startBatch} disabled={validating || !documents.length}><IconSparkles size={16} stroke={2} />AI 일괄 분석</button>
         </Group>
       </Group>
       {validating && uploadProgress && <Box className={classes.uploadProgress} role="status" aria-live="polite">
@@ -1091,12 +1165,12 @@ export default function AIOrderPage() {
         </Group>
         <Progress value={uploadProgress.total ? Math.max(4, ((uploadProgress.current - 0.5) / uploadProgress.total) * 100) : 4} animated striped color="red" size="sm" radius="xl" />
       </Box>}
-      {documents.length > 0 && <Group gap="xs" mt="sm">{Object.entries(statusCounts).map(([label, value]) => <Badge key={label} variant="light" color={value.color}>{label} {value.count}</Badge>)}<Text size="xs" c="dimmed">동시 분석 최대 {USER_CONCURRENCY}건, 나머지는 대기합니다.</Text></Group>}
+      {documents.length > 0 && <Group gap="xs" mt="sm" className={classes.statusSummary}>{Object.entries(statusCounts).map(([label, value]) => <Badge key={label} variant="light" color={value.color} className={classes.statusCountBadge}>{label} <b>{value.count}</b></Badge>)}<Text size="xs" c="dimmed" className={classes.statusHint}>동시 분석 최대 {USER_CONCURRENCY}건, 나머지는 대기합니다.</Text></Group>}
     </Paper>
 
     {documents.length > 0 && <Paper className={`${sharedClasses.panel} ${classes.batchListPanel}`} withBorder>
       <Group justify="space-between" className={classes.listHeader}>
-        <Group gap="xs"><Text fw={700}>발주서 목록</Text><Badge variant="light" color="gray">{documents.length}건</Badge></Group>
+        <Group gap="xs"><span className={classes.listIcon}><IconFiles size={16} /></span><Text fw={700} className={classes.panelTitle}>발주서 목록</Text><Badge variant="light" className={classes.countBadge}>{documents.length}건</Badge></Group>
         <Text size="xs" c="dimmed">{documents.length > 5 ? '목록을 스크롤해 전체 파일을 확인하세요.' : '파일을 선택해 원본과 분석 결과를 확인하세요.'}</Text>
       </Group>
       {!documents.length ? <Text className={classes.listEmpty} size="sm" c="dimmed">분석할 주문서 파일을 추가해주세요.</Text> : <ScrollArea className={classes.orderListScroll} style={{ height: orderListHeight }} type={documents.length > 5 ? 'auto' : 'never'} scrollbarSize={7}>
@@ -1115,7 +1189,7 @@ export default function AIOrderPage() {
                 </Box>
               </Group></Table.Td>
               <Table.Td ta="center"><Text size="sm" lineClamp={1}>{doc.extraction?.header?.buyer || (doc.status === 'analyzing' ? '분석 중' : '미확인')}</Text></Table.Td>
-              <Table.Td ta="center"><Text size="sm" fw={600}>{doc.extraction ? doc.extraction.items.length.toLocaleString() : '—'}</Text></Table.Td>
+              <Table.Td ta="center"><Text size="sm" fw={600} className={classes.numCell}>{doc.extraction ? doc.extraction.items.length.toLocaleString() : '—'}</Text></Table.Td>
               <Table.Td ta="center"><Group gap={7} wrap="nowrap" justify="center">{doc.status === 'analyzing' && <Loader size={13} />}<Badge color={color} variant="light">{label}</Badge></Group></Table.Td>
               <Table.Td ta="center"><Button size="xs" variant={selected ? 'light' : 'subtle'} color={selected ? 'indigo' : 'gray'} loading={doc.cacheChecking} disabled={['analyzing', 'queued'].includes(doc.status)} onClick={(event) => { event.stopPropagation(); void showDocumentResult(doc); }}>결과 확인</Button></Table.Td>
             </Table.Tr>;
@@ -1126,21 +1200,51 @@ export default function AIOrderPage() {
 
     <Box className={classes.comparisonArea}>{selectedDoc ? <OrderDocumentWorkspace key={selectedDoc.id} doc={selectedDoc} updateDocument={updateDocument} onConfirm={requestOrderConfirmation} confirming={confirmingId === selectedDoc.id} /> : <Paper withBorder className={classes.noSelection}>
       <Box className={classes.emptyState}>
-        <ThemeIcon className={classes.emptyStateIcon} size={54} radius="xl" variant="light" color="red"><IconFileUpload size={27} /></ThemeIcon>
-        <Badge variant="light" color="red" mt="md">원본 · AI 추출 결과 비교</Badge>
-        <Title order={3} mt="xs">주문서 검토를 시작해보세요</Title>
-        <Text className={classes.emptyStateDescription} size="sm" c="dimmed">
+        <span className={classes.emptyKicker}><IconSparkles size={13} stroke={2.2} />원본 · AI 추출 결과 비교</span>
+        <h3 className={classes.emptyTitle}>주문서 검토를 시작해보세요</h3>
+        <p className={classes.emptyDesc}>
           {documents.length
-            ? <>중단 목록에서 검토할 발주서를 선택하세요.<br />원본과 AI 추출 결과를 함께 보여드립니다.</>
-            : <>주문서를 추가한 뒤 AI 일괄 분석을 실행하세요.<br />원본과 추출 결과를 좌우로 비교할 수 있습니다.</>}
-        </Text>
-        <SimpleGrid className={classes.emptyStatePreview} cols={{ base: 1, sm: 2 }} spacing="sm">
-          <Box className={classes.emptyStatePreviewCard}><Group gap="xs"><ThemeIcon size="sm" variant="light" color="gray"><IconFileUpload size={14} /></ThemeIcon><Text size="sm" fw={700}>원본 주문서</Text></Group><Text size="xs" c="dimmed" mt={8}>PDF · 이미지 · 이미지 미리보기와 원본 위치 확인</Text><Box className={classes.emptyStateLines}><i /><i /><i /></Box></Box>
-          <Box className={classes.emptyStatePreviewCard}><Group gap="xs"><ThemeIcon size="sm" variant="light" color="red"><IconBraces size={14} /></ThemeIcon><Text size="sm" fw={700}>AI 추출 결과</Text></Group><Text size="xs" c="dimmed" mt={8}>발주 정보와 상세 품목을 검토하고 수정</Text><Box className={classes.emptyStateLines}><i /><i /><i /></Box></Box>
-        </SimpleGrid>
-        <Text className={classes.emptyStateFootnote} size="xs" c="dimmed">분석 결과는 확인용이며 ERP 전표와 재고에는 반영되지 않습니다.</Text>
+            ? <>위 목록에서 검토할 발주서를 선택하세요. 원본과 AI 추출 결과를 나란히 보여드립니다.</>
+            : <>주문서를 추가하고 <b>AI 일괄 분석</b>을 실행하면, 원본과 추출 결과를 좌우로 비교할 수 있습니다.</>}
+        </p>
+        <div className={classes.emptyFlow} aria-hidden="true">
+          <div className={classes.flowCard}>
+            <div className={classes.flowCardHead}><span className={`${classes.flowCardIcon} ${classes.flowIconGray}`}><IconFileTypePdf size={16} stroke={1.9} /></span><b>원본 주문서</b></div>
+            <div className={classes.paperMock}>
+              <i className={classes.paperTitle} />
+              <div className={classes.paperRow}><i /><i /></div>
+              <div className={classes.paperTable}><i /><i /><i /><i /><i /><i /></div>
+              <i className={classes.paperFoot} />
+            </div>
+            <span className={classes.flowCardNote}>PDF · 이미지 원본을 그대로 확인</span>
+          </div>
+          <div className={classes.flowArrow}>
+            <span className={classes.flowArrowIcon}><IconSparkles size={20} stroke={2} /></span>
+            <span className={classes.flowArrowLabel}>AI 추출</span>
+          </div>
+          <div className={`${classes.flowCard} ${classes.flowCardResult}`}>
+            <div className={classes.flowCardHead}><span className={`${classes.flowCardIcon} ${classes.flowIconRed}`}><IconBraces size={16} stroke={1.9} /></span><b>AI 추출 결과</b></div>
+            <div className={classes.resultMock}>
+              {['발주처', '납기일', '품목', '중량'].map((label, index) => <div key={label} className={classes.resultMockRow}>
+                <span>{label}</span><i style={{ width: `${[72, 46, 84, 38][index]}%` }} />
+              </div>)}
+            </div>
+            <span className={classes.flowCardNote}>발주 정보 · 상세 품목을 검토하고 수정</span>
+          </div>
+        </div>
+        <p className={classes.emptyFoot}>분석 결과는 확인용이며, 주문서관리로 넘겨 저장하기 전에는 ERP 전표와 재고에 반영되지 않습니다.</p>
       </Box>
     </Paper>}</Box>
+    <Modal opened={clearConfirmOpen} onClose={() => setClearConfirmOpen(false)} title="발주서 목록 비우기" size="sm" centered radius="md" overlayProps={{ backgroundOpacity: 0.5, blur: 2 }}>
+      <Stack gap="md">
+        <Text size="sm">올린 발주서 <b>{documents.length}개</b>를 목록에서 모두 지웁니다.</Text>
+        <Text size="sm" c="dimmed">AI 분석 결과와 화면에서 수정한 내용도 함께 지워집니다. 품목 행 하나만 지우려면 상세 품목의 [선택 삭제]를 사용하세요.</Text>
+        <Group justify="flex-end">
+          <Button variant="default" onClick={() => setClearConfirmOpen(false)}>취소</Button>
+          <Button color="red" leftSection={<IconTrash size={15} />} onClick={clearDocuments}>목록 비우기</Button>
+        </Group>
+      </Stack>
+    </Modal>
     <Modal opened={Boolean(orderConfirmTarget)} onClose={() => !confirmingId && setOrderConfirmTargetId(null)} title="주문서 관리로 넘기기" size="sm" centered radius="md" overlayProps={{ backgroundOpacity: 0.5, blur: 2 }}>
       <Stack gap="md">
         <Stack gap={3}>

@@ -1,4 +1,4 @@
-.page {
+.page.page {
   display: flex;
   height: 100%;
   min-height: 0;
@@ -31,27 +31,21 @@
 .ribbonSeparator { width: 1px; height: 22px; flex: 0 0 1px; margin: 0 5px; background: #e1e6ed; }
 
 .sectionTitle { color: #252a32 !important; font-size: 14px !important; font-weight: 700 !important; line-height: 1.25; }
-.panelHeader {
-  min-height: 42px;
-  padding: 7px 13px;
-  border-bottom: 1px solid #e0e6ef;
-  background: #fff;
-  font-size: 12px;
-}
 
+/* 작업 영역: 왼쪽 목록 / 오른쪽 상세. 페이지가 아니라 안쪽 패널만 스크롤한다. */
 .workspace {
   display: grid;
   height: 0;
   min-height: 420px;
   min-width: 0;
   flex: 1 1 0;
-  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.7fr);
+  grid-template-columns: minmax(0, 1.6fr) minmax(340px, 0.72fr);
   grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
   gap: 11px;
 }
 
-.customerListPanel {
+.panel {
   display: flex !important;
   min-width: 0;
   height: 100%;
@@ -59,11 +53,63 @@
   flex-direction: column;
   overflow: hidden;
   border-color: #e0e6ef !important;
-  border-radius: 7px !important;
-  background: #fff;
+  border-radius: 8px !important;
+  background: #fff !important;
 }
 
+/* 패널 머리줄 (제목 · 건수 · 버튼) */
+.toolbar {
+  display: flex;
+  min-height: 46px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  flex-wrap: wrap;
+  padding: 8px 13px;
+  border-bottom: 1px solid #e0e6ef;
+  background: #fff;
+}
+.toolbarTitle { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.countBadge { font-variant-numeric: tabular-nums; }
+.toolbarActions { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.toolbarLabel { color: #8290a5; font-size: 11px; font-weight: 600; white-space: nowrap; }
+
+.excelGroup :global(.mantine-Button-root) {
+  height: 30px;
+  padding: 0 10px;
+  border-color: #d6dee8;
+  background: #fff;
+  color: #3c4b60;
+  font-size: 12px;
+  font-weight: 600;
+}
+.excelGroup :global(.mantine-Button-root:hover:not(:disabled):not([data-disabled])) { background: #f5f9ff; color: #1f5fd1; }
+.excelGroup :global(.mantine-Button-section) { color: #7a889b; }
+.excelGroup :global(.mantine-Button-root:hover:not(:disabled):not([data-disabled]) .mantine-Button-section) { color: #1f5fd1; }
+
+/* 검색 · 필터 줄 */
+.filterBar {
+  display: flex;
+  min-height: 48px;
+  flex: 0 0 auto;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 8px 13px;
+  border-bottom: 1px solid #e0e6ef;
+  background: #fafbfc;
+}
+.searchInput { min-width: 180px; flex: 1 1 240px; }
+.searchInput :global(.mantine-Input-input) { min-height: 32px; height: 32px; border-color: #d2dbe7; font-size: 12px; }
+.searchInput :global(.mantine-Input-input:focus) { border-color: #e45159; }
+.filterField { display: flex; align-items: center; gap: 6px; }
+.filterLabel { color: #4b5b70; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.filterField :global(.mantine-Input-input) { min-height: 32px; height: 32px; border-color: #d2dbe7; font-size: 12px; cursor: pointer; }
+
+/* 목록 표 */
 .customerTableWrap {
+  position: relative;
   min-width: 0;
   min-height: 0;
   height: 0;
@@ -73,125 +119,173 @@
   scrollbar-width: thin;
   scrollbar-color: #aab6c4 #f1f4f7;
 }
-
-.customerTableWrap::-webkit-scrollbar { width: 12px; height: 12px; }
+.customerTableWrap::-webkit-scrollbar { width: 11px; height: 11px; }
 .customerTableWrap::-webkit-scrollbar-thumb { border: 3px solid #f1f4f7; border-radius: 8px; background: #aab6c4; }
-.customerTableWrap::-webkit-scrollbar-track { background: #f1f4f7; }
-
-.formPanel {
-  display: flex !important;
-  min-width: 0;
-  height: 100%;
-  min-height: 0;
-  flex-direction: column;
-  overflow: hidden;
-  border-color: #e0e6ef !important;
-  border-radius: 7px !important;
-}
-
-.searchInput {
-  min-width: 130px;
-  flex: 1;
-}
-
-.customerListPanel :global(.mantine-InputWrapper-label) {
-  margin-bottom: 4px;
-  color: #526079;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.customerListPanel :global(.mantine-Input-input) {
-  min-height: 33px;
-  font-size: 12px;
-}
-
-.customerListPanel > :global(.mantine-Group-root):nth-child(2) {
-  min-height: 44px;
-  padding: 6px 10px;
-  border-bottom: 1px solid #e0e6ef;
-}
+.customerTableWrap::-webkit-scrollbar-track,
+.customerTableWrap::-webkit-scrollbar-corner { background: #f1f4f7; }
 
 .partnerTable {
-  width: max-content !important;
-  min-width: max(100%, 960px) !important;
-  font-size: 11px;
-  table-layout: auto !important;
+  width: max(100%, 980px) !important;
+  border-collapse: separate !important;
+  border-spacing: 0;
+  table-layout: fixed !important;
+  font-size: 12px;
 }
-
 .partnerTable thead th {
   position: sticky;
   z-index: 2;
   top: 0;
-  height: 34px;
-  padding: 6px 8px;
-  background: #f0f3f7;
-  color: #354052;
+  height: 36px;
+  padding: 0 8px !important;
+  border-right: 1px solid #e7ecf2;
+  border-bottom: 1px solid #d6dee8 !important;
+  background: #f4f6f9;
+  color: #4b5b70;
   font-size: 11px;
-  font-weight: 400;
+  font-weight: 650;
+  text-align: left;
   white-space: nowrap;
 }
-
 .partnerTable tbody td {
-  height: 34px;
-  padding: 6px 8px;
-  overflow: visible !important;
-  text-overflow: clip !important;
-  font-size: 11px;
+  height: 35px;
+  padding: 0 8px !important;
+  overflow: hidden;
+  border-right: 1px solid #f0f2f6;
+  border-bottom: 1px solid #e9edf2 !important;
+  color: #26364e;
+  font-size: 12px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.partnerTable tbody tr {
-  cursor: pointer;
-}
-
-.selectedRow td {
-  background: #fff0f0;
-}
-
-.selectedRow td:first-child {
-  box-shadow: inset 3px 0 #f0444c;
-}
+.partnerTable thead th:last-child,
+.partnerTable tbody td:last-child { border-right: 0; }
+.partnerTable tbody tr { background: #fff; cursor: pointer; }
+.partnerTable tbody tr:hover td { background: #f5f9ff; }
+.partnerTable tbody tr.selectedRow td { background: #fff0f1; }
+.partnerTable tbody tr.selectedRow td:first-child { box-shadow: inset 3px 0 #e45159; }
+.partnerTable tbody tr.emptyRow,
+.partnerTable tbody tr.emptyRow:hover td { background: #fff; cursor: default; }
+.partnerTable .centerCell { text-align: center; }
 
 .radio {
   display: inline-block;
   width: 13px;
   height: 13px;
-  border: 1px solid #94a3b8;
+  border: 1px solid #a5b2c3;
   border-radius: 50%;
+  background: #fff;
   vertical-align: middle;
+  transition: border-width 100ms ease, border-color 100ms ease;
 }
-
-.radioSelected {
-  border: 4px solid #f0444c;
-}
+.radioSelected { border: 4px solid #e45159; }
 
 .codeCell {
-  color: #334155 !important;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  color: #4b5b70 !important;
+  font-family: inherit; font-variant-numeric: tabular-nums;
+  font-size: 11px !important;
   font-weight: 500;
 }
+.partnerNameCell { color: #1e2e45 !important; font-weight: 600; }
+.selectedRow .partnerNameCell { color: #b8323b !important; }
+.numCell { color: #4b5b70 !important; font-variant-numeric: tabular-nums; }
 
-.partnerNameCell {
-  color: #252a32 !important;
-  font-weight: 400;
-}
-
-.partnerNameText {
-  display: block;
+/* 작은 상태 표시 (사용여부 · 거래구분) */
+.tag {
+  display: inline-block;
+  min-width: 52px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 16px;
+  text-align: center;
   white-space: nowrap;
 }
+.tagActive { border-color: #cdeedd; background: #e6f6ee; color: #18794e; }
+.tagInactive { border-color: #e1e6ee; background: #f1f3f6; color: #7a889b; }
+.trade_purchase { border-color: #f9dcc6; background: #fff0e3; color: #c2561b; }
+.trade_sales { border-color: #d3e3fd; background: #e7f0ff; color: #1f5fd1; }
+.trade_both { border-color: #e2d6fb; background: #f2ecff; color: #6a3fc8; }
+.trade_etc { border-color: #e1e6ee; background: #f1f3f6; color: #5d6b7e; }
 
-.customerListFooter {
-  min-width: 0;
-}
-
+/* 빈 목록 */
+.emptyCell { height: auto !important; padding: 0 !important; white-space: normal !important; }
 .emptyState {
-  height: 160px;
-  color: #94a3b8 !important;
+  display: flex;
+  min-height: 220px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 24px;
+  color: #8290a5;
+  font-size: 12px;
   text-align: center;
 }
+.emptyState strong { color: #4b5b70; font-size: 13px; font-weight: 600; }
+.emptyIcon { display: grid; width: 44px; height: 44px; margin-bottom: 3px; place-items: center; border-radius: 50%; background: #f1f4f8; color: #8b9aad; }
+.spin { animation: customerSpin 0.9s linear infinite; }
+@keyframes customerSpin { to { transform: rotate(360deg); } }
+
+/* 목록 하단 (건수 · 페이지) */
+.customerListFooter {
+  min-width: 0;
+  min-height: 44px;
+  flex: 0 0 auto;
+  padding: 6px 13px;
+  border-top: 1px solid #e0e6ef;
+  background: #fbfcfe;
+}
+.customerListFooter :global(.mantine-Input-input) { min-height: 30px; height: 30px; font-size: 12px; }
+
+/* 상세 패널 */
+.identityStrip {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 14px;
+  border-bottom: 1px solid #e7ecf2;
+  background: linear-gradient(180deg, #fafbfd 0%, #f5f7fa 100%);
+}
+.identityStripNew { background: linear-gradient(180deg, #fff8f8 0%, #fff2f3 100%); }
+.identityIcon {
+  display: grid;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid #e1e6ee;
+  border-radius: 9px;
+  background: #fff;
+  color: #64758d;
+}
+.identityStripNew .identityIcon { border-color: #ffe1e3; background: #fff; color: #e45159; }
+.identityText { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px; }
+.identityText > strong {
+  overflow: hidden;
+  color: #1e2e45;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.identityMeta { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 5px 6px; color: #8290a5; font-size: 11px; }
+.identityCode {
+  padding: 1px 7px;
+  border: 1px solid #e1e6ee;
+  border-radius: 4px;
+  background: #fff;
+  color: #4b5b70;
+  font-family: inherit; font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  line-height: 16px;
+}
+.identityName { max-width: 160px; overflow: hidden; color: #4b5b70; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 
 .formBody {
   min-height: 0;
@@ -201,38 +295,54 @@
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: #aab6c4 #f1f4f7;
-  padding: 9px 12px;
+  padding: 4px 14px 14px;
   background: #fff;
 }
-
-.formBody::-webkit-scrollbar { width: 12px; }
+.formBody::-webkit-scrollbar { width: 11px; }
 .formBody::-webkit-scrollbar-thumb { border: 3px solid #f1f4f7; border-radius: 8px; background: #aab6c4; }
 .formBody::-webkit-scrollbar-track { background: #f1f4f7; }
+
+.formSection { padding: 11px 0 13px; border-bottom: 1px dashed #e3e8ef; }
+.formSection:last-child { padding-bottom: 2px; border-bottom: 0; }
+.formSectionHead { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-bottom: 9px; }
+.formSectionTitle {
+  position: relative;
+  padding-left: 9px;
+  color: #26364e;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+.formSectionTitle::before {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: #e45159;
+  content: "";
+}
+.formSectionHint { color: #8f9cad; font-size: 11px; }
 
 .customerFormGrid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-content: start;
-  gap: 8px;
+  gap: 9px 10px;
 }
 
-.addressField {
-  min-width: 0;
-}
+.fullRow { grid-column: 1 / -1; }
+
+.addressField { min-width: 0; }
+.addressField > :global(.mantine-TextInput-root) { min-width: 0; flex: 1; }
+.addressButton { flex: 0 0 auto; height: 33px !important; border-color: #d2dbe7 !important; color: #3c4b60 !important; font-size: 12px !important; }
+.addressButton :global(.mantine-Button-section) { color: #e45159; }
 
 .dropdownSelect :global(.mantine-Select-input),
 .dropdownSelect :global(.mantine-Select-rightSection),
 .dropdownSelect :global(.mantine-Input-section) {
   cursor: pointer;
-}
-
-.addressField > :global(.mantine-TextInput-root) {
-  min-width: 0;
-  flex: 1;
-}
-
-.fullRow {
-  grid-column: 1 / -1;
 }
 
 .formBody :global(.mantine-InputWrapper-label) {
@@ -241,6 +351,7 @@
   font-size: 12px;
   font-weight: 600;
 }
+.formBody :global(.mantine-InputWrapper-required) { color: #e45159; }
 
 .formBody :global(.mantine-Input-input),
 .formBody :global(.mantine-Textarea-input) {
@@ -250,16 +361,53 @@
   color: #252a32;
   font-size: 12px;
 }
+.formBody :global(.mantine-Input-input:focus),
+.formBody :global(.mantine-Input-input:focus-within) { border-color: #e45159; }
+.formBody :global(.mantine-Input-input::placeholder) { color: #a9b4c2; }
 
-.formFooter {
-  min-height: 38px;
-  padding: 5px 12px;
-  border-top: 1px solid #e0e6ef;
-  background: #fff;
+/* 비활성 칸: 흐리게 하지 않고 회색 배경으로 '바꿀 수 없음'을 표시 */
+.formBody :global(.mantine-Input-input:disabled),
+.formBody :global(.mantine-Input-input[data-disabled]) {
+  border-color: #e3e8ef;
+  background: #f4f6f9;
+  color: #5d6b7e;
+  opacity: 1;
+  cursor: not-allowed;
 }
+.codeInput :global(.mantine-Input-input) { font-family: inherit; font-variant-numeric: tabular-nums; }
+.amountInput :global(.mantine-Input-input) { font-variant-numeric: tabular-nums; }
+
+.lockChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid #e1e6ee;
+  border-radius: 20px;
+  background: #f8fafc;
+  color: #64758d;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.lockNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid #dfe8f3;
+  border-radius: 6px;
+  background: #f3f7fc;
+  color: #64758d;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.lockNote > svg { flex-shrink: 0; margin-top: 2px; color: #7190b6; }
 
 @media (max-width: 980px) {
-  .page {
+  .page.page {
     height: auto;
     min-height: calc(100vh - 130px);
     flex: 0 0 auto;
@@ -289,5 +437,6 @@
   .fullRow {
     grid-column: auto;
   }
-}
 
+  .toolbarLabel { display: none; }
+}

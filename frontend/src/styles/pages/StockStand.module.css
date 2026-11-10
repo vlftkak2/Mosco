@@ -1,4 +1,4 @@
-.page {
+.page.page {
   display: flex;
   width: 100%;
   height: 100%;
@@ -141,7 +141,7 @@
 }
 
 @media (max-width: 760px) {
-  .page { height: auto; min-height: calc(100dvh - 90px); flex: 0 0 auto; overflow: visible; }
+  .page.page { height: auto; min-height: calc(100dvh - 90px); flex: 0 0 auto; overflow: visible; }
   .workspace, .workspaceWithFilter { height: auto; min-height: 0; flex: 0 0 auto; overflow: visible; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(640px, auto) auto; }
   .editorPanel { height: 640px; min-height: 640px; max-height: 640px; }
   .headerActions { width: 100%; justify-content: flex-start; }
@@ -151,3 +151,40 @@
   .listActions { justify-content: flex-start; }
   .footerNotice { flex: 1 1 100%; width: 100%; }
 }
+
+
+/* ───────────────────────────────────────────────────────────────────────────
+   등록 화면 공통 다듬기 (매입·매출등록과 같은 표 디자인). 색·선만 바꾸고 높이·가상 스크롤은 그대로.
+   ─────────────────────────────────────────────────────────────────────────── */
+.editorPanel { border-color: #e0e6ef !important; border-radius: 8px !important; background: #fff !important; box-shadow: none; }
+.codeHeader { border-bottom: 1px solid #e0e6ef; }
+.sectionTitle { color: #1e2e45 !important; letter-spacing: -0.2px; }
+.editorPanel :global(.mantine-Badge-root) {
+  border: 1px solid #e1e6ee;
+  border-radius: 20px;
+  background: #f8fafc;
+  color: #64758d;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 편집 표: 머리 · 칸 선 · 마우스 올림(회색 = 비활성 색과 겹치지 않게 연한 파랑) */
+.editorPanel :global(table) { --table-border-color: #dde3ea; --table-hover-color: #f5f9ff; }
+.editorPanel :global(table thead th) {
+  border-color: #e0e6ef !important;
+  border-bottom-color: #d6dee8 !important;
+  background: #f4f6f9 !important;
+  color: #4b5b70 !important;
+  font-weight: 650 !important;
+}
+.editorPanel :global(table tbody td) { border-color: #e1e6ed !important; font-variant-numeric: tabular-nums; }
+.editorPanel :global(tbody td input:not([type='checkbox']):focus),
+.editorPanel :global(tbody td select:focus) {
+  outline: 2px solid #e45159 !important;
+  outline-offset: -2px !important;
+  box-shadow: inset 0 0 0 3px #e451591a !important;
+}
+.editorPanel :global(tbody td input[type='checkbox']:focus-visible),
+.editorPanel :global(thead th input[type='checkbox']:focus-visible) { outline: 2px solid #e45159; outline-offset: 2px; }
+.emptyTableMessage { color: #8290a5; }
+.stockFooter { border-top-color: #e0e6ef; background: #fbfcfd; }

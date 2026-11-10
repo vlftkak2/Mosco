@@ -295,7 +295,7 @@ const ProcessRuleTableRow = memo(function ProcessRuleTableRow({
   onSelectItem, onSelectProcess, onClearProcess, setPickerTarget, setProcessPickerTarget,
 }) {
   return (
-    <tr className={`${row.is_new ? classes.newRow : ''} ${selected ? classes.selectedRow : ''}`}>
+    <tr className={`${row.is_new ? classes.newRow : ''} ${row.is_dirty ? classes.dirtyRow : ''} ${selected ? classes.selectedRow : ''}`}>
       <td className={classes.checkCell}><input type="checkbox" checked={selected} onChange={(event) => onToggleSelection(row.id, event.nativeEvent.shiftKey)} /></td>
       <td className={classes.numberCell}>{index + 1}</td>
       <td><ItemAutoComplete row={row} disabled={!row.is_new || saving}
@@ -308,7 +308,7 @@ const ProcessRuleTableRow = memo(function ProcessRuleTableRow({
       <td><input className={classes.cellInput} value={row.processnm} data-row-id={row.id} data-field="processnm" disabled={saving}
         onChange={(event) => onChangeRow(row.id, 'processnm', event.currentTarget.value)} /></td>
       {YES_NO_FIELDS.map((field) => <td key={field} className={classes.flagCell}>
-        <select className={classes.cellSelect} aria-label={field} data-row-id={row.id} data-field={field} value={row[field] || 'N'} disabled={saving}
+        <select className={`${classes.cellSelect} ${classes.flagSelect} ${(row[field] || 'N') === 'Y' ? classes.flagYes : classes.flagNo}`} aria-label={field} data-row-id={row.id} data-field={field} value={row[field] || 'N'} disabled={saving}
           onChange={(event) => onChangeRow(row.id, field, event.currentTarget.value)}>
           <option value="Y">가능</option><option value="N">불가</option>
         </select>
@@ -703,10 +703,12 @@ export default function ItemProcessMaster() {
     setColumnWidths((current) => current.map((width, index) => index === resizing.index ? nextWidth : width));
   };
   const stopColumnResize = () => { resizeColumnRef.current = null; };
-  const renderHeader = (label, index, className = '') => (
+  const pendingNewCount = rows.filter((row) => row.is_new).length;
+  const pendingEditCount = rows.filter((row) => row.is_dirty).length;
+  const renderHeader = (label, index, className = '', required = false) => (
     <th className={className} style={{ width: columnWidths[index] }} key={index}>
-      <span>{label}</span>
-      <span className={classes.columnResizer} role="separator" aria-orientation="vertical" aria-label={`${label} 열 너비 조정`}
+      <span>{label}{required && <span className={classes.required} aria-hidden="true"> *</span>}</span>
+      <span className={classes.columnResizer} role="separator" aria-orientation="vertical" aria-label={`${label}${required ? ' *' : ''} 열 너비 조정`}
         onPointerDown={(event) => startColumnResize(event, index)} onPointerMove={moveColumnResize} onPointerUp={stopColumnResize}
         onPointerCancel={stopColumnResize} />
     </th>
@@ -718,8 +720,14 @@ export default function ItemProcessMaster() {
       <Box className={classes.workspace}>
         <Paper className={`${sharedClasses.panel} ${classes.panel}`} withBorder>
           <Group className={classes.header} justify="space-between" align="flex-start">
-            <Box><Group gap={9}><Text className={classes.title}>가공공정 등록</Text><Badge className={classes.count}>{rows.length}개</Badge></Group>
-              <Text size="xs" c="dimmed" mt={5}>원소재 품목별 가공공정과 가공품명, 규격 적용 항목을 관리합니다.</Text></Box>
+            <Box><Group gap={9}><Text className={classes.title}>가공공정 등록</Text><Badge className={classes.count}>{rows.length.toLocaleString()}개</Badge></Group>
+              <Text className={classes.subtitle} mt={5}>원소재 품목별 가공공정과 가공품명, 규격 적용 항목을 관리합니다.</Text></Box>
+            {(pendingNewCount > 0 || pendingEditCount > 0 || selectedIds.length > 0) && <Group gap={6} className={classes.statusChips}>
+              {selectedIds.length > 0 && <span className={`${classes.chip} ${classes.chipSelected}`}>선택 <b>{selectedIds.length.toLocaleString()}</b></span>}
+              {pendingNewCount > 0 && <span className={`${classes.chip} ${classes.chipNew}`}>신규 <b>{pendingNewCount.toLocaleString()}</b></span>}
+              {pendingEditCount > 0 && <span className={`${classes.chip} ${classes.chipDirty}`}>수정 <b>{pendingEditCount.toLocaleString()}</b></span>}
+              <span className={classes.chipHint}>저장 전</span>
+            </Group>}
           </Group>
           <Box className={classes.tableViewport} ref={tableViewportRef} onKeyDown={handleGridKeyDown} onPaste={handleGridPaste}>
             {loading ? <Box className={classes.loading}><Loader color="red" size="sm" /></Box> : (
@@ -727,8 +735,8 @@ export default function ItemProcessMaster() {
                 <colgroup>{columnWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
                 <thead><tr>
                   {renderHeader(<input type="checkbox" checked={allSelected} onChange={(event) => toggleAllRows(event.currentTarget.checked)} />, 0, classes.checkCell)}
-                  {renderHeader('No.', 1, classes.numberCell)}{renderHeader('원소재 품명 *', 2, classes.nameCell)}
-                  {renderHeader('가공공정 *', 3, classes.processCell)}{renderHeader('가공품명 *', 4, classes.outputCell)}
+                  {renderHeader('No.', 1, classes.numberCell)}{renderHeader('원소재 품명', 2, classes.nameCell, true)}
+                  {renderHeader('가공공정', 3, classes.processCell, true)}{renderHeader('가공품명', 4, classes.outputCell, true)}
                   {renderHeader('강종', 5, classes.flagCell)}{renderHeader('표면', 6, classes.flagCell)}{renderHeader('두께', 7, classes.flagCell)}
                   {renderHeader('폭', 8, classes.flagCell)}{renderHeader('길이', 9, classes.flagCell)}{renderHeader('비고', 10, classes.descriptionCell)}
                 </tr></thead>
@@ -738,12 +746,19 @@ export default function ItemProcessMaster() {
                     onToggleSelection={toggleRowSelection} onChangeRow={changeRow} onSelectItem={selectItem}
                     onSelectProcess={selectProcess} onClearProcess={clearProcess}
                     setPickerTarget={setPickerTarget} setProcessPickerTarget={setProcessPickerTarget} />)}
-                  {!rows.length && <tr><td className={classes.emptyCell} colSpan={11}>등록된 가공공정이 없습니다.</td></tr>}
+                  {!rows.length && <tr className={classes.emptyRow}><td className={classes.emptyCell} colSpan={11}>
+                    <Box className={classes.emptyState}>
+                      <span className={classes.emptyIcon}><IconTool size={24} stroke={1.6} /></span>
+                      <strong>등록된 가공공정이 없습니다.</strong>
+                      <span>리본의 [추가]로 행을 만들고 원소재 품목과 가공공정을 지정하세요.</span>
+                    </Box>
+                  </td></tr>}
                 </tbody>
               </table>
             )}
           </Box>
-          <Group className={sharedClasses.footer} justify="space-between"><Text size="xs" c="dimmed">조회 {rows.length.toLocaleString()}개 · 품목명 입력 또는 돋보기로 원소재 품목을 선택할 수 있습니다.</Text></Group>
+          <Group className={`${sharedClasses.footer} ${classes.footer}`} justify="space-between"><Text size="xs" c="dimmed">조회 {rows.length.toLocaleString()}개 · 품목명 입력 또는 돋보기로 원소재 품목을 선택할 수 있습니다.</Text>
+            <Group gap={10} className={classes.legend}><span><i className={classes.legendNew} />신규</span><span><i className={classes.legendDirty} />수정</span><span><i className={classes.legendSelected} />선택</span></Group></Group>
         </Paper>
         {filterOpen && <Paper component="aside" className={classes.filterSidebar} withBorder>
           <Group className={classes.filterHeader} justify="space-between"><Text>조회조건</Text><ActionIcon variant="subtle" color="gray" onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon></Group>

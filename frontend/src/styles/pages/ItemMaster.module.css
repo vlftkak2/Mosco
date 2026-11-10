@@ -1,4 +1,4 @@
-.page {
+.page.page {
   display: flex;
   height: 100%;
   min-height: 0;
@@ -150,7 +150,7 @@
 .shapePickerInput.shapePickerInput:disabled { background-color: #f1f3f5 !important; background-image: none !important; color: #8b95a3 !important; }
 
 @media (max-width: 760px) {
-  .page { margin: -12px; padding: 18px 12px 24px; }
+  .page.page { margin: -12px; padding: 18px 12px 24px; }
   .workspace { height: auto; min-height: 0; grid-template-columns: minmax(0, 1fr); }
   .filterSidebar { width: 100%; min-width: 0; grid-column: 1; grid-row: 1; max-height: 280px; }
 }

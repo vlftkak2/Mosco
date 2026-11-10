@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { ActionIcon, Box, Button, Group, Modal as MantineModal, Pagination, Paper, Popover, Select, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconAdjustments, IconCheck, IconFilter, IconPackages, IconPencil, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { IconAdjustments, IconArrowBackUp, IconArrowRight, IconCheck, IconFilter, IconLink, IconPackages, IconPencil, IconSearch, IconSend, IconTrash, IconX } from '@tabler/icons-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import PickerModal, { PickerEmpty, pickerClasses } from '../../components/common/PickerModal';
@@ -146,7 +146,7 @@ function Badge({ value, tone = 'blue' }) {
   return <span className={`${classes.badge} ${classes[tone]}`}>{value}</span>;
 }
 
-function Modal({ title, children, actions, onClose, wide = false }) {
+function Modal({ title, subtitle, icon, children, actions, onClose, wide = false }) {
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key !== 'Escape') return;
@@ -160,7 +160,13 @@ function Modal({ title, children, actions, onClose, wide = false }) {
   // body 로 띄워서 화면 전체(사이드바·헤더 위) 기준 가운데에 오게 한다
   return createPortal(<div className={classes.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className={`${classes.modal} ${wide ? classes.wideModal : ''}`} role="dialog" aria-modal="true" aria-label={title}>
-      <header className={classes.modalHeader}><strong>{title}</strong><button type="button" className={classes.closeIcon} aria-label="닫기" onClick={onClose}><IconX size={18} /></button></header>
+      <header className={classes.modalHeader}>
+        <div className={classes.modalTitleBlock}>
+          {icon && <span className={classes.modalIcon}>{icon}</span>}
+          <div className={classes.modalTitleText}><strong>{title}</strong>{subtitle && <small>{subtitle}</small>}</div>
+        </div>
+        <button type="button" className={classes.closeIcon} aria-label="닫기" onClick={onClose}><IconX size={18} /></button>
+      </header>
       <div className={classes.modalBody}>{children}</div>
       {actions && <footer className={classes.modalFooter}>{actions}</footer>}
     </section>
@@ -949,14 +955,19 @@ export default function AIOrderManage() {
           </tbody></table>
       </PickerModal>;
     }
-    if (modal.type === 'edit') return <Modal title="주문 변경" onClose={() => !saving && setModal(null)} actions={<><button type="button" className={classes.button} onClick={() => setModal(null)} disabled={saving}>닫기</button><button type="button" className={`${classes.button} ${classes.primary}`} onClick={() => void saveEdit()} disabled={saving}>{saving ? '저장 중…' : '저장'}</button></>}>
-      <div className={classes.formGrid}>
-        <label className={classes.formGridFull}>주문번호<input value={selectedOrder.isDraft ? '저장할 때 자동 부여' : selectedOrder.orderid} disabled /></label>
-        <label>발주처<input value={modal.buyer} onChange={(event) => setModal((current) => ({ ...current, buyer: event.target.value }))} /></label>
-        <label>수신처<input value={modal.recipient} onChange={(event) => setModal((current) => ({ ...current, recipient: event.target.value }))} /></label>
+    if (modal.type === 'edit') return <Modal title="주문 변경" subtitle="발주처 · 일자 · 납품장소를 고칩니다. 상세 품목은 그대로입니다." icon={<IconPencil size={18} stroke={1.9} />}
+      onClose={() => !saving && setModal(null)}
+      actions={<><button type="button" className={`${classes.actBtn} ${classes.actOutline} ${classes.modalAction}`} onClick={() => setModal(null)} disabled={saving}>닫기</button>
+        <button type="button" className={`${classes.actBtn} ${classes.actPrimary} ${classes.modalAction}`} onClick={() => void saveEdit()} disabled={saving}><IconCheck size={15} stroke={2.2} />{saving ? '저장 중…' : '저장'}</button></>}>
+      <div className={classes.editOrderNo}><span>주문번호</span><b>{selectedOrder.isDraft ? '저장할 때 자동 부여' : selectedOrder.orderid}</b></div>
+      <div className={`${classes.formGrid} ${classes.editForm}`}>
+        <div className={classes.formSection}>주문 정보</div>
+        <label>발주처<input value={modal.buyer} placeholder="발주처" onChange={(event) => setModal((current) => ({ ...current, buyer: event.target.value }))} /></label>
+        <label>수신처<input value={modal.recipient} placeholder="수신처" onChange={(event) => setModal((current) => ({ ...current, recipient: event.target.value }))} /></label>
         <label>발주일자<input type="date" value={modal.orderDate} onChange={(event) => setModal((current) => ({ ...current, orderDate: event.target.value }))} /></label>
         <label>납기일자<input type="date" value={modal.due} onChange={(event) => setModal((current) => ({ ...current, due: event.target.value }))} /></label>
-        <label className={classes.formGridFull}>납품장소<input value={modal.place} onChange={(event) => setModal((current) => ({ ...current, place: event.target.value }))} /></label>
+        <div className={classes.formSection}>납품</div>
+        <label className={classes.formGridFull}>납품장소<input value={modal.place} placeholder="주소 또는 현장명" onChange={(event) => setModal((current) => ({ ...current, place: event.target.value }))} /></label>
       </div>
     </Modal>;
     return null;
@@ -979,12 +990,12 @@ export default function AIOrderManage() {
       <Box className={`${inboundClasses.inboundWorkspace} ${classes.orderWorkspace}`}>
         <Box className={`${inboundClasses.inboundPrimaryColumn} ${classes.orderPrimaryColumn}`}>
       <section className={`${classes.panel} ${classes.ordersPanel}`}>
-        <header className={classes.panelHeader}><strong>주문 기본</strong><span className={classes.count}>{number(total)}건</span>{loading && <small>주문을 불러오는 중입니다.</small>}<Button size="compact-xs" variant="filled" color="red" className={`${classes.detailActionButton} ${classes.orderHeaderEditButton}`} leftSection={<IconPencil size={14} />} onClick={openEdit} disabled={!selectedOrder}>주문변경</Button>
+        <header className={classes.panelHeader}><strong>주문 기본</strong><span className={classes.count}>{number(total)}건</span>{loading && <small>주문을 불러오는 중입니다.</small>}<button type="button" className={`${classes.actBtn} ${classes.actOutline} ${classes.orderHeaderEditButton}`} onClick={openEdit} disabled={!selectedOrder}><IconPencil size={14} stroke={1.9} />주문변경</button>
           {/* 선택한 주문의 최적화 대기 품목을 가공 최적화에서 바로 연다 */}
-          <Button size="compact-xs" variant="filled" color="red" className={classes.detailActionButton} leftSection={<IconAdjustments size={14} />}
+          <button type="button" className={`${classes.actBtn} ${classes.actBlue}`}
             disabled={!selectedOrder || selectedOrder.isDraft || !['PARTIAL', 'SENT'].includes(selectedOrder.progress)}
             title={selectedOrder && !['PARTIAL', 'SENT'].includes(selectedOrder.progress) ? '가공 최적화로 보낸 품목이 없습니다' : '선택한 주문의 대기 품목으로 가공 최적화를 엽니다'}
-            onClick={() => navigate(`/AIOrderOptimization?orderid=${encodeURIComponent(selectedOrder.orderid)}`)}>가공 최적화 이동</Button></header>
+            onClick={() => navigate(`/AIOrderOptimization?orderid=${encodeURIComponent(selectedOrder.orderid)}`)}><IconAdjustments size={14} stroke={1.9} />가공 최적화 이동<IconArrowRight size={13} stroke={2.2} /></button></header>
         <div ref={ordersScrollRef} className={`${classes.tableScroll} ${classes.ordersScroll}`} onScroll={syncScrollbarFromOrders}><table className={classes.ordersTable} style={{ width: `max(100%, ${orderTableWidth}px)`, minWidth: `${orderTableWidth}px` }}><colgroup>{ORDER_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${orderColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{ORDER_COLUMNS.map((column) => <th key={column.key} className={classes.resizableHeader} style={{ width: orderColumnWidths[column.key] ?? column.width }}><span>{column.label}</span><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'orders', column)} role="separator" aria-label={`Resize ${column.label} column`} /></th>)}</tr></thead>
           <tbody>{displayOrders.length ? displayOrders.map((order) => <tr key={order.orderid} className={order.orderid === selectedId ? classes.selectedRow : ''} onClick={() => setSelectedId(order.orderid)}>
             <td>{dateText(order.orderdate)}</td><td>{order.isDraft ? <Badge value="저장 전" tone="orange" /> : order.orderid}</td><td>{order.buyer || ''}</td><td>{order.recipient || ''}</td><td>{dateText(order.duedate)}</td><td title={order.deliverylocation || ''}>{order.deliverylocation || ''}</td><td className={classes.center}>{number(order.item_count)}</td><td className={classes.numeric}>{number(order.total_weight)}</td><td><Badge value={(ORDER_PROGRESS[order.progress] || ORDER_PROGRESS.NONE).label} tone={(ORDER_PROGRESS[order.progress] || ORDER_PROGRESS.NONE).tone} /></td><td>{order.notes || ''}</td><td>{order.created_by || ''}</td><td>{order.updated_by || ''}</td></tr>
@@ -1004,12 +1015,12 @@ export default function AIOrderManage() {
       <section className={`${classes.panel} ${classes.detailPanel}`}>
         <header className={classes.panelHeader}><strong>주문 상세</strong><span className={`${classes.count} ${isDraftSelected ? classes.orange : classes.blue}`}>{isDraftSelected ? '저장 전 · 확인 후 [저장]' : selectedOrder?.orderid || '주문을 선택하세요'}</span>
           <Group gap={6} wrap="nowrap" className={classes.detailHeaderActions}>
-            <Button size="compact-xs" variant="default" className={classes.secondaryActionButton} onClick={() => void changeOptimizeStatus(false)}
+            <button type="button" className={`${classes.actBtn} ${classes.actGhost}`} onClick={() => void changeOptimizeStatus(false)}
               disabled={!selectedOrder || saving || detailLoading || !optimizeTargets.recall}
-              title="최적화 대기 품목을 주문서 관리로 되돌립니다 (선택 없으면 전체)">보내기 취소</Button>
-            <Button size="compact-xs" variant="filled" color="red" className={classes.detailActionButton} onClick={() => void changeOptimizeStatus(true)}
+              title="최적화 대기 품목을 주문서 관리로 되돌립니다 (선택 없으면 전체)"><IconArrowBackUp size={14} stroke={1.9} />보내기 취소</button>
+            <button type="button" className={`${classes.actBtn} ${classes.actPrimary}`} onClick={() => void changeOptimizeStatus(true)}
               disabled={!selectedOrder || saving || detailLoading || !optimizeTargets.send}
-              title="선택한 품목을 가공 최적화로 보냅니다 (선택 없으면 미전송 전체)">가공 최적화로 보내기</Button>
+              title="선택한 품목을 가공 최적화로 보냅니다 (선택 없으면 미전송 전체)"><IconSend size={14} stroke={2} />가공 최적화로 보내기</button>
           </Group>
         </header>
         <div className={`${classes.tableScroll} ${classes.detailsScroll}`}><table className={classes.detailsTable} style={{ width: `max(100%, ${detailTableWidth}px)`, minWidth: `${detailTableWidth}px` }}><colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{DETAIL_COLUMNS.map((column) => column.key === 'select' ? <th key={column.key} className={`${classes.checkColumn} ${classes.resizableHeader}`} style={{ width: detailColumnWidths[column.key] ?? column.width }}><input type="checkbox" aria-label="Select all order details" checked={itemDrafts.length > 0 && selectedItemKeys.length === itemDrafts.length} onChange={toggleAllItemSelection} disabled={!itemDrafts.length || detailLoading} /><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'details', column)} role="separator" aria-label="Resize selection column" /></th> : <th key={column.key} className={classes.resizableHeader} style={{ width: detailColumnWidths[column.key] ?? column.width }}><span>{column.label}{column.required && <span className={classes.requiredMark}> *</span>}</span><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'details', column)} role="separator" aria-label={`Resize ${column.label} column`} /></th>)}</tr></thead>
@@ -1056,7 +1067,7 @@ export default function AIOrderManage() {
               ? <Badge value={LINE_PROGRESS[item.optimize_status].label} tone={LINE_PROGRESS[item.optimize_status].tone} />
               : <span className={classes.unmatchedStock}>미전송</span>}</td>
             <td className={classes.center}><button type="button" className={classes.matchButton} onClick={() => void openStockMatcher(item)} disabled={!item.lineno || detailLoading || isLocked(item)}
-              title={isLocked(item) ? '가공 최적화로 보낸 품목은 재고매칭을 바꿀 수 없습니다.' : undefined}>재고매칭</button></td>
+              title={isLocked(item) ? '가공 최적화로 보낸 품목은 재고매칭을 바꿀 수 없습니다.' : undefined}><IconLink size={12} stroke={2.2} />재고매칭</button></td>
             <td title={item.notes || ''}>{detailInput(item, 'notes', false, index)}</td>
           </tr>)
             : <tr><td colSpan={DETAIL_COLUMNS.length} className={classes.empty}>{selectedOrder ? (detailLoading ? '상세 품목을 불러오는 중입니다.' : '상세 품목이 없습니다. 행 추가로 품목을 등록하세요.') : '주문을 선택하세요.'}</td></tr>}</tbody></table></div>

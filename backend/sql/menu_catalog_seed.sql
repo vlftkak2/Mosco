@@ -30,7 +30,9 @@ VALUES
     ('COMPANY_USER_MANAGEMENT', '고객사 계정관리',  'PLATFORM', FALSE, 23, 'Y'),
     ('USER_MENU_PERMISSION',    '메뉴 권한',         'COMPANY',  FALSE, 24, 'Y'),
     ('RECEIPT_PAYMENT',         '수금/지급 등록',       'COMPANY',  TRUE,  25, 'Y'),
-    ('RECEIPT_PAYMENT_SEARCH',  '수금/지급 현황',       'COMPANY',  TRUE,  26, 'Y')
+    ('RECEIPT_PAYMENT_SEARCH',  '수금/지급 현황',       'COMPANY',  TRUE,  26, 'Y'),
+    ('CUSTOMER_LEDGER',         '거래처원장',           'COMPANY',  TRUE,  28, 'Y'),
+    ('CUSTOMER_BALANCE_DASHBOARD', '거래처 잔액 현황',  'COMPANY',  TRUE,  29, 'Y')
 ON CONFLICT (menuid) DO UPDATE SET
     menuname = EXCLUDED.menuname,
     access_scope = EXCLUDED.access_scope,

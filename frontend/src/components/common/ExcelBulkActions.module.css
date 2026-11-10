@@ -1,0 +1,23 @@
+/* 샘플양식 · 엑셀 일괄등록 버튼 묶음 (거래처관리 · 일반코드 · 품목코드 · 기초재고 공통) */
+.group { display: inline-flex; flex: 0 0 auto; align-items: stretch; height: 30px; overflow: hidden; border: 1px solid #cfd9d3; border-radius: 7px; background: #fff; box-shadow: 0 1px 2px #1f2a3a0d; }
+
+
+.action { display: inline-flex; min-width: 0; align-items: center; gap: 5px; padding: 0 11px; border: 0; border-left: 1px solid #e3e8ee; background: transparent; color: #2f3e52; font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; transition: background 120ms ease, color 120ms ease; }
+.action:first-of-type { border-left: 0; }
+.action svg { flex: none; color: #6b7a8f; transition: color 120ms ease; }
+.action:hover:not(:disabled) { background: #f2f8f4; color: #116b3c; }
+.action:hover:not(:disabled) svg { color: #16834a; }
+.action:focus-visible { position: relative; z-index: 1; outline: 2px solid #16834a; outline-offset: -2px; }
+.action:disabled { color: #a4adba; cursor: not-allowed; }
+.action:disabled svg { color: #c3cad4; }
+
+/* 일괄등록: 이 묶음의 주 동작이라 글자를 엑셀 초록으로 */
+.primary { color: #16834a; }
+.primary svg { color: #16834a; }
+.primary:disabled { color: #a4adba; }
+
+.busy { background: #f2f8f4; color: #116b3c; cursor: progress; }
+.spinner { width: 13px; height: 13px; flex: none; border: 2px solid #b9dcc6; border-top-color: #16834a; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }

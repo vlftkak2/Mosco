@@ -4,7 +4,9 @@ import usePageReactivated from '../../components/common/usePageReactivated';
 import XLSX from 'xlsx-js-style';
 import { ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import {
+  IconArrowDownLeft, IconArrowUpRight, IconCalendar, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconInbox, IconListDetails, IconPlus, IconReceipt, IconSearch, IconTrash, IconX,
+} from '@tabler/icons-react';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
@@ -72,7 +74,6 @@ const formatNumber = (value) => {
   const number = Number(value);
   return Number.isFinite(number) ? number.toLocaleString('ko-KR', { maximumFractionDigits: 3 }) : String(value);
 };
-const formatWon = (value) => `${formatNumber(value || 0)}원`;
 
 // 내역 행: Mantine Table.Td 대신 같은 스타일의 일반 td (페이지 이동이 가볍게)
 const renderDetailCell = (item, key) => {
@@ -85,12 +86,34 @@ const renderDetailCell = (item, key) => {
   if (INSTRUMENT_OPTIONS_BY_FIELD[key]) return instrumentLabel(key, item[key]);
   return item[key] ?? '';
 };
+// 칸 정렬: 숫자 오른쪽, 날짜·구분 가운데. 글자가 긴 칸은 넘치면 … (마우스를 올리면 전체 표시)
+const CENTER_COLUMNS = new Set(['transactiontype', ...DATE_COLUMNS, 'created_at', 'updated_at']);
+const TITLE_COLUMNS = new Set(['customname', 'instrumentno', 'issuercompany', 'processmemo', 'detail_description', 'receiptno', 'linked_receiptno']);
+const cellAlign = (key) => {
+  if (NUMERIC_COLUMNS.has(key) || key === 'lineno') return { textAlign: 'right' };
+  if (CENTER_COLUMNS.has(key)) return { textAlign: 'center' };
+  return undefined;
+};
 const DetailRow = memo(function DetailRow({ item }) {
   return <tr className="m_4e7aa4fd mantine-Table-tr" data-with-row-border="true" data-hover="true">
     {COLUMNS.map((column) => <td key={column.key} className="m_4e7aa4ef mantine-Table-td" data-with-column-border="true"
-      style={NUMERIC_COLUMNS.has(column.key) || column.key === 'lineno' ? { textAlign: 'right' } : undefined}>{renderDetailCell(item, column.key)}</td>)}
+      title={TITLE_COLUMNS.has(column.key) && item[column.key] ? String(item[column.key]) : undefined}
+      style={cellAlign(column.key)}>{renderDetailCell(item, column.key)}</td>)}
   </tr>;
 });
+
+const periodText = (from, to) => (from || to ? `${from || '처음'} ~ ${to || '끝'}` : '전체 기간');
+function SummaryCard({ label, value, unit, icon: Icon, accent }) {
+  return (
+    <Paper className={`${classes.summaryCard} ${classes.summaryCardRow} ${accent}`} withBorder>
+      <Box className={classes.summaryText}>
+        <Text className={classes.summaryLabel}>{label}</Text>
+        <Text className={classes.summaryValue} title={`${value} ${unit}`.trim()}>{value}{unit && <span className={classes.summaryUnit}>{unit}</span>}</Text>
+      </Box>
+      <span className={classes.summaryIcon}><Icon size={18} stroke={1.8} /></span>
+    </Paper>
+  );
+}
 
 // 표 머리글: 열 너비가 바뀔 때만 다시 그림
 const DetailTableHead = memo(function DetailTableHead({ columnWidths, onResize }) {
@@ -104,7 +127,7 @@ const DetailFilterSidebar = memo(function DetailFilterSidebar({ filterInputs, se
   return <Paper component="aside" className={classes.filterSidebar} withBorder>
     <Group className={classes.filterHeader} justify="space-between" align="center"><Text fw={700}>조회조건</Text><ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={onClose}><IconX size={16} /></ActionIcon></Group>
     <Stack gap="sm" className={classes.filterFields}>
-      <Box><Text size="xs" fw={700} mb={5}>수금/지급 기간</Text><Stack gap={6}>
+      <Box><Text className={classes.filterGroupLabel}>수금/지급 기간</Text><Stack gap={6}>
         <ErpDateInput aria-label="수금/지급 시작일" type="date" value={filterInputs.date_from} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_from: nextValue })); }} />
         <ErpDateInput aria-label="수금/지급 종료일" type="date" value={filterInputs.date_to} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_to: nextValue })); }} />
       </Stack></Box>
@@ -271,16 +294,17 @@ export default function ReceiptPaymentSearch() {
       </Box>
 
       <Box className={classes.summaryGrid} aria-label="수금/지급 현황 요약">
-        <Paper className={classes.summaryCard} withBorder><Text className={classes.summaryLabel}>수금/지급 전표 수</Text><Text className={classes.summaryValue}>{Number(summary.receipt_count || 0).toLocaleString()}건</Text></Paper>
-        <Paper className={classes.summaryCard} withBorder><Text className={classes.summaryLabel}>상세 건수</Text><Text className={classes.summaryValue}>{Number(summary.detail_count || 0).toLocaleString()}건</Text></Paper>
-        <Paper className={classes.summaryCard} withBorder><Text className={classes.summaryLabel}>총 수금액</Text><Text className={classes.summaryValue}>{formatWon(summary.receipt_total)}</Text></Paper>
-        <Paper className={classes.summaryCard} withBorder><Text className={classes.summaryLabel}>총 지급액</Text><Text className={classes.summaryValue}>{formatWon(summary.payment_total)}</Text></Paper>
+        <SummaryCard label="수금/지급 전표 수" value={Number(summary.receipt_count || 0).toLocaleString()} unit="건" icon={IconReceipt} accent={classes.accentSlate} />
+        <SummaryCard label="상세 건수" value={Number(summary.detail_count || 0).toLocaleString()} unit="건" icon={IconListDetails} accent={classes.accentBlue} />
+        <SummaryCard label="총 수금액" value={formatNumber(summary.receipt_total || 0)} unit="원" icon={IconArrowDownLeft} accent={classes.accentGreen} />
+        <SummaryCard label="총 지급액" value={formatNumber(summary.payment_total || 0)} unit="원" icon={IconArrowUpRight} accent={classes.accentOrange} />
       </Box>
 
       <Box className={classes.inboundWorkspace}>
         <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder>
           <Group className={classes.resultsToolbar} justify="space-between" wrap="wrap">
-            <Group gap={8}><Text className={classes.sectionTitle} fw={700}>수금/지급 현황</Text><Badge color="gray" variant="light">{total.toLocaleString()}건</Badge></Group>
+            <Box className={classes.toolbarTitle}><Text className={classes.sectionTitle} fw={700}>수금/지급 현황</Text><span className={classes.countBadge}>{total.toLocaleString()}건</span></Box>
+            <span className={classes.toolbarMeta} title="조회 기간 (수금/지급일)"><IconCalendar size={13} />{periodText(filters.date_from, filters.date_to)}</span>
           </Group>
           <Box className={classes.tableWrap}>
             {loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}
@@ -288,7 +312,13 @@ export default function ReceiptPaymentSearch() {
               <Table className={classes.statusTable} withTableBorder withColumnBorders highlightOnHover style={{ width: tableWidth, minWidth: tableWidth, tableLayout: 'fixed' }}>
                 <colgroup>{COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${columnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
                 <DetailTableHead columnWidths={columnWidths} onResize={resizeColumn} />
-                <Table.Tbody>{items.length ? items.map((item) => <DetailRow key={`${item.receiptno}:${item.lineno ?? 'empty'}`} item={item} />) : !loading && <Table.Tr><Table.Td colSpan={COLUMNS.length} style={{ height: 180, textAlign: 'center', color: '#7c899b' }}>표시할 수금/지급 내역이 없습니다.</Table.Td></Table.Tr>}</Table.Tbody>
+                <Table.Tbody>{items.length ? items.map((item) => <DetailRow key={`${item.receiptno}:${item.lineno ?? 'empty'}`} item={item} />) : !loading && <Table.Tr><Table.Td colSpan={COLUMNS.length} className={classes.emptyCell}>
+                  <Box className={classes.emptyState}>
+                    <span className={classes.emptyIcon}><IconInbox size={22} stroke={1.6} /></span>
+                    <span className={classes.emptyTitle}>표시할 수금/지급 내역이 없습니다.</span>
+                    <span>수금/지급 기간이나 조회조건을 바꿔 다시 조회해 보세요.</span>
+                  </Box>
+                </Table.Td></Table.Tr>}</Table.Tbody>
               </Table>
             </Box>
           </Box>

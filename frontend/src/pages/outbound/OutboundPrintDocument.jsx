@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Button, Group, Loader, Modal, SegmentedControl, Text } from '@mantine/core';
+import { Group, Loader, Modal, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconPencil, IconPrinter, IconX } from '@tabler/icons-react';
+import { IconCheck, IconFileInvoice, IconPencil, IconPrinter, IconRestore, IconTruckDelivery, IconX } from '@tabler/icons-react';
+import bar from './OutboundPrintDocument.module.css';
 
 // 매출등록 > 거래명세서 / 송장 출력.
 // - 출력할 때마다 서버에서 저장된 전표를 다시 읽는다 (화면에서 고치고 저장하지 않은 값은 출력되지 않는다).
@@ -311,24 +312,36 @@ export default function OutboundPrintDocument({ opened, receiptno, initialKind =
 
   return <Modal opened={opened} onClose={onClose} centered size="min(900px, calc(100vw - 32px))" padding={0} withCloseButton={false}
     styles={{ content: { display: 'flex', flexDirection: 'column', height: 'min(940px, calc(100dvh - 32px))', overflow: 'hidden', borderRadius: 10 }, body: { display: 'flex', flex: '1 1 0', minHeight: 0, flexDirection: 'column', padding: 0 } }}>
-    <Group justify="space-between" wrap="nowrap" gap={12} style={{ flex: '0 0 auto', padding: '12px 18px', borderBottom: '1px solid #e1e6ee', background: '#fff' }}>
-      <Group gap={12} wrap="nowrap" style={{ minWidth: 0 }}>
-        <Text fw={700} size="md">출력 미리보기</Text>
-        <Text size="xs" c="dimmed">{receiptno}</Text>
-        <SegmentedControl size="xs" color="red" value={kind} onChange={setKind}
-          data={[{ value: 'statement', label: '거래명세서' }, { value: 'delivery', label: '송장' }]} />
-      </Group>
-      <Group gap={8} wrap="nowrap">
-        <Button size="sm" variant={editing ? 'filled' : 'default'} color={editing ? 'blue' : 'gray'} leftSection={<IconPencil size={15} />}
-          onClick={() => setEditing((value) => !value)} disabled={!document || loading}>{editing ? '수정 완료' : '정보 수정'}</Button>
+    <div className={bar.bar}>
+      <div className={bar.titleBlock} tabIndex={-1} data-autofocus>
+        <span className={bar.titleIcon}><IconPrinter size={18} stroke={1.9} /></span>
+        <div className={bar.titleText}>
+          <span className={bar.title}>출력 미리보기</span>
+          <span className={bar.receipt}>{receiptno}</span>
+        </div>
+      </div>
+      <div className={bar.kindTabs} role="tablist" aria-label="서류 종류">
+        {[{ value: 'statement', label: '거래명세서', icon: IconFileInvoice }, { value: 'delivery', label: '송장', icon: IconTruckDelivery }].map(({ value, label, icon: Icon }) => (
+          <button key={value} type="button" role="tab" aria-selected={kind === value} className={`${bar.kindTab} ${kind === value ? bar.kindTabActive : ''}`} onClick={() => setKind(value)}>
+            <Icon size={15} stroke={1.9} />{label}
+          </button>
+        ))}
+      </div>
+      <div className={bar.actions}>
         {/* 자리를 항상 잡아 두고 보이기만 바꾼다: 칸 수정 직후 버튼이 생기며 옆 버튼이 밀려 클릭이 빗나가지 않게 */}
-        <Button size="sm" variant="subtle" color="gray" onClick={() => setEditValues({})} tabIndex={Object.keys(editValues).length ? 0 : -1}
+        <button type="button" className={bar.resetButton} onClick={() => setEditValues({})} tabIndex={Object.keys(editValues).length ? 0 : -1}
           aria-hidden={Object.keys(editValues).length ? undefined : true}
-          style={{ visibility: Object.keys(editValues).length ? 'visible' : 'hidden' }}>원래대로</Button>
-        <Button size="sm" color="red" leftSection={<IconPrinter size={16} />} onClick={print} disabled={!document || loading}>인쇄 / PDF 저장</Button>
-        <Button size="sm" variant="default" leftSection={<IconX size={15} />} onClick={onClose}>닫기</Button>
-      </Group>
-    </Group>
+          style={{ visibility: Object.keys(editValues).length ? 'visible' : 'hidden' }}><IconRestore size={14} stroke={2} />원래대로</button>
+        <button type="button" className={`${bar.editButton} ${editing ? bar.editButtonOn : ''}`} onClick={() => setEditing((value) => !value)} disabled={!document || loading}>
+          {editing ? <IconCheck size={15} stroke={2.2} /> : <IconPencil size={15} stroke={1.9} />}{editing ? '수정 완료' : '정보 수정'}
+        </button>
+        <button type="button" className={bar.printButton} onClick={print} disabled={!document || loading}>
+          <IconPrinter size={16} stroke={2} />인쇄 / PDF 저장
+        </button>
+        <span className={bar.divider} />
+        <button type="button" className={bar.closeButton} onClick={onClose} aria-label="닫기" title="닫기"><IconX size={17} stroke={2} /></button>
+      </div>
+    </div>
     <div style={{ flex: '1 1 0', minHeight: 0, overflow: 'auto', padding: 20, background: '#eef1f5' }}>
       <style>{DOC_CSS}{'.s119doc{box-shadow:0 3px 14px #8c9db333}.s119doc-editable{outline:1px dashed #6f93d6;outline-offset:-3px;background:#fffbe6;cursor:text;min-height:21px}.s119doc-editable:focus{outline:2px solid #1f5fd1;background:#fff}'}</style>
       {editing && <Text size="xs" ta="center" mb={10} c="#8a6d1f" style={{ background: '#fff8e1', border: '1px solid #f1dfa8', borderRadius: 6, padding: '7px 10px', maxWidth: 794, margin: '0 auto 10px' }}>

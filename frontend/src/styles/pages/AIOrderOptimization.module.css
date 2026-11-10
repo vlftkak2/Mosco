@@ -180,3 +180,24 @@
   .fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .recommendBody { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ── 가공최적화 버튼 디자인 (화면 + 선택 창 공통) ──
+   Mantine 버튼 종류(data-variant)별로 같은 모양: 주 동작 = 빨강 그라데이션, 보조 = 흰 바탕 테두리, 글자형 = 옅은 빨강 */
+.optScope :global(.mantine-Button-root) { border-radius: 9px !important; font-weight: 700 !important; transition: background 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 140ms ease, transform 120ms ease, filter 120ms ease; }
+.optScope :global(.mantine-Button-root[data-variant="filled"]) { border: 0 !important; background: linear-gradient(180deg, #f2545b 0%, #e23d45 100%) !important; box-shadow: 0 2px 6px #e23d4540, inset 0 1px 0 #ffffff33; color: #fff !important; }
+.optScope :global(.mantine-Button-root[data-variant="filled"]:hover:not(:disabled):not([data-disabled])) { box-shadow: 0 4px 10px #e23d4555, inset 0 1px 0 #ffffff33; filter: brightness(1.04); transform: translateY(-1px); }
+.optScope :global(.mantine-Button-root[data-variant="default"]) { border: 1px solid #d5dde7 !important; background: #fff !important; box-shadow: 0 1px 2px #1f2a3a0d; color: #33425a !important; }
+.optScope :global(.mantine-Button-root[data-variant="default"]:hover:not(:disabled):not([data-disabled])) { border-color: #b7c4d4 !important; background: #f7f9fc !important; color: #15233a !important; }
+.optScope :global(.mantine-Button-root[data-variant="subtle"]) { border: 1px solid transparent !important; background: #fff1f1 !important; color: #d23d45 !important; }
+.optScope :global(.mantine-Button-root[data-variant="subtle"]:hover:not(:disabled):not([data-disabled])) { border-color: #f4c3c6 !important; background: #ffe6e7 !important; }
+.optScope :global(.mantine-Button-root:disabled), .optScope :global(.mantine-Button-root[data-disabled]) { border: 1px solid #e6eaf0 !important; background: #f3f5f8 !important; box-shadow: none !important; color: #b0b9c5 !important; filter: none !important; transform: none !important; cursor: not-allowed; }
+.optScope :global(.mantine-Button-root:focus-visible) { outline: 2px solid #f0a3a7; outline-offset: 2px; }
+
+/* 글자 버튼 (편집 · 빼기 · 선택 해제 · ×) → 작은 알약 */
+.optScope .linkButton { display: inline-flex; min-height: 22px; align-items: center; padding: 1px 8px; border: 1px solid #f4c3c6; border-radius: 999px; background: #fff; color: #d23d45; font-size: 11px; font-weight: 700; transition: background 120ms ease, color 120ms ease, border-color 120ms ease; }
+.optScope .linkButton:hover { border-color: #e2454d; background: #e2454d; color: #fff; text-decoration: none; }
+
+/* 최적화 결과 계획 카드 */
+.optScope .plan { padding: 10px 12px; border: 1px solid #e1e7ef; border-radius: 10px; box-shadow: 0 1px 2px #1f2a3a0a; transition: border-color 120ms ease, box-shadow 140ms ease, transform 120ms ease; }
+.optScope .plan:hover { border-color: #f4b6ba; box-shadow: 0 4px 12px #1f2a3a12; transform: translateY(-1px); }
+.optScope .planSelected { padding: 9px 11px; border: 2px solid #e2454d; background: linear-gradient(135deg, #fff5f5 0%, #ffffff 70%); box-shadow: 0 4px 12px #e2454d1f; }

@@ -5,11 +5,11 @@ import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, use
 import axios from 'axios';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import XLSX from 'xlsx-js-style';
-import { ActionIcon, Badge, Box, Button, Group, Loader, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
+import { ActionIcon, Box, Button, Group, Loader, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconChevronDown, IconChevronRight, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus,
-  IconSearch, IconTrash, IconX,
+  IconCalendar, IconChartBar, IconChevronDown, IconChevronRight, IconCoin, IconCopy, IconDeviceFloppy, IconFileSpreadsheet,
+  IconFilter, IconPercentage, IconPlus, IconSearch, IconShoppingCart, IconTrash, IconTrendingUp, IconTruckDelivery, IconX,
 } from '@tabler/icons-react';
 import { useLocation } from 'react-router-dom';
 import ErpDateInput from '../../components/common/ErpDateInput';
@@ -139,7 +139,7 @@ const FilterSidebar = memo(function FilterSidebar({ inputs, setInputs, onSearch,
     <Group className={classes.filterHeader} justify="space-between" align="center"><Text fw={700}>조회조건</Text>
       <ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={onClose}><IconX size={16} /></ActionIcon></Group>
     <Stack gap="sm" className={classes.filterFields}>
-      <Box><Text size="xs" fw={700} mb={5}>매출(출고) 기간</Text><Stack gap={6}>
+      <Box><Text className={classes.filterGroupLabel}>매출(출고) 기간</Text><Stack gap={6}>
         <ErpDateInput aria-label="매출 시작일" type="date" value={inputs.date_from} onChange={(event) => { const { value } = event.currentTarget; setInputs((current) => ({ ...current, date_from: value })); }} />
         <ErpDateInput aria-label="매출 종료일" type="date" value={inputs.date_to} onChange={(event) => { const { value } = event.currentTarget; setInputs((current) => ({ ...current, date_to: value })); }} />
       </Stack></Box>
@@ -283,11 +283,11 @@ export default function GrossProfit() {
 
   const salesTotal = Number(total?.sales_amt || 0) + Number(total?.sales_plus || 0); // 매출비용(+)도 매출
   const cards = [
-    { label: '매출금액', value: `${money(Number(total?.sales_amt || 0) + Number(total?.sales_plus || 0))}원`, hint: `판매 ${money(total?.sales_amt)} + 매출비용(+) ${money(total?.sales_plus)}` },
-    { label: '매입원가', value: `${money(costTotal(total))}원`, hint: `매입금액 ${money(total?.purchase_amt)} + 매입비용 ${money(total?.purchase_cost)} + 가공비 ${money(total?.process_amt)}` },
-    { label: '판매비용', value: `${money(total?.sales_minus)}원`, hint: "출고 기타비용 중 비용여부 '예' (운반비 등 우리가 부담한 비용)" },
-    { label: '이익금액', value: `${money(total?.profit_amt)}원`, hint: '매출금액(매출비용(+) 포함) − 매입원가 − 판매비용', tone: Number(total?.profit_amt || 0) < 0 ? 'loss' : 'gain' },
-    { label: '마진율', value: salesTotal ? `${marginText(total?.margin_rate)}%` : '–', hint: '이익금액 ÷ (매출금액 + 매출비용(+))', tone: Number(total?.profit_amt || 0) < 0 ? 'loss' : 'gain' },
+    { label: '매출금액', value: `${money(Number(total?.sales_amt || 0) + Number(total?.sales_plus || 0))}원`, hint: `판매 ${money(total?.sales_amt)} + 매출비용(+) ${money(total?.sales_plus)}`, accent: pageClasses.statSales, icon: IconChartBar },
+    { label: '매입원가', value: `${money(costTotal(total))}원`, hint: `매입금액 ${money(total?.purchase_amt)} + 매입비용 ${money(total?.purchase_cost)} + 가공비 ${money(total?.process_amt)}`, accent: pageClasses.statCost, icon: IconShoppingCart },
+    { label: '판매비용', value: `${money(total?.sales_minus)}원`, hint: "출고 기타비용 중 비용여부 '예' (운반비 등 우리가 부담한 비용)", accent: pageClasses.statExpense, icon: IconTruckDelivery },
+    { label: '이익금액', value: `${money(total?.profit_amt)}원`, hint: '매출금액(매출비용(+) 포함) − 매입원가 − 판매비용', tone: Number(total?.profit_amt || 0) < 0 ? 'loss' : 'gain', accent: pageClasses.statProfit, icon: IconCoin },
+    { label: '마진율', value: salesTotal ? `${marginText(total?.margin_rate)}%` : '–', hint: '이익금액 ÷ (매출금액 + 매출비용(+))', tone: Number(total?.profit_amt || 0) < 0 ? 'loss' : 'gain', accent: pageClasses.statMargin, icon: IconPercentage },
   ];
 
   return (
@@ -302,8 +302,11 @@ export default function GrossProfit() {
       </Box>
 
       <Box className={pageClasses.cardGrid} aria-label="매출이익 요약">
-        {cards.map((card) => <Paper key={card.label} className={pageClasses.statCard} withBorder title={card.hint}>
-          <Text className={pageClasses.statLabel}>{card.label}</Text>
+        {cards.map((card) => <Paper key={card.label} className={`${pageClasses.statCard} ${card.accent}`} withBorder title={card.hint}>
+          <Box className={pageClasses.statHead}>
+            <Text className={pageClasses.statLabel}>{card.label}</Text>
+            <span className={pageClasses.statIcon}><card.icon size={16} stroke={1.8} /></span>
+          </Box>
           <Text className={`${pageClasses.statValue} ${card.tone === 'loss' ? pageClasses.toneLoss : card.tone === 'gain' ? pageClasses.toneGain : ''}`}>{card.value}</Text>
         </Paper>)}
       </Box>
@@ -311,9 +314,10 @@ export default function GrossProfit() {
       <Box className={classes.inboundWorkspace}>
         <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder>
           <Group className={classes.resultsToolbar} justify="space-between" wrap="nowrap">
-            <Group gap={8} wrap="nowrap">
+            <Group gap={8} wrap="nowrap" className={pageClasses.toolbarLeft}>
               <Text className={classes.sectionTitle} fw={700}>매출처별 매출이익</Text>
-              <Badge color="gray" variant="light">{Number(total?.line_count || 0).toLocaleString()}건</Badge>
+              <span className={classes.countBadge}>{Number(total?.line_count || 0).toLocaleString()}건</span>
+              <span className={classes.toolbarMeta} title="조회 기간 (매출일자)"><IconCalendar size={13} />{filters.date_from} ~ {filters.date_to}</span>
               {autoCollapsed && !data.truncated && <Text size="xs" c="dimmed">행이 많아 매출처별 소계만 먼저 보여 줍니다. 매출처를 누르면 펼쳐집니다.</Text>}
               {data.truncated && <Text size="xs" c="orange.8" fw={600}>행이 많아 앞의 {data.max_rows.toLocaleString()}건만 표시합니다 (소계·합계는 전체 기준). 기간이나 조건을 좁혀 주세요.</Text>}
             </Group>
@@ -327,11 +331,17 @@ export default function GrossProfit() {
             <Box className={classes.inboundSearchScroller} style={{ height: '100%', width: '100%' }}>
               <Table className={`${classes.statusTable} ${pageClasses.profitTable}`} withTableBorder withColumnBorders style={{ width: TABLE_WIDTH, minWidth: TABLE_WIDTH, tableLayout: 'fixed' }}>
                 <colgroup>{COLUMNS.map((column) => <col key={column.key} style={{ width: `${column.width}px` }} />)}</colgroup>
-                <Table.Thead><Table.Tr>{COLUMNS.map((column) => <Table.Th key={column.key} style={{ position: 'sticky', top: 0, zIndex: 3, textAlign: column.align || (column.type ? 'right' : undefined) }}>{column.label}</Table.Th>)}</Table.Tr></Table.Thead>
+                <Table.Thead><Table.Tr>{COLUMNS.map((column) => <Table.Th key={column.key} style={{ position: 'sticky', top: 0, zIndex: 3 }}>{column.label}</Table.Th>)}</Table.Tr></Table.Thead>
                 <tbody>
                   {blocks.length ? blocks.map((block) => <GroupBlock key={groupKey(block.group)} group={block.group} rows={block.rows} startIndex={block.startIndex}
                     collapsed={collapsed.has(groupKey(block.group))} onToggle={toggleGroup} />)
-                    : !loading && <tr><td colSpan={COLUMNS.length} className={pageClasses.emptyCell}>조회된 매출이 없습니다. 기간과 조건을 확인해 주세요.</td></tr>}
+                    : !loading && <tr><td colSpan={COLUMNS.length} className={`${pageClasses.emptyCell} ${classes.emptyCell}`}>
+                      <Box className={classes.emptyState}>
+                        <span className={classes.emptyIcon}><IconTrendingUp size={22} stroke={1.6} /></span>
+                        <span className={classes.emptyTitle}>조회된 매출이 없습니다.</span>
+                        <span>기간과 조건을 확인해 주세요.</span>
+                      </Box>
+                    </td></tr>}
                 </tbody>
                 {total && blocks.length > 0 ? <tfoot><tr className={`${TR} ${pageClasses.totalRow}`}><SummaryCells entry={total} label="합계" /></tr></tfoot> : null}
               </Table>

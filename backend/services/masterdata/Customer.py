@@ -15,7 +15,8 @@ import re
 #from tkinter import Tk, filedialog 
 import pdfkit
 import io
-from pydantic import BaseModel
+from decimal import Decimal, InvalidOperation
+from pydantic import BaseModel, Field, field_validator
 from typing import List
 
 # PostgreSQL 접속 문자열
@@ -48,6 +49,25 @@ class CustomModifyRequest(BaseModel):
     accountno: str = ""
     useryn: str = "Y"
     remark: str = ""
+    # 기초 미수금 / 기초 미지급금: 원장 시작일 이전부터 남아 있던 잔액 (MASTER/SUBMASTER만 변경 가능)
+    openingreceivable: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=2)
+    openingpayable: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=2)
+
+    @field_validator("openingreceivable", "openingpayable", mode="before")
+    @classmethod
+    def _normalize_opening_amount(cls, value):
+        # Excel uploads may send "", None or "1,234,000"; treat blanks as 0 and drop thousand separators.
+        if value is None:
+            return Decimal("0")
+        if isinstance(value, str):
+            text = value.replace(",", "").strip()
+            if not text:
+                return Decimal("0")
+            try:
+                return Decimal(text)
+            except InvalidOperation:
+                raise ValueError("기초 잔액은 숫자로 입력해 주세요.")
+        return value
 
 
 def _db_useyn(value: str) -> str:
@@ -250,15 +270,16 @@ def CustomerCreate(item: CustomModifyRequest, actor: str | None = None):
             INSERT INTO customer01t (
                 companyid, companyname, customercode, customername, businessno,
                 corporationno, ceoname, tradetype, businesstype, industry, manager,
-                zipcode, address, phone, fax, email, bankcode, accountno, useyn, remark, createdby
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                zipcode, address, phone, fax, email, bankcode, accountno, useyn, remark, createdby,
+                openingreceivable, openingpayable
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         cursor.execute(query, (
             item.companyid, item.companyname, customercode, item.customername,
             item.businessno, item.corporationno, item.ceoname, item.tradetype,
             item.businesstype, item.industry, item.manager, item.zipcode, item.address, item.phone,
             item.fax, item.email, item.bankcode or None, item.accountno, _db_useyn(item.useryn), item.remark,
-            actor or None,
+            actor or None, item.openingreceivable, item.openingpayable,
         ))
 
         conn.commit()
@@ -320,7 +341,8 @@ def CustomerBulkCreate(items: List[CustomModifyRequest], actor: str | None = Non
                 INSERT INTO customer01t
                     (companyid, companyname, customercode, customername, businessno,
                      corporationno, ceoname, tradetype, businesstype, industry, manager,
-                     zipcode, address, phone, fax, email, bankcode, accountno, useyn, remark, createdby)
+                     zipcode, address, phone, fax, email, bankcode, accountno, useyn, remark, createdby,
+                     openingreceivable, openingpayable)
                 VALUES %s
             """
             values = [
@@ -328,7 +350,7 @@ def CustomerBulkCreate(items: List[CustomModifyRequest], actor: str | None = Non
                  item.businessno, item.corporationno, item.ceoname, item.tradetype,
                  item.businesstype, item.industry, item.manager, item.zipcode, item.address, item.phone,
                  item.fax, item.email, item.bankcode or None, item.accountno, _db_useyn(item.useryn), item.remark,
-                 actor or None)
+                 actor or None, item.openingreceivable, item.openingpayable)
                 for item, assigned_code in zip(items, assigned_codes)
             ]
             execute_values(cursor, query, values, page_size=1000)
@@ -343,7 +365,8 @@ def CustomerBulkCreate(items: List[CustomModifyRequest], actor: str | None = Non
             conn.close()
             
 # 거래처 수정
-def CustomerModify(item: CustomModifyRequest, actor: str | None = None):
+def CustomerModify(item: CustomModifyRequest, actor: str | None = None, update_opening_balances: bool = True):
+    """update_opening_balances=False keeps the stored 기초 미수금/미지급금 (callers without MASTER/SUBMASTER)."""
 
     conn = None
     try:
@@ -360,14 +383,19 @@ def CustomerModify(item: CustomModifyRequest, actor: str | None = None):
             SET customername=%s, businessno=%s, corporationno=%s, ceoname=%s,
                 tradetype=%s, businesstype=%s, industry=%s, manager=%s,
                 zipcode=%s, address=%s, phone=%s, fax=%s, email=%s, bankcode=%s, accountno=%s,
-                useyn=%s, remark=%s, updatedat=NOW(), updatedby=%s
+                useyn=%s, remark=%s, updatedat=NOW(), updatedby=%s,
+                openingreceivable = CASE WHEN %s THEN %s ELSE openingreceivable END,
+                openingpayable = CASE WHEN %s THEN %s ELSE openingpayable END
             WHERE companyid=%s AND customercode=%s
         """
         cursor.execute(query, (
             item.customername, item.businessno, item.corporationno, item.ceoname,
             item.tradetype, item.businesstype, item.industry, item.manager,
             item.zipcode, item.address, item.phone, item.fax, item.email, item.bankcode or None, item.accountno,
-            _db_useyn(item.useryn), item.remark, actor or None, item.companyid, item.customercode,
+            _db_useyn(item.useryn), item.remark, actor or None,
+            bool(update_opening_balances), item.openingreceivable,
+            bool(update_opening_balances), item.openingpayable,
+            item.companyid, item.customercode,
         ))
              
         conn.commit()
@@ -490,3 +518,116 @@ def CustomerExport(companyid: str, search_keyword: str = None, status: str = "�
     finally:
         if conn:
             conn.close()
+
+
+# ---------------------------------------------------------------------------
+# 기초잔액 일괄 반영 (거래처원장용)
+# 이미 등록된 거래처의 기초 미수금 / 기초 미지급금만 바꾼다. 다른 거래처 정보는 건드리지 않는다.
+# 같은 함수로 미리보기(dry_run)와 반영을 처리하므로, 미리보기 결과와 실제 반영 결과가 다를 수 없다.
+# ---------------------------------------------------------------------------
+OPENING_BALANCE_LIMIT = Decimal("9999999999999.99")
+
+
+class OpeningBalanceRow(BaseModel):
+    customercode: str = Field(..., min_length=1, max_length=50)
+    openingreceivable: Decimal = Field(default=Decimal("0"))
+    openingpayable: Decimal = Field(default=Decimal("0"))
+    rowno: int | None = None  # 엑셀 행 번호 (안내용)
+
+    @field_validator("customercode", mode="before")
+    @classmethod
+    def strip_code(cls, value):
+        return str(value or "").strip()
+
+    @field_validator("openingreceivable", "openingpayable", mode="before")
+    @classmethod
+    def parse_amount(cls, value):
+        text = str(value if value is not None else "").replace(",", "").strip()
+        if not text:
+            return Decimal("0")  # 빈칸 = 0원
+        try:
+            amount = Decimal(text)
+        except InvalidOperation as error:
+            raise ValueError("금액은 숫자로 입력해 주세요.") from error
+        if amount < 0:
+            raise ValueError("금액은 0 이상이어야 합니다.")
+        if amount > OPENING_BALANCE_LIMIT:
+            raise ValueError("금액이 너무 큽니다.")
+        return amount.quantize(Decimal("0.01"))
+
+
+def OpeningBalanceList(companyid: str):
+    """양식용: 등록된 거래처 전체의 코드 · 이름 · 현재 기초잔액."""
+    with _shared_db.connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT customercode, customername,
+                      COALESCE(openingreceivable, 0) AS openingreceivable,
+                      COALESCE(openingpayable, 0) AS openingpayable
+               FROM customer01t WHERE companyid = %s
+               ORDER BY customercode""",
+            (companyid,),
+        )
+        columns = [column[0] for column in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def OpeningBalanceApply(companyid: str, rows: List[OpeningBalanceRow], dry_run: bool = True, actor: str | None = None):
+    """엑셀 행을 거래처코드로 찾아 기초잔액을 비교하고, dry_run=False 이면 바뀐 거래처만 한 번에 반영한다."""
+    seen = {}
+    duplicates = []
+    for row in rows:
+        key = row.customercode.lower()
+        if key in seen:
+            duplicates.append(row.customercode)
+        seen[key] = row
+    if duplicates:
+        return {"success": False, "message": f"파일에 같은 거래처코드가 두 번 이상 있습니다: {', '.join(sorted(set(duplicates))[:10])}"}
+
+    with _shared_db.connect() as connection, connection.cursor() as cursor:
+        if not dry_run:
+            # 같은 회사의 기초잔액을 두 사람이 동시에 반영하지 않도록 잠근다.
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"opening-balance:{companyid}",))
+        cursor.execute(
+            """SELECT customercode, customername,
+                      COALESCE(openingreceivable, 0), COALESCE(openingpayable, 0)
+               FROM customer01t WHERE companyid = %s AND LOWER(customercode) = ANY(%s)""",
+            (companyid, list(seen.keys())),
+        )
+        existing = {code.lower(): (code, name, Decimal(recv), Decimal(pay)) for code, name, recv, pay in cursor.fetchall()}
+
+        changed, unchanged, missing = [], [], []
+        for key, row in seen.items():
+            current = existing.get(key)
+            if not current:
+                missing.append({"rowno": row.rowno, "customercode": row.customercode})
+                continue
+            code, name, recv, pay = current
+            if recv == row.openingreceivable and pay == row.openingpayable:
+                unchanged.append(code)
+                continue
+            changed.append({
+                "rowno": row.rowno, "customercode": code, "customername": name,
+                "before_receivable": recv, "after_receivable": row.openingreceivable,
+                "before_payable": pay, "after_payable": row.openingpayable,
+            })
+
+        if not dry_run and changed:
+            for start in range(0, len(changed), 500):
+                chunk = changed[start:start + 500]
+                execute_values(
+                    cursor,
+                    """UPDATE customer01t AS c
+                       SET openingreceivable = v.recv, openingpayable = v.pay,
+                           updatedat = NOW(), updatedby = v.actor
+                       FROM (VALUES %s) AS v(companyid, code, recv, pay, actor)
+                       WHERE c.companyid = v.companyid AND c.customercode = v.code""",
+                    [(companyid, item["customercode"], item["after_receivable"], item["after_payable"], actor or None) for item in chunk],
+                    template="(%s, %s, %s::numeric, %s::numeric, %s)",
+                )
+
+    return {
+        "success": True,
+        "applied": not dry_run,
+        "changed_count": len(changed), "unchanged_count": len(unchanged), "missing_count": len(missing),
+        "changed": changed[:300], "missing": missing[:100],
+    }

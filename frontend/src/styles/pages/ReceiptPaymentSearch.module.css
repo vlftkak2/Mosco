@@ -57,10 +57,13 @@
   vertical-align: middle;
 }
 .selectableRow { cursor: pointer; }
-.selectedRow > td { background: #fff0f0 !important; }
-.selectedRow > td:first-child { box-shadow: inset 3px 0 #ff4d55; }
-.receiptBadge { color: #00a987 !important; background: #e5f7f3 !important; }
-.paymentBadge { color: #e17a25 !important; background: #fff2e5 !important; }
+.selectedRow > td { background: #fff0f1 !important; }
+.selectedRow > td:first-child { box-shadow: inset 3px 0 #e45159; }
+/* 수금/지급 구분 배지 (수금·지급 현황 + 수금·지급 등록 공용): 거래처원장 구분 배지와 같은 알약 모양 */
+.receiptBadge,
+.paymentBadge { min-width: 38px; height: 20px; padding: 0 8px !important; border-radius: 10px !important; font-size: 11px !important; font-weight: 650 !important; letter-spacing: 0; text-transform: none; vertical-align: middle; }
+.receiptBadge { color: #18794e !important; background: #e6f6ee !important; }
+.paymentBadge { color: #c2561b !important; background: #fff0e3 !important; }
 .detailTotals {
   min-height: 38px;
   flex: 0 0 auto;

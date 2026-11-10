@@ -7,16 +7,17 @@ import axios from 'axios';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import XLSX from 'xlsx-js-style';
 import { useNavigate } from 'react-router-dom';
-import { Box, Button, Group, Loader, Paper, SegmentedControl, Text } from '@mantine/core';
+import { Box, Button, Group, Loader, Paper, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconArrowDownRight, IconArrowUpRight, IconCash, IconChevronRight, IconCopy, IconDeviceFloppy,
-  IconFileSpreadsheet, IconPercentage, IconPlus, IconReceipt, IconScale, IconSearch, IconTrash, IconTrendingUp, IconX,
+  IconAlertTriangle, IconBulb, IconCash, IconChevronRight, IconPercentage, IconReceipt, IconScale, IconTrendingUp, IconCopy, IconDeviceFloppy,
+  IconFileSpreadsheet, IconPlus, IconSearch, IconTrash, IconX,
 } from '@tabler/icons-react';
 import {
-  Bar, BarChart, CartesianGrid, Cell, ComposedChart, LabelList, Legend, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import ErpDateInput from '../../components/common/ErpDateInput';
+import { DashboardHeader, FilterBox, FilterTilde, KPI_PALETTE, KpiCard, KpiGrid, SubSep, TrendPill } from '../../components/common/DashboardKit';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import classes from '../../styles/pages/InboundSearch.module.css';
@@ -28,6 +29,7 @@ const PALETTE = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300
 const OTHER = '#aab6c4';
 const COLOR = { sales: PALETTE[0], cost: PALETTE[1], profit: PALETTE[2], loss: '#d03b3b' };
 const TOP_N = 10;
+const RANK_N = 12;
 const AXIS_TICK = { fontSize: 11, fill: '#52514e' };
 
 const pad = (value) => String(value).padStart(2, '0');
@@ -52,191 +54,179 @@ const compact = (value) => {
   return Math.round(number).toLocaleString('ko-KR');
 };
 const pct = (value) => (value === null || value === undefined ? '–' : `${Number(value).toFixed(1)}%`);
+const shortDate = (value, withYear = false) => { const text = String(value || '').slice(0, 10); return withYear ? text.slice(2).replaceAll('-', '.') : text.slice(5).replace('-', '.'); };
 const shortName = (name, max = 7) => (String(name || '').length > max ? `${String(name).slice(0, max)}…` : String(name || ''));
 const changeRate = (current, previous) => (previous ? ((current - previous) / Math.abs(previous)) * 100 : null);
 
-function Delta({ current, previous, unit = '%', lowerIsBetter = false, label = '전월' }) {
-  const diff = unit === '%p' ? (current === null || current === undefined || previous === null || previous === undefined ? null : current - previous) : changeRate(current, previous);
-  // 비교할 기간 데이터가 없으면 아무것도 표시하지 않는다
-  if (diff === null || diff === undefined || !Number.isFinite(diff)) return null;
-  const up = diff > 0;
-  const good = lowerIsBetter ? !up : up;
-  const Icon = up ? IconArrowUpRight : IconArrowDownRight;
-  return <span className={`${pageClasses.delta} ${diff === 0 ? pageClasses.deltaFlat : good ? pageClasses.deltaGood : pageClasses.deltaBad}`}>
-    {diff !== 0 && <Icon size={13} stroke={2.4} />}{label} 대비 {up ? '+' : ''}{diff.toFixed(1)}{unit}
-  </span>;
-}
-
-function ChartTooltip({ active, payload, label, extra }) {
-  if (!active || !payload?.length) return null;
-  const row = payload[0].payload;
-  return <Paper className={pageClasses.tooltip} shadow="sm" withBorder>
-    <Text size="xs" fw={700} mb={5}>{row.fullName || label}</Text>
-    {payload.map((entry) => <Group key={entry.dataKey} gap={6} wrap="nowrap" mb={2}>
-      <span className={pageClasses.swatch} style={{ background: entry.color }} />
-      <Text size="xs" w={48}>{entry.name}</Text>
-      <Text size="xs" fw={700} ml="auto">{won(entry.value)}</Text>
-    </Group>)}
-    {extra && <Text size="xs" c="dimmed" mt={4}>{extra(row)}</Text>}
-  </Paper>;
-}
-
 function Panel({ title, sub, children, className = '', action }) {
   return <Paper className={`${pageClasses.panel} ${className}`} withBorder>
-    <Group className={pageClasses.panelHeader} justify="space-between" wrap="nowrap">
-      <Group gap={8} wrap="nowrap"><Text className={pageClasses.panelTitle}>{title}</Text>{sub && <Text className={pageClasses.panelSub}>{sub}</Text>}</Group>
+    <div className={pageClasses.panelHeader}>
+      <div className={pageClasses.panelTitleWrap}><Text className={pageClasses.panelTitle}>{title}</Text>{sub && <Text className={pageClasses.panelSub}>{sub}</Text>}</div>
       {action}
-    </Group>
+    </div>
     <Box className={pageClasses.panelBody}>{children}</Box>
   </Paper>;
 }
 
 const Empty = ({ loading }) => <Box className={pageClasses.empty}>{loading ? <Loader size="sm" color="red" /> : '데이터가 없습니다.'}</Box>;
 
-// 마진율 반원 게이지 (0 ~ 50% 구간, 손실이면 빨강)
-function MarginGauge({ value }) {
-  const rate = Number(value || 0);
-  const ratio = Math.max(0, Math.min(rate, 50)) / 50;
-  const angle = Math.PI * (1 - ratio);
-  const x = 50 + 40 * Math.cos(angle);
-  const y = 50 - 40 * Math.sin(angle);
-  const color = rate < 0 ? COLOR.loss : COLOR.profit;
-  return <svg viewBox="0 0 100 56" className={pageClasses.gauge} role="img" aria-label={`마진율 ${pct(value)}`}>
-    <path d="M10 50 A40 40 0 0 1 90 50" fill="none" stroke="#eef1f5" strokeWidth="9" strokeLinecap="round" />
-    {ratio > 0 && <path d={`M10 50 A40 40 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)}`} fill="none" stroke={color} strokeWidth="9" strokeLinecap="round" />}
-  </svg>;
+// 한눈에 보는 요점: 고정 규칙 + 조회한 숫자로 문장을 만든다
+function buildInsights(total, prev, yoy, customers, marginDrops) {
+  const items = [];
+  const profitDiff = prev ? total.profit - prev.profit : null;
+  items.push({ tone: total.profit < 0 ? 'bad' : 'info', text: <>순이익 <b>{won(total.profit)}</b>, 마진율 <b>{pct(total.margin_rate)}</b>
+    {profitDiff !== null && prev?.sales ? <> — 전월보다 순이익이 <b>{compact(Math.abs(profitDiff))}원</b> {profitDiff >= 0 ? '늘었습니다' : '줄었습니다'}.</> : '입니다.'}</> });
+  if (yoy?.sales) {
+    const rate = changeRate(total.sales, yoy.sales);
+    items.push({ tone: rate >= 0 ? 'good' : 'warn', text: <>전년 같은 기간보다 매출이 <b>{rate >= 0 ? '+' : '−'}{Math.abs(rate).toFixed(1)}%</b> {rate >= 0 ? '늘었습니다' : '줄었습니다'}.</> });
+  }
+  const best = [...customers].filter((row) => row.profit > 0).sort((x, y) => y.profit - x.profit)[0];
+  if (best && total.profit > 0) items.push({ tone: 'good', text: <>순이익이 가장 큰 거래처는 <b>{best.customname}</b>({compact(best.profit)}원, 전체 순이익의 <b>{((best.profit / total.profit) * 100).toFixed(0)}%</b>)입니다.</> });
+  if (total.sales > 0 && customers.length > 3) {
+    const top3 = customers.slice(0, 3);
+    const share = (top3.reduce((sum, row) => sum + row.sales, 0) / total.sales) * 100;
+    items.push({ tone: share >= 70 ? 'warn' : 'info', text: <>매출의 <b>{share.toFixed(0)}%</b>가 상위 3곳({top3.map((row) => row.customname).join(', ')})에서 나옵니다.</> });
+  }
+  if (total.loss_customer_count > 0) {
+    const losers = customers.filter((row) => row.profit < 0).sort((x, y) => x.profit - y.profit);
+    items.push({ tone: 'bad', text: <>손해 본 거래처가 <b>{total.loss_customer_count}곳</b>, 손실 합계 <b>{won(Math.abs(total.loss_amount))}</b>입니다 ({losers.slice(0, 3).map((row) => row.customname).join(', ')}{losers.length > 3 ? ` 외 ${losers.length - 3}곳` : ''}).</> });
+  }
+  if (marginDrops.length) {
+    const worst = marginDrops[0];
+    items.push({ tone: 'warn', text: <><b>{worst.fullName}</b> 마진율이 전월 {pct(worst.prev)} → {pct(worst.margin)}로 <b>{Math.abs(worst.drop).toFixed(1)}%p</b> 떨어졌습니다{marginDrops.length > 1 ? ` (하락 거래처 ${marginDrops.length}곳)` : ''}.</> });
+  }
+  return items;
 }
 
-// 원형(도넛): 가운데 합계, 옆에 이름·금액·비율 (색만으로 구분하지 않도록)
-const Donut = memo(function Donut({ slices, centerLabel, centerValue }) {
-  const total = slices.reduce((sum, slice) => sum + Math.max(slice.value, 0), 0);
-  if (!total) return <Empty />;
-  return <Box className={pageClasses.donutWrap}>
-    <Box className={pageClasses.donutChart}>
-      <ResponsiveContainer width="100%" height={200}>
-        <PieChart>
-          <Pie data={slices} dataKey="value" nameKey="name" innerRadius={58} outerRadius={88} paddingAngle={1.5} stroke="#fff" strokeWidth={2} isAnimationActive={false}>
-            {slices.map((slice) => <Cell key={slice.name} fill={slice.color} />)}
-          </Pie>
-          <Tooltip formatter={(value, name) => [`${won(value)} (${((value / total) * 100).toFixed(1)}%)`, name]} />
-        </PieChart>
-      </ResponsiveContainer>
-      <Box className={pageClasses.donutCenter}><Text className={pageClasses.donutCenterLabel}>{centerLabel}</Text><Text className={pageClasses.donutCenterValue}>{centerValue}</Text></Box>
-    </Box>
-    <Box className={pageClasses.donutLegend}>
-      {slices.map((slice) => <Box key={slice.name} className={pageClasses.legendRow} title={`${slice.name} ${won(slice.value)}`}>
-        <span className={pageClasses.swatch} style={{ background: slice.color }} />
-        <Text className={pageClasses.legendName}>{slice.name}</Text>
-        <Text className={pageClasses.legendPct}>{((Math.max(slice.value, 0) / total) * 100).toFixed(1)}%</Text>
-        <Text className={pageClasses.legendValue}>{compact(slice.value)}</Text>
-      </Box>)}
-    </Box>
-  </Box>;
-});
-
-// 거래처별 매출·비용·순이익 (세로 막대)
-const CustomerChart = memo(function CustomerChart({ rows, onPick }) {
-  const data = rows.slice(0, TOP_N).map((row) => ({ name: shortName(row.customname || '(거래처 없음)'), fullName: row.customname, sales: row.sales, cost: row.cost, profit: row.profit, margin: row.margin_rate }));
-  return <ResponsiveContainer width="100%" height={300}>
-    <BarChart data={data} margin={{ top: 8, right: 8, bottom: 4, left: 0 }} barGap={2} barCategoryGap="24%">
-      <CartesianGrid vertical={false} stroke="#eef1f5" />
-      <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#d5dbe3' }} tickLine={false} interval={0} />
-      <YAxis tickFormatter={compact} width={52} tick={{ fontSize: 10, fill: '#8b95a3' }} axisLine={false} tickLine={false} />
-      <Tooltip content={<ChartTooltip extra={(row) => `마진율 ${pct(row.margin)} · 누르면 상세 보기`} />} cursor={{ fill: '#f3f6fa' }} />
-      <Legend verticalAlign="top" align="right" height={26} iconType="square" iconSize={9} wrapperStyle={{ fontSize: 11 }} />
-      {[['sales', '매출'], ['cost', '비용'], ['profit', '순이익']].map(([key, label]) => <Bar key={key} dataKey={key} name={label} fill={COLOR[key]}
-        maxBarSize={18} radius={[4, 4, 0, 0]} isAnimationActive={false} cursor="pointer" onClick={(entry) => onPick(entry.payload?.fullName ?? entry.fullName)}>
-        {key === 'profit' && data.map((row) => <Cell key={row.fullName} fill={row.profit < 0 ? COLOR.loss : COLOR.profit} />)}
-      </Bar>)}
-    </BarChart>
-  </ResponsiveContainer>;
-});
-
-// 최근 12개월 (매출 막대 + 순이익 선, 같은 금액 축 하나) · 회색 = 전년 같은 달
+// 최근 12개월: 막대 하나 = 매출 (비용 + 순이익 쌓음) · 조회한 달(마지막)만 진하게, 막대 위에 매출 합계 · 작년 같은 달은 툴팁
+const TREND_SOFT = { cost: '#dbe3ee', profit: '#a9e0c9' };
+const TREND_STRONG = { cost: '#9fb1c8', profit: COLOR.profit };
 const TrendChart = memo(function TrendChart({ months }) {
-  const data = months.map((row) => ({ name: `${row.month.slice(2, 4)}.${row.month.slice(5)}`, fullName: row.month, sales: row.sales, profit: row.profit, lySales: row.ly_sales, lyProfit: row.ly_profit, margin: row.margin_rate }));
-  return <ResponsiveContainer width="100%" height={260}>
-    <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+  const last = months.length - 1;
+  const data = months.map((row) => {
+    const profitPart = Math.max(row.profit, 0);
+    return {
+      name: `${Number(row.month.slice(5))}월`, fullName: row.month, sales: row.sales, profit: row.profit, cost: row.cost, margin: row.margin_rate,
+      lySales: row.ly_sales, lyProfit: row.ly_profit, weight: row.weight,
+      profitPart, costPart: Math.max(row.sales - profitPart, 0), label: row.sales > 0 ? compact(row.sales) : '',
+    };
+  });
+  return <ResponsiveContainer width="100%" height={236}>
+    <BarChart data={data} margin={{ top: 20, right: 8, bottom: 0, left: 0 }} barCategoryGap="28%">
       <CartesianGrid vertical={false} stroke="#eef1f5" />
       <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#d5dbe3' }} tickLine={false} />
       <YAxis tickFormatter={compact} width={52} tick={{ fontSize: 10, fill: '#8b95a3' }} axisLine={false} tickLine={false} />
-      <Tooltip content={<ChartTooltip extra={(row) => `마진율 ${pct(row.margin)}`} />} cursor={{ fill: '#f3f6fa' }} />
-      <Legend verticalAlign="top" align="right" height={26} iconSize={9} wrapperStyle={{ fontSize: 11 }} />
-      <Bar dataKey="lySales" name="작년 매출" fill={OTHER} maxBarSize={14} radius={[4, 4, 0, 0]} isAnimationActive={false} />
-      <Bar dataKey="sales" name="매출" fill={COLOR.sales} maxBarSize={14} radius={[4, 4, 0, 0]} isAnimationActive={false} />
-      <Line dataKey="lyProfit" name="작년 순이익" stroke="#8b95a3" strokeWidth={2} strokeDasharray="5 4" dot={false} isAnimationActive={false} />
-      <Line dataKey="profit" name="순이익" stroke={COLOR.profit} strokeWidth={2} dot={{ r: 4, fill: COLOR.profit, strokeWidth: 0 }} isAnimationActive={false} />
-    </ComposedChart>
-  </ResponsiveContainer>;
-});
-
-// 세로 막대 하나 (마진율 / 품목별 순이익) · 손실은 빨강, 값은 막대 위에
-const ColumnChart = memo(function ColumnChart({ data, valueKey, format, label }) {
-  return <ResponsiveContainer width="100%" height={250}>
-    <BarChart data={data} margin={{ top: 22, right: 8, bottom: 4, left: 0 }} barCategoryGap="30%">
-      <CartesianGrid vertical={false} stroke="#eef1f5" />
-      <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#d5dbe3' }} tickLine={false} interval={0} />
-      <YAxis tickFormatter={format} width={48} tick={{ fontSize: 10, fill: '#8b95a3' }} axisLine={false} tickLine={false} />
-      <Tooltip formatter={(value) => [format(value), label]} labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName || ''} cursor={{ fill: '#f3f6fa' }} />
-      <Bar dataKey={valueKey} name={label} maxBarSize={26} radius={[4, 4, 0, 0]} isAnimationActive={false}>
-        {data.map((row) => <Cell key={row.fullName} fill={row[valueKey] < 0 ? COLOR.loss : COLOR.sales} />)}
-        <LabelList dataKey={valueKey} position="top" formatter={format} style={{ fontSize: 10, fill: '#25334a' }} />
+      <Tooltip cursor={{ fill: '#f3f6fa' }} content={({ active, payload }) => {
+        if (!active || !payload?.length) return null;
+        const row = payload[0].payload;
+        return <Paper className={pageClasses.tooltip} shadow="sm" withBorder>
+          <Text size="xs" fw={700} mb={5}>{row.fullName}</Text>
+          <div className={pageClasses.tooltipRow}><span className={pageClasses.swatch} style={{ background: TREND_STRONG.profit }} />순이익<b className={row.profit < 0 ? pageClasses.kpiLoss : ''}>{won(row.profit)}</b></div>
+          <div className={pageClasses.tooltipRow}><span className={pageClasses.swatch} style={{ background: TREND_STRONG.cost }} />비용<b>{won(row.cost)}</b></div>
+          <div className={`${pageClasses.tooltipRow} ${pageClasses.tooltipTotal}`}><span className={pageClasses.swatch} />매출<b>{won(row.sales)}</b></div>
+          <div className={pageClasses.tooltipRow}><span className={pageClasses.swatch} />마진율<b>{pct(row.margin)}</b></div>
+          <div className={pageClasses.tooltipRow}><span className={pageClasses.swatch} />작년 같은 달 매출<b>{won(row.lySales)}</b></div>
+          <div className={pageClasses.tooltipRow}><span className={pageClasses.swatch} />작년 같은 달 순이익<b>{won(row.lyProfit)}</b></div>
+        </Paper>;
+      }} />
+      <Bar dataKey="costPart" stackId="sales" name="비용" maxBarSize={30} isAnimationActive={false}>
+        {data.map((row, index) => <Cell key={row.fullName} fill={index === last ? TREND_STRONG.cost : TREND_SOFT.cost} />)}
+      </Bar>
+      <Bar dataKey="profitPart" stackId="sales" name="순이익" maxBarSize={30} radius={[4, 4, 0, 0]} isAnimationActive={false}>
+        {data.map((row, index) => <Cell key={row.fullName} fill={index === last ? TREND_STRONG.profit : TREND_SOFT.profit} />)}
+        <LabelList dataKey="label" position="top" style={{ fontSize: 10.5, fill: '#33425a', fontWeight: 700 }} />
       </Bar>
     </BarChart>
   </ResponsiveContainer>;
 });
 
-// 전월 대비 순이익 (거래처 매출 상위 10곳: 이번 기간 vs 전월)
-const PrevCompareChart = memo(function PrevCompareChart({ rows }) {
-  const data = rows.slice(0, TOP_N).map((row) => ({ name: shortName(row.customname, 6), fullName: row.customname, profit: row.profit, prev: row.prev_profit }));
-  return <ResponsiveContainer width="100%" height={250}>
-    <BarChart data={data} margin={{ top: 8, right: 8, bottom: 4, left: 0 }} barGap={2} barCategoryGap="26%">
-      <CartesianGrid vertical={false} stroke="#eef1f5" />
-      <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#d5dbe3' }} tickLine={false} interval={0} />
-      <YAxis tickFormatter={compact} width={52} tick={{ fontSize: 10, fill: '#8b95a3' }} axisLine={false} tickLine={false} />
-      <Tooltip content={<ChartTooltip />} cursor={{ fill: '#f3f6fa' }} />
-      <Legend verticalAlign="top" align="right" height={26} iconType="square" iconSize={9} wrapperStyle={{ fontSize: 11 }} />
-      <Bar dataKey="prev" name="전월" fill={OTHER} maxBarSize={16} radius={[4, 4, 0, 0]} isAnimationActive={false} />
-      <Bar dataKey="profit" name="이번 기간" fill={COLOR.profit} maxBarSize={16} radius={[4, 4, 0, 0]} isAnimationActive={false}>
-        {data.map((row) => <Cell key={row.fullName} fill={row.profit < 0 ? COLOR.loss : COLOR.profit} />)}
-      </Bar>
-    </BarChart>
-  </ResponsiveContainer>;
-});
-
-// 월별 톤당 매출(막대) · 톤당 이익(선), 원/톤. 중량 없는 달은 비움
 const tonFormat = (value) => (value === null || value === undefined ? '–' : `${compact(value)}원`);
+
+// 비율 막대 + 목록 (거래처 잔액 현황의 '미수금 경과 기간'과 같은 방식)
+function ShareBar({ slices, total, base }) {
+  if (!total) return <div className={pageClasses.empty}>데이터가 없습니다.</div>;
+  return <div className={pageClasses.share}>
+    <div className={pageClasses.shareBar} role="img" aria-label="비율">
+      {slices.filter((slice) => slice.value > 0).map((slice) => {
+        const share = (slice.value / total) * 100;
+        return <div key={slice.name} className={pageClasses.sharePart} style={{ flexGrow: share, background: slice.color }} title={`${slice.name} ${won(slice.value)} (${share.toFixed(1)}%)`}>
+          {share >= 10 && <span className={slice.dark ? pageClasses.shareTextDark : pageClasses.shareText}>{share.toFixed(0)}%</span>}
+        </div>;
+      })}
+    </div>
+    <div className={pageClasses.shareLegend}>
+      {slices.map((slice) => <div key={slice.name} className={pageClasses.shareRow} title={slice.name}>
+        <span className={pageClasses.swatch} style={{ background: slice.color }} />
+        <span className={pageClasses.shareName}>{slice.name}</span>
+        <span className={pageClasses.sharePct}>{((Math.max(slice.value, 0) / total) * 100).toFixed(1)}%</span>
+        <span className={pageClasses.shareValue}>{compact(slice.value)}원</span>
+        {base && <span className={pageClasses.shareBase}>매출의 {base ? ((slice.value / base) * 100).toFixed(1) : '–'}%</span>}
+      </div>)}
+    </div>
+  </div>;
+}
+
+// 거래처별 손익 순위: 매출 막대(전체 대비 비중) · 순이익 · 마진율 · 전월 대비 순이익. 줄을 누르면 매출이익 분석
+function CustomerRanking({ rows, totalSales, avgMargin, onPick }) {
+  const max = Math.max(...rows.map((row) => row.sales), 1);
+  const marginTone = (rate) => (rate === null || rate === undefined ? pageClasses.marginFlat : rate < 0 ? pageClasses.marginBad : rate >= avgMargin ? pageClasses.marginGood : pageClasses.marginFlat);
+  return <div className={pageClasses.rankScroll}>
+    <table className={pageClasses.rankTable}>
+      <thead><tr><th className={pageClasses.rankNo}>#</th><th>거래처</th><th>매출 · 비중</th><th className={pageClasses.num}>순이익</th><th className={pageClasses.num}>마진율</th><th>전월 대비 순이익</th></tr></thead>
+      <tbody>{rows.map((row, index) => <tr key={row.customname || index} tabIndex={0} onClick={() => onPick(row.customname)}
+        onKeyDown={(event) => { if (event.key === 'Enter') onPick(row.customname); }} title="누르면 매출이익 분석">
+        <td className={pageClasses.rankNo}><span className={index < 3 ? pageClasses.rankTop : pageClasses.rankBadge}>{index + 1}</span></td>
+        <td className={pageClasses.rankName}>{row.customname || '(거래처 없음)'}</td>
+        <td className={pageClasses.rankSales}>
+          <span className={pageClasses.rankTrack}><span style={{ width: `${(row.sales / max) * 100}%` }} /></span>
+          <b>{compact(row.sales)}</b><small>{totalSales ? `${((row.sales / totalSales) * 100).toFixed(0)}%` : ''}</small>
+        </td>
+        <td className={`${pageClasses.num} ${row.profit < 0 ? pageClasses.kpiLoss : pageClasses.strong}`}>{compact(row.profit)}</td>
+        <td className={pageClasses.num}><span className={`${pageClasses.marginPill} ${marginTone(row.margin_rate)}`}>{pct(row.margin_rate)}</span></td>
+        <td><TrendPill current={row.profit} previous={row.prev_profit || null} note="" emptyText="전월 거래 없음" /></td>
+      </tr>)}</tbody>
+    </table>
+  </div>;
+}
+
+// 이익률 하락 거래처: 전월 → 이번 마진율과 하락폭
+function MarginDrops({ rows, onPick }) {
+  return <div className={pageClasses.dropList}>
+    {rows.map((row) => <button key={row.fullName} type="button" className={pageClasses.dropRow} onClick={() => onPick(row.fullName)} title="누르면 매출이익 분석">
+      <span className={pageClasses.dropName}>{row.fullName}</span>
+      <span className={pageClasses.dropRates}>{pct(row.prev)}<span className={pageClasses.dropArrow}>→</span><b className={row.margin < 0 ? pageClasses.kpiLoss : ''}>{pct(row.margin)}</b></span>
+      <span className={pageClasses.dropPill}>▼ {Math.abs(row.drop).toFixed(1)}%p</span>
+    </button>)}
+  </div>;
+}
+
+// 월별 톤당 매출 · 톤당 이익 (원/톤, 같은 축) · 조회한 달만 진하게, 톤당 이익 위에 금액
 const PerTonChart = memo(function PerTonChart({ months }) {
-  const data = months.map((row) => ({ name: `${row.month.slice(2, 4)}.${row.month.slice(5)}`, fullName: row.month, sales: row.sales_per_ton, profit: row.profit_per_ton, ton: Number(row.weight || 0) / 1000 }));
-  return <ResponsiveContainer width="100%" height={250}>
-    <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+  const last = months.length - 1;
+  const data = months.map((row, index) => ({
+    name: `${Number(row.month.slice(5))}월`, fullName: row.month, sales: row.sales_per_ton, profit: row.profit_per_ton, ton: Number(row.weight || 0) / 1000,
+    label: index === last && row.profit_per_ton !== null ? compact(row.profit_per_ton) : '',
+  }));
+  return <ResponsiveContainer width="100%" height={240}>
+    <BarChart data={data} margin={{ top: 20, right: 8, bottom: 0, left: 0 }} barGap={2} barCategoryGap="26%">
       <CartesianGrid vertical={false} stroke="#eef1f5" />
       <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#d5dbe3' }} tickLine={false} />
       <YAxis tickFormatter={compact} width={52} tick={{ fontSize: 10, fill: '#8b95a3' }} axisLine={false} tickLine={false} />
-      <Tooltip content={<ChartTooltip extra={(row) => `판매 ${row.ton.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}톤`} />} cursor={{ fill: '#f3f6fa' }} />
-      <Legend verticalAlign="top" align="right" height={26} iconSize={9} wrapperStyle={{ fontSize: 11 }} />
-      <Bar dataKey="sales" name="톤당 매출" fill={COLOR.sales} maxBarSize={22} radius={[4, 4, 0, 0]} isAnimationActive={false} />
-      <Line dataKey="profit" name="톤당 이익" stroke={COLOR.profit} strokeWidth={2} dot={{ r: 4, fill: COLOR.profit, strokeWidth: 0 }} connectNulls isAnimationActive={false} />
-    </ComposedChart>
-  </ResponsiveContainer>;
-});
-
-// 전월보다 이익률이 떨어진 거래처 (하락폭 큰 순) · 회색 = 전월, 주황 = 이번 기간
-const MarginDropChart = memo(function MarginDropChart({ data }) {
-  return <ResponsiveContainer width="100%" height={250}>
-    <BarChart data={data} margin={{ top: 22, right: 8, bottom: 4, left: 0 }} barGap={2} barCategoryGap="26%">
-      <CartesianGrid vertical={false} stroke="#eef1f5" />
-      <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#d5dbe3' }} tickLine={false} interval={0} />
-      <YAxis tickFormatter={pct} width={48} tick={{ fontSize: 10, fill: '#8b95a3' }} axisLine={false} tickLine={false} />
-      <Tooltip formatter={(value, name) => [pct(value), name]} labelFormatter={(_, payload) => {
-        const row = payload?.[0]?.payload;
-        return row ? `${row.fullName} · ${row.drop.toFixed(1)}%p` : '';
-      }} cursor={{ fill: '#f3f6fa' }} />
-      <Legend verticalAlign="top" align="right" height={26} iconType="square" iconSize={9} wrapperStyle={{ fontSize: 11 }} />
-      <Bar dataKey="prev" name="전월 마진율" fill={OTHER} maxBarSize={16} radius={[4, 4, 0, 0]} isAnimationActive={false} />
-      <Bar dataKey="margin" name="이번 마진율" fill={COLOR.cost} maxBarSize={16} radius={[4, 4, 0, 0]} isAnimationActive={false}>
-        {data.map((row) => <Cell key={row.fullName} fill={row.margin < 0 ? COLOR.loss : COLOR.cost} />)}
-        <LabelList dataKey="drop" position="top" formatter={(value) => `${Number(value).toFixed(1)}%p`} style={{ fontSize: 10, fill: '#b42323', fontWeight: 700 }} />
+      <Tooltip cursor={{ fill: '#f3f6fa' }} content={({ active, payload }) => {
+        if (!active || !payload?.length) return null;
+        const row = payload[0].payload;
+        return <Paper className={pageClasses.tooltip} shadow="sm" withBorder>
+          <Text size="xs" fw={700} mb={5}>{row.fullName}</Text>
+          <div className={pageClasses.tooltipRow}><span className={pageClasses.swatch} style={{ background: COLOR.sales }} />톤당 매출<b>{tonFormat(row.sales)}</b></div>
+          <div className={pageClasses.tooltipRow}><span className={pageClasses.swatch} style={{ background: COLOR.profit }} />톤당 이익<b>{tonFormat(row.profit)}</b></div>
+          <div className={`${pageClasses.tooltipRow} ${pageClasses.tooltipTotal}`}><span className={pageClasses.swatch} />판매<b>{row.ton.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}톤</b></div>
+        </Paper>;
+      }} />
+      <Bar dataKey="sales" name="톤당 매출" maxBarSize={16} radius={[4, 4, 0, 0]} isAnimationActive={false}>
+        {data.map((row, index) => <Cell key={row.fullName} fill={index === last ? COLOR.sales : '#bcd6f3'} />)}
+      </Bar>
+      <Bar dataKey="profit" name="톤당 이익" maxBarSize={16} radius={[4, 4, 0, 0]} isAnimationActive={false}>
+        {data.map((row, index) => <Cell key={row.fullName} fill={(row.profit ?? 0) < 0 ? COLOR.loss : index === last ? COLOR.profit : '#a9e0c9'} />)}
       </Bar>
     </BarChart>
   </ResponsiveContainer>;
@@ -246,7 +236,7 @@ const topSlices = (rows, valueKey, nameKey) => {
   const positive = rows.filter((row) => row[valueKey] > 0);
   const top = positive.slice(0, 5).map((row, index) => ({ name: row[nameKey] || '(없음)', value: row[valueKey], color: PALETTE[index] }));
   const rest = positive.slice(5).reduce((sum, row) => sum + row[valueKey], 0);
-  return rest > 0 ? [...top, { name: `기타 ${positive.length - 5}`, value: rest, color: OTHER }] : top;
+  return rest > 0 ? [...top, { name: `기타 ${positive.length - 5}곳`, value: rest, color: OTHER, dark: true }] : top;
 };
 
 export default function GrossProfitDashboard() {
@@ -254,7 +244,6 @@ export default function GrossProfitDashboard() {
   const registerRibbon = ribbon?.registerPageRibbon;
   const closePage = ribbon?.closeActivePage;
   const navigate = useNavigate();
-  const [preset, setPreset] = useState('this');
   const [inputs, setInputs] = useState(() => PRESETS.this());
   const [period, setPeriod] = useState(() => PRESETS.this());
   const [data, setData] = useState(null);
@@ -284,10 +273,6 @@ export default function GrossProfitDashboard() {
     }
     setPeriod({ ...inputs });
   }, [inputs]);
-  const choosePreset = (value) => {
-    setPreset(value);
-    if (PRESETS[value]) { const range = PRESETS[value](); setInputs(range); setPeriod(range); }
-  };
   // 거래처를 누르면 매출이익분석으로 (같은 기간 · 그 거래처)
   const openDetail = useCallback((customer) => {
     const query = new URLSearchParams({ date_from: period.date_from, date_to: period.date_to, ...(customer ? { customer } : {}) });
@@ -341,109 +326,122 @@ export default function GrossProfitDashboard() {
     { name: '가공비', value: total.process_amt, color: PALETTE[2] },
     { name: '판매비용', value: total.selling_cost, color: PALETTE[3] },
   ].filter((slice) => slice.value > 0) : []), [total]);
-  const marginData = useMemo(() => (data?.customers || []).filter((row) => row.margin_rate !== null).slice(0, TOP_N)
-    .map((row) => ({ name: shortName(row.customname, 6), fullName: row.customname, margin: row.margin_rate })).sort((a, b) => b.margin - a.margin), [data]);
   const marginDrops = useMemo(() => (data?.customers || [])
     .filter((row) => row.margin_rate !== null && row.prev_margin_rate !== null && row.prev_margin_rate !== undefined && row.margin_rate < row.prev_margin_rate)
     .map((row) => ({ name: shortName(row.customname, 6), fullName: row.customname, prev: row.prev_margin_rate, margin: row.margin_rate, drop: row.margin_rate - row.prev_margin_rate }))
     .sort((a, b) => a.drop - b.drop).slice(0, TOP_N), [data]);
   const hasPrevMargins = useMemo(() => (data?.customers || []).some((row) => row.prev_margin_rate !== null && row.prev_margin_rate !== undefined), [data]);
 
-  const deltas = (key, options = {}) => [
-    <Delta key="m" current={total[key]} previous={prev[key]} {...options} />,
-    <Delta key="y" current={total[key]} previous={yoy?.[key]} label="전년 동월" {...options} />,
-  ];
   const tons = (Number(total?.weight || 0) / 1000).toLocaleString('ko-KR', { maximumFractionDigits: 1 });
+  const series = (key) => (data?.trend || []).map((row) => row[key] ?? 0);
+  const yoyText = (key, unit = '%') => {
+    if (!yoy) return '–';
+    if (unit === '%p') return yoy[key] === null || yoy[key] === undefined || total[key] === null ? '–' : `${total[key] - yoy[key] >= 0 ? '+' : '−'}${Math.abs(total[key] - yoy[key]).toFixed(1)}%p`;
+    const rate = changeRate(total[key], yoy[key]);
+    return rate === null ? '–' : `${rate >= 0 ? '+' : '−'}${Math.abs(rate).toFixed(1)}%`;
+  };
+  const amount = (value) => Math.round(Number(value || 0)).toLocaleString('ko-KR');
   const kpis = total ? [
-    { key: 'sales', label: '매출', icon: IconCash, value: won(total.sales), deltas: deltas('sales'), hint: `판매 ${won(total.sales_goods)} + 매출비용(+) ${won(total.sales_plus)}` },
-    { key: 'cost', label: '비용', icon: IconReceipt, value: won(total.cost), deltas: deltas('cost', { lowerIsBetter: true }), hint: `매입원가 ${won(total.cost_of_goods)} + 판매비용 ${won(total.selling_cost)}` },
-    { key: 'profit', label: '순이익', icon: IconTrendingUp, value: won(total.profit), deltas: deltas('profit'), hint: '매출 − 비용', loss: total.profit < 0 },
-    { key: 'margin', label: '마진율', icon: IconPercentage, value: pct(total.margin_rate), deltas: deltas('margin_rate', { unit: '%p' }), hint: '순이익 ÷ 매출', loss: total.profit < 0, gauge: true },
-    { key: 'perton', label: '톤당 이익', icon: IconScale, value: total.profit_per_ton === null ? '–' : won(total.profit_per_ton), deltas: deltas('profit_per_ton'),
-      hint: `순이익 ÷ 판매중량 · 톤당 매출 ${tonFormat(total.sales_per_ton)}`, loss: (total.profit_per_ton ?? 0) < 0,
-      story: Number(total.weight) > 0 ? <>판매 <b>{tons}톤</b> · 순이익 <b className={total.profit < 0 ? pageClasses.kpiLoss : pageClasses.storyProfit}>{compact(total.profit)}원</b></> : null },
+    { key: 'sales', palette: KPI_PALETTE.blue, icon: IconCash, label: '매출', basis: '판매 + 매출비용(+)', value: amount(total.sales),
+      trend: <TrendPill current={total.sales} previous={prev?.sales} />, bars: series('sales'),
+      stats: [{ label: '판매중량', value: `${tons}톤` }, { label: '전년 동월 대비', value: yoyText('sales') }] },
+    { key: 'cost', palette: KPI_PALETTE.orange, icon: IconReceipt, label: '비용', basis: '매입원가 + 판매비용', value: amount(total.cost),
+      trend: <TrendPill current={total.cost} previous={prev?.cost} goodWhenUp={false} />, bars: series('cost'),
+      stats: [{ label: '매입원가', value: `${compact(total.cost_of_goods)}원` }, { label: '판매비용', value: `${compact(total.selling_cost)}원` }] },
+    { key: 'profit', palette: KPI_PALETTE.green, icon: IconTrendingUp, label: '순이익', basis: '매출 − 비용', value: amount(total.profit), negative: total.profit < 0,
+      trend: <TrendPill current={total.profit} previous={prev?.profit} />, bars: series('profit'),
+      stats: [{ label: '손해 본 거래처', value: total.loss_customer_count ? `${total.loss_customer_count}곳` : '없음', warn: total.loss_customer_count > 0 }, { label: '전년 동월 대비', value: yoyText('profit') }] },
+    { key: 'margin', palette: KPI_PALETTE.slate, icon: IconPercentage, label: '마진율', basis: '순이익 ÷ 매출', value: total.margin_rate === null ? '–' : Number(total.margin_rate).toFixed(1), unit: total.margin_rate === null ? '' : '%', negative: total.profit < 0,
+      trend: <TrendPill mode="point" current={total.margin_rate} previous={prev?.margin_rate} />, bars: series('margin_rate'),
+      stats: [{ label: '전월 마진율', value: pct(prev?.margin_rate) }, { label: '전년 동월 대비', value: yoyText('margin_rate', '%p') }] },
+    { key: 'perton', palette: KPI_PALETTE.amber, icon: IconScale, label: '톤당 이익', basis: '순이익 ÷ 판매중량', value: total.profit_per_ton === null ? '–' : amount(total.profit_per_ton), unit: total.profit_per_ton === null ? '' : '원', negative: (total.profit_per_ton ?? 0) < 0,
+      trend: <TrendPill current={total.profit_per_ton} previous={prev?.profit_per_ton} />, bars: series('profit_per_ton'),
+      stats: [{ label: '톤당 매출', value: tonFormat(total.sales_per_ton) }, { label: '판매 건수', value: `${Number(total.line_count || 0).toLocaleString('ko-KR')}줄` }] },
   ] : [];
+  const insights = total ? buildInsights(total, prev, yoy, data.customers || [], marginDrops) : [];
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page} ${pageClasses.page}`}>
-      <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
-        <Group className={classes.breadcrumbTrail} gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>매출관리</Text>
-          <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-          <Text component="span" className={classes.breadcrumbCurrent}>매출이익 현황</Text>
-        </Group>
-      </Box>
-
-      <Paper className={pageClasses.filterBar} withBorder>
-        <Group className={pageClasses.filterMain} gap={10} wrap="wrap">
-          <SegmentedControl size="xs" value={preset} onChange={choosePreset} color="red"
-            data={[{ value: 'this', label: '이번 달' }, { value: 'last', label: '지난달' }, { value: 'quarter', label: '최근 3개월' }, { value: 'year', label: '올해' }, { value: 'custom', label: '직접 입력' }]} />
-          <Group gap={6} wrap="nowrap">
-            <ErpDateInput aria-label="시작일" type="date" value={inputs.date_from} onChange={(event) => { const { value } = event.currentTarget; setPreset('custom'); setInputs((current) => ({ ...current, date_from: value })); }} />
-            <Text size="xs" c="dimmed">~</Text>
-            <ErpDateInput aria-label="종료일" type="date" value={inputs.date_to} onChange={(event) => { const { value } = event.currentTarget; setPreset('custom'); setInputs((current) => ({ ...current, date_to: value })); }} />
-            <Button className={pageClasses.filterButton} size="xs" color="red" leftSection={<IconSearch size={14} />} onClick={search}>조회</Button>
-          </Group>
-          {data && <Text className={pageClasses.compareNote}>비교: 전월 {String(data.period.prev_from).slice(0, 10)} ~ {String(data.period.prev_to).slice(0, 10)}
-            {' · '}전년 동월 {String(data.period.yoy_from).slice(0, 10)} ~ {String(data.period.yoy_to).slice(0, 10)}</Text>}
-        </Group>
-        <Button className={pageClasses.detailButton} size="xs" variant="default" rightSection={<IconChevronRight size={14} />} onClick={() => openDetail('')}>거래처별 상세 보기</Button>
-      </Paper>
+      <DashboardHeader parent="매출관리" title="매출이익 현황" subtitle={<>
+        {data ? <>비교: 전월 {shortDate(data.period.prev_from)} ~ {shortDate(data.period.prev_to)} · 전년 동월 {shortDate(data.period.yoy_from, true)} ~ {shortDate(data.period.yoy_to, true)}<SubSep /></> : null}거래처를 누르면 매출이익 분석이 열립니다
+      </>}>
+        <FilterBox onSearch={search} loading={loading}>
+          <ErpDateInput aria-label="시작일" type="date" value={inputs.date_from} onChange={(event) => { const { value } = event.currentTarget; setInputs((current) => ({ ...current, date_from: value })); }} />
+          <FilterTilde />
+          <ErpDateInput aria-label="종료일" type="date" value={inputs.date_to} onChange={(event) => { const { value } = event.currentTarget; setInputs((current) => ({ ...current, date_to: value })); }} />
+        </FilterBox>
+      </DashboardHeader>
 
       <Box className={pageClasses.scroll}>
-        <Box className={pageClasses.kpiGrid} aria-label="핵심 지표">
-          {kpis.map((kpi) => {
-            const Icon = kpi.icon;
-            return <Paper key={kpi.key} className={`${pageClasses.kpi} ${pageClasses[`kpi_${kpi.key}`]}`} withBorder title={kpi.hint}>
-              <Group justify="space-between" wrap="nowrap" align="flex-start">
-                <Box style={{ minWidth: 0 }}>
-                  <Text className={pageClasses.kpiLabel}>{kpi.label}</Text>
-                  <Text className={`${pageClasses.kpiValue} ${kpi.loss ? pageClasses.kpiLoss : ''}`}>{kpi.value}</Text>
-                  {kpi.story && <Text className={pageClasses.kpiStory}>{kpi.story}</Text>}
-                </Box>
-                {kpi.gauge ? <MarginGauge value={total.margin_rate} /> : <span className={pageClasses.kpiIcon}><Icon size={20} stroke={1.8} /></span>}
-              </Group>
-              <Box className={pageClasses.kpiDeltas}>{kpi.deltas}</Box>
-            </Paper>;
-          })}
-          {!total && <Box className={pageClasses.kpiEmpty}><Empty loading={loading} /></Box>}
+        {total ? <KpiGrid count={kpis.length}>
+          {kpis.map(({ key, ...kpi }) => <KpiCard key={key} {...kpi} />)}
+        </KpiGrid> : <Box className={pageClasses.kpiEmpty}><Empty loading={loading} /></Box>}
+
+        <Box className={pageClasses.row2_1}>
+          <Panel title="최근 12개월 추이" sub="막대 전체 = 매출 (비용 + 순이익) · 진한 막대 = 조회한 달 · 작년 같은 달은 막대에 마우스">
+            {data ? <>
+              <div className={pageClasses.monthSummary}>
+                <div className={pageClasses.monthStat}><span className={pageClasses.monthStatLabel}>기간 매출</span><span className={pageClasses.monthStatValue}>{compact(total.sales)}원</span><span className={pageClasses.statTrend}><TrendPill current={total.sales} previous={prev?.sales} /></span></div>
+                <div className={pageClasses.monthStat}><span className={pageClasses.monthStatLabel}>순이익</span><span className={`${pageClasses.monthStatValue} ${total.profit < 0 ? pageClasses.kpiLoss : pageClasses.profitText}`}>{compact(total.profit)}원</span><span className={pageClasses.statTrend}><TrendPill current={total.profit} previous={prev?.profit} /></span></div>
+                <div className={pageClasses.monthStat}><span className={pageClasses.monthStatLabel}>마진율</span><span className={pageClasses.monthStatValue}>{pct(total.margin_rate)}</span><span className={pageClasses.statTrend}><TrendPill mode="point" current={total.margin_rate} previous={prev?.margin_rate} /></span></div>
+                <div className={pageClasses.monthStat}><span className={pageClasses.monthStatLabel}>판매중량</span><span className={pageClasses.monthStatValue}>{tons}톤</span><span className={pageClasses.statTrend}><TrendPill current={total.weight} previous={prev?.weight} /></span></div>
+              </div>
+              <div className={pageClasses.monthLegend}>
+                <span><i className={pageClasses.swatch} style={{ background: TREND_STRONG.profit }} />순이익</span>
+                <span><i className={pageClasses.swatch} style={{ background: TREND_STRONG.cost }} />비용</span>
+              </div>
+              <TrendChart months={data.trend} />
+            </> : <Empty loading={loading} />}
+          </Panel>
+          <Paper className={`${pageClasses.panel} ${pageClasses.flowPanel}`} withBorder>
+            <div className={pageClasses.flowTop}>
+              <span className={pageClasses.flowTitle}>조회기간 손익</span>
+              {total ? <>
+                <div className={pageClasses.flowRow}><span>매출</span><b className={pageClasses.flowIn}>+{compact(total.sales)}원</b></div>
+                <div className={pageClasses.flowRow}><span>비용 <small>매입원가 + 판매비용</small></span><b className={pageClasses.flowOut}>−{compact(total.cost)}원</b></div>
+                <div className={`${pageClasses.flowRow} ${pageClasses.flowNet}`}><span>순이익 <small>마진율 {pct(total.margin_rate)}</small></span><b>{total.profit < 0 ? '−' : '+'}{compact(Math.abs(total.profit))}원</b></div>
+              </> : <span className={pageClasses.flowEmpty}>{loading ? '불러오는 중…' : '데이터가 없습니다.'}</span>}
+            </div>
+            <div className={pageClasses.pointHead}><span className={pageClasses.pointTitle}><IconBulb size={16} stroke={1.9} />한눈에 보는 요점</span><span className={pageClasses.pointSub}>이 화면의 숫자로 자동 작성</span></div>
+            {insights.length
+              ? <ol className={pageClasses.points}>{insights.map((item, index) => <li key={index} className={pageClasses[`point_${item.tone}`]}>
+                <span className={pageClasses.pointRank}>{item.tone === 'bad' || item.tone === 'warn' ? <IconAlertTriangle size={12} stroke={2.2} /> : index + 1}</span>
+                <span className={pageClasses.pointText}>{item.text}</span>
+              </li>)}</ol>
+              : <Empty loading={loading} />}
+          </Paper>
         </Box>
 
         <Box className={pageClasses.row2_1}>
-          <Panel title="거래처별 매출 · 비용 · 순이익" sub={`매출 상위 ${TOP_N}곳 · 막대를 누르면 상세`}>
-            {hasData ? <CustomerChart rows={data.customers} onPick={openDetail} /> : <Empty loading={loading} />}
+          <Panel title="거래처별 손익 순위" sub={`매출 상위 ${Math.min(RANK_N, data?.customers?.length || 0)}곳 · 줄을 누르면 매출이익 분석`}
+            action={hasData ? <button type="button" className={pageClasses.moreLink} onClick={() => openDetail('')}>거래처별 상세 보기 (전체 {data.customers.length}곳)<IconChevronRight size={13} /></button> : null}
+            className={pageClasses.tablePanel}>
+            {hasData ? <CustomerRanking rows={data.customers.slice(0, RANK_N)} totalSales={total.sales} avgMargin={total.margin_rate ?? 0} onPick={openDetail} /> : <Empty loading={loading} />}
           </Panel>
-          <Panel title="매출 비중" sub="거래처 상위 5곳 + 기타">
-            {hasData ? <Donut slices={salesSlices} centerLabel="총 매출" centerValue={compact(total.sales)} /> : <Empty loading={loading} />}
-          </Panel>
-        </Box>
-
-        <Box className={pageClasses.row2_1}>
-          <Panel title="최근 12개월 추이" sub="매출(막대) · 순이익(선) · 회색 = 작년 같은 달">
-            {data ? <TrendChart months={data.trend} /> : <Empty loading={loading} />}
-          </Panel>
-          <Panel title="비용 구성" sub="어디에 돈이 들었나">
-            {costSlices.length ? <Donut slices={costSlices} centerLabel="총 비용" centerValue={compact(total.cost)} /> : <Empty loading={loading} />}
+          <Panel title="매출 · 비용 구성" sub="비율 막대 · 금액">
+            {hasData ? <>
+              <div className={pageClasses.sectionLabel}>매출 비중 <small>거래처 상위 5곳 + 기타</small></div>
+              <ShareBar slices={salesSlices} total={salesSlices.reduce((sum, slice) => sum + Math.max(slice.value, 0), 0)} />
+              <div className={`${pageClasses.sectionLabel} ${pageClasses.sectionGap}`}>비용 구성 <small>총 {compact(total.cost)}원</small></div>
+              <ShareBar slices={costSlices} total={costSlices.reduce((sum, slice) => sum + Math.max(slice.value, 0), 0)} base={total.sales} />
+            </> : <Empty loading={loading} />}
           </Panel>
         </Box>
 
         <Box className={pageClasses.row1_1}>
-          <Panel title="톤당 매출 · 톤당 이익" sub="월별 · 원/톤 (판매중량 기준)">
-            {data ? <PerTonChart months={data.trend} /> : <Empty loading={loading} />}
-          </Panel>
-          <Panel title="이익률 하락 거래처" sub={`전월보다 마진율이 떨어진 곳 · 하락폭 큰 순 ${TOP_N}곳`}>
-            {marginDrops.length ? <MarginDropChart data={marginDrops} />
+          <Panel title="이익률 하락 거래처" sub="전월보다 마진율이 떨어진 곳 · 하락폭 큰 순 · 누르면 매출이익 분석">
+            {marginDrops.length ? <MarginDrops rows={marginDrops} onPick={openDetail} />
               : hasData ? <Box className={pageClasses.empty}>{hasPrevMargins ? '전월보다 이익률이 떨어진 거래처가 없습니다.' : '전월 거래가 없어 비교할 수 없습니다.'}</Box>
                 : <Empty loading={loading} />}
           </Panel>
-        </Box>
-
-        <Box className={pageClasses.row1_1}>
-          <Panel title="거래처별 마진율" sub={`매출 상위 ${TOP_N}곳 · 손실은 빨강`}>
-            {marginData.length ? <ColumnChart data={marginData} valueKey="margin" format={pct} label="마진율" /> : <Empty loading={loading} />}
-          </Panel>
-          <Panel title="전월 대비 순이익" sub={`매출 상위 ${TOP_N}곳`}>
-            {hasData && prev?.sales ? <PrevCompareChart rows={data.customers} /> : hasData ? <Box className={pageClasses.empty}>전월 매출이 없어 비교할 수 없습니다.</Box> : <Empty loading={loading} />}
+          <Panel title="톤당 매출 · 톤당 이익" sub="월별 · 원/톤 (판매중량 기준) · 진한 막대 = 조회한 달">
+            {data ? <>
+              <div className={pageClasses.monthLegend}>
+                <span><i className={pageClasses.swatch} style={{ background: COLOR.sales }} />톤당 매출</span>
+                <span><i className={pageClasses.swatch} style={{ background: COLOR.profit }} />톤당 이익</span>
+              </div>
+              <PerTonChart months={data.trend} />
+            </> : <Empty loading={loading} />}
           </Panel>
         </Box>
 

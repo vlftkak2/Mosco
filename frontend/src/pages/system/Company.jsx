@@ -10,6 +10,7 @@ import {
   NumberInput,
   Pagination,
   Paper,
+  Progress,
   ScrollArea,
   Select,
   Table,
@@ -17,13 +18,23 @@ import {
   TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconSearch, IconUsers } from '@tabler/icons-react';
+import {
+  IconBuildingSkyscraper,
+  IconClockHour4,
+  IconId,
+  IconInbox,
+  IconMapPin,
+  IconSearch,
+  IconSettings,
+  IconUsers,
+} from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import classes from '../../styles/pages/Company.module.css';
 
-const PAGE_SIZE = 30;
+const PAGE_SIZE_OPTIONS = [15, 20, 50, 100].map((value) => ({ value: String(value), label: `${value}개씩` }));
+const DEFAULT_PAGE_SIZE = 15;
 let postcodeScriptPromise;
 const COMPANY_COLUMNS = [
   { key: 'companyid', label: '고객사코드', width: '11%' },
@@ -50,6 +61,7 @@ const PLAN_FILTER_OPTIONS = [{ value: 'ALL', label: '전체' }, ...PLAN_OPTIONS]
 const STATUS_FILTER_OPTIONS = [{ value: 'ALL', label: '전체' }, ...STATUS_OPTIONS];
 const STATUS_LABEL = Object.fromEntries(STATUS_OPTIONS.map((item) => [item.value, item.label]));
 const PLAN_LABEL = Object.fromEntries(PLAN_OPTIONS.map((item) => [item.value, item.label]));
+const PLAN_COLOR = { BASIC: 'gray', EXTENDED: 'violet' };
 
 const authConfig = () => ({
   headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` },
@@ -146,6 +158,7 @@ export default function Company() {
   const [appliedPlanFilter, setAppliedPlanFilter] = useState('ALL');
   const [appliedStatusFilter, setAppliedStatusFilter] = useState('ALL');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -157,7 +170,7 @@ export default function Company() {
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
   useEffect(() => { isNewRef.current = isNew; }, [isNew]);
 
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
   const loadCompanies = useCallback(async () => {
     setLoading(true);
@@ -169,7 +182,7 @@ export default function Company() {
           plan_code: appliedPlanFilter === 'ALL' ? undefined : appliedPlanFilter,
           company_status: appliedStatusFilter === 'ALL' ? undefined : appliedStatusFilter,
           page,
-          page_size: PAGE_SIZE,
+          page_size: pageSize,
         },
       });
       const rows = (data.items || []).map(normalizeCompany);
@@ -194,7 +207,7 @@ export default function Company() {
     } finally {
       setLoading(false);
     }
-  }, [appliedPlanFilter, appliedStatusFilter, page, search]);
+  }, [appliedPlanFilter, appliedStatusFilter, page, pageSize, search]);
 
   // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
   usePageReactivated(() => { void loadCompanies(); });
@@ -329,6 +342,12 @@ export default function Company() {
     [draft.active_users, draft.licensed_seats],
   );
 
+  const usagePercent = useMemo(() => {
+    const seats = Number(draft.licensed_seats || 0);
+    if (seats <= 0) return 0;
+    return Math.min(100, Math.round((Number(draft.active_users || 0) / seats) * 100));
+  }, [draft.active_users, draft.licensed_seats]);
+
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
@@ -340,53 +359,55 @@ export default function Company() {
       <div className={classes.workspace}>
         <Paper className={classes.listPanel} withBorder>
           <Group className={classes.panelHeader} justify="space-between" wrap="wrap">
-            <Group gap={7}>
+            <Group gap={8} wrap="nowrap">
+              <span className={classes.titleIcon}><IconBuildingSkyscraper size={15} /></span>
               <Text className={classes.sectionTitle} fw={700}>고객사 목록</Text>
-              <Badge variant="light" color="gray">{total}건</Badge>
-            </Group>
-            <Group gap={7} align="flex-end" wrap="nowrap">
-              <Select
-                w={126}
-                label="요금제"
-                aria-label="요금제 필터"
-                data={PLAN_FILTER_OPTIONS}
-                value={planFilter}
-                onChange={(value) => {
-                  const nextValue = value || 'ALL';
-                  setPlanFilter(nextValue);
-                  setAppliedPlanFilter(nextValue);
-                  setSearch(query.trim());
-                  setPage(1);
-                }}
-                allowDeselect={false}
-                size="sm"
-              />
-              <Select
-                w={146}
-                label="이용상태"
-                aria-label="이용상태 필터"
-                data={STATUS_FILTER_OPTIONS}
-                value={statusFilter}
-                onChange={(value) => {
-                  const nextValue = value || 'ALL';
-                  setStatusFilter(nextValue);
-                  setAppliedStatusFilter(nextValue);
-                  setSearch(query.trim());
-                  setPage(1);
-                }}
-                allowDeselect={false}
-                size="sm"
-              />
+              <Badge className={classes.countBadge} variant="light" color="gray" radius="sm">{total.toLocaleString('ko-KR')}건</Badge>
             </Group>
           </Group>
-          <Group className={classes.searchBar} gap={7} wrap="nowrap">
+          <Group className={classes.searchBar} gap={8} align="flex-end" wrap="nowrap">
             <TextInput
               className={classes.searchInput}
+              label="검색어"
               value={query}
               onChange={(event) => setQuery(event.currentTarget.value)}
               onKeyDown={(event) => { if (event.key === 'Enter') handleSearch(); }}
               placeholder="고객사 코드, 고객사명, 사업자번호"
               leftSection={<IconSearch size={15} />}
+            />
+            <Select
+              className={classes.compactSelect}
+              w={100}
+              label="요금제"
+              aria-label="요금제 필터"
+              data={PLAN_FILTER_OPTIONS}
+              value={planFilter}
+              onChange={(value) => {
+                const nextValue = value || 'ALL';
+                setPlanFilter(nextValue);
+                setAppliedPlanFilter(nextValue);
+                setSearch(query.trim());
+                setPage(1);
+              }}
+              allowDeselect={false}
+              comboboxProps={{ width: 'max-content', position: 'bottom-start' }}
+            />
+            <Select
+              className={classes.compactSelect}
+              w={108}
+              label="이용상태"
+              aria-label="이용상태 필터"
+              data={STATUS_FILTER_OPTIONS}
+              value={statusFilter}
+              onChange={(value) => {
+                const nextValue = value || 'ALL';
+                setStatusFilter(nextValue);
+                setAppliedStatusFilter(nextValue);
+                setSearch(query.trim());
+                setPage(1);
+              }}
+              allowDeselect={false}
+              comboboxProps={{ width: 'max-content', position: 'bottom-start' }}
             />
           </Group>
           <ScrollArea className={classes.tableWrap} type="auto">
@@ -402,81 +423,136 @@ export default function Company() {
               <Table.Tbody>
                 {companies.length ? companies.map((company) => (
                   <Table.Tr key={company.companyid} className={`${classes.clickableRow} ${selectedId === company.companyid ? classes.selectedRow : ''}`} onClick={() => handleSelect(company)}>
-                    <Table.Td>{company.companyid}</Table.Td>
+                    <Table.Td className={classes.codeCell} title={company.companyid}>{company.companyid}</Table.Td>
                     <Table.Td title={company.companyname}>{company.companyname}</Table.Td>
-                    <Table.Td>{PLAN_LABEL[company.plan_code] || company.plan_code}</Table.Td>
+                    <Table.Td>
+                      <Badge size="sm" variant="light" radius="sm" color={PLAN_COLOR[company.plan_code] || 'gray'}>{PLAN_LABEL[company.plan_code] || company.plan_code}</Badge>
+                    </Table.Td>
                     <Table.Td><Badge size="sm" variant="light" color={company.company_status === 'ACTIVE' ? 'teal' : company.company_status === 'SUSPENDED' ? 'orange' : 'gray'}>{STATUS_LABEL[company.company_status] || company.company_status}</Badge></Table.Td>
                     <Table.Td>{Number(company.licensed_seats || 0).toLocaleString('ko-KR')}</Table.Td>
-                    <Table.Td>{formatDate(company.createdat)}</Table.Td>
-                    <Table.Td>{formatDate(company.updatedat)}</Table.Td>
-                    <Table.Td>{company.created_by_name || company.created_by || ''}</Table.Td>
-                    <Table.Td>{company.updated_by_name || company.updated_by || ''}</Table.Td>
+                    <Table.Td className={classes.mutedCell} title={formatDate(company.createdat)}>{formatDate(company.createdat)}</Table.Td>
+                    <Table.Td className={classes.mutedCell} title={formatDate(company.updatedat)}>{formatDate(company.updatedat)}</Table.Td>
+                    <Table.Td title={company.created_by_name || company.created_by || ''}>{company.created_by_name || company.created_by || ''}</Table.Td>
+                    <Table.Td title={company.updated_by_name || company.updated_by || ''}>{company.updated_by_name || company.updated_by || ''}</Table.Td>
                   </Table.Tr>
                 )) : (
-                  <Table.Tr><Table.Td colSpan={COMPANY_COLUMNS.length} className={classes.empty}>{loading ? '조회 중...' : '등록된 고객사가 없습니다.'}</Table.Td></Table.Tr>
+                  <Table.Tr className={classes.emptyRow}>
+                    <Table.Td colSpan={COMPANY_COLUMNS.length} className={classes.emptyCell}>
+                      <div className={classes.empty}>
+                        <span className={classes.emptyIcon}>{loading ? <IconSearch size={20} /> : <IconInbox size={22} />}</span>
+                        <strong>{loading ? '조회 중...' : '등록된 고객사가 없습니다.'}</strong>
+                        {!loading && <span>검색 조건을 바꾸거나 상단의 추가 버튼으로 새 고객사를 등록해 주세요.</span>}
+                      </div>
+                    </Table.Td>
+                  </Table.Tr>
                 )}
               </Table.Tbody>
             </Table>
           </ScrollArea>
-          <Group className={sharedClasses.footer} justify="space-between">
-            <Text size="xs" c="dimmed">총 {total}건</Text>
-            <Pagination size="xs" value={page} total={pageCount} onChange={setPage} />
+          <Group className={classes.paginationBar} justify="space-between" wrap="wrap">
+            <Group gap="xs" wrap="nowrap">
+              <Text component="span" className={classes.totalText}>총 <b>{total.toLocaleString('ko-KR')}</b>건</Text>
+              <Select
+                aria-label="페이지당 표시 건수"
+                data={PAGE_SIZE_OPTIONS}
+                value={String(pageSize)}
+                w={96}
+                size="xs"
+                allowDeselect={false}
+                onChange={(value) => {
+                  if (!value) return;
+                  setPageSize(Number(value));
+                  setPage(1);
+                }}
+              />
+            </Group>
+            <Pagination size="sm" color="red" withEdges value={Math.min(page, pageCount)} total={pageCount} onChange={setPage} disabled={loading || !total} />
           </Group>
         </Paper>
 
         <Paper className={classes.formPanel} withBorder>
-          <Group className={classes.panelHeader} justify="space-between">
-            <Text className={classes.sectionTitle} fw={700}>고객사 정보</Text>
+          <Group className={classes.panelHeader} justify="space-between" wrap="nowrap">
             <Group gap={8} wrap="nowrap">
-              {!isNew && selectedId && (
-                <Button
-                  size="xs"
-                  variant="light"
-                  color="red"
-                  leftSection={<IconUsers size={14} />}
-                  onClick={() => navigate('/User', { state: { companyid: selectedId } })}
-                >
-                  계정 관리
-                </Button>
-              )}
-              <Badge variant="light" color={isNew ? 'red' : 'gray'}>{isNew ? '신규' : '상세'}</Badge>
+              <Text className={classes.sectionTitle} fw={700}>고객사 정보</Text>
+              <Badge variant="light" radius="sm" color={isNew ? 'red' : 'gray'}>{isNew ? '신규' : '상세'}</Badge>
             </Group>
+            {!isNew && selectedId && (
+              <Button
+                size="xs"
+                variant="light"
+                color="red"
+                leftSection={<IconUsers size={14} />}
+                onClick={() => navigate('/User', { state: { companyid: selectedId } })}
+              >
+                계정 관리
+              </Button>
+            )}
           </Group>
           <ScrollArea className={classes.formBody} type="auto">
-            <div className={classes.formGrid}>
-              <TextInput label="고객사 코드 *" value={draft.companyid} onChange={(event) => updateDraft('companyid', event.currentTarget.value)} disabled={!isNew} maxLength={50} />
-              <TextInput label="고객사명 *" value={draft.companyname} onChange={(event) => updateDraft('companyname', event.currentTarget.value)} maxLength={100} />
-              <TextInput label="사업자번호" value={draft.businessno} onChange={(event) => updateDraft('businessno', event.currentTarget.value)} maxLength={20} />
-              <TextInput label="대표자명" value={draft.ceoname} onChange={(event) => updateDraft('ceoname', event.currentTarget.value)} maxLength={100} />
-              <TextInput label="전화번호" value={draft.phone} onChange={(event) => updateDraft('phone', event.currentTarget.value)} maxLength={30} />
-              <TextInput label="이메일" value={draft.email} onChange={(event) => updateDraft('email', event.currentTarget.value)} maxLength={255} />
-              <Select label="서비스 유형 *" data={PLAN_OPTIONS} value={draft.plan_code} onChange={(value) => updateDraft('plan_code', value || 'BASIC')} allowDeselect={false} />
-              <Select label="이용 상태 *" data={STATUS_OPTIONS} value={draft.company_status} onChange={(value) => updateDraft('company_status', value || 'PENDING')} allowDeselect={false} />
-              <NumberInput label="허용 계정 수 *" min={0} allowDecimal={false} thousandSeparator="," value={draft.licensed_seats} onChange={(value) => updateDraft('licensed_seats', Number(value || 0))} />
-              <TextInput label="현재 활성 계정" value={usageText} readOnly disabled />
-              <Group className={classes.addressField} align="flex-end" gap="xs" wrap="nowrap">
-                <TextInput
-                  label="우편번호"
-                  value={draft.zipcode}
-                  placeholder="자동 입력"
-                  inputMode="numeric"
-                  maxLength={5}
-                  onChange={(event) => updateDraft('zipcode', event.currentTarget.value)}
-                  style={{ flex: '0 0 120px' }}
-                />
-                <TextInput
-                  label="기본주소"
-                  value={draft.address1}
-                  onChange={(event) => updateDraft('address1', event.currentTarget.value)}
-                  style={{ flex: 1 }}
-                />
-                <Button variant="light" onClick={() => setAddressOpen(true)}>주소 검색</Button>
-              </Group>
-              <TextInput className={classes.fullWidth} label="상세주소" value={draft.address2} onChange={(event) => updateDraft('address2', event.currentTarget.value)} maxLength={300} />
-              <TextInput label="등록일시" value={formatDateTime(draft.createdat)} readOnly disabled />
-              <TextInput label="수정일시" value={formatDateTime(draft.updatedat)} readOnly disabled />
-              <TextInput label="등록자" value={draft.created_by_name || draft.created_by || ''} readOnly disabled />
-              <TextInput label="수정자" value={draft.updated_by_name || draft.updated_by || ''} readOnly disabled />
+            <div className={classes.formSections}>
+              <section className={classes.formSection}>
+                <div className={classes.formSectionHead}><IconId size={15} />기본 정보</div>
+                <div className={classes.formGrid}>
+                  <TextInput label="고객사 코드" withAsterisk value={draft.companyid} onChange={(event) => updateDraft('companyid', event.currentTarget.value)} disabled={!isNew} maxLength={50} />
+                  <TextInput label="고객사명" withAsterisk value={draft.companyname} onChange={(event) => updateDraft('companyname', event.currentTarget.value)} maxLength={100} />
+                  <TextInput label="사업자번호" value={draft.businessno} onChange={(event) => updateDraft('businessno', event.currentTarget.value)} maxLength={20} />
+                  <TextInput label="대표자명" value={draft.ceoname} onChange={(event) => updateDraft('ceoname', event.currentTarget.value)} maxLength={100} />
+                  <TextInput label="전화번호" value={draft.phone} onChange={(event) => updateDraft('phone', event.currentTarget.value)} maxLength={30} />
+                  <TextInput label="이메일" value={draft.email} onChange={(event) => updateDraft('email', event.currentTarget.value)} maxLength={255} />
+                </div>
+              </section>
+
+              <section className={classes.formSection}>
+                <div className={classes.formSectionHead}><IconSettings size={15} />서비스 이용</div>
+                <div className={classes.formGrid}>
+                  <div className={classes.compactRow}>
+                    <Select className={classes.compactField} label="서비스 유형" withAsterisk data={PLAN_OPTIONS} value={draft.plan_code} onChange={(value) => updateDraft('plan_code', value || 'BASIC')} allowDeselect={false} comboboxProps={{ width: 'max-content', position: 'bottom-start' }} />
+                    <Select className={classes.compactField} label="이용 상태" withAsterisk data={STATUS_OPTIONS} value={draft.company_status} onChange={(value) => updateDraft('company_status', value || 'PENDING')} allowDeselect={false} comboboxProps={{ width: 'max-content', position: 'bottom-start' }} />
+                    <NumberInput className={classes.compactField} label="허용 계정 수" withAsterisk min={0} allowDecimal={false} thousandSeparator="," value={draft.licensed_seats} onChange={(value) => updateDraft('licensed_seats', Number(value || 0))} />
+                  </div>
+                  <TextInput label="현재 활성 계정" value={usageText} readOnly disabled />
+                  <div className={classes.usage}>
+                    <span>계정 사용률</span>
+                    <Progress className={classes.usageBar} value={usagePercent} size="sm" radius="xl" color={usagePercent >= 100 ? 'red' : usagePercent >= 80 ? 'orange' : 'teal'} />
+                    <b>{usagePercent}%</b>
+                  </div>
+                </div>
+              </section>
+
+              <section className={classes.formSection}>
+                <div className={classes.formSectionHead}><IconMapPin size={15} />주소</div>
+                <div className={classes.formGrid}>
+                  <Group className={classes.addressField} align="flex-end" gap="xs" wrap="nowrap">
+                    <TextInput
+                      label="우편번호"
+                      value={draft.zipcode}
+                      placeholder="자동 입력"
+                      inputMode="numeric"
+                      maxLength={5}
+                      onChange={(event) => updateDraft('zipcode', event.currentTarget.value)}
+                      style={{ flex: '0 0 120px' }}
+                    />
+                    <TextInput
+                      label="기본주소"
+                      value={draft.address1}
+                      onChange={(event) => updateDraft('address1', event.currentTarget.value)}
+                      style={{ flex: 1 }}
+                    />
+                    <Button variant="light" onClick={() => setAddressOpen(true)}>주소 검색</Button>
+                  </Group>
+                  <TextInput className={classes.fullWidth} label="상세주소" value={draft.address2} onChange={(event) => updateDraft('address2', event.currentTarget.value)} maxLength={300} />
+                </div>
+              </section>
+
+              <section className={classes.formSection}>
+                <div className={classes.formSectionHead}><IconClockHour4 size={15} />등록 이력</div>
+                <div className={classes.formGrid}>
+                  <TextInput label="등록일시" value={formatDateTime(draft.createdat)} readOnly disabled />
+                  <TextInput label="수정일시" value={formatDateTime(draft.updatedat)} readOnly disabled />
+                  <TextInput label="등록자" value={draft.created_by_name || draft.created_by || ''} readOnly disabled />
+                  <TextInput label="수정자" value={draft.updated_by_name || draft.updated_by || ''} readOnly disabled />
+                </div>
+              </section>
             </div>
           </ScrollArea>
         </Paper>

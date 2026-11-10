@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import {
-  Badge,
   Box,
   Button,
   Group,
@@ -14,25 +13,25 @@ import {
   Table,
   Text,
   TextInput,
-  Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconCheck,
   IconChevronRight,
-  IconDownload,
+  IconDatabaseOff,
   IconSearch,
   IconTrash,
-  IconUpload,
 } from '@tabler/icons-react';
 import XLSX from 'xlsx-js-style';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
+import ExcelBulkActions from '../../components/common/ExcelBulkActions';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
 import { TableVirtuoso } from 'react-virtuoso';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import classes from '../../styles/pages/CodeMasterPage.module.css';
-import dashboardClasses from '../../styles/pages/HomePage.module.css';
+// 일반코드 관리 화면 전용 스타일 (공유 CSS는 수정하지 않고 이 모듈로 덮어씁니다)
+import s from '../../styles/pages/CodeMasterScreen.module.css';
 
 // 공통코드 API는 로그인 토큰으로 보호되므로 모든 요청에 인증 헤더를 붙입니다.
 const authHeaders = () => ({
@@ -90,25 +89,25 @@ const CodeMasterTableCells = memo(function CodeMasterTableCells({ row, index, co
   };
   return (
     <>
-      <Table.Td className={classes.checkCol}><input aria-label={`${row.name || '새 코드'} 선택`} type="checkbox" checked={selected} disabled={disabled} onChange={(event) => onToggleSelection(row.id, event.nativeEvent.shiftKey)} /></Table.Td>
-      <Table.Td className={classes.rowNumber}>{index + 1}</Table.Td>
-      <Table.Td><input ref={(element) => { onRegisterCodeInput(row.id, element); onRegisterCellInput(row.id, 'code', element); }} className={classes.cellInput} aria-label={codeLabel} data-row-id={row.id} data-field="code" value={row.code ?? ''} readOnly={!row.isNew} disabled={disabled} onFocus={() => onFocusCell(row.id, 'code')} onPaste={paste('code')} onChange={(event) => onUpdateRow(row.id, 'code', event.currentTarget.value)} placeholder={codeLabel} /></Table.Td>
-      <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'name', element)} className={classes.cellInput} aria-label={nameLabel} data-row-id={row.id} data-field="name" value={row.name ?? ''} disabled={disabled} onFocus={() => onFocusCell(row.id, 'name')} onPaste={paste('name')} onChange={(event) => onUpdateRow(row.id, 'name', event.currentTarget.value)} placeholder={`${nameLabel} 입력`} /></Table.Td>
-      {propertyLabel && <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'property', element)} className={classes.cellInput} aria-label={propertyLabel} data-row-id={row.id} data-field="property" value={row.property ?? ''} disabled={disabled} onFocus={() => onFocusCell(row.id, 'property')} onPaste={paste('property')} onChange={(event) => onUpdateRow(row.id, 'property', event.currentTarget.value)} /></Table.Td>}
-      <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'order', element)} className={classes.cellInput} aria-label="정렬 순서" data-row-id={row.id} data-field="order" type="number" min={0} value={String(row.order)} disabled={disabled} onFocus={() => onFocusCell(row.id, 'order')} onPaste={paste('order')} onChange={(event) => onUpdateRow(row.id, 'order', Number(event.currentTarget.value))} /></Table.Td>
-      <Table.Td><select ref={(element) => onRegisterCellInput(row.id, 'use', element)} className={classes.cellSelect} aria-label={`${row.code || '코드'} 사용여부`} data-row-id={row.id} data-field="use" value={row.use ? 'Y' : 'N'} disabled={disabled} onFocus={() => onFocusCell(row.id, 'use')} onPaste={paste('use')} onChange={(event) => onUpdateRow(row.id, 'use', event.currentTarget.value === 'Y')}><option value="Y">사용중</option><option value="N">사용중지</option></select></Table.Td>
-      <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'description', element)} className={classes.cellInput} aria-label="비고" data-row-id={row.id} data-field="description" value={row.description ?? ''} disabled={disabled} onFocus={() => onFocusCell(row.id, 'description')} onPaste={paste('description')} onChange={(event) => onUpdateRow(row.id, 'description', event.currentTarget.value)} /></Table.Td>
+      <Table.Td className={s.checkCol}><input aria-label={`${row.name || '새 코드'} 선택`} type="checkbox" checked={selected} disabled={disabled} onChange={(event) => onToggleSelection(row.id, event.nativeEvent.shiftKey)} /></Table.Td>
+      <Table.Td className={s.rowNumber}>{index + 1}</Table.Td>
+      <Table.Td><input ref={(element) => { onRegisterCodeInput(row.id, element); onRegisterCellInput(row.id, 'code', element); }} className={s.cellInput} aria-label={codeLabel} data-row-id={row.id} data-field="code" value={row.code ?? ''} readOnly={!row.isNew} disabled={disabled} onFocus={() => onFocusCell(row.id, 'code')} onPaste={paste('code')} onChange={(event) => onUpdateRow(row.id, 'code', event.currentTarget.value)} placeholder={codeLabel} /></Table.Td>
+      <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'name', element)} className={s.cellInput} aria-label={nameLabel} data-row-id={row.id} data-field="name" value={row.name ?? ''} disabled={disabled} onFocus={() => onFocusCell(row.id, 'name')} onPaste={paste('name')} onChange={(event) => onUpdateRow(row.id, 'name', event.currentTarget.value)} placeholder={`${nameLabel} 입력`} /></Table.Td>
+      {propertyLabel && <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'property', element)} className={s.cellInput} aria-label={propertyLabel} data-row-id={row.id} data-field="property" value={row.property ?? ''} disabled={disabled} onFocus={() => onFocusCell(row.id, 'property')} onPaste={paste('property')} onChange={(event) => onUpdateRow(row.id, 'property', event.currentTarget.value)} /></Table.Td>}
+      <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'order', element)} className={s.cellInput} aria-label="정렬 순서" data-row-id={row.id} data-field="order" type="number" min={0} value={String(row.order)} disabled={disabled} onFocus={() => onFocusCell(row.id, 'order')} onPaste={paste('order')} onChange={(event) => onUpdateRow(row.id, 'order', Number(event.currentTarget.value))} /></Table.Td>
+      <Table.Td className={s.useCell}><select ref={(element) => onRegisterCellInput(row.id, 'use', element)} className={`${s.cellSelect} ${s.useSelect} ${row.use ? s.useOn : s.useOff}`} aria-label={`${row.code || '코드'} 사용여부`} data-row-id={row.id} data-field="use" value={row.use ? 'Y' : 'N'} disabled={disabled} onFocus={() => onFocusCell(row.id, 'use')} onPaste={paste('use')} onChange={(event) => onUpdateRow(row.id, 'use', event.currentTarget.value === 'Y')}><option value="Y">사용중</option><option value="N">사용중지</option></select></Table.Td>
+      <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'description', element)} className={s.cellInput} aria-label="비고" data-row-id={row.id} data-field="description" value={row.description ?? ''} disabled={disabled} onFocus={() => onFocusCell(row.id, 'description')} onPaste={paste('description')} onChange={(event) => onUpdateRow(row.id, 'description', event.currentTarget.value)} /></Table.Td>
     </>
   );
 });
 
 const CodeMasterVirtualRow = ({ item, className, ...props }) => (
-  <Table.Tr {...props} className={[className, item?.isNew && classes.newRow].filter(Boolean).join(' ')} />
+  <Table.Tr {...props} className={[className, item?.isNew && s.newRow].filter(Boolean).join(' ')} />
 );
 
 const codeMasterVirtuosoComponents = {
   Table: ({ style, ...props }) => (
-    <Table {...props} className={`${sharedClasses.table} ${classes.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0} style={{ ...style, width: '100%', tableLayout: 'fixed' }} />
+    <Table {...props} className={s.table} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0} style={{ ...style, width: '100%', tableLayout: 'fixed' }} />
   ),
   TableHead: Table.Thead,
   TableBody: Table.Tbody,
@@ -116,8 +115,12 @@ const codeMasterVirtuosoComponents = {
   EmptyPlaceholder: ({ context }) => (
     <Table.Tbody>
       <Table.Tr>
-        <Table.Td colSpan={context.columnCount} className={classes.emptyPlaceholder}>
-          {context.emptyMessage}
+        <Table.Td colSpan={context.columnCount} className={s.emptyCell}>
+          <div className={s.empty}>
+            <span className={s.emptyIcon}>{context.searching ? <IconSearch size={20} /> : <IconDatabaseOff size={20} />}</span>
+            <strong>{context.emptyMessage}</strong>
+            <span>{context.searching ? '검색어 또는 사용여부 조건을 바꿔 보세요.' : '리본의 [추가]로 새 코드를 입력하거나 엑셀로 일괄등록하세요.'}</span>
+          </div>
         </Table.Td>
       </Table.Tr>
     </Table.Tbody>
@@ -126,18 +129,18 @@ const codeMasterVirtuosoComponents = {
 
 const CodeMasterGroupPanel = memo(function CodeMasterGroupPanel({ groups, visibleGroups, groupQuery, setGroupQuery, totalCodes, loading, uploadProgress, selectedId, onSelectGroup }) {
   return (
-        <Paper className={`${sharedClasses.panel} ${classes.groupPanel}`} withBorder>
-          <Group className={`${sharedClasses.panelHeader} ${classes.groupHeader}`} justify="space-between" align="center">
+        <Paper className={`${s.panel} ${s.groupPanel}`} withBorder>
+          <div className={s.panelHead}>
             <Box>
-              <Group gap={7} align="center" wrap="nowrap">
-                <Text fw={700}>코드 그룹</Text>
-                <Badge color="gray" variant="light">{groups.length}개</Badge>
-              </Group>
-              <Text size="xs" c="dimmed" mt={3}>종류별 공통코드를 선택하세요</Text>
+              <div className={s.panelTitle}>
+                <strong>코드 그룹</strong>
+                <span className={s.countBadge}>{groups.length}개</span>
+              </div>
+              <div className={s.panelHint}>종류별 공통코드를 선택하세요</div>
             </Box>
-          </Group>
+          </div>
           <TextInput
-            className={classes.groupSearch}
+            className={s.groupSearch}
             placeholder="그룹 검색"
             aria-label="코드 그룹 검색"
             leftSection={<IconSearch size={15} />}
@@ -145,27 +148,26 @@ const CodeMasterGroupPanel = memo(function CodeMasterGroupPanel({ groups, visibl
             onChange={(event) => setGroupQuery(event.currentTarget.value)}
             size="sm"
           />
-          <ScrollArea className={classes.groupList} type="always" scrollbarSize={6} offsetScrollbars="y">
-            {loading ? <Box className={classes.loadingState}><Loader size="sm" color="red" /></Box> : visibleGroups.map((group) => (
+          <ScrollArea className={s.groupList} type="always" scrollbarSize={6} offsetScrollbars="y">
+            {loading ? <Box className={s.loadingState}><Loader size="sm" color="red" /></Box> : visibleGroups.map((group) => (
               <button
-                className={`${classes.groupItem} ${group.groupcode === selectedId ? classes.groupItemActive : ''}`}
+                className={`${s.groupItem} ${group.groupcode === selectedId ? s.groupItemActive : ''}`}
                 key={group.groupcode}
                 onClick={() => onSelectGroup(group.groupcode)}
                 disabled={Boolean(uploadProgress)}
+                aria-current={group.groupcode === selectedId ? 'true' : undefined}
                 type="button"
               >
-                <span className={classes.groupItemCopy}>
-                  <span className={classes.groupName}>{group.name}</span>
-                  <span className={classes.groupMeta}>{group.rowCount}개</span>
-                </span>
-                <IconChevronRight size={16} />
+                <span className={s.groupName}>{group.name}</span>
+                <span className={s.groupCount}>{group.rowCount}</span>
+                <IconChevronRight className={s.groupChevron} size={14} />
               </button>
             ))}
-            {!loading && !visibleGroups.length && <Text className={classes.noGroups}>검색 결과가 없습니다.</Text>}
+            {!loading && !visibleGroups.length && <div className={s.noGroups}><span className={s.emptyIcon}><IconSearch size={18} /></span>검색 결과가 없습니다.</div>}
           </ScrollArea>
-          <Group className={`${sharedClasses.footer} ${classes.groupFooter}`} justify="space-between">
-            <Text size="xs" c="dimmed">전체 코드</Text><Text size="xs" fw={700}>{totalCodes}개</Text>
-          </Group>
+          <div className={s.panelFoot}>
+            <span>전체 코드</span><b>{totalCodes.toLocaleString()}개</b>
+          </div>
         </Paper>
 
   );
@@ -825,22 +827,22 @@ export default function CodeMasterPage() {
     />
   ), [selectedGroup, selectedRowIds, uploadProgress, saving, toggleRowSelection, updateRow, pasteRange, registerCodeInput, registerCellInput, setActiveCell]);
   const headerColumns = [
-    { key: 'select', width: 46, minWidth: 42, className: classes.checkCol, label: <input aria-label="현재 목록 전체 선택" type="checkbox" checked={visibleRows.length > 0 && visibleRows.every((row) => selectedRowIds.has(row.id))} onChange={(event) => toggleCurrentPageSelection(event.currentTarget.checked)} /> },
-    { key: 'number', width: 62, minWidth: 48, className: classes.numberCol, label: 'No.' },
-    { key: 'code', width: 170, minWidth: 80, className: classes.codeCol, label: selectedGroup?.codeLabel || '코드' },
+    { key: 'select', width: 46, minWidth: 42, className: s.checkCol, label: <input aria-label="현재 목록 전체 선택" type="checkbox" checked={visibleRows.length > 0 && visibleRows.every((row) => selectedRowIds.has(row.id))} onChange={(event) => toggleCurrentPageSelection(event.currentTarget.checked)} /> },
+    { key: 'number', width: 62, minWidth: 48, className: s.centerCol, label: 'No.' },
+    { key: 'code', width: 170, minWidth: 80, label: selectedGroup?.codeLabel || '코드' },
     { key: 'name', width: 180, minWidth: 80, label: selectedGroup?.nameLabel || '코드명' },
     ...((selectedGroup?.propertyLabels || [])[0] ? [{ key: 'property', width: 120, minWidth: 70, label: selectedGroup.propertyLabels[0] }] : []),
-    { key: 'order', width: 126, minWidth: 74, className: classes.orderCol, label: '정렬' },
-    { key: 'use', width: 105, minWidth: 90, className: classes.statusCol, label: '사용여부' },
+    { key: 'order', width: 126, minWidth: 74, className: s.centerCol, label: '정렬' },
+    { key: 'use', width: 105, minWidth: 90, className: s.centerCol, label: '사용여부' },
     { key: 'description', width: 180, minWidth: 90, label: '비고' },
   ];
   const tableWidth = headerColumns.reduce((total, column) => total + (columnWidths[column.key] ?? column.width), 0);
   const renderResizableHeader = (column) => {
     const width = columnWidths[column.key] ?? column.width;
     return (
-      <Table.Th key={column.key} className={[classes.resizableHeader, column.className].filter(Boolean).join(' ')} style={{ width }}>
+      <Table.Th key={column.key} className={column.className} style={{ width }}>
         {column.label}
-        <span className={classes.columnResizeHandle} onPointerDown={(event) => resizeColumn(event, column.key, column.width, column.minWidth, tableWidth)} role="separator" aria-label={`${typeof column.label === 'string' ? column.label : '선택'} 열 너비 조절`} />
+        <span className={s.resizeHandle} onPointerDown={(event) => resizeColumn(event, column.key, column.width, column.minWidth, tableWidth)} role="separator" aria-label={`${typeof column.label === 'string' ? column.label : '선택'} 열 너비 조절`} />
       </Table.Th>
     );
   };
@@ -870,50 +872,32 @@ export default function CodeMasterPage() {
   });
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+    <Box className={`${sharedClasses.pageShell} ${classes.page} ${s.screen}`}>
       <ErpBreadcrumb parent="기준정보" current="일반코드 관리" />
 
-      <div className={classes.workspace}>
+      <div className={s.workspace}>
         <CodeMasterGroupPanel groups={groups} visibleGroups={visibleGroups} groupQuery={groupQuery} setGroupQuery={setGroupQuery} totalCodes={totalCodes} loading={loading} uploadProgress={uploadProgress} selectedId={selectedId} onSelectGroup={handleSelectGroup} />
 
-        <Paper className={`${sharedClasses.panel} ${classes.codePanel}`} withBorder>
-          <Group className={`${sharedClasses.panelHeader} ${classes.codeHeader}`} justify="space-between" align="flex-start" wrap="wrap" gap="sm">
-            <Box>
-              <Group gap={9} align="center"><Text className={classes.codeTitle} fw={800}>{selectedGroup?.name || '코드 그룹'}</Text><Badge color="gray" variant="light">{selectedGroup?.rowCount || 0}개</Badge></Group>
-              <Text size="xs" c="dimmed" mt={5}>{selectedGroup?.helpText || selectedGroup?.description || (selectedGroup ? `${selectedGroup.groupcode} · 회사 공통 코드` : '그룹을 추가하거나 왼쪽에서 선택하세요.')}</Text>
+        <Paper className={`${s.panel} ${s.codePanel}`} withBorder>
+          <div className={s.panelHead}>
+            <Box miw={0}>
+              <div className={s.panelTitle}>
+                <strong>{selectedGroup?.name || '코드 그룹'}</strong>
+                <span className={s.countBadge}>{selectedGroup?.rowCount || 0}개</span>
+                {selectedGroup && <span className={s.codeChip}>{selectedGroup.groupcode}</span>}
+              </div>
+              <div className={s.panelHint}>{selectedGroup?.helpText || selectedGroup?.description || (selectedGroup ? `${selectedGroup.groupcode} · 회사 공통 코드` : '그룹을 추가하거나 왼쪽에서 선택하세요.')}</div>
             </Box>
-            <Group gap={7} align="flex-end" wrap="wrap">
-              <Select
-                className={classes.statusFilter}
-                id="code-status-filter"
-                label="사용 여부"
-                aria-label="사용 여부 필터"
-                value={statusFilter === 'Y' ? '사용중' : statusFilter === 'N' ? '사용중지' : '전체'}
-                onChange={(value) => {
-                  setStatusFilter(value === '사용중' ? 'Y' : value === '사용중지' ? 'N' : 'all');
-                  setSelectedRows([]);
-                  selectionAnchorRef.current = '';
-                }}
-                data={['전체', '사용중', '사용중지']}
-                w={126}
-                size="xs"
-                allowDeselect={false}
-                disabled={!selectedGroup || loading}
-              />
-              <Group gap={7} align="center" wrap="nowrap">
-                <Button variant="default" size="xs" leftSection={<IconDownload size={14} />} onClick={downloadTemplate} disabled={!selectedGroup}>샘플양식</Button>
-                <Button size="xs" variant="light" leftSection={<IconUpload size={14} />} onClick={() => uploadInputRef.current?.click()} loading={Boolean(uploadProgress)} disabled={loading || saving}>
-                  {uploadProgress || '엑셀 일괄등록'}
-                </Button>
-                <input ref={uploadInputRef} type="file" accept=".xlsx,.xls" onChange={uploadCodes} hidden />
-              </Group>
-            </Group>
-          </Group>
+            <div className={s.chips}>
+              <span className={s.chip}>조회<b>{totalForView.toLocaleString()}</b></span>
+              {selectedRows.length > 0 && <span className={`${s.chip} ${s.chipSelected}`}>선택<b>{selectedRows.length.toLocaleString()}</b></span>}
+            </div>
+          </div>
 
-          <Group className={`${sharedClasses.toolbar} ${classes.toolbar}`} justify="space-between" wrap="wrap" gap={6}>
-            <Group className={classes.searchGroup} gap={6} wrap="nowrap">
+          <div className={s.toolbar}>
+            <div className={s.toolbarGroup}>
               <TextInput
-                className={classes.codeSearch}
+                className={s.toolbarSearch}
                 placeholder="코드 또는 코드명 검색"
                 aria-label="코드 검색"
                 leftSection={<IconSearch size={15} />}
@@ -926,22 +910,44 @@ export default function CodeMasterPage() {
                     selectionAnchorRef.current = '';
                   }
                 }}
-                size="sm"
+                size="xs"
                 disabled={!selectedGroup}
               />
-            </Group>
-            <Group gap={7} wrap="nowrap">
-              {selectedRows.length > 0 && <Text size="xs" c="dimmed">{selectedRows.length}개 선택</Text>}
-            </Group>
-          </Group>
+              <div className={s.fieldInline}>
+                <label htmlFor="code-status-filter">사용 여부</label>
+                <Select
+                  className={s.toolbarSelect}
+                  id="code-status-filter"
+                  aria-label="사용 여부 필터"
+                  value={statusFilter === 'Y' ? '사용중' : statusFilter === 'N' ? '사용중지' : '전체'}
+                  onChange={(value) => {
+                    setStatusFilter(value === '사용중' ? 'Y' : value === '사용중지' ? 'N' : 'all');
+                    setSelectedRows([]);
+                    selectionAnchorRef.current = '';
+                  }}
+                  data={['전체', '사용중', '사용중지']}
+                  size="xs"
+                  allowDeselect={false}
+                  disabled={!selectedGroup || loading}
+                />
+              </div>
+            </div>
+            <div className={s.toolbarGroup}>
+              <ExcelBulkActions onDownloadTemplate={downloadTemplate} templateDisabled={!selectedGroup}
+                templateTitle="선택한 코드 그룹의 일괄등록 샘플 양식을 내려받습니다"
+                inputRef={uploadInputRef} onUpload={uploadCodes} uploading={Boolean(uploadProgress)} uploadProgressLabel={uploadProgress}
+                uploadDisabled={loading || saving} />
+            </div>
+          </div>
 
-          <Box className={`${sharedClasses.tableWrap} ${classes.tableWrap}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
+          <Box className={`${classes.tableWrap} ${s.tableWrap}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
             <TableVirtuoso
               ref={tableRef}
               data={visibleRows}
               context={{
                 columnCount: headerColumns.length,
                 emptyMessage: codeQuery.trim() ? '검색 결과가 없습니다.' : '표시할 코드가 없습니다.',
+                searching: Boolean(codeQuery.trim()) || statusFilter !== 'all',
               }}
               style={{ height: '100%' }}
               components={codeMasterVirtuosoComponents}
@@ -954,9 +960,10 @@ export default function CodeMasterPage() {
             />
           </Box>
 
-          <Group className={`${sharedClasses.footer} ${classes.tableFooter}`} justify="space-between" wrap="wrap">
-            <Text size="xs" c="dimmed">총 {totalForView}개</Text>
-          </Group>
+          <div className={s.panelFoot}>
+            <span>총 <b>{totalForView}</b>개</span>
+            <span className={s.footHint}>Enter · Tab · 방향키로 셀 이동 · 엑셀 범위를 복사해 붙여넣을 수 있습니다.</span>
+          </div>
         </Paper>
       </div>
 

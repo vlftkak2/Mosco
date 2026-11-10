@@ -53,6 +53,8 @@ from routes.inoutmove import inoutmoveSearch_routes as inoutmoveSearch_routes
 from routes.receiptpayment import ReceiptPayment_routes as ReceiptPayment_routes
 from routes.receiptpayment import ReceiptPaymentSearch_routes as ReceiptPaymentSearch_routes
 from routes.receiptpayment import InstrumentStatus_routes as InstrumentStatus_routes
+from routes.receiptpayment import CustomerLedger_routes as CustomerLedger_routes
+from routes.receiptpayment import CustomerBalanceDashboard_routes as CustomerBalanceDashboard_routes
 from routes.ai import AIOrder_routes as AIOrder_routes
 from routes.ai import AIOrderManage_routes as AIOrderManage_routes
 from routes.ai import AIOrderOptimization_routes as AIOrderOptimization_routes
@@ -150,6 +152,8 @@ app.include_router(inoutmoveSearch_routes.router)
 app.include_router(ReceiptPayment_routes.router)
 app.include_router(ReceiptPaymentSearch_routes.router)
 app.include_router(InstrumentStatus_routes.router)  # 수표/어음 현황
+app.include_router(CustomerLedger_routes.router)  # 거래처원장
+app.include_router(CustomerBalanceDashboard_routes.router)  # 거래처 잔액 현황
 
 # Isolated AI order recognition test API (does not touch ERP transaction tables).
 app.include_router(AIOrder_routes.router)
