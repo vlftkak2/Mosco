@@ -10,7 +10,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconBox, IconBuildingStore, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconListDetails,
-  IconPlus, IconSearch, IconTrash, IconX,
+  IconFileInvoice, IconPlus, IconSearch, IconTrash, IconTruckDelivery, IconX,
 } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
 import XLSX from 'xlsx-js-style';
@@ -21,6 +21,7 @@ import classes from '../../styles/pages/OutboundRegister.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import OutboundStockPickerModal from './OutboundStockPickerModal';
+import OutboundPrintDocument from './OutboundPrintDocument';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' }, { value: '50', label: '50개씩' },
@@ -1033,6 +1034,9 @@ export default function OutboundRegisterPage() {
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [filterOpen, setFilterOpen] = useState(true);
+  // 거래명세서 / 송장 출력 ('statement' | 'delivery' | '')
+  const [printKind, setPrintKind] = useState('');
+  const closePrint = useCallback(() => setPrintKind(''), []);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [columnWidths, setColumnWidths] = useState({});
   const [receiptColumnWidths, setReceiptColumnWidths] = useState({});
@@ -1078,6 +1082,18 @@ export default function OutboundRegisterPage() {
   const hasNewDetails = useMemo(() => rows.some((row) => row.is_new), [rows]);
   const hasPendingExpenses = useMemo(() => expenses.some((row) => row.is_new || row.is_dirty), [expenses]);
   const hasPendingChanges = useMemo(() => documentDirty || rows.some((row) => row.is_new || row.is_dirty) || hasPendingExpenses, [documentDirty, rows, hasPendingExpenses]);
+  // 출력은 항상 DB 에 저장된 전표 기준이므로, 화면에서 고친 내용이 있으면 먼저 저장하게 한다.
+  const openPrint = useCallback((kind) => {
+    if (!selectedReceiptno) {
+      notifications.show({ title: '출력할 전표 없음', message: '목록에서 매출전표를 먼저 선택해 주세요.', color: 'orange' });
+      return;
+    }
+    if (hasPendingChanges) {
+      notifications.show({ title: '저장되지 않은 변경사항', message: '수정한 내용을 먼저 저장한 뒤 출력해 주세요. 출력은 저장된 전표 기준입니다.', color: 'orange' });
+      return;
+    }
+    setPrintKind(kind);
+  }, [selectedReceiptno, hasPendingChanges]);
   const expenseTotals = useMemo(() => expenses.reduce((totals, row) => {
     totals.supply += Number(cleanNumericInput(row.supplyamt)) || 0;
     totals.vat += Number(cleanNumericInput(row.vat)) || 0;
@@ -2426,12 +2442,24 @@ export default function OutboundRegisterPage() {
           </Button>
         )}
       </Box>
+      <OutboundPrintDocument opened={Boolean(printKind)} receiptno={selectedReceiptno} initialKind={printKind || 'statement'} onClose={closePrint} />
 
       <Box className={`${inboundClasses.inboundWorkspace} ${classes.outboundWorkspace}`}>
         <Box className={`${inboundClasses.inboundPrimaryColumn} ${classes.outboundPrimaryColumn}`}>
           <Paper className={`${sharedClasses.panel} ${inboundClasses.topReceiptPanel}`} withBorder>
-            <Group className={inboundClasses.topReceiptToolbar} justify="space-between" wrap="wrap">
+            <Group className={`${inboundClasses.topReceiptToolbar} ${classes.receiptToolbarWithActions}`} justify="space-between" wrap="wrap">
               <Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>출고 기본</Text><Badge color="gray" variant="light">{total.toLocaleString()}건</Badge></Group>
+              {/* 선택한 매출전표의 거래명세서 / 납품송장 출력 */}
+              <Group gap={6} wrap="nowrap" className={classes.printActions}>
+                <Button size="xs" variant="default" leftSection={<IconFileInvoice size={15} />} onClick={() => openPrint('statement')}
+                  disabled={!selectedReceiptno || detailLoading} title={selectedReceiptno ? '선택한 매출전표의 거래명세서를 출력합니다' : '목록에서 매출전표를 먼저 선택하세요'}>
+                  거래명세서 출력
+                </Button>
+                <Button size="xs" variant="default" leftSection={<IconTruckDelivery size={15} />} onClick={() => openPrint('delivery')}
+                  disabled={!selectedReceiptno || detailLoading} title={selectedReceiptno ? '선택한 매출전표의 납품송장을 출력합니다' : '목록에서 매출전표를 먼저 선택하세요'}>
+                  송장 출력
+                </Button>
+              </Group>
             </Group>
             <Box ref={receiptTableRef} className={inboundClasses.topReceiptTable}>
               {receiptTable}

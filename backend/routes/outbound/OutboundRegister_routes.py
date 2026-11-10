@@ -72,6 +72,19 @@ def get_receipt(receiptno: str, user: dict = Depends(security_module.get_current
         raise HTTPException(status_code=500, detail="출고 상세를 조회하지 못했습니다.") from error
 
 
+@router.get("/receipts/{receiptno}/print")
+def get_print_document(receiptno: str, user: dict = Depends(security_module.get_current_user)):
+    try:
+        document = outbound_module.get_print_document(user["companyid"], receiptno)
+        if document is None:
+            raise HTTPException(status_code=404, detail="출고전표를 찾을 수 없습니다.")
+        return {"success": True, "document": document}
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(status_code=500, detail="출력할 전표 정보를 조회하지 못했습니다.") from error
+
+
 def _save_receipt(data: outbound_module.OutboundSaveRequest, user: dict, is_new: bool):
     try:
         payload = data.model_dump()

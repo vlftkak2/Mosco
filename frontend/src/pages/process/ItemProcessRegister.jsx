@@ -11,7 +11,7 @@ import { notifications } from '@mantine/notifications';
 import { IconBox, IconPlus, IconSearch, IconTool, IconTrash, IconX } from '@tabler/icons-react';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
 import ErpDateInput from '../../components/common/ErpDateInput';
-import PickerModal, { PickerEmpty, SelectPickerModal, pickerClasses } from '../../components/common/PickerModal';
+import PickerModal, { ColumnResizeHandle, PickerEmpty, SelectPickerModal, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
 import ErpRibbon from '../../components/common/ErpRibbon';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
@@ -377,6 +377,7 @@ function StockPicker({ opened, onClose, onApply, existingKeys, existingWarehouse
   const baseWarehouseCode = selectionWarehouseCode || existingWarehouseCode;
   const baseWarehouseName = baseWarehouseCode ? (items.find((row) => row.warehousecode === baseWarehouseCode)?.warehousecodename || baseWarehouseCode) : '';
   const pickedCount = items.filter((row) => selected[sourceKey(row)]).length;
+  const pickerColumns = useResizableColumns(PICKER_COLUMNS);
   const searchOnEnter = (event) => { if (event.key === 'Enter') void load(1); };
   const resetFilters = () => { setQuery(''); setWarehouse(''); setThickness(''); setWidth(''); setLength(''); };
 
@@ -402,9 +403,9 @@ function StockPicker({ opened, onClose, onApply, existingKeys, existingWarehouse
     selectedCount={pickedCount} selectionLabel="선택 (현재 페이지)" onClearSelection={() => { setSelected({}); setSelectionWarehouseCode(existingWarehouseCode || ''); }}
     pagination={<Pagination size="sm" color="red" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={load} siblings={1} disabled={loading || !total} />}
     onApply={apply} applyDisabled={!pickedCount || loading}>
-    <table className={pickerClasses.table} style={{ width: `max(100%, ${PICKER_TABLE_WIDTH}px)`, minWidth: PICKER_TABLE_WIDTH }} aria-label="가공 가능 재고">
-      <colgroup>{PICKER_COLUMNS.map((column) => <col key={column.key} style={{ width: column.width }} />)}</colgroup>
-      <thead><tr>{PICKER_COLUMNS.map((column) => <th key={column.key} className={column.align ? pickerClasses[column.align] : undefined}>{column.label}</th>)}</tr></thead>
+    <table className={pickerClasses.table} style={{ width: `max(100%, ${pickerColumns.tableWidth}px)` }} aria-label="가공 가능 재고">
+      <colgroup>{PICKER_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: pickerColumns.widthOf(column) }} />)}</colgroup>
+      <thead><tr>{PICKER_COLUMNS.map((column, index) => <th key={column.key} className={`${index ? pickerClasses.resizableHead : ''} ${column.align ? pickerClasses[column.align] : ''}`}>{column.label}{index > 0 && <ColumnResizeHandle column={column} columns={pickerColumns} />}</th>)}</tr></thead>
       <tbody>{items.map((row) => {
         const key = sourceKey(row);
         const reason = existingKeys.has(key) ? '이미 가공 원소재로 담긴 재고입니다.'
@@ -449,7 +450,6 @@ const PICKER_COLUMNS = [
   { key: 'qty', label: '현재수량', width: 100, align: 'right' },
   { key: 'weight', label: '현재중량', width: 120, align: 'right' },
 ];
-const PICKER_TABLE_WIDTH = PICKER_COLUMNS.reduce((sum, column) => sum + column.width, 0);
 
 
 export default function ItemProcessRegister() {

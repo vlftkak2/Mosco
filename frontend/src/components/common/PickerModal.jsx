@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react';
 import { Button, Group, Loader, Modal, Pagination, TextInput } from '@mantine/core';
 import { IconCheck, IconChevronRight, IconInfoCircle, IconListCheck, IconSearch } from '@tabler/icons-react';
 import classes from './PickerModal.module.css';
@@ -16,6 +17,57 @@ export function PickerEmpty({ title, description }) {
   </div>;
 }
 
+// 표 열 너비 조절: 머리글 오른쪽 끝을 끌어서 넓히고 좁힌다. 두 번 누르면 기본 너비로 돌아간다.
+// const cols = useResizableColumns(COLUMNS);
+//   <table style={{ width: `max(100%, ${cols.tableWidth}px)` }}>
+//   <col data-column-key={c.key} style={{ width: cols.widthOf(c) }} />
+//   <th className={pickerClasses.resizableHead}>{c.label}<ColumnResizeHandle column={c} columns={cols} /></th>
+export function useResizableColumns(columns, defaultWidth = 120) {
+  const [widths, setWidths] = useState({});
+  const widthOf = useCallback((column) => widths[column.key] ?? column.width ?? defaultWidth, [widths, defaultWidth]);
+  const tableWidth = columns.reduce((sum, column) => sum + widthOf(column), 0);
+  const startResize = useCallback((event, column) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = widthOf(column);
+    const minWidth = column.minWidth ?? Math.min(startWidth, 50);
+    const table = event.currentTarget.closest('table');
+    const col = table?.querySelector(`col[data-column-key="${CSS.escape(String(column.key))}"]`);
+    const startTableWidth = columns.reduce((sum, item) => sum + widthOf(item), 0);
+    let nextWidth = startWidth;
+    document.body.classList.add('picker-col-resizing');
+    const move = (pointerEvent) => {
+      nextWidth = Math.max(minWidth, Math.min(1200, startWidth + pointerEvent.clientX - startX));
+      if (col) col.style.width = `${nextWidth}px`;
+      if (table) table.style.width = `max(100%, ${startTableWidth + nextWidth - startWidth}px)`;
+    };
+    const finish = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      document.body.classList.remove('picker-col-resizing');
+      setWidths((current) => ({ ...current, [column.key]: nextWidth }));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  }, [columns, widthOf]);
+  const resetColumn = useCallback((column) => setWidths((current) => {
+    const next = { ...current };
+    delete next[column.key];
+    return next;
+  }), []);
+  return { widthOf, tableWidth, startResize, resetColumn };
+}
+
+export function ColumnResizeHandle({ column, columns }) {
+  return <span className={classes.resizeHandle} role="separator" aria-orientation="vertical" aria-label={`${column.label || column.key} 열 너비 조절`}
+    title="끌어서 열 너비 조절 · 두 번 누르면 원래대로"
+    onPointerDown={(event) => columns.startResize(event, column)} onClick={(event) => event.stopPropagation()}
+    onDoubleClick={(event) => { event.stopPropagation(); columns.resetColumn(column); }} />;
+}
+
 const SINGLE_SIZES = { sm: 520, md: 640, lg: 800, xl: 960 };
 
 // 단일 선택 창: 검색 → 목록 → 행을 누르면 바로 onSelect 후 닫힌다 (거래처·품목·코드 선택 등).
@@ -28,7 +80,7 @@ export function SelectPickerModal({
   listTitle = '검색 결과', total, page, pageCount, onPageChange, emptyTitle = '조회된 항목이 없습니다', emptyDescription,
 }) {
   const width = SINGLE_SIZES[size] || size;
-  const tableWidth = columns.reduce((sum, column) => sum + (column.width || 120), 0);
+  const cols = useResizableColumns(columns);
   const choose = (row) => onSelect(row);
   return <Modal opened={opened} onClose={onClose} centered size={`min(${width}px, calc(100vw - 32px))`} xOffset={16} yOffset={16}
     classNames={{ ...MODAL_CLASSES, content: `${classes.content} ${classes.singleContent}` }} closeButtonProps={{ 'aria-label': `${title} 닫기` }}
@@ -54,9 +106,9 @@ export function SelectPickerModal({
         </div>
         {loading && <Loader className={classes.loader} size="sm" color="red" />}
         <div className={classes.tableScroll}>
-          <table className={classes.table} style={{ width: `max(100%, ${tableWidth}px)` }} aria-label={`${title} 목록`}>
-            <colgroup>{columns.map((column) => <col key={column.key} style={{ width: column.width || 120 }} />)}</colgroup>
-            <thead><tr>{columns.map((column) => <th key={column.key} className={column.align ? classes[column.align] : undefined}>{column.label}</th>)}</tr></thead>
+          <table className={classes.table} style={{ width: `max(100%, ${cols.tableWidth}px)` }} aria-label={`${title} 목록`}>
+            <colgroup>{columns.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: cols.widthOf(column) }} />)}</colgroup>
+            <thead><tr>{columns.map((column) => <th key={column.key} className={`${classes.resizableHead} ${column.align ? classes[column.align] : ''}`}>{column.label}<ColumnResizeHandle column={column} columns={cols} /></th>)}</tr></thead>
             <tbody>
               {rows.map((row) => {
                 const key = rowKey(row);
