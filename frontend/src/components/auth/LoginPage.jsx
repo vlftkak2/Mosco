@@ -1,12 +1,5 @@
-import { 
-  TextInput, 
-  PasswordInput, 
-  Checkbox, 
-  Button, 
-  Text, 
-  Box,
-  Stack,
-  Select
+import {
+  TextInput, PasswordInput, Checkbox, Button, Text, Box, Stack,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import classes from '../../styles/auth/LoginPage.module.css';

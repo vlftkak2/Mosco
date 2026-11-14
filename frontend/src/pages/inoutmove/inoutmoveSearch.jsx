@@ -9,7 +9,9 @@ import ResizableVirtualTable from '../../components/common/ResizableVirtualTable
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/InboundSearch.module.css';
+import { cachedDateFormat } from '../../utils/dateFormat';
 
 const PAGE_OPTIONS = ['15', '50', '100', '200'].map((value) => ({ value, label: `${value}개씩` }));
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
@@ -18,7 +20,7 @@ const numberText = (value) => value === null || value === undefined ? '' : Numbe
 const timestampText = (value) => {
   if (!value) return '';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+  return Number.isNaN(date.getTime()) ? String(value) : cachedDateFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
 };
 const sourceName = (value) => ({ OPENING: '기초', INBOUND: '입고', PROCESS: '가공', MOVE: '이동' }[value] || value || '');
 // 칸 표시: 숫자 오른쪽 정렬, 글자는 넘치면 … + 마우스를 올리면 전체 표시
@@ -120,8 +122,8 @@ export default function InoutmoveSearch() {
   const updateInput = (key, value) => setInputs((current) => ({ ...current, [key]: value }));
   const searchOnEnter = (event) => { if (event.key === 'Enter') search(); };
 
-  return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="재고관리" current="재고이동 현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+  return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
+    <ErpBreadcrumb parent="재고이동" current="재고이동 현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
     <Box className={classes.inboundWorkspace}>
       {filterOpen && <Paper component="aside" className={classes.filterSidebar} withBorder>
         <Group className={classes.filterHeader} justify="space-between">
@@ -151,8 +153,8 @@ export default function InoutmoveSearch() {
           <Box className={classes.toolbarTitle}>
             <Text className={classes.sectionTitle} fw={700}>재고이전 내역</Text>
             <span className={classes.countBadge}>{total.toLocaleString()}건</span>
+            <span className={classes.toolbarMeta} title="조회 기간 (재고이전일자)"><IconCalendar size={13} />{periodText(filters.date_from, filters.date_to)}</span>
           </Box>
-          <span className={classes.toolbarMeta} title="조회 기간 (재고이전일자)"><IconCalendar size={13} />{periodText(filters.date_from, filters.date_to)}</span>
         </Group>
         <Box className={classes.tableWrap}>
           {loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}
@@ -179,9 +181,9 @@ export default function InoutmoveSearch() {
               { key: 'customname', label: '매입처', width: 145, minWidth: 120, render: (item) => text(item.customname || '') },
               { key: 'stock_receiptdate', label: '재고입고일자', width: 110, minWidth: 95, render: (item) => center(String(item.stock_receiptdate || '').slice(0, 10)) },
               { key: 'stocksourcetype', label: '재고구분', width: 75, minWidth: 65, render: (item) => sourceBadge(item.stocksourcetype) },
-              { key: 'stocksourceno', label: '원천전표', width: 145, minWidth: 120, render: (item) => text(item.stocksourceno || '') },
+              { key: 'stocksourceno', label: '원천전표', width: 160, minWidth: 140, render: (item) => text(item.stocksourceno || '') },
               { key: 'stocksourceline', label: '원천순번', width: 78, minWidth: 65, align: 'right', render: (item) => num(item.stocksourceline ?? '') },
-              { key: 'receiptno', label: '재고이전전표', width: 150, minWidth: 125, render: (item) => text(item.receiptno || '') },
+              { key: 'receiptno', label: '재고이전전표', width: 160, minWidth: 140, render: (item) => text(item.receiptno || '') },
               { key: 'manager', label: '담당자', width: 95, minWidth: 80, render: (item) => text(item.manager || '') },
               { key: 'description', label: '비고', width: 150, minWidth: 110, render: (item) => text(item.description || '') },
               { key: 'created_at', label: '등록일자', width: 145, minWidth: 130, render: (item) => center(timestampText(item.created_at)) },

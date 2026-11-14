@@ -4,7 +4,6 @@ import hmac
 import re
 import secrets
 
-import psycopg2
 import db as _shared_db
 from psycopg2.extras import RealDictCursor
 from pydantic import BaseModel, Field, field_validator
@@ -32,10 +31,9 @@ class UserCreateInput(BaseModel):
     username: str = Field(min_length=1, max_length=20)
     email: str = Field(min_length=3, max_length=50)
     password: str = Field(min_length=1, max_length=128)
-    team: str = Field(default="", max_length=50)
     authority: str = "USER"
 
-    @field_validator("companyid", "companyname", "username", "email", "team", mode="before")
+    @field_validator("companyid", "companyname", "username", "email", mode="before")
     @classmethod
     def strip_text(cls, value):
         return str(value or "").strip()
@@ -62,12 +60,11 @@ class UserUpdateInput(BaseModel):
     original_email: str = Field(min_length=3, max_length=50)
     email: str = Field(min_length=3, max_length=50)
     username: str = Field(min_length=1, max_length=20)
-    team: str = Field(default="", max_length=50)
     authority: str = "USER"
     useyn: str = "Y"
     password: str = Field(default="", max_length=128)
 
-    @field_validator("companyid", "companyname", "original_email", "email", "username", "team", mode="before")
+    @field_validator("companyid", "companyname", "original_email", "email", "username", mode="before")
     @classmethod
     def strip_text(cls, value):
         return str(value or "").strip()
@@ -211,7 +208,7 @@ def create_user(
 ):
     _validate_authority_company(data.companyid, data.authority)
     with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
-        companyname, licensed_seats = _lock_active_company(cursor, data.companyid)
+        _companyname, licensed_seats = _lock_active_company(cursor, data.companyid)
 
         # Serialize registrations for the same email, including across different companies.
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(LOWER(%s), 0))", (data.email,))
@@ -233,10 +230,10 @@ def create_user(
 
         cursor.execute(
             """INSERT INTO user01t
-               (companyid, companyname, username, email, password, team, authority, useyn, created_by)
-               VALUES (%s, %s, %s, %s, %s, NULLIF(%s, ''), %s, 'Y', %s)
+               (companyid, username, email, password, authority, useyn, created_by)
+               VALUES (%s, %s, %s, %s, %s, 'Y', %s)
                RETURNING companyid, username, email, team, authority, useyn""",
-            (data.companyid, companyname, data.username, data.email, hash_password(data.password), data.team, data.authority,
+            (data.companyid, data.username, data.email, hash_password(data.password), data.authority,
              created_by or None),
         )
         created_user = dict(cursor.fetchone())
@@ -250,6 +247,7 @@ def create_user(
                    WHERE UPPER(COALESCE(m.useyn, 'N')) = 'Y'
                      AND m.assignable = TRUE
                      AND m.access_scope = 'COMPANY'
+                     AND m.menuid <> 'USER_MANAGEMENT'  -- 사용자관리는 관리자가 따로 부여한다
                    ON CONFLICT (companyid, useremail, menuid)
                    DO UPDATE SET
                        useyn = 'Y',
@@ -286,13 +284,25 @@ def update_user(data: UserUpdateInput, *, actor: dict | None = None, actor_email
         if actor and actor.get("authority") == "SUBMASTER":
             actor_companyid = str(actor.get("companyid") or "")
             if data.companyid != actor_companyid:
-                raise PermissionError("Customer administrators can only update accounts in their own company.")
+                raise PermissionError("자기 회사 계정만 수정할 수 있습니다.")
             if current_authority not in {"USER", "SUBMASTER"}:
-                raise PermissionError("Customer administrators cannot update platform administrator accounts.")
+                raise PermissionError("플랫폼 관리자 계정은 수정할 수 없습니다.")
             if data.authority not in {"USER", "SUBMASTER"}:
-                raise PermissionError("Customer administrators can assign only USER or SUBMASTER authority.")
+                raise PermissionError("고객사 관리자는 일반 사용자 · 고객사 관리자 권한만 줄 수 있습니다.")
         _validate_authority_company(data.companyid, data.authority)
         next_useyn = data.useyn
+        # 고객사 관리자(SUBMASTER)가 마지막 남은 활성 관리자를 일반 사용자로 내리거나 중지하면 그 회사를 관리할 사람이 없어진다
+        if (data.companyid != "001" and current_authority == "SUBMASTER" and current_useyn == "Y"
+                and (data.authority != "SUBMASTER" or next_useyn != "Y")):
+            cursor.execute(
+                """SELECT COUNT(*)::integer AS admin_count FROM user01t
+                   WHERE companyid = %s AND UPPER(COALESCE(authority, '')) = 'SUBMASTER'
+                     AND UPPER(COALESCE(useyn, 'N')) = 'Y'
+                     AND LOWER(email) <> LOWER(%s)""",
+                (data.companyid, data.original_email),
+            )
+            if cursor.fetchone()["admin_count"] == 0:
+                raise ValueError("고객사 관리자 계정은 최소 한 개 이상 사용 상태로 남아 있어야 합니다.")
         if data.companyid == "001" and current_authority == "MASTER" and (data.authority != "MASTER" or next_useyn != "Y"):
             cursor.execute(
                 """SELECT COUNT(*)::integer AS master_count FROM user01t
@@ -329,21 +339,21 @@ def update_user(data: UserUpdateInput, *, actor: dict | None = None, actor_email
         if data.password:
             cursor.execute(
                 """UPDATE user01t
-                   SET username = %s, email = %s, team = NULLIF(%s, ''), authority = %s, useyn = %s, password = %s,
+                   SET username = %s, email = %s, authority = %s, useyn = %s, password = %s,
                        updatedat = CURRENT_TIMESTAMP, updated_by = %s
                    WHERE companyid = %s AND LOWER(email) = LOWER(%s)
                    RETURNING companyid, username, email, team, authority, useyn""",
-                (data.username, data.email, data.team, data.authority, next_useyn, hash_password(data.password),
+                (data.username, data.email, data.authority, next_useyn, hash_password(data.password),
                  actor_email or None, data.companyid, data.original_email),
             )
         else:
             cursor.execute(
                 """UPDATE user01t
-                   SET username = %s, email = %s, team = NULLIF(%s, ''), authority = %s, useyn = %s,
+                   SET username = %s, email = %s, authority = %s, useyn = %s,
                        updatedat = CURRENT_TIMESTAMP, updated_by = %s
                    WHERE companyid = %s AND LOWER(email) = LOWER(%s)
                    RETURNING companyid, username, email, team, authority, useyn""",
-                (data.username, data.email, data.team, data.authority, next_useyn, actor_email or None,
+                (data.username, data.email, data.authority, next_useyn, actor_email or None,
                  data.companyid, data.original_email),
             )
         return dict(cursor.fetchone())
@@ -382,11 +392,11 @@ def delete_user(companyid: str, email: str, *, actor: dict | None = None):
             actor_companyid = str(actor.get("companyid") or "")
             actor_email = str(actor.get("email") or "").strip().lower()
             if companyid != actor_companyid:
-                raise PermissionError("Customer administrators can only delete accounts in their own company.")
+                raise PermissionError("자기 회사 계정만 삭제할 수 있습니다.")
             if email.strip().lower() == actor_email:
-                raise PermissionError("You cannot delete your own account.")
+                raise PermissionError("자기 계정은 삭제할 수 없습니다.")
             if str(target["authority"] or "USER").upper() != "USER":
-                raise PermissionError("Customer administrators can delete ordinary user accounts only.")
+                raise PermissionError("고객사 관리자는 일반 사용자 계정만 삭제할 수 있습니다.")
 
         if (
             companyid == "001"
@@ -402,6 +412,21 @@ def delete_user(companyid: str, email: str, *, actor: dict | None = None):
             )
             if cursor.fetchone()["master_count"] == 0:
                 raise ValueError("최종관리자 계정은 최소 한 개 이상 활성 상태로 유지해야 합니다.")
+
+        if (
+            companyid != "001"
+            and str(target["authority"] or "").upper() == "SUBMASTER"
+            and str(target["useyn"] or "N").upper() == "Y"
+        ):
+            cursor.execute(
+                """SELECT COUNT(*)::integer AS admin_count FROM user01t
+                   WHERE companyid = %s AND UPPER(COALESCE(authority, '')) = 'SUBMASTER'
+                     AND UPPER(COALESCE(useyn, 'N')) = 'Y'
+                     AND LOWER(email) <> LOWER(%s)""",
+                (companyid, email),
+            )
+            if cursor.fetchone()["admin_count"] == 0:
+                raise ValueError("고객사 관리자 계정은 최소 한 개 이상 사용 상태로 남아 있어야 합니다.")
 
         cursor.execute(
             "DELETE FROM user01t WHERE companyid = %s AND LOWER(email) = LOWER(%s)",

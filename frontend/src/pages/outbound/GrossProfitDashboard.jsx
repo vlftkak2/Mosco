@@ -17,9 +17,10 @@ import {
   Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import ErpDateInput from '../../components/common/ErpDateInput';
-import { DashboardHeader, FilterBox, FilterTilde, KPI_PALETTE, KpiCard, KpiGrid, SubSep, TrendPill } from '../../components/common/DashboardKit';
+import { DashboardHeader, FilterBox, FilterTilde, KPI_PALETTE, KpiCard, KpiGrid, TrendPill } from '../../components/common/DashboardKit';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/InboundSearch.module.css';
 import pageClasses from '../../styles/pages/GrossProfitDashboard.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
@@ -54,7 +55,6 @@ const compact = (value) => {
   return Math.round(number).toLocaleString('ko-KR');
 };
 const pct = (value) => (value === null || value === undefined ? '–' : `${Number(value).toFixed(1)}%`);
-const shortDate = (value, withYear = false) => { const text = String(value || '').slice(0, 10); return withYear ? text.slice(2).replaceAll('-', '.') : text.slice(5).replace('-', '.'); };
 const shortName = (name, max = 7) => (String(name || '').length > max ? `${String(name).slice(0, max)}…` : String(name || ''));
 const changeRate = (current, previous) => (previous ? ((current - previous) / Math.abs(previous)) * 100 : null);
 
@@ -324,6 +324,7 @@ export default function GrossProfitDashboard() {
     { name: '매입금액', value: total.purchase_amt, color: PALETTE[0] },
     { name: '매입비용', value: total.purchase_cost, color: PALETTE[1] },
     { name: '가공비', value: total.process_amt, color: PALETTE[2] },
+    { name: '원자재원가', value: total.material_amt, color: PALETTE[4] },
     { name: '판매비용', value: total.selling_cost, color: PALETTE[3] },
   ].filter((slice) => slice.value > 0) : []), [total]);
   const marginDrops = useMemo(() => (data?.customers || [])
@@ -333,7 +334,6 @@ export default function GrossProfitDashboard() {
   const hasPrevMargins = useMemo(() => (data?.customers || []).some((row) => row.prev_margin_rate !== null && row.prev_margin_rate !== undefined), [data]);
 
   const tons = (Number(total?.weight || 0) / 1000).toLocaleString('ko-KR', { maximumFractionDigits: 1 });
-  const series = (key) => (data?.trend || []).map((row) => row[key] ?? 0);
   const yoyText = (key, unit = '%') => {
     if (!yoy) return '–';
     if (unit === '%p') return yoy[key] === null || yoy[key] === undefined || total[key] === null ? '–' : `${total[key] - yoy[key] >= 0 ? '+' : '−'}${Math.abs(total[key] - yoy[key]).toFixed(1)}%p`;
@@ -343,28 +343,26 @@ export default function GrossProfitDashboard() {
   const amount = (value) => Math.round(Number(value || 0)).toLocaleString('ko-KR');
   const kpis = total ? [
     { key: 'sales', palette: KPI_PALETTE.blue, icon: IconCash, label: '매출', basis: '판매 + 매출비용(+)', value: amount(total.sales),
-      trend: <TrendPill current={total.sales} previous={prev?.sales} />, bars: series('sales'),
+      trend: <TrendPill current={total.sales} previous={prev?.sales} />,
       stats: [{ label: '판매중량', value: `${tons}톤` }, { label: '전년 동월 대비', value: yoyText('sales') }] },
     { key: 'cost', palette: KPI_PALETTE.orange, icon: IconReceipt, label: '비용', basis: '매입원가 + 판매비용', value: amount(total.cost),
-      trend: <TrendPill current={total.cost} previous={prev?.cost} goodWhenUp={false} />, bars: series('cost'),
+      trend: <TrendPill current={total.cost} previous={prev?.cost} goodWhenUp={false} />,
       stats: [{ label: '매입원가', value: `${compact(total.cost_of_goods)}원` }, { label: '판매비용', value: `${compact(total.selling_cost)}원` }] },
     { key: 'profit', palette: KPI_PALETTE.green, icon: IconTrendingUp, label: '순이익', basis: '매출 − 비용', value: amount(total.profit), negative: total.profit < 0,
-      trend: <TrendPill current={total.profit} previous={prev?.profit} />, bars: series('profit'),
+      trend: <TrendPill current={total.profit} previous={prev?.profit} />,
       stats: [{ label: '손해 본 거래처', value: total.loss_customer_count ? `${total.loss_customer_count}곳` : '없음', warn: total.loss_customer_count > 0 }, { label: '전년 동월 대비', value: yoyText('profit') }] },
     { key: 'margin', palette: KPI_PALETTE.slate, icon: IconPercentage, label: '마진율', basis: '순이익 ÷ 매출', value: total.margin_rate === null ? '–' : Number(total.margin_rate).toFixed(1), unit: total.margin_rate === null ? '' : '%', negative: total.profit < 0,
-      trend: <TrendPill mode="point" current={total.margin_rate} previous={prev?.margin_rate} />, bars: series('margin_rate'),
+      trend: <TrendPill mode="point" current={total.margin_rate} previous={prev?.margin_rate} />,
       stats: [{ label: '전월 마진율', value: pct(prev?.margin_rate) }, { label: '전년 동월 대비', value: yoyText('margin_rate', '%p') }] },
     { key: 'perton', palette: KPI_PALETTE.amber, icon: IconScale, label: '톤당 이익', basis: '순이익 ÷ 판매중량', value: total.profit_per_ton === null ? '–' : amount(total.profit_per_ton), unit: total.profit_per_ton === null ? '' : '원', negative: (total.profit_per_ton ?? 0) < 0,
-      trend: <TrendPill current={total.profit_per_ton} previous={prev?.profit_per_ton} />, bars: series('profit_per_ton'),
+      trend: <TrendPill current={total.profit_per_ton} previous={prev?.profit_per_ton} />,
       stats: [{ label: '톤당 매출', value: tonFormat(total.sales_per_ton) }, { label: '판매 건수', value: `${Number(total.line_count || 0).toLocaleString('ko-KR')}줄` }] },
   ] : [];
   const insights = total ? buildInsights(total, prev, yoy, data.customers || [], marginDrops) : [];
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page} ${pageClasses.page}`}>
-      <DashboardHeader parent="매출관리" title="매출이익 현황" subtitle={<>
-        {data ? <>비교: 전월 {shortDate(data.period.prev_from)} ~ {shortDate(data.period.prev_to)} · 전년 동월 {shortDate(data.period.yoy_from, true)} ~ {shortDate(data.period.yoy_to, true)}<SubSep /></> : null}거래처를 누르면 매출이익 분석이 열립니다
-      </>}>
+    <Box className={`${sharedClasses.pageShell} ${classes.page} ${pageClasses.page} ${simpleTheme.simple}`}>
+      <DashboardHeader parent="매출관리" title="매출이익 현황">
         <FilterBox onSearch={search} loading={loading}>
           <ErpDateInput aria-label="시작일" type="date" value={inputs.date_from} onChange={(event) => { const { value } = event.currentTarget; setInputs((current) => ({ ...current, date_from: value })); }} />
           <FilterTilde />

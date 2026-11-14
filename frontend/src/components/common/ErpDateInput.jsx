@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { IconCalendar } from '@tabler/icons-react';
 import { TextInput } from '@mantine/core';
-import classes from './ErpDateInput.module.css';
+import classes from '../../styles/components/ErpDateInput.module.css';
 
 const splitDate = (value) => {
   const parts = String(value || '').split('-');

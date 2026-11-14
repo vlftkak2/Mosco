@@ -1,33 +1,18 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware  
 from config import ALLOWED_ORIGINS
-
-from apscheduler.schedulers.background import BackgroundScheduler
-from contextlib import asynccontextmanager
-
-# import scheduler as scheduler_module
-# from routes import inventory_routes as inv_router
-# from routes import pg_routes as pg_router
-# from routes import omssap_routes as omssap_router
-# from routes import wmsoms_routes as wmsoms_router
-# from routes import hktvmalloms_standard_routes as hktvmall_oms_standard_router
-# from routes import hktvmalloms_merchant_routes as hktvmall_oms_merchant_router
-# from routes import hktvmallimprove_standard_routes as hktvmall_improve_standard_router
-# from routes import hktvmall_allocate_routes as hktvmall_allocate_router
-# from routes import shoppay_routes as shoppay_routes
-# from routes import domesticlogistics_routes as domestic_routes
-# from routes import D2CStatistics_routes as D2C_Statistics_routes
-# from routes import D2CMonth_routes as D2CMonth_routes
-# from routes import D2CWeek_routes as D2CWeek_routes
-# from routes import D2CDay_routes as D2CDay_routes
-# from routes import D2CItem_routes as D2CItem_routes
+from fastapi.exceptions import RequestValidationError
+from validation_messages import validation_exception_handler
 
 from routes.auth import login_routes as login_router
+from routes.system import Board_routes
+from routes.system import User_routes as system_user_routes
 from routes.auth import userpassword_routes as user_routes
 
 from routes.dashboard import home_dashboard_routes as home_dashboard_routes
 from routes.masterdata import Customer_routes as customer_routes
+from routes.masterdata import Workplace_routes as workplace_routes
 from routes.masterdata import Company_routes as company_routes
 from routes.auth import user_routes as company_user_routes
 from routes.auth import UserMenu_routes as user_menu_routes
@@ -40,7 +25,6 @@ from routes.process import ItemProcessRegister_routes as ItemProcessRegister_rou
 from routes.process import ItemProcessSearch_routes as ItemProcessSearch_routes
 from routes.inbound import InboundRegister_routes as InboundRegister_routes
 from routes.inbound import InboundSearch_routes as InboundSearch_routes
-from routes.inbound import Purchase_routes as Purchase_routes
 from routes.outbound import OutboundRegister_routes as OutboundRegister_routes
 from routes.outbound import OutboundSearch_routes as OutboundSearch_routes
 from routes.outbound import GrossProfit_routes as GrossProfit_routes
@@ -55,6 +39,7 @@ from routes.receiptpayment import ReceiptPaymentSearch_routes as ReceiptPaymentS
 from routes.receiptpayment import InstrumentStatus_routes as InstrumentStatus_routes
 from routes.receiptpayment import CustomerLedger_routes as CustomerLedger_routes
 from routes.receiptpayment import CustomerBalanceDashboard_routes as CustomerBalanceDashboard_routes
+from routes.closing import MonthClose_routes as MonthClose_routes
 from routes.ai import AIOrder_routes as AIOrder_routes
 from routes.ai import AIOrderManage_routes as AIOrderManage_routes
 from routes.ai import AIOrderOptimization_routes as AIOrderOptimization_routes
@@ -62,24 +47,8 @@ from routes.ai import AIOrderOptimization_routes as AIOrderOptimization_routes
 import uvicorn
 
 app = FastAPI()
-
-# 스케줄 설정
-# scheduler = BackgroundScheduler()
-
-# # 2. 수명 주기(lifespan) 설정
-# @asynccontextmanager
-# async def lifespan(app: FastAPI):
-    
-#     # OMS/SAP 검증 [StartUp] 서버 가동 시 실행
-#     # scheduler_module.setup_scheduler()
-#     # scheduler_module.scheduler.start()
-    
-#     yield  # --- 서버 운영 중 ---
-    
-#     # [ShutDown] 서버 종료 시 실행
-#     scheduler_module.scheduler.shutdown()
-
-# app = FastAPI(lifespan=lifespan)
+# 입력값 검증 오류(422) 문구를 한글로 (응답 모양은 그대로)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 # CORS 설정
 app.add_middleware(
@@ -95,6 +64,9 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # 로그인 API
 app.include_router(login_router.router)
 
+app.include_router(Board_routes.router)
+app.include_router(system_user_routes.router)  # 사용자관리
+
 # User Password API
 app.include_router(user_routes.router)
 
@@ -103,6 +75,7 @@ app.include_router(home_dashboard_routes.router)
 
 # Customer API
 app.include_router(customer_routes.router)
+app.include_router(workplace_routes.router)  # 사업장관리
 
 # Steel119 master company management API
 app.include_router(company_routes.router)
@@ -125,7 +98,6 @@ app.include_router(InboundRegister_routes.router)
 
 # Company-scoped inbound status/search API
 app.include_router(InboundSearch_routes.router)
-app.include_router(Purchase_routes.router)
 
 # Company-scoped outbound receipt API
 app.include_router(OutboundRegister_routes.router)
@@ -154,6 +126,7 @@ app.include_router(ReceiptPaymentSearch_routes.router)
 app.include_router(InstrumentStatus_routes.router)  # 수표/어음 현황
 app.include_router(CustomerLedger_routes.router)  # 거래처원장
 app.include_router(CustomerBalanceDashboard_routes.router)  # 거래처 잔액 현황
+app.include_router(MonthClose_routes.router)  # 월마감 관리
 
 # Isolated AI order recognition test API (does not touch ERP transaction tables).
 app.include_router(AIOrder_routes.router)

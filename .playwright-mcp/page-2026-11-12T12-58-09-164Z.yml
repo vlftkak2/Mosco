@@ -1,0 +1,97 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e6]:
+      - button "조회" [ref=e7] [cursor=pointer]
+      - button "추가" [disabled] [ref=e15]
+      - button "복사" [disabled] [ref=e20]
+      - button "엑셀" [disabled] [ref=e27]
+      - button "저장" [disabled] [ref=e35]
+      - button "삭제" [disabled] [ref=e43]
+      - button "닫기" [disabled] [ref=e51]
+    - generic [ref=e58]:
+      - button "최형민님" [ref=e59] [cursor=pointer]
+      - generic [aria-hidden] [ref=e65]: "|"
+      - button "로그아웃" [ref=e66] [cursor=pointer]
+  - navigation [ref=e72]:
+    - generic [ref=e73]:
+      - img "스틸119" [ref=e75]
+      - button "네비게이션 접기" [ref=e76] [cursor=pointer]
+    - navigation [ref=e83]:
+      - generic [ref=e84]:
+        - button "홈" [expanded] [ref=e85] [cursor=pointer]
+        - generic [ref=e95]:
+          - generic [ref=e96]: 업무현황
+          - button "대시보드" [ref=e98] [cursor=pointer]
+      - button "매입" [ref=e101] [cursor=pointer]
+      - button "매출" [ref=e112] [cursor=pointer]
+      - button "가공" [ref=e123] [cursor=pointer]
+      - button "재고" [ref=e132] [cursor=pointer]
+      - button "자금" [ref=e142] [cursor=pointer]
+      - button "게시판" [ref=e152] [cursor=pointer]
+      - button "설정" [ref=e161] [cursor=pointer]
+      - button "어드민" [ref=e170] [cursor=pointer]
+  - main [ref=e178]:
+    - tablist "열린 메뉴" [ref=e179]:
+      - tab "대시보드 대시보드 닫기" [selected] [ref=e180] [cursor=pointer]:
+        - generic "대시보드" [ref=e181]
+        - button "대시보드 닫기" [ref=e182]: ×
+    - generic [ref=e185]:
+      - navigation "현재 위치" [ref=e186]:
+        - generic [ref=e187]: 대시보드
+      - generic [ref=e188]:
+        - generic [ref=e189]:
+          - generic [ref=e190]: 조회기간
+          - generic [ref=e194]:
+            - textbox "시작일" [ref=e195]:
+              - /placeholder: YYYY-MM-DD
+              - text: 2026-11-01
+            - textbox [aria-hidden] [ref=e198] [cursor=pointer]: 2026-11-01
+          - generic [ref=e199]: "~"
+          - generic [ref=e201]:
+            - textbox "종료일" [ref=e202]:
+              - /placeholder: YYYY-MM-DD
+              - text: 2026-11-12
+            - textbox [aria-hidden] [ref=e205] [cursor=pointer]: 2026-11-12
+          - button "조회" [disabled] [ref=e206]
+        - generic [ref=e208]: 2026년 11월 12일 목요일
+      - generic [ref=e209]:
+        - generic [ref=e212]:
+          - generic [ref=e214]:
+            - generic [ref=e215]:
+              - paragraph [ref=e216]: 월별 매출
+              - paragraph [ref=e217]: 최근 12개월 · 진한 막대 = 조회한 달
+            - button "매출이익 현황" [ref=e218] [cursor=pointer]
+          - generic [ref=e224]:
+            - generic [ref=e225]:
+              - generic [ref=e226]:
+                - generic [ref=e227]: 오후
+                - generic [ref=e228]: 9:5808
+                - generic [ref=e229]: 11월 12일 목요일
+              - generic [ref=e230]: 날씨 불러오는 중…
+            - generic [ref=e232]:
+              - generic [ref=e233]: 철강 이슈
+              - generic [ref=e236]: 최신 기사 · 누르면 새 창
+        - generic [ref=e240]:
+          - paragraph [ref=e241]: 최근 매입 · 매출 전표
+          - textbox "최근 전표 검색" [ref=e248]:
+            - /placeholder: 거래처, 품목, 규격, 전표번호 검색
+        - generic [ref=e249]:
+          - generic [ref=e251]:
+            - generic [ref=e252]:
+              - paragraph [ref=e253]: 최근 매입
+              - paragraph [ref=e254]: 조회기간 · 최근 0건
+            - button "전체보기" [ref=e255] [cursor=pointer]
+          - generic [ref=e262]:
+            - generic [ref=e263]:
+              - paragraph [ref=e264]: 최근 매출
+              - paragraph [ref=e265]: 조회기간 · 최근 0건
+            - button "전체보기" [ref=e266] [cursor=pointer]
+        - generic [ref=e272]:
+          - generic [ref=e274]:
+            - generic [ref=e275]:
+              - paragraph [ref=e276]: 장기재고
+              - paragraph [ref=e277]: 입고일 · 기초재고일부터 오늘까지 경과 기간 (중량 기준)
+            - button "현재고 현황" [ref=e278] [cursor=pointer]
+          - generic [ref=e286]:
+            - paragraph [ref=e287]: 오래된 재고
+            - paragraph [ref=e288]: 1년 넘은 재고 · 오래된 순 · 재고이동한 재고는 처음 입고일 기준

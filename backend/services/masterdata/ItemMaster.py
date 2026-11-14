@@ -1,12 +1,10 @@
 import logging
-from contextlib import contextmanager
 
 from psycopg2 import IntegrityError
 import db as _shared_db
 from services.masterdata import CodeUsage as code_usage_module
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from config import DB_CONFIG
 
 logger = logging.getLogger(__name__)
 

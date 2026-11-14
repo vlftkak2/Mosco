@@ -19,10 +19,6 @@ HEADERS = {
 }
 
 CACHE_TTL = timedelta(minutes=30)
-_HOME_MARKET_CACHE = {
-    "expires_at": None,
-    "payload": None,
-}
 _STEEL_NEWS_CACHE = {"expires_at": None, "items": [], "available": False}
 _STEEL_NEWS_LOCK = threading.Lock()
 logger = logging.getLogger(__name__)
@@ -60,7 +56,7 @@ def get_weather():
         "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max"
         "&timezone=Asia%2FSeoul"
     )
-    data = _fetch_json(url)
+    data = _fetch_json(url, timeout=4)
     current = data.get("current", {})
     daily = data.get("daily", {})
 
@@ -100,100 +96,6 @@ def get_weather():
         "rainProbability": (daily.get("precipitation_probability_max") or [None])[0],
         "updatedAt": current.get("time"),
     }
-
-
-def get_stock():
-    html = _fetch_text(
-        "https://finance.naver.com/item/main.naver?code=278470",
-        encoding="euc-kr",
-    )
-    blinds = re.findall(r'<span class="blind">([^<]+)</span>', html)
-    numbers = [item for item in blinds if re.search(r"\d", item)]
-    price = numbers[0] if numbers else None
-
-    change = None
-    rate = None
-    state = "보합"
-    exday = re.search(r'<p class="no_exday">(.+?)</p>', html, flags=re.S)
-    if exday:
-        exday_blinds = re.findall(r'<span class="blind">([^<]+)</span>', exday.group(1))
-        if exday_blinds:
-            change = exday_blinds[0]
-        if len(exday_blinds) > 1:
-            rate = exday_blinds[1]
-        if "상승" in exday.group(1):
-            state = "상승"
-        elif "하락" in exday.group(1):
-            state = "하락"
-
-    return {
-        "name": "에이피알",
-        "code": "278470",
-        "market": "KOSPI",
-        "price": price,
-        "change": change,
-        "changeRate": rate,
-        "state": state,
-        "url": "https://finance.naver.com/item/main.naver?code=278470",
-        "updatedAt": datetime.now().isoformat(timespec="minutes"),
-    }
-
-
-def _extract_image(url):
-    try:
-        html = _fetch_text(url, timeout=4)
-    except Exception:
-        return None
-
-    patterns = [
-        r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
-        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
-        r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
-        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, html, flags=re.I)
-        if match:
-            return unescape(match.group(1))
-    return None
-
-
-def get_news(limit=5):
-    query = quote("에이피알 OR APR 278470")
-    rss_url = f"https://news.google.com/rss/search?q={query}&hl=ko&gl=KR&ceid=KR:ko"
-    xml_text = _fetch_text(rss_url)
-    root = ET.fromstring(xml_text)
-
-    articles = []
-    for item in root.findall("./channel/item"):
-        title = _strip_html(item.findtext("title"))
-        link = item.findtext("link") or ""
-        pub_date = item.findtext("pubDate")
-        published_at = pub_date
-        try:
-            published_at = parsedate_to_datetime(pub_date).isoformat()
-        except Exception:
-            pass
-
-        source = item.findtext("source") or urlparse(link).netloc
-        description = _strip_html(item.findtext("description"))
-        title = re.sub(r"\s+-\s+[^-]+$", "", title).strip()
-
-        articles.append(
-            {
-                "title": title,
-                "source": source,
-                "description": description,
-                "url": link,
-                "publishedAt": published_at,
-                "image": _extract_image(link),
-            }
-        )
-
-        if len(articles) >= limit:
-            break
-
-    return articles
 
 
 def get_steel_news(limit=8):
@@ -259,52 +161,45 @@ def get_steel_news(limit=8):
         return {"items": articles, "available": available, "cached": False}
 
 
-def get_home_market_summary():
-    now = datetime.now()
-    cached_payload = _HOME_MARKET_CACHE["payload"]
-    cache_expires_at = _HOME_MARKET_CACHE["expires_at"]
 
-    # CODEx HOME_DASHBOARD_CACHE: 30분 동안 외부 날씨/주가/뉴스 재호출 없이 캐시 응답
-    if cached_payload and cache_expires_at and now < cache_expires_at:
-        payload = copy.deepcopy(cached_payload)
-        payload["cached"] = True
-        payload["cacheUntil"] = cache_expires_at.isoformat(timespec="minutes")
-        return payload
-
-    result = {
-        "success": True,
-        "cached": False,
-        "cacheUntil": (now + CACHE_TTL).isoformat(timespec="minutes"),
-        "data": {
-            "weather": None,
-            "stock": None,
-            "news": [],
-            "updatedAt": now.isoformat(timespec="minutes"),
-        },
-        "errors": {},
-    }
-
-    for key, getter in (
-        ("weather", get_weather),
-        ("stock", get_stock),
-        ("news", get_news),
-    ):
-        try:
-            result["data"][key] = getter()
-        except Exception as exc:
-            result["errors"][key] = str(exc)
-
-    if len(result["errors"]) == 3:
-        result["success"] = False
-    else:
-        _HOME_MARKET_CACHE["payload"] = copy.deepcopy(result)
-        _HOME_MARKET_CACHE["expires_at"] = now + CACHE_TTL
-
-    return result
 
 
 _WEATHER_CACHE = {"expires_at": None, "data": None}
 _WEATHER_LOCK = threading.Lock()
+
+
+# wttr.in 날씨 코드(WWO) → 대시보드가 쓰는 한글 날씨 (아이콘도 이 글자로 고른다)
+_WTTR_CONDITIONS = [
+    ({113}, "맑음"), ({116}, "구름 조금"), ({119, 122}, "흐림"), ({143, 248, 260}, "안개"),
+    ({176, 263, 266, 293, 296, 353}, "약한 비"), ({299, 302, 356}, "비"), ({305, 308, 359}, "강한 비"),
+    ({179, 323, 326, 368}, "약한 눈"), ({227, 230, 329, 332, 335, 338, 371}, "눈"),
+    ({182, 185, 281, 284, 311, 314, 317, 320, 350, 362, 365, 374, 377}, "진눈깨비"),
+    ({200, 386, 389, 392, 395}, "뇌우"),
+]
+
+
+def get_weather_wttr():
+    """open-meteo 에 연결이 안 될 때 쓰는 예비 날씨 (wttr.in, 서울). 반환 모양은 get_weather() 와 같다."""
+    data = _fetch_json("https://wttr.in/Seoul?format=j1", timeout=4)
+    current = (data.get("current_condition") or [{}])[0]
+    today = (data.get("weather") or [{}])[0]
+    code = int(_safe_float(current.get("weatherCode"), 0) or 0)
+    condition = next((label for codes, label in _WTTR_CONDITIONS if code in codes), "날씨 정보")
+    rain = [int(_safe_float(hour.get("chanceofrain"), 0) or 0) for hour in today.get("hourly", [])]
+    return {
+        "location": "서울",
+        "temperature": round(_safe_float(current.get("temp_C"), 0)),
+        "apparentTemperature": round(_safe_float(current.get("FeelsLikeC"), 0)),
+        "humidity": int(_safe_float(current.get("humidity"), 0) or 0),
+        "precipitation": _safe_float(current.get("precipMM"), 0),
+        "windSpeed": _safe_float(current.get("windspeedKmph"), 0),
+        "condition": condition,
+        "todayHigh": round(_safe_float(today.get("maxtempC"), 0)),
+        "todayLow": round(_safe_float(today.get("mintempC"), 0)),
+        "rainProbability": max(rain) if rain else None,
+        "updatedAt": datetime.now().isoformat(timespec="minutes"),
+        "source": "wttr.in",
+    }
 
 
 def _cached_weather():
@@ -312,11 +207,14 @@ def _cached_weather():
     with _WEATHER_LOCK:
         if _WEATHER_CACHE["expires_at"] and now < _WEATHER_CACHE["expires_at"]:
             return copy.deepcopy(_WEATHER_CACHE["data"])
-    try:
-        data = get_weather()
-    except Exception as error:  # 외부 서비스가 안 되면 날씨 칸만 비운다
-        logger.warning("Weather unavailable: %s", type(error).__name__)
-        data = None
+    data = None
+    # open-meteo → 안 되면 wttr.in. 둘 다 안 되면 날씨 칸만 비운다
+    for name, getter in (("open-meteo", get_weather), ("wttr.in", get_weather_wttr)):
+        try:
+            data = getter()
+            break
+        except Exception as error:
+            logger.warning("Weather unavailable (%s): %s", name, type(error).__name__)
     with _WEATHER_LOCK:
         # 실패도 10분은 기억해 매번 기다리지 않게 한다
         _WEATHER_CACHE.update({"expires_at": now + (CACHE_TTL if data else timedelta(minutes=10)), "data": copy.deepcopy(data)})
@@ -333,6 +231,6 @@ def get_today_info(news_limit=6):
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(timeout=8)
+        thread.join(timeout=10)
     news = result.get("news") or {"items": [], "available": False}
     return {"weather": result.get("weather"), "news": news.get("items", []), "news_available": news.get("available", False)}

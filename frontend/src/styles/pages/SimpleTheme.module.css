@@ -1,0 +1,207 @@
+/* ==================================================================
+   간결 디자인 (참고: 파로스 ERP 회사정보 화면) — 화면 맨 바깥 Box 에 classes.simple 을 붙인 곳에만 적용.
+   지금: 매입등록 · 매입현황 · 매출등록 · 매출현황 · 매출이익 분석 · 매출이익 현황,
+         AI주문서 인식 · 주문서관리 · 가공최적화 · 가공공정 관리 · 재고가공 등록 · 재고가공 현황,
+         현재고 현황 · 재고수불현황 · 재고이동 등록 · 재고이동 현황 · 수금/지급 등록 · 수금/지급 현황 · 수표/어음 관리,
+         거래처원장 · 거래처 잔액 현황 · 상담게시판,
+         대시보드 · 기초재고 등록 · 일반코드 관리 · 품목코드 관리 · 고객사등록 · 고객사관리 · 고객사 메뉴권한. (거래처관리 · 사업장관리는 각자 CSS 에 같은 규칙)
+   규칙: 포인트 색은 빨강 그대로 · 꾸밈 아이콘 없이 · 각진 회색 테두리 입력칸(32) · 굵은 라벨 · Pretendard.
+   표의 열 · 데이터 순서는 건드리지 않고 모양만 바꾼다.
+   화면마다 CSS 모듈이 따로라 이름이 바뀌지 않는 부분(_이름_)으로 고른다.
+   ================================================================== */
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css');
+
+.simple { font-family: 'Pretendard Variable', 'Pretendard', -apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif; }
+.simple :global(.mantine-Input-input), .simple button, .simple input, .simple textarea, .simple table { font-family: inherit; }
+
+/* 패널: 가는 회색 테두리, 그림자 없이 */
+.simple [class*="_panel_"], .simple [class*="_resultsPanel_"] { border-color: #e1e5ea !important; border-radius: 8px !important; box-shadow: none !important; }
+
+/* 구역 제목 · 건수 */
+.simple [class*="_sectionTitle_"] { color: #222 !important; font-size: 15px !important; font-weight: 700 !important; letter-spacing: -.3px; }
+.simple [class*="_countBadge_"] { height: 20px; padding: 0 7px !important; border: 0 !important; border-radius: 4px !important; background: #f0f0f0 !important; color: #888 !important; font-size: 12px !important; font-weight: 500 !important; }
+.simple [class*="_toolbarMeta_"] { color: #888 !important; font-size: 12px !important; }
+.simple [class*="_toolbarMeta_"] > svg { display: none; }
+
+/* 요약 카드(현황): 색 아이콘 상자 없이 글자만 */
+.simple [class*="_summaryIcon_"] { display: none !important; }
+.simple [class*="_summaryCard"] { border-color: #e1e5ea !important; box-shadow: none !important; }
+.simple [class*="_summaryLabel_"] { color: #666 !important; font-size: 12.5px !important; font-weight: 500 !important; }
+.simple [class*="_summaryValue_"] { color: #222 !important; font-size: 20px !important; font-weight: 700 !important; }
+.simple [class*="_summaryUnit_"] { color: #888 !important; font-weight: 500 !important; }
+
+/* 입력칸 · 선택칸: 높이 32 · 각진 회색 테두리, 누르면 빨간 테두리 */
+.simple :global(.mantine-Input-input) { border: 1px solid #cccccc; border-radius: 4px; color: #333; }
+.simple :global(.mantine-Input-input::placeholder) { color: #9b959f; }
+.simple :global(.mantine-Input-input:focus), .simple :global(.mantine-Input-input:focus-within) { border-color: #e0434b; box-shadow: 0 0 0 2px #e0434b2e; }
+.simple :global(.mantine-Input-input:disabled) { border-color: #e4e4e4; background: #f1f2f5; color: #888; opacity: 1; }
+.simple [class*="_receiptHeader"] :global(.mantine-Input-input) { min-height: 32px; height: 32px; }
+.simple :global(.mantine-InputWrapper-label) { color: #222 !important; font-size: 13px !important; font-weight: 600 !important; }
+.simple :global(.mantine-InputWrapper-required) { color: #ff2828; }
+
+/* 표: 머리글 연회색 · 가운데, 칸은 가는 선 · 글자 진한 회색 */
+.simple table thead th { background: #f7f8fa !important; color: #333 !important; font-size: 12.5px !important; font-weight: 600 !important; }
+.simple table tbody td { color: #333; }
+.simple table tfoot td, .simple table tr[class*="_subtotal"] td, .simple table tr[class*="_summaryRow"] td { background: #f7f8fa !important; color: #222 !important; }
+
+/* 상세 탭(입고 상세 · 기타비용): 빨간 밑줄만 */
+.simple [class*="_detailTab"] { border-radius: 0 !important; background: transparent !important; box-shadow: none !important; }
+
+/* 화면 안 보조 버튼(거래명세서 출력 · 송장 출력 등): 흰 바탕 · 회색 테두리, 꾸밈 아이콘 없이 */
+.simple [class*="_resultsToolbar_"] :global(.mantine-Button-root), .simple [class*="_toolbar_"] :global(.mantine-Button-root), .simple [class*="_printActions_"] :global(.mantine-Button-root) { height: 30px; padding: 0 12px; border: 1px solid #cccccc !important; border-radius: 4px !important; background: #fff !important; box-shadow: none !important; color: #333 !important; font-size: 13px; font-weight: 500; }
+.simple [class*="_resultsToolbar_"] :global(.mantine-Button-root:hover:not(:disabled)), .simple [class*="_toolbar_"] :global(.mantine-Button-root:hover:not(:disabled)), .simple [class*="_printActions_"] :global(.mantine-Button-root:hover:not(:disabled)) { border-color: #e0434b !important; color: #e0434b !important; }
+.simple [class*="_resultsToolbar_"] :global(.mantine-Button-section), .simple [class*="_toolbar_"] :global(.mantine-Button-section), .simple [class*="_printActions_"] :global(.mantine-Button-section) { display: none; }
+
+/* 조회조건 안 '현재고 조회' 카드: 꾸밈 없이 */
+.simple [class*="_outboundStockLookup_"] { border: 1px solid #e4e4e4 !important; border-radius: 6px !important; background: #f7f8fa !important; }
+.simple [class*="_outboundStockLookup_"] :global(.mantine-Button-root) { height: 34px; min-height: 34px; border-radius: 4px; box-shadow: none !important; transform: none !important; }
+.simple [class*="_outboundStockLookup_"] :global(.mantine-Button-section) { display: none; }
+
+/* 페이지 이동: 각진 모서리 */
+.simple :global(.mantine-Pagination-control) { border-radius: 4px; }
+.simple [class*="_printActions_"] :global(.mantine-Button-root:disabled) { border-color: #e4e4e4 !important; background: #f1f2f5 !important; color: #9b959f !important; }
+
+/* 글자 크기: 표 · 상세 입력 글자를 한 단계 키움 (매입등록 · 매출등록 표가 11px 이라 작았음) */
+.simple table thead th { font-size: 13px !important; }
+.simple table tbody td, .simple table tfoot td { font-size: 13px !important; }
+.simple table tbody td :global(.mantine-Input-input), .simple table tbody td input { font-size: 13px !important; }
+.simple :global(.mantine-Input-input) { font-size: 13px; }
+.simple [class*="_detailTab"], .simple [class*="_summaryText"], .simple [class*="_detailFooter"], .simple [class*="_emptyDetail"] { font-size: 13px !important; }
+/* 소계 줄: 기본 목록 소계도 상세 소계와 같은 13px (자리가 좁으면 자간만 살짝 좁힘) */
+.simple [class*="_topReceiptSubtotalCell_"] { font-size: 13px !important; letter-spacing: -.2px; }
+
+/* ── 매출이익 분석: 요약 카드 — 색 막대 · 아이콘 없이 ── */
+.simple [class*="_statCard_"] { border-color: #e1e5ea !important; border-radius: 8px !important; box-shadow: none !important; }
+.simple [class*="_statCard_"]::before { display: none !important; }
+.simple [class*="_statIcon_"] { display: none !important; }
+.simple [class*="_statLabel_"] { color: #666 !important; font-size: 12.5px !important; font-weight: 500 !important; }
+.simple [class*="_statValue_"] { color: #222 !important; font-size: 20px !important; font-weight: 700 !important; }
+/* 거래처 묶음 머리 · 소계 줄 */
+.simple [class*="_groupRow"] td, .simple [class*="_groupHeader"] { background: #fafbfc !important; border-left-color: #e0434b !important; }
+
+/* ── 매출이익 현황(대시보드): 카드 색 줄 · 아이콘 없이, 조회기간 상자 각지게 ── */
+.simple [class*="_kpi_"] { border-color: #e1e5ea !important; border-top: 1px solid #e1e5ea !important; border-radius: 8px !important; box-shadow: none !important; }
+.simple [class*="_kpi_"]::before, .simple [class*="_kpi_"]::after { display: none !important; }
+.simple [class*="_kpiIcon_"] { display: none !important; }
+.simple [class*="_kpiLabel_"] { color: #222 !important; font-size: 13px !important; }
+.simple [class*="_kpiBasis_"] { color: #999 !important; }
+.simple [class*="_kpiValue_"] { color: #222 !important; }
+.simple [class*="_filterGroup_"] { border-color: #e1e5ea !important; border-radius: 8px !important; box-shadow: none !important; }
+.simple [class*="_filterLabel_"] svg { display: none; }
+.simple [class*="_filterLabel_"] { color: #222 !important; font-size: 13px !important; }
+.simple [class*="_filterGroup_"] :global(.mantine-Input-input) { border: 1px solid #cccccc !important; border-radius: 4px !important; background: #fff !important; }
+.simple [class*="_searchButton_"] { height: 32px !important; border-radius: 4px !important; background: #e0434b !important; box-shadow: none !important; transform: none !important; filter: none !important; }
+.simple [class*="_searchButton_"]:hover:not(:disabled) { background: #c4363f !important; }
+.simple [class*="_searchButton_"] svg { display: none; }
+.simple [class*="_panel"], .simple [class*="_card_"], .simple [class*="_box_"] { border-radius: 8px !important; box-shadow: none !important; }
+
+/* ── AI주문서 인식 · 주문서관리 · 가공최적화: 꾸밈 아이콘 · 그라데이션 없이 ── */
+.simple [class*="_stepIcon_"], .simple [class*="_uploadIcon_"], .simple [class*="_panelIcon"], .simple [class*="_promptIcon_"],
+.simple [class*="_emptyStateIcon_"], .simple [class*="_listIcon_"], .simple [class*="_flowCardIcon_"], .simple [class*="_sectionAiBadge_"] svg,
+.simple [class*="_aiExtractTag_"] svg { display: none !important; }
+/* 단계(STEP 1 · 2 · 3): 흰 바탕 · 가는 테두리, 지금 단계만 빨간 테두리 */
+.simple [class*="_step_"] { border-color: #e4e4e4 !important; border-radius: 6px !important; background: #fff !important; box-shadow: none !important; }
+/* 지금 단계: 왼쪽 빨간 막대 + 연한 빨강 바탕, 끝난 단계: 초록 막대, 남은 단계: 회색 */
+.simple [class*="_step_"] { padding-left: 18px !important; }
+.simple [class*="_step_active"] { border-color: #f2b7ba !important; background: #fff7f7 !important; box-shadow: inset 4px 0 #e0434b !important; }
+.simple [class*="_step_active"] [class*="_stepNo_"] { color: #e0434b !important; }
+.simple [class*="_step_active"] [class*="_stepCopy_"] b { color: #c4363f !important; font-size: 14px !important; }
+.simple [class*="_step_done"] { box-shadow: inset 4px 0 #2b8a3e !important; }
+.simple [class*="_step_done"] [class*="_stepNo_"] { color: #2b8a3e !important; }
+.simple [class*="_stepNo_"] { font-size: 11px !important; letter-spacing: .8px !important; }
+.simple [class*="_stepCopy_"] b { font-size: 14px !important; }
+.simple [class*="_stepNo_"] { color: #888 !important; }
+.simple [class*="_stepCopy_"] b { color: #222 !important; }
+/* 파일 놓는 곳: 회색 점선 상자 */
+.simple [class*="_uploadDropzone_"] { border: 1px dashed #cccccc !important; border-radius: 6px !important; background: #fafafa !important; box-shadow: none !important; }
+.simple [class*="_typeChip_"], .simple [class*="_extBadge_"] { border: 1px solid #e4e4e4 !important; border-radius: 3px !important; background: #fff !important; color: #666 !important; }
+/* 버튼: 각진 모서리 · 그림자 없이 · 아이콘 없이. 보조 = 흰 바탕 회색 테두리, 주 = 빨강 채움 */
+.simple [class*="_pickButton_"], .simple [class*="_clearButton_"], .simple [class*="_orderHeaderEditButton_"], .simple [class*="_secondaryActionButton_"],
+.simple [class*="_detailActionButton_"], .simple [class*="_matchButton_"], .simple [class*="_matchActionButton_"], .simple [class*="_actBtn_"], .simple [class*="_linkButton_"] {
+  border: 1px solid #cccccc !important; border-radius: 4px !important; background: #fff !important; box-shadow: none !important; color: #333 !important; font-weight: 500 !important;
+}
+.simple [class*="_pickButton_"]:hover:not(:disabled), .simple [class*="_clearButton_"]:hover:not(:disabled), .simple [class*="_orderHeaderEditButton_"]:hover:not(:disabled),
+.simple [class*="_secondaryActionButton_"]:hover:not(:disabled), .simple [class*="_detailActionButton_"]:hover:not(:disabled), .simple [class*="_matchButton_"]:hover:not(:disabled),
+.simple [class*="_matchActionButton_"]:hover:not(:disabled), .simple [class*="_actBtn_"]:hover:not(:disabled), .simple [class*="_linkButton_"]:hover:not(:disabled) { border-color: #e0434b !important; color: #e0434b !important; }
+.simple [class*="_pickButton_"]:disabled, .simple [class*="_clearButton_"]:disabled, .simple [class*="_secondaryActionButton_"]:disabled, .simple [class*="_detailActionButton_"]:disabled,
+.simple [class*="_matchButton_"]:disabled, .simple [class*="_matchActionButton_"]:disabled { border-color: #e4e4e4 !important; background: #f1f2f5 !important; color: #9b959f !important; }
+.simple [class*="_analyzeButton_"], .simple [class*="_confirmButton_"] { border-radius: 4px !important; background: #e0434b !important; box-shadow: none !important; transform: none !important; filter: none !important; }
+.simple [class*="_analyzeButton_"]:disabled, .simple [class*="_confirmButton_"]:disabled { background: #f3b3b6 !important; }
+.simple [class*="_pickButton_"] svg, .simple [class*="_clearButton_"] svg, .simple [class*="_analyzeButton_"] svg, .simple [class*="_confirmButton_"] svg,
+.simple [class*="_orderHeaderEditButton_"] svg, .simple [class*="_secondaryActionButton_"] svg, .simple [class*="_detailActionButton_"] svg,
+.simple [class*="_matchButton_"] svg, .simple [class*="_matchActionButton_"] svg { display: none !important; }
+.simple [class*="_dangerButton_"] { border-radius: 4px !important; box-shadow: none !important; }
+.simple [class*="_actBtn_"] svg, .simple [class*="_detailHeaderActions_"] button svg, .simple [class*="_detailHeaderActions_"] :global(.mantine-Button-section) { display: none !important; }
+.simple [class*="_detailHeaderActions_"] :global(.mantine-Button-root) { border: 1px solid #cccccc !important; border-radius: 4px !important; background: #fff !important; box-shadow: none !important; color: #333 !important; font-weight: 500 !important; }
+.simple [class*="_detailHeaderActions_"] :global(.mantine-Button-root:hover:not(:disabled)) { border-color: #e0434b !important; color: #e0434b !important; }
+
+/* ── 상담게시판: 꾸밈 아이콘 · 그라데이션 없이 ── */
+.simple [class*="_scopeNote_"] svg, .simple [class*="_detailEmptyIcon_"], .simple [class*="_writeButton_"] svg, .simple [class*="_emptyIcon"] { display: none !important; }
+.simple [class*="_writeButton_"], .simple [class*="_sendButton_"], .simple [class*="_smallPrimary_"] { border-radius: 4px !important; background: #e0434b !important; box-shadow: none !important; transform: none !important; filter: none !important; }
+.simple [class*="_writeButton_"]:hover:not(:disabled), .simple [class*="_sendButton_"]:hover:not(:disabled) { background: #c4363f !important; }
+.simple [class*="_textButton_"] { border-color: #cccccc !important; border-radius: 4px !important; color: #333 !important; }
+.simple [class*="_tab_"] { font-size: 13.5px !important; }
+
+/* ── 재고가공 등록: 아래 투입 · 제품 중량 줄을 연회색으로, 자동맞춤 버튼 각지게 ── */
+.simple [class*="_balanceStrip_"] { background: #f7f8fa !important; }
+.simple [class*="_balanceAmount_"] { color: #222 !important; }
+.simple [class*="_balanceResult_"] :global(.mantine-Button-root), .simple button[class*="_balance"] { border-radius: 4px !important; box-shadow: none !important; }
+.simple [class*="_balanceResult_"] :global(.mantine-Button-section) { display: none; }
+.simple [class*="_balanceStrip_"] :global(.mantine-Button-root) { height: 30px; border: 1px solid #cccccc !important; border-radius: 4px !important; background: #fff !important; color: #333 !important; font-weight: 500 !important; }
+.simple [class*="_balanceStrip_"] :global(.mantine-Button-root:hover:not(:disabled)) { border-color: #e0434b !important; color: #e0434b !important; }
+.simple [class*="_balanceStrip_"] :global(.mantine-Button-root:disabled) { border-color: #e4e4e4 !important; background: #f1f2f5 !important; color: #9b959f !important; }
+
+/* 스크롤바: 모든 간결 화면에서 얇게 (대시보드 목록 · 페이지 스크롤 포함, 다른 표와 같은 굵기) */
+.simple, .simple * { scrollbar-width: thin; scrollbar-color: #b9c2cd transparent; }
+
+/* 수금/지급 구분: 동그란 칩 대신 글자색만 (수금 = 파랑, 지급 = 빨강) */
+.simple [class*="_receiptBadge_"], .simple [class*="_paymentBadge_"] { height: auto !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: none !important; font-size: 13px !important; font-weight: 600 !important; text-transform: none !important; }
+.simple [class*="_receiptBadge_"], .simple [class*="_receiptBadge_"] :global(.mantine-Badge-label) { color: #1c6fd6 !important; }
+.simple [class*="_paymentBadge_"], .simple [class*="_paymentBadge_"] :global(.mantine-Badge-label) { color: #e03131 !important; }
+
+/* ── 아이콘 없이 (noIcons): 꾸밈 아이콘과 그 작은 상자를 모두 숨긴다. 기능용(선택 화살표 · 체크 · 페이지 이동 · 닫기 · 숫자 증감 · 날짜)은 남김 ── */
+.noIcons svg { display: none !important; }
+.noIcons [class*="Icon_"]:has(> svg), .noIcons [class*="icon_"]:has(> svg) { display: none !important; }
+.noIcons :global(.mantine-Select-section) svg, .noIcons :global(.mantine-Combobox-chevron), .noIcons :global(.mantine-Checkbox-icon),
+.noIcons :global(.mantine-Pagination-control) svg, .noIcons :global(.mantine-Pagination-dots) svg, .noIcons :global(.mantine-Modal-close) svg,
+.noIcons :global(.mantine-CloseButton-root) svg, .noIcons :global(.mantine-NumberInput-control) svg, .noIcons :global(.mantine-Loader-root) svg,
+.noIcons :global(.mantine-ActionIcon-root) svg, .noIcons [class*="_dateInput"] svg, .noIcons [class*="_dateField"] svg, .noIcons [class*="ErpDate"] svg { display: inline-block !important; }
+.noIcons :global(.mantine-Input-section[data-position="left"]):not(:has(input)) { display: none; }
+.noIcons :global(.mantine-Input-wrapper[data-with-left-section]) :global(.mantine-Input-input), .noIcons :global(.mantine-Input-input[data-with-left-section]) { padding-inline-start: 12px !important; }
+
+/* 재고구분: 동그란 칩 대신 글자색만 — 입고 파랑 · 출고 빨강 · 기초 노랑(주황) · 가공 보라 · 이동 초록 */
+.simple [class*="_typeBadge_"] { min-width: 0 !important; padding: 0 !important; border-radius: 0 !important; background: none !important; font-size: 13px !important; font-weight: 600 !important; }
+.simple [class*="_typeOpening_"] { color: #e67700 !important; }
+.simple [class*="_typeInbound_"] { color: #1c6fd6 !important; }
+.simple [class*="_typeOutbound_"] { color: #e03131 !important; }
+.simple [class*="_typeProcess_"] { color: #7048e8 !important; }
+.simple [class*="_typeMove_"] { color: #2b8a3e !important; }
+
+/* ── 조회조건 패널: 모든 화면을 매입등록과 같게 ──
+   패널 종류가 셋(매입등록형 receiptFilterSidebar · 현황형 filterSidebar · 가공등록형 filter)이라 함께 고른다.
+   매입등록 실측값: 여백 13 · 제목 14px 굵게 · 라벨 12px 굵게 진한 회색 · 입력칸 높이 36 · 글자 13px · 모서리 4 · 테두리 #ccc */
+.simple [class*="_receiptFilterSidebar_"], .simple [class*="_filterSidebar_"], .simple :global(.mantine-Paper-root)[class*="_filter_"] {
+  padding: 13px !important; border-color: #e0e6ef !important; border-radius: 4px !important; background: #fff !important; box-shadow: none !important;
+}
+.simple [class*="_receiptFilterSidebar_"] :global(.mantine-Text-root[data-fw="700"]):first-child, .simple [class*="FilterHeader"] :global(.mantine-Text-root),
+.simple [class*="_filterHeader_"] :global(.mantine-Text-root) { color: #1e2e45 !important; font-size: 14px !important; font-weight: 700 !important; }
+.simple [class*="_receiptFilterSidebar_"] :global(.mantine-InputWrapper-label), .simple [class*="_filterSidebar_"] :global(.mantine-InputWrapper-label), .simple :global(.mantine-Paper-root)[class*="_filter_"] :global(.mantine-InputWrapper-label),
+.simple [class*="_receiptFilterSidebar_"] :global(.mantine-Text-root[data-size="xs"]), .simple [class*="_filterSidebar_"] :global(.mantine-Text-root[data-size="xs"]), .simple :global(.mantine-Paper-root)[class*="_filter_"] :global(.mantine-Text-root[data-size="xs"]) {
+  margin-bottom: 5px !important; color: #252a32 !important; font-size: 12px !important; font-weight: 700 !important; line-height: 1.4 !important;
+}
+.simple [class*="_receiptFilterSidebar_"] :global(.mantine-Input-input), .simple [class*="_filterSidebar_"] :global(.mantine-Input-input), .simple :global(.mantine-Paper-root)[class*="_filter_"] :global(.mantine-Input-input) {
+  height: 36px !important; min-height: 36px !important; border: 1px solid #cccccc !important; border-radius: 4px !important; color: #333 !important; font-size: 13px !important;
+}
+.simple [class*="_receiptFilterSidebar_"] :global(.mantine-Input-input:not([data-with-left-section])), .simple [class*="_filterSidebar_"] :global(.mantine-Input-input:not([data-with-left-section])), .simple :global(.mantine-Paper-root)[class*="_filter_"] :global(.mantine-Input-input:not([data-with-left-section])) { padding-left: 12px !important; }
+.simple [class*="_receiptFilterSidebar_"] :global(.mantine-Input-input:focus), .simple [class*="_filterSidebar_"] :global(.mantine-Input-input:focus), .simple :global(.mantine-Paper-root)[class*="_filter_"] :global(.mantine-Input-input:focus),
+.simple [class*="_receiptFilterSidebar_"] :global(.mantine-Input-input:focus-within), .simple [class*="_filterSidebar_"] :global(.mantine-Input-input:focus-within), .simple :global(.mantine-Paper-root)[class*="_filter_"] :global(.mantine-Input-input:focus-within) { border-color: #e0434b !important; box-shadow: 0 0 0 2px #e0434b2e !important; }
+.simple [class*="_receiptFilterSidebar_"] :global(.mantine-Checkbox-label), .simple [class*="_filterSidebar_"] :global(.mantine-Checkbox-label) { color: #252a32 !important; font-size: 12px !important; }
+.simple [class*="_filterGroupLabel_"] { margin-bottom: 5px !important; color: #252a32 !important; font-size: 12px !important; font-weight: 700 !important; line-height: 1.4 !important; }
+/* 왼쪽 아이콘(돋보기 등)이 있는 입력칸은 글자가 아이콘에 겹치지 않게 */
+.simple [class*="_filterSidebar_"] :global(.mantine-Input-wrapper:has(> .mantine-Input-section[data-position="left"]) .mantine-Input-input),
+.simple [class*="_receiptFilterSidebar_"] :global(.mantine-Input-wrapper:has(> .mantine-Input-section[data-position="left"]) .mantine-Input-input) { padding-left: 34px !important; }
+.simple [class*="_filterHead_"] strong { color: #1e2e45; font-size: 14px; font-weight: 700; }
+/* 아이콘 없이 쓰는 화면의 버튼: 숨긴 아이콘 자리 때문에 글자가 오른쪽으로 밀리지 않게 자리째 없애고 좌우 여백을 같게 */
+.noIcons :global(.mantine-Button-section) { display: none !important; }
+.noIcons :global(.mantine-Button-root) { padding-inline: 14px !important; }
+

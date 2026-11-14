@@ -4,14 +4,12 @@ import { usePageActivation } from '../../components/common/usePageReactivated';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { SelectPickerModal } from '../../components/common/PickerModal';
 import XLSX from 'xlsx-js-style';
-import {
-  ActionIcon, Badge, Box, Button, Group, Loader, Modal, Notification, Pagination, Paper, Popover,
-  Select, Stack, Table, Text, TextInput,
-} from '@mantine/core';
+import { ActionIcon, Badge, Box, Button, Group, Loader, Notification, Pagination, Paper, Popover, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconBox, IconBuildingStore, IconListDetails, IconTrash, IconX } from '@tabler/icons-react';
+import { IconBox, IconBuildingStore, IconListDetails, IconX } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
 import outboundClasses from '../../styles/pages/OutboundRegister.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
@@ -21,6 +19,8 @@ import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
 import ExcelBulkActions from '../../components/common/ExcelBulkActions';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
+import { cachedDateFormat } from '../../utils/dateFormat';
 
 const STOCK_EXCEL_COLUMNS = [
   ['standdate', '기초일자'], ['customname', '거래처'], ['warehousecodename', '창고'], ['productname', '제품번호'],
@@ -161,7 +161,7 @@ const formatTimestamp = (value) => {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  const parts = new Intl.DateTimeFormat('en-GB', {
+  const parts = cachedDateFormat('en-GB', {
     timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   }).formatToParts(date).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
@@ -985,7 +985,6 @@ export default function StockStandPage() {
   const [loading, setLoading] = useState(false);
   const [loadingMoreRows, setLoadingMoreRows] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [exporting, setExporting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [itemPickerId, setItemPickerId] = useState('');
   const [customerPickerId, setCustomerPickerId] = useState('');
@@ -1469,7 +1468,6 @@ export default function StockStandPage() {
   }, []);
 
   const exportRows = useCallback(async () => {
-    setExporting(true);
     try {
       let rowsForExport = rows;
       if (hasSavedStock && rows.length < totalRows) {
@@ -1509,7 +1507,7 @@ export default function StockStandPage() {
       notifications.show({ title: '엑셀 다운로드 완료', message: `${rowsForExport.length.toLocaleString()}건을 저장했습니다.`, color: 'teal' });
     } catch (error) {
       notifications.show({ title: '엑셀 다운로드 실패', message: errorText(error), color: 'red' });
-    } finally { setExporting(false); }
+    }
   }, [rows, standdate, query, hasSavedStock, totalRows]);
 
   const uploadExcel = useCallback(async (event) => {
@@ -1972,7 +1970,7 @@ export default function StockStandPage() {
     useSaveColor: false,
   });
 
-  return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+  return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
     <ErpBreadcrumb parent="재고관리" current="기초재고 등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
 
     <Box className={`${classes.workspace} ${filterOpen ? classes.workspaceWithFilter : ''}`}>
@@ -2062,27 +2060,12 @@ export default function StockStandPage() {
       onClose={() => setMasterPickerTarget(null)}
       onSelect={chooseMaster}
     />
-    <Modal opened={deleteAllOpen} onClose={() => !saving && setDeleteAllOpen(false)} title="기초재고 전체 삭제" centered size="sm">
-      <Stack gap="md">
-        <Text size="sm" c="dimmed">이 회사에 등록된 기초재고 전체를 삭제합니다. 삭제한 데이터는 복구할 수 없습니다.</Text>
-        <Group justify="flex-end">
-          <Button variant="default" onClick={() => setDeleteAllOpen(false)} disabled={saving}>취소</Button>
-          <Button color="red" leftSection={<IconTrash size={15} />} onClick={deleteAll} loading={saving}>전체 삭제</Button>
-        </Group>
-      </Stack>
-    </Modal>
-    <Modal opened={deleteLinesOpen} onClose={() => !saving && setDeleteLinesOpen(false)} title="기초재고 선택 삭제" centered size="sm">
-      <Stack gap="md">
-        <Text size="sm" c="dimmed">
-          저장된 기초재고 {selectedSavedCount.toLocaleString()}건을 삭제합니다. 현재고와 재고수불 내역에서도 함께 삭제되며 복구할 수 없습니다.
-          {selectedNewCount > 0 && ` 선택한 신규 입력 행 ${selectedNewCount.toLocaleString()}건도 함께 제거됩니다.`}
-        </Text>
-        <Group justify="flex-end">
-          <Button variant="default" onClick={() => setDeleteLinesOpen(false)} disabled={saving}>취소</Button>
-          <Button color="red" leftSection={<IconTrash size={15} />} onClick={deleteSelectedLines} loading={saving}>삭제</Button>
-        </Group>
-      </Stack>
-    </Modal>
+    <ConfirmDeleteModal opened={deleteAllOpen} onClose={() => setDeleteAllOpen(false)} onConfirm={deleteAll} loading={saving}
+      title="기초재고를 전체 삭제할까요?" target="기초재고 전체" message="이 회사에 등록된 기초재고가 모두 삭제되며" note="삭제한 데이터는 복구할 수 없습니다." confirmLabel="전체 삭제" />
+    <ConfirmDeleteModal opened={deleteLinesOpen} onClose={() => setDeleteLinesOpen(false)} onConfirm={deleteSelectedLines} loading={saving}
+      title="기초재고를 삭제할까요?" target={`저장된 기초재고 ${selectedSavedCount.toLocaleString()}건`}
+      message={`현재고와 재고수불 내역에서도 함께 삭제됩니다.${selectedNewCount > 0 ? ` 선택한 신규 입력 행 ${selectedNewCount.toLocaleString()}건도 함께 제거됩니다.` : ''}`}
+      note="삭제한 데이터는 복구할 수 없습니다." />
     {discardMessage && <Box className={classes.discardConfirm} onKeyDown={(event) => { if (event.key === 'Escape') answerDiscard(false); }}>
       <Notification color="orange" title="저장하지 않은 변경사항" withBorder onClose={() => answerDiscard(false)}>
         <Text size="sm">{discardMessage}</Text>

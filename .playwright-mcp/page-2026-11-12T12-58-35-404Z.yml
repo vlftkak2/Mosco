@@ -1,0 +1,188 @@
+- generic [ref=f1e3]:
+  - banner [ref=f1e4]:
+    - generic [ref=f1e6]:
+      - button "조회" [ref=f1e7] [cursor=pointer]
+      - button "추가" [disabled] [ref=f1e15]
+      - button "복사" [disabled] [ref=f1e20]
+      - button "엑셀" [disabled] [ref=f1e27]
+      - button "저장" [disabled] [ref=f1e35]
+      - button "삭제" [disabled] [ref=f1e43]
+      - button "닫기" [ref=f1e51] [cursor=pointer]
+    - generic [ref=f1e58]:
+      - button "최형민님" [ref=f1e59] [cursor=pointer]
+      - generic [aria-hidden] [ref=f1e65]: "|"
+      - button "로그아웃" [ref=f1e66] [cursor=pointer]
+  - navigation [ref=f1e72]:
+    - generic [ref=f1e73]:
+      - img "스틸119" [ref=f1e75]
+      - button "네비게이션 접기" [ref=f1e76] [cursor=pointer]
+    - navigation [ref=f1e83]:
+      - button "홈" [ref=f1e85] [cursor=pointer]
+      - button "매입" [ref=f1e95] [cursor=pointer]
+      - button "매출" [ref=f1e106] [cursor=pointer]
+      - generic [ref=f1e116]:
+        - button "가공" [expanded] [ref=f1e117] [cursor=pointer]
+        - generic [ref=f1e125]:
+          - generic [ref=f1e126]:
+            - generic [ref=f1e127]: AI 가공솔루션
+            - button "AI 주문서인식" [ref=f1e129] [cursor=pointer]
+            - button "주문서관리" [ref=f1e132] [cursor=pointer]
+            - button "가공최적화" [ref=f1e135] [cursor=pointer]
+          - generic [ref=f1e137]:
+            - generic [ref=f1e138]: 재고가공
+            - button "가공공정 관리" [ref=f1e140] [cursor=pointer]
+            - button "재고가공 등록" [ref=f1e143] [cursor=pointer]
+            - button "재고가공 현황" [ref=f1e146] [cursor=pointer]
+      - button "재고" [ref=f1e149] [cursor=pointer]
+      - button "자금" [ref=f1e159] [cursor=pointer]
+      - button "게시판" [ref=f1e169] [cursor=pointer]
+      - button "설정" [ref=f1e178] [cursor=pointer]
+      - button "어드민" [ref=f1e187] [cursor=pointer]
+  - main [ref=f1e195]:
+    - tablist "열린 메뉴" [ref=f1e196]:
+      - tab "가공최적화 가공최적화 닫기" [selected] [ref=f1e197] [cursor=pointer]:
+        - generic "가공최적화" [ref=f1e198]
+        - button "가공최적화 닫기" [ref=f1e199]: ×
+    - generic [ref=f1e202]:
+      - navigation "현재 위치" [ref=f1e203]:
+        - generic [ref=f1e204]:
+          - generic [ref=f1e205]: AI 가공솔루션
+          - generic [ref=f1e206]: ›
+          - generic [ref=f1e207]: 가공최적화
+      - generic [ref=f1e208]:
+        - generic [ref=f1e209]:
+          - generic [ref=f1e210]:
+            - generic [ref=f1e211]:
+              - strong [ref=f1e212]: 최적화 대상
+              - generic [ref=f1e213]: 1건
+              - radiogroup [ref=f1e215]:
+                - generic [ref=f1e217]:
+                  - radio "코일·스켈프" [checked]
+                  - generic [ref=f1e218] [cursor=pointer]: 코일·스켈프
+                - generic [ref=f1e219]:
+                  - radio "시트·판재"
+                  - generic [ref=f1e220] [cursor=pointer]: 시트·판재
+            - table [ref=f1e222]:
+              - rowgroup [ref=f1e238]:
+                - row [ref=f1e239]:
+                  - columnheader "구분 구분 열 너비 조절" [ref=f1e240]:
+                    - text: 구분
+                    - separator "구분 열 너비 조절" [ref=f1e241]
+                  - columnheader "납기일 납기일 열 너비 조절" [ref=f1e242]:
+                    - text: 납기일
+                    - separator "납기일 열 너비 조절" [ref=f1e243]
+                  - columnheader "주문번호 주문번호 열 너비 조절" [ref=f1e244]:
+                    - text: 주문번호
+                    - separator "주문번호 열 너비 조절" [ref=f1e245]
+                  - columnheader "발주처 발주처 열 너비 조절" [ref=f1e246]:
+                    - text: 발주처
+                    - separator "발주처 열 너비 조절" [ref=f1e247]
+                  - columnheader "창고 창고 열 너비 조절" [ref=f1e248]:
+                    - text: 창고
+                    - separator "창고 열 너비 조절" [ref=f1e249]
+                  - columnheader "품명 품명 열 너비 조절" [ref=f1e250]:
+                    - text: 품명
+                    - separator "품명 열 너비 조절" [ref=f1e251]
+                  - columnheader "강종 강종 열 너비 조절" [ref=f1e252]:
+                    - text: 강종
+                    - separator "강종 열 너비 조절" [ref=f1e253]
+                  - columnheader "표면 표면 열 너비 조절" [ref=f1e254]:
+                    - text: 표면
+                    - separator "표면 열 너비 조절" [ref=f1e255]
+                  - columnheader "두께 두께 열 너비 조절" [ref=f1e256]:
+                    - text: 두께
+                    - separator "두께 열 너비 조절" [ref=f1e257]
+                  - columnheader "폭 폭 열 너비 조절" [ref=f1e258]:
+                    - text: 폭
+                    - separator "폭 열 너비 조절" [ref=f1e259]
+                  - columnheader "발주(kg) 발주 열 너비 조절" [ref=f1e260]:
+                    - text: 발주(kg)
+                    - separator "발주 열 너비 조절" [ref=f1e261]
+                  - columnheader "선가공(kg) 선가공 열 너비 조절" [ref=f1e262]:
+                    - text: 선가공(kg)
+                    - separator "선가공 열 너비 조절" [ref=f1e263]
+                  - columnheader "필요(kg) 필요 열 너비 조절" [ref=f1e264]:
+                    - text: 필요(kg)
+                    - separator "필요 열 너비 조절" [ref=f1e265]
+                  - columnheader "상태 상태 열 너비 조절" [ref=f1e266]:
+                    - text: 상태
+                    - separator "상태 열 너비 조절" [ref=f1e267]
+              - rowgroup [ref=f1e268]:
+                - row [ref=f1e478] [cursor=pointer]:
+                  - cell "기준" [ref=f1e479]
+                  - cell "2026-09-28" [ref=f1e481]
+                  - cell "AI2026110900001-1" [ref=f1e482]
+                  - cell "(주)금영피앤티" [ref=f1e483]
+                  - cell "신영정밀금속" [ref=f1e484]
+                  - cell "TIN" [ref=f1e485]
+                  - cell [ref=f1e486]
+                  - cell [ref=f1e487]
+                  - cell "0.6" [ref=f1e488]
+                  - cell "188" [ref=f1e489]
+                  - cell "500" [ref=f1e490]
+                  - cell "0" [ref=f1e491]
+                  - cell "500" [ref=f1e492]
+                  - cell "대기 빼기" [ref=f1e493]:
+                    - generic [ref=f1e494]: 대기
+                    - button "빼기" [ref=f1e495]
+          - generic [ref=f1e496]:
+            - generic [ref=f1e497]:
+              - generic [ref=f1e498]: "1"
+              - strong [ref=f1e499]: 발주·원자재 확인
+              - generic [ref=f1e500]: 계산 중…
+            - generic [ref=f1e502]: 계산 중입니다.
+          - generic [ref=f1e504]:
+            - generic [ref=f1e505]:
+              - generic [ref=f1e506]: "2"
+              - strong [ref=f1e507]: 원자재 후보 추천
+              - generic [ref=f1e508]: 연결 원자재 → 현재고 → 과거 매입 규격 순, 수율 높은 순
+            - generic [ref=f1e510]:
+              - generic [ref=f1e511]:
+                - generic [ref=f1e512]:
+                  - generic [ref=f1e513]: 원자재 폭 직접 입력
+                  - textbox "원자재 폭 직접 입력" [ref=f1e515]:
+                    - /placeholder: mm
+                - button "후보 추가" [ref=f1e516] [cursor=pointer]
+              - generic [ref=f1e521]: 후보를 찾는 중입니다.
+          - generic [ref=f1e522]:
+            - generic [ref=f1e523]:
+              - generic [ref=f1e524]: "3"
+              - strong [ref=f1e525]: 원자재·가공방식
+            - generic [ref=f1e526]: ② 에서 원자재 후보를 선택해 주세요.
+          - generic [ref=f1e528]:
+            - generic [ref=f1e529]:
+              - generic [ref=f1e530]: "4"
+              - strong [ref=f1e531]: 가공 추천조합
+            - generic [ref=f1e532]:
+              - generic [ref=f1e533]:
+                - radiogroup [ref=f1e535]:
+                  - generic [ref=f1e537]:
+                    - radio "단독" [checked]
+                    - generic [ref=f1e538] [cursor=pointer]: 단독
+                  - generic [ref=f1e539]:
+                    - radio "혼합"
+                    - generic [ref=f1e540] [cursor=pointer]: 혼합
+                - generic [ref=f1e541]: 조합을 계산하는 중입니다.
+              - generic [ref=f1e543]: 조합을 선택하면 배치가 표시됩니다.
+          - generic [ref=f1e545]:
+            - generic [ref=f1e546]: 1개 품목 선택
+            - button "주문서 관리로 돌려보내기" [ref=f1e547] [cursor=pointer]
+            - button "임시저장" [disabled] [ref=f1e550]
+            - button "계획 확정" [disabled] [ref=f1e558]
+        - complementary [ref=f1e271]:
+          - generic [ref=f1e272]:
+            - paragraph [ref=f1e273]: 조회조건
+            - button "조회조건 닫기" [ref=f1e274] [cursor=pointer]
+          - generic [ref=f1e279]:
+            - generic [ref=f1e280]:
+              - generic [ref=f1e281]: 발주처
+              - textbox "발주처" [ref=f1e283]:
+                - /placeholder: 발주처명
+            - generic [ref=f1e284]:
+              - generic [ref=f1e285]: 품명
+              - textbox "품명" [ref=f1e287]
+          - generic [ref=f1e288]:
+            - paragraph [ref=f1e289]: 대기 품목 조회
+            - paragraph [ref=f1e290]: 주문서 관리에서 보낸 품목을 불러옵니다. 같은 창고 품목끼리만 함께 계산합니다.
+            - button "품목 불러오기 (2)" [active] [ref=f1e307] [cursor=pointer]
+            - button "계획 불러오기 (0)" [ref=f1e299] [cursor=pointer]

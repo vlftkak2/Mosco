@@ -3,7 +3,6 @@ import axios from 'axios';
 import XLSX from 'xlsx-js-style';
 import { Button, Group, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconDownload, IconScale, IconUpload } from '@tabler/icons-react';
 import PickerModal, { PickerEmpty, pickerClasses } from '../../components/common/PickerModal';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 
@@ -121,11 +120,11 @@ export default function OpeningBalanceModal({ opened, onClose, canEdit, onApplie
   };
 
   const changed = preview?.changed || [];
-  return <PickerModal opened={opened} onClose={close} closeDisabled={busy === 'apply'}
-    title="기초잔액 엑셀" description="이미 등록된 거래처의 기초 미수금·기초 미지급금만 한 번에 바꿉니다. 다른 거래처 정보는 바뀌지 않습니다." icon={<IconScale size={22} stroke={1.7} />}
+  return <PickerModal simple opened={opened} onClose={close} closeDisabled={busy === 'apply'}
+    title="기초잔액 엑셀" description="이미 등록된 거래처의 기초 미수금·기초 미지급금만 한 번에 바꿉니다. 다른 거래처 정보는 바뀌지 않습니다."
     filters={<>
-      <Button size="sm" variant="default" leftSection={<IconDownload size={15} />} onClick={downloadTemplate} loading={busy === 'template'}>1. 양식 받기</Button>
-      <Button size="sm" color="red" leftSection={<IconUpload size={15} />} onClick={() => fileRef.current?.click()} loading={busy === 'preview'} disabled={!canEdit}>2. 엑셀 올리기</Button>
+      <Button size="sm" variant="default" onClick={downloadTemplate} loading={busy === 'template'}>1. 양식 받기</Button>
+      <Button size="sm" color="red" onClick={() => fileRef.current?.click()} loading={busy === 'preview'} disabled={!canEdit}>2. 엑셀 올리기</Button>
       <input ref={fileRef} type="file" accept=".xlsx,.xls" hidden onChange={readFile} />
       {fileName && <Text size="xs" c="dimmed" style={{ alignSelf: 'center' }}>{fileName}</Text>}
     </>}
@@ -139,7 +138,7 @@ export default function OpeningBalanceModal({ opened, onClose, canEdit, onApplie
       </div>}
     </>}
     listTitle="바뀌는 거래처" count={preview ? preview.changed_count : 0} listHint={preview ? '반영 전 금액 → 반영 후 금액' : '엑셀을 올리면 바뀌는 거래처가 여기에 나옵니다'}
-    selectedCount={preview?.changed_count || 0} selectionLabel="곳 바뀜"
+    selectedCount={preview?.changed_count || 0} selectionLabel="바뀜"
     onApply={apply} applyLabel="반영" applying={busy === 'apply'} applyDisabled={!canEdit || !preview?.changed_count || Boolean(busy)}>
     <table className={pickerClasses.table} style={{ width: '100%', minWidth: 760 }} aria-label="바뀌는 거래처">
       <colgroup><col style={{ width: 60 }} /><col style={{ width: 120 }} /><col /><col style={{ width: 220 }} /><col style={{ width: 220 }} /></colgroup>

@@ -1,6 +1,4 @@
-from fastapi import FastAPI,APIRouter, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
-from config import ALLOWED_ORIGINS
+from fastapi import APIRouter, HTTPException
 
 # 모듈 임포트 (이름 충돌을 피하기 위해 as 사용)
 from services.auth import login as auth_module

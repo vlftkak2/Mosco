@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Button, Group, Loader, Modal, Pagination, TextInput } from '@mantine/core';
 import { IconCheck, IconChevronRight, IconInfoCircle, IconListCheck, IconSearch } from '@tabler/icons-react';
-import classes from './PickerModal.module.css';
+import classes from '../../styles/components/PickerModal.module.css';
 
 // 불러오기/선택 창 공통 틀 (가공최적화 > 품목 불러오기 창 디자인).
 // 화면마다 다른 것은 검색 칸(filters)과 표(children)뿐이고, 제목·안내·목록 틀·하단 바는 여기서 같은 모양으로 그린다.
@@ -150,12 +150,13 @@ export default function PickerModal({
   pagination,
   onApply, applyLabel = '선택 반영', applyDisabled, applying = false,
   footerActions,
+  simple = false, // 간결형(아이콘 없이 · 각진 회색 테두리) — 거래처관리 기초잔액 엑셀처럼 켠 곳에만
 }) {
   const close = () => { if (!closeDisabled) onClose(); };
   return <Modal opened={opened} onClose={close} centered size="min(1440px, calc(100vw - 32px))" xOffset={16} yOffset={16}
-    classNames={MODAL_CLASSES} closeButtonProps={{ 'aria-label': `${title} 닫기` }}
+    classNames={simple ? { ...MODAL_CLASSES, content: `${classes.content} ${classes.simple}` } : MODAL_CLASSES} closeButtonProps={{ 'aria-label': `${title} 닫기` }}
     title={<div className={classes.heading}>
-      <span className={classes.headingIcon} aria-hidden="true">{icon}</span>
+      {!simple && <span className={classes.headingIcon} aria-hidden="true">{icon}</span>}
       <div>
         <div className={classes.headingLine}><strong>{title}</strong>{badge && <span className={classes.badge}>{badge}</span>}</div>
         {description && <p>{description}</p>}
@@ -163,7 +164,7 @@ export default function PickerModal({
     </div>}>
     <div className={classes.workspace}>
       {filters && <div className={classes.filters}>{filters}</div>}
-      {guide && <div className={classes.guide}><IconInfoCircle size={16} aria-hidden="true" /><div>{guide}</div></div>}
+      {guide && <div className={classes.guide}>{!simple && <IconInfoCircle size={16} aria-hidden="true" />}<div>{guide}</div></div>}
       <div className={classes.list}>
         <div className={classes.listHeader}>
           <div><strong>{listTitle}</strong>{count !== undefined && <span className={classes.count}>{Number(count || 0).toLocaleString()}건</span>}</div>
@@ -175,14 +176,14 @@ export default function PickerModal({
     </div>
     <div className={classes.footer}>
       <div className={classes.selection} aria-live="polite">
-        <IconListCheck size={17} aria-hidden="true" /><span><strong>{Number(selectedCount).toLocaleString()}개</strong> {selectionLabel}</span>
+        {!simple && <IconListCheck size={17} aria-hidden="true" />}<span><strong>{Number(selectedCount).toLocaleString()}개</strong> {selectionLabel}</span>
         {selectedCount > 0 && onClearSelection && <button type="button" className={classes.linkButton} onClick={onClearSelection}>선택 해제</button>}
       </div>
       <div className={classes.pagination}>{pagination}</div>
       <Group gap={8} className={classes.footerActions}>
         {footerActions ?? <>
           <Button size="sm" variant="default" onClick={close} disabled={closeDisabled}>취소</Button>
-          <Button size="sm" color="red" leftSection={<IconCheck size={15} />} onClick={onApply} loading={applying}
+          <Button size="sm" color="red" leftSection={simple ? undefined : <IconCheck size={15} />} onClick={onApply} loading={applying}
             disabled={applyDisabled ?? !selectedCount}>{applyLabel}{selectedCount ? ` (${Number(selectedCount).toLocaleString()})` : ''}</Button>
         </>}
       </Group>

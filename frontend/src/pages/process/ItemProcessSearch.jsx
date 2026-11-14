@@ -8,12 +8,15 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
+  IconCalendar,
   IconCoin, IconCopy, IconDeviceFloppy, IconFileInvoice, IconFileSpreadsheet, IconFilter, IconListDetails, IconPlus,
   IconScale, IconSearch, IconSearchOff, IconStack2, IconTrash, IconX,
 } from '@tabler/icons-react';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/ItemProcessSearch.module.css';
+import { cachedDateFormat } from '../../utils/dateFormat';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' },
@@ -57,7 +60,7 @@ const displayDateTime = (value) => {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  const parts = cachedDateFormat('en-CA', {
     timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   }).formatToParts(date);
@@ -215,7 +218,7 @@ export default function ItemProcessSearch() {
   const setFilter = (key, value) => setFilterInputs((current) => ({ ...current, [key]: value }));
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+    <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group gap={7}>
           <Text component="span" className={classes.breadcrumbParent}>재고가공</Text>
@@ -244,8 +247,9 @@ export default function ItemProcessSearch() {
       <Box className={classes.workspace}>
         <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder>
           <Group className={classes.resultsToolbar} justify="space-between">
-            <Group gap={8}><Text className={classes.sectionTitle} fw={700}>가공현황</Text><Badge className={classes.countBadge} variant="light">{total.toLocaleString()}건</Badge></Group>
-            {(filters.date_from || filters.date_to) && <Text className={classes.toolbarHint}>가공기간 {filters.date_from || '처음'} ~ {filters.date_to || '현재'}</Text>}
+            <Group gap={8} wrap="nowrap"><Text className={classes.sectionTitle} fw={700}>가공현황</Text><Badge className={classes.countBadge} variant="light">{total.toLocaleString()}건</Badge>
+              {(filters.date_from || filters.date_to) && <span className={classes.toolbarMeta} title="조회 기간 (가공일자)"><IconCalendar size={13} />{filters.date_from || '처음'} ~ {filters.date_to || '현재'}</span>}
+            </Group>
           </Group>
           <Box className={classes.tableWrap}>
             {loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}

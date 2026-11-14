@@ -1,11 +1,10 @@
-from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal
 
 import db as _shared_db
+from services.closing import MonthClose as month_close_module
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from config import DB_CONFIG
 
 
 # Connections come from the single shared pool (backend/db.py).
@@ -22,6 +21,11 @@ INSTRUMENT_OPTIONS = {
 INSTRUMENT_FIELD_LABELS = {"instrumenttype": "수표/어음 종류", "issuekind": "발행구분", "instrumentstatus": "어음처리상태"}
 
 
+# 금액 구분
+#   totalamt  (자금 합계)   = 현금 + 수표·어음 + 은행예금 + 카드      : 실제로 돈·증권이 오간 금액
+#   settleamt (상계·잡손실) = 상계 + 잡손실                         : 돈이 오가지 않고 채권·채무만 정리한 금액
+#   ledgeramt (전표 합계)   = totalamt + settleamt                 : 거래처원장·잔액에서 미수/미지급을 줄이는 금액
+#   과금(chargeamt)은 어느 합계에도 넣지 않는다.
 class ReceiptPaymentDetailInput(BaseModel):
     cashamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=3)
     instrumentamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=3)
@@ -144,10 +148,13 @@ def list_documents(companyid: str, page: int, page_size: int, date_from: date | 
                    COALESCE(SUM(d.line_count), 0)::integer AS detail_count,
                    COALESCE(SUM(CASE WHEN h.transactiontype = 'RECEIPT' THEN d.totalamt ELSE 0 END), 0)::numeric(18, 3) AS receipt_total,
                    COALESCE(SUM(CASE WHEN h.transactiontype = 'PAYMENT' THEN d.totalamt ELSE 0 END), 0)::numeric(18, 3) AS payment_total,
+                   COALESCE(SUM(CASE WHEN h.transactiontype = 'RECEIPT' THEN d.settleamt ELSE 0 END), 0)::numeric(18, 3) AS receipt_settle_total,
+                   COALESCE(SUM(CASE WHEN h.transactiontype = 'PAYMENT' THEN d.settleamt ELSE 0 END), 0)::numeric(18, 3) AS payment_settle_total,
                    COALESCE(SUM(d.totalamt), 0)::numeric(18, 3) AS total_amount
             FROM ReceiptPayment01t AS h
             LEFT JOIN LATERAL (
-                SELECT COUNT(*) AS line_count, COALESCE(SUM(totalamt), 0) AS totalamt
+                SELECT COUNT(*) AS line_count, COALESCE(SUM(totalamt), 0) AS totalamt,
+                       COALESCE(SUM(COALESCE(offsetamt, 0) + COALESCE(lossamt, 0)), 0) AS settleamt
                 FROM ReceiptPayment02t AS d
                 WHERE d.companyid = h.companyid AND d.receiptno = h.receiptno
             ) AS d ON TRUE
@@ -170,7 +177,9 @@ def list_documents(companyid: str, page: int, page_size: int, date_from: date | 
                    COALESCE(d.offsetamt, 0)::numeric(15, 3) AS offsetamt,
                    COALESCE(d.lossamt, 0)::numeric(15, 3) AS lossamt,
                    COALESCE(d.chargeamt, 0)::numeric(15, 3) AS chargeamt,
-                   COALESCE(d.totalamt, 0)::numeric(15, 3) AS totalamt
+                   COALESCE(d.totalamt, 0)::numeric(15, 3) AS totalamt,
+                   (COALESCE(d.offsetamt, 0) + COALESCE(d.lossamt, 0))::numeric(15, 3) AS settleamt,
+                   (COALESCE(d.totalamt, 0) + COALESCE(d.offsetamt, 0) + COALESCE(d.lossamt, 0))::numeric(15, 3) AS ledgeramt
             FROM ReceiptPayment01t AS h
             LEFT JOIN LATERAL (
                 SELECT COUNT(*) AS line_count,
@@ -218,7 +227,9 @@ def list_detail_rows(companyid: str, page: int, page_size: int, date_from: date 
             SELECT COUNT(DISTINCT h.receiptno)::integer AS receipt_count,
                    COUNT(d.lineno)::integer AS detail_count,
                    COALESCE(SUM(CASE WHEN h.transactiontype = 'RECEIPT' THEN d.totalamt ELSE 0 END), 0)::numeric(18, 3) AS receipt_total,
-                   COALESCE(SUM(CASE WHEN h.transactiontype = 'PAYMENT' THEN d.totalamt ELSE 0 END), 0)::numeric(18, 3) AS payment_total
+                   COALESCE(SUM(CASE WHEN h.transactiontype = 'PAYMENT' THEN d.totalamt ELSE 0 END), 0)::numeric(18, 3) AS payment_total,
+                   COALESCE(SUM(CASE WHEN h.transactiontype = 'RECEIPT' THEN COALESCE(d.offsetamt, 0) + COALESCE(d.lossamt, 0) ELSE 0 END), 0)::numeric(18, 3) AS receipt_settle_total,
+                   COALESCE(SUM(CASE WHEN h.transactiontype = 'PAYMENT' THEN COALESCE(d.offsetamt, 0) + COALESCE(d.lossamt, 0) ELSE 0 END), 0)::numeric(18, 3) AS payment_settle_total
             {join_sql}
             WHERE {where_sql}
             """,
@@ -236,6 +247,8 @@ def list_detail_rows(companyid: str, page: int, page_size: int, date_from: date 
                    d.processdate, d.discountfee, d.processmemo, d.source_receiptno,
                    COALESCE(d.source_receiptno, {_USED_RECEIPTNO_SQL}) AS linked_receiptno,
                    d.bankamt, d.cardamt, d.offsetamt, d.lossamt, d.chargeamt, d.totalamt,
+                   (COALESCE(d.offsetamt, 0) + COALESCE(d.lossamt, 0)) AS settleamt,
+                   (COALESCE(d.totalamt, 0) + COALESCE(d.offsetamt, 0) + COALESCE(d.lossamt, 0)) AS ledgeramt,
                    d.description AS detail_description,
                    d.created_at, COALESCE(d.updated_at, h.updated_at) AS updated_at,
                    COALESCE((SELECT u.username FROM user01t u WHERE u.email = COALESCE(d.created_by, h.created_by) LIMIT 1), COALESCE(d.created_by, h.created_by)) AS created_by,
@@ -503,14 +516,22 @@ def process_instruments(companyid: str, receiptno: str, payload: dict, actor: st
         cursor.execute(
             """SELECT d.lineno, d.instrumentamt, d.instrumentstatus, d.issuekind, d.source_receiptno,
                       (SELECT p.receiptno FROM ReceiptPayment02t p WHERE p.companyid = d.companyid
-                        AND p.source_receiptno = d.receiptno AND p.source_lineno = d.lineno LIMIT 1) AS used_by
+                        AND p.source_receiptno = d.receiptno AND p.source_lineno = d.lineno LIMIT 1) AS used_by,
+                      d.processdate
                FROM ReceiptPayment02t d
                WHERE d.companyid = %s AND d.receiptno = %s AND d.lineno = ANY(%s)
                ORDER BY d.lineno FOR UPDATE OF d""",
             (companyid, receiptno, list(lines)),
         )
-        rows = {row[0]: dict(zip(("lineno", "instrumentamt", "instrumentstatus", "issuekind", "source_receiptno", "used_by"), row))
+        rows = {row[0]: dict(zip(("lineno", "instrumentamt", "instrumentstatus", "issuekind", "source_receiptno", "used_by",
+                                  "processdate"), row))
                 for row in cursor.fetchall()}
+        # 처리일 기준: 새 처리일이 마감된 달이면 처리 불가, 처리취소는 원래 처리일이 마감된 달이면 불가
+        month_close_module.ensure_open(
+            cursor, companyid,
+            [row["processdate"] for row in rows.values()] if action == "CANCEL" else [payload["processdate"]],
+            PROCESS_ACTION_LABELS[action],
+        )
         problems = []
         for lineno in sorted(lines):
             row = rows.get(lineno)
@@ -599,6 +620,16 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
     is_new = not receiptno
     items = payload["items"]
     with _connect() as connection, connection.cursor() as cursor:
+        original_date = None
+        if not is_new:
+            cursor.execute(
+                "SELECT receiptdate FROM ReceiptPayment01t WHERE companyid = %s AND receiptno = %s FOR UPDATE",
+                (companyid, receiptno),
+            )
+            found = cursor.fetchone()
+            original_date = found[0] if found else None
+        # 수정이면 원래 일자와 바뀐 일자 둘 다 마감 전이어야 한다
+        month_close_module.ensure_open(cursor, companyid, [payload["receiptdate"], original_date], "등록" if is_new else "수정")
         if is_new:
             receiptno = _next_receiptno(cursor, companyid, payload["receiptdate"])
             cursor.execute(
@@ -679,6 +710,14 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
 
 def delete_document(companyid: str, receiptno: str, actor: str | None = None) -> bool:
     with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT receiptdate FROM ReceiptPayment01t WHERE companyid = %s AND receiptno = %s FOR UPDATE",
+            (companyid, receiptno),
+        )
+        found = cursor.fetchone()
+        if not found:
+            return False
+        month_close_module.ensure_open(cursor, companyid, [found[0]], "삭제")
         _block_if_instruments_used(cursor, companyid, receiptno, "삭제")
         _restore_used_instruments(cursor, companyid, receiptno, actor)
         cursor.execute(

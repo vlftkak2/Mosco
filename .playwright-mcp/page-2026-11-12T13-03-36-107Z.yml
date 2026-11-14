@@ -1,0 +1,210 @@
+- generic [active] [ref=f21e1]:
+  - link "본문으로 건너뛰기" [ref=f21e2] [cursor=pointer]:
+    - /url: "#main"
+  - banner [ref=f21e3]:
+    - generic [ref=f21e4]:
+      - link "스틸119 홈" [ref=f21e5] [cursor=pointer]:
+        - /url: ./index.html
+        - strong [ref=f21e6]:
+          - text: 스틸119
+          - generic [ref=f21e7]: STEEL BUSINESS CONNECT
+      - navigation "주요 메뉴" [ref=f21e8]:
+        - link "AI ERP" [ref=f21e9] [cursor=pointer]:
+          - /url: ./erp.html
+        - link "철강 자재" [ref=f21e10] [cursor=pointer]:
+          - /url: ./index.html#services
+        - link "발주 문의" [ref=f21e11] [cursor=pointer]:
+          - /url: ./index.html#inquiry
+        - link "서비스" [ref=f21e12] [cursor=pointer]:
+          - /url: ./index.html#services
+        - link "회사소개" [ref=f21e13] [cursor=pointer]:
+          - /url: ./company.html
+        - link "문의하기" [ref=f21e14] [cursor=pointer]:
+          - /url: ./index.html#inquiry
+  - main [ref=f21e15]:
+    - generic [ref=f21e17]:
+      - generic [ref=f21e18]:
+        - paragraph [ref=f21e19]: STEEL119 AI ERP
+        - heading "철강 업무의 기본부터 AI 가공 최적화까지." [level=1] [ref=f21e20]: 철강 업무의 기본부터AI 가공 최적화까지.
+        - paragraph [ref=f21e21]: 업무 현황은 대시보드로, 거래 흐름은 원장으로.복잡한 가공 조합은 데이터로 검토하세요.
+        - generic [ref=f21e22]:
+          - link "요금 확인하기 ↗" [ref=f21e23] [cursor=pointer]:
+            - /url: "#pricing"
+            - text: 요금 확인하기
+            - generic [ref=f21e24]: ↗
+          - link "도입 상담" [ref=f21e25] [cursor=pointer]:
+            - /url: ./index.html#inquiry
+        - generic [ref=f21e26]: 월 기본료 200,000원+ 사용자 1인당 5,000원
+      - generic [ref=f21e27]:
+        - generic [ref=f21e28]: STEEL119 / DASHBOARD
+        - img "실제 데이터가 표시된 스틸119 ERP 대시보드" [ref=f21e34]
+        - tablist "ERP 화면 미리보기" [ref=f21e35]:
+          - tab "대시보드" [selected] [ref=f21e36] [cursor=pointer]
+          - tab "거래처 원장" [ref=f21e37] [cursor=pointer]
+          - tab "AI 가공 최적화" [ref=f21e38] [cursor=pointer]
+        - tabpanel "대시보드" [ref=f21e39]: 실제 업무 데이터가 표시된 대시보드 화면입니다.
+    - navigation "AI ERP 페이지 안내" [ref=f21e40]:
+      - generic [ref=f21e41]:
+        - link "대시보드" [ref=f21e42] [cursor=pointer]:
+          - /url: "#dashboard"
+        - link "거래처 원장" [ref=f21e43] [cursor=pointer]:
+          - /url: "#ledger"
+        - link "AI 가공" [ref=f21e44] [cursor=pointer]:
+          - /url: "#optimization"
+        - link "기본 ERP" [ref=f21e45] [cursor=pointer]:
+          - /url: "#modules"
+        - link "요금 안내" [ref=f21e46] [cursor=pointer]:
+          - /url: "#pricing"
+    - generic [ref=f21e47]:
+      - generic [ref=f21e48]:
+        - paragraph [ref=f21e49]: 01 / BUSINESS DASHBOARD
+        - heading "오늘의 업무 현황을 한눈에 확인하세요." [level=2] [ref=f21e50]: 오늘의 업무 현황을한눈에 확인하세요.
+        - paragraph [ref=f21e51]: 여러 메뉴를 오가며 확인하던 업무 수치를 대시보드에 모았습니다. 조회 기간에 따른 매입·매출과 이익, 현재 재고와 미수금 현황을 살펴보세요.
+        - list [ref=f21e52]:
+          - listitem [ref=f21e53]: ✓기간별 매입·매출과 매출이익
+          - listitem [ref=f21e54]: ✓전월 같은 기간과의 변화 비교
+          - listitem [ref=f21e55]: ✓현재고와 미수금 현황 확인
+        - link "실제 화면 크게 보기 ↗" [ref=f21e56] [cursor=pointer]:
+          - /url: ./assets/erp-dashboard-live.png
+      - figure "실제 ERP 캡처 · 촬영 시점의 업무 데이터" [ref=f21e57]:
+        - img "매출, 매입, 매출이익, 미수금, 현재고가 표시된 스틸119 업무 대시보드" [ref=f21e58]
+    - generic [ref=f21e61]:
+      - generic [ref=f21e62]:
+        - paragraph [ref=f21e63]: 02 / CUSTOMER LEDGER
+        - heading "거래처별 잔액부터 원장 내역까지." [level=2] [ref=f21e64]: 거래처별 잔액부터원장 내역까지.
+        - paragraph [ref=f21e65]: 거래처를 선택하면 해당 거래처의 원장을 확인할 수 있습니다. 기초 잔액과 매입·매출, 수금·지급에 따른 미수금과 미지급금을 함께 살펴보세요.
+        - list [ref=f21e66]:
+          - listitem [ref=f21e67]: ✓거래처별 미수금·미지급금 확인
+          - listitem [ref=f21e68]: ✓조회 기간과 거래처 조건으로 검색
+          - listitem [ref=f21e69]: ✓선택한 거래처의 원장 내역과 잔액 확인
+        - link "실제 원장 화면 크게 보기 ↗" [ref=f21e70] [cursor=pointer]:
+          - /url: ./assets/erp-customer-ledger.png
+      - figure "거래처 원장 실제 화면 · 거래처 선택 후 조회" [ref=f21e71]:
+        - img "실제 모스코 거래처의 기초 잔액과 미수금, 미지급금 및 원장 화면" [ref=f21e72]
+    - generic [ref=f21e74]:
+      - generic [ref=f21e75]:
+        - paragraph [ref=f21e76]: 03 / AI PROCESSING
+        - heading "주문서에서 가공 추천조합까지." [level=2] [ref=f21e77]: 주문서에서가공 추천조합까지.
+        - paragraph [ref=f21e78]: AI로 인식한 주문 품목을 가공 최적화 대상으로 연결합니다. 주문 규격과 재고를 바탕으로 원자재 후보와 예상 수율을 비교하고, 절단 배치를 검토하세요.
+        - list [ref=f21e79]:
+          - listitem [ref=f21e80]:
+            - generic [ref=f21e81]: "01"
+            - generic [ref=f21e82]:
+              - strong [ref=f21e83]: 주문 품목 확인
+              - paragraph [ref=f21e84]: 발주서에서 인식한 품목을 확인하고 최적화 대상을 선택합니다.
+          - listitem [ref=f21e85]:
+            - generic [ref=f21e86]: "02"
+            - generic [ref=f21e87]:
+              - strong [ref=f21e88]: 원자재 후보 비교
+              - paragraph [ref=f21e89]: 연결 원자재·현재고·과거 매입 규격의 후보와 예상 수율을 비교합니다.
+          - listitem [ref=f21e90]:
+            - generic [ref=f21e91]: "03"
+            - generic [ref=f21e92]:
+              - strong [ref=f21e93]: 추천조합 검토
+              - paragraph [ref=f21e94]: 절단 배치, 사용폭과 잔여폭, 예상 로스를 확인해 가공 방식을 검토합니다.
+        - link "실제 최적화 화면 크게 보기 ↗" [ref=f21e95] [cursor=pointer]:
+          - /url: ./assets/erp-ai-optimization.png
+      - figure "실제 대기 주문으로 계산한 가공 최적화 화면" [ref=f21e96]:
+        - img "실제 주문에 대한 원자재 후보와 188mm 네 칼 절단 배치 및 예상 수율 92.84%" [ref=f21e97]
+    - generic [ref=f21e99]:
+      - generic [ref=f21e100]:
+        - generic [ref=f21e101]: CAPTURED CASE
+        - strong [ref=f21e102]: 원자재 폭 810mm
+      - generic [ref=f21e103]:
+        - generic [ref=f21e104]: SLITTING PATTERN
+        - strong [ref=f21e105]: 188mm × 4 칼
+      - generic [ref=f21e106]:
+        - generic [ref=f21e107]: EXPECTED YIELD
+        - strong [ref=f21e108]: 예상 수율 92.84%
+      - paragraph [ref=f21e109]: 캡처된 한 주문의 계산 결과입니다. 수율은 주문 규격, 원자재와 가공 조건에 따라 달라집니다.
+    - generic [ref=f21e111]:
+      - generic [ref=f21e112]:
+        - paragraph [ref=f21e113]: EVERYDAY ERP
+        - heading "일상적인 철강 업무도 간이 ERP로 관리하세요." [level=2] [ref=f21e114]: 일상적인 철강 업무도간이 ERP로 관리하세요.
+        - paragraph [ref=f21e115]: 매입·매출, 재고, 자금 업무를 한곳에 구성했습니다.
+      - generic [ref=f21e116]:
+        - article [ref=f21e117]:
+          - text: "01"
+          - heading "매입 · 매출" [level=3] [ref=f21e118]
+          - paragraph [ref=f21e119]: 입고와 출고 등록, 거래 내역 조회, 매출이익 현황을 확인합니다.
+        - article [ref=f21e120]:
+          - text: "02"
+          - heading "재고 · 가공" [level=3] [ref=f21e121]
+          - paragraph [ref=f21e122]: 현재고와 초기재고, 재고가공 등록과 가공 현황을 관리합니다.
+        - article [ref=f21e123]:
+          - text: "03"
+          - heading "자금 · 원장" [level=3] [ref=f21e124]
+          - paragraph [ref=f21e125]: 수금·지급, 거래처 원장, 거래처 잔액과 어음 현황을 확인합니다.
+        - article [ref=f21e126]:
+          - text: "04"
+          - heading "기초정보" [level=3] [ref=f21e127]
+          - paragraph [ref=f21e128]: 거래처, 품목, 사용자와 사업장 정보를 업무에 맞게 관리합니다.
+    - generic [ref=f21e129]:
+      - generic [ref=f21e130]:
+        - paragraph [ref=f21e131]: SIMPLE PRICING
+        - heading "명확한 요금으로 ERP를 시작하세요." [level=2] [ref=f21e132]: 명확한 요금으로ERP를 시작하세요.
+        - paragraph [ref=f21e133]: 월 기본료에 사용하는 인원만큼 더하는 요금 구성입니다.
+        - link "도입 상담하기 ↗" [ref=f21e134] [cursor=pointer]:
+          - /url: ./index.html#inquiry
+      - generic [ref=f21e135]:
+        - generic [ref=f21e136]:
+          - generic [ref=f21e137]: STEEL119 AI ERP
+          - generic [ref=f21e138]: 월 요금
+        - generic [ref=f21e139]:
+          - generic [ref=f21e140]:
+            - generic [ref=f21e141]: 기본 요금
+            - strong [ref=f21e142]:
+              - text: 200,000
+              - generic [ref=f21e143]: 원 / 월
+          - generic [ref=f21e144]: +
+          - generic [ref=f21e145]:
+            - generic [ref=f21e146]: 사용자 요금
+            - strong [ref=f21e147]:
+              - text: 5,000
+              - generic [ref=f21e148]: 원 / 인 · 월
+        - generic [ref=f21e149]:
+          - generic [ref=f21e150]:
+            - generic [ref=f21e151]: 함께 사용할 인원
+            - generic [ref=f21e152]:
+              - button "사용자 1명 줄이기" [ref=f21e153] [cursor=pointer]: −
+              - spinbutton "함께 사용할 인원" [ref=f21e154]: "5"
+              - generic [ref=f21e155]: 명
+              - button "사용자 1명 늘리기" [ref=f21e156] [cursor=pointer]: +
+          - generic [ref=f21e157]:
+            - generic [ref=f21e158]: 예상 월 요금
+            - status [ref=f21e159]: 225,000원
+        - paragraph [ref=f21e160]: 기본 200,000원 + 사용자 5명 × 5,000원
+        - link "AI ERP 도입 문의 ↗" [ref=f21e161] [cursor=pointer]:
+          - /url: ./index.html#inquiry
+          - text: AI ERP 도입 문의
+          - generic [ref=f21e162]: ↗
+    - generic [ref=f21e164]:
+      - paragraph [ref=f21e165]: LET’S BUILD YOUR WORKFLOW
+      - heading "철강 업무에 맞는 ERP, 스틸119과 이야기하세요." [level=2] [ref=f21e166]: 철강 업무에 맞는 ERP,스틸119과 이야기하세요.
+      - link "도입 상담하기 ↗" [ref=f21e167] [cursor=pointer]:
+        - /url: ./index.html#inquiry
+        - text: 도입 상담하기
+        - generic [ref=f21e168]: ↗
+      - link "1600-2579" [ref=f21e169] [cursor=pointer]:
+        - /url: tel:16002579
+  - contentinfo [ref=f21e170]:
+    - generic [ref=f21e171]:
+      - link "스틸119 STEEL BUSINESS CONNECT" [ref=f21e172] [cursor=pointer]:
+        - /url: ./index.html
+        - strong [ref=f21e173]:
+          - text: 스틸119
+          - generic [ref=f21e174]: STEEL BUSINESS CONNECT
+      - generic [ref=f21e175]:
+        - navigation [ref=f21e176]:
+          - link "회사소개" [ref=f21e177] [cursor=pointer]:
+            - /url: ./company.html
+          - link "서비스" [ref=f21e178] [cursor=pointer]:
+            - /url: "#services"
+          - link "문의하기" [ref=f21e179] [cursor=pointer]:
+            - /url: "#inquiry"
+        - paragraph [ref=f21e180]: "상호: (주)모스코 · 브랜드: 스틸119"
+        - text: © STEEL119. All rights reserved.
+      - link "고객센터 1600-2579" [ref=f21e181] [cursor=pointer]:
+        - /url: tel:16002579
+        - generic [ref=f21e182]: 고객센터
+        - text: 1600-2579

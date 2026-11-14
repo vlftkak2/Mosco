@@ -8,7 +8,7 @@ import psycopg2
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from config import DB_CONFIG, JWT_SECRET_KEY
+from config import JWT_SECRET_KEY
 
 
 ALGORITHM = "HS256"
@@ -182,7 +182,7 @@ def user_has_menu_access(companyid: str, email: str, menuid: str) -> bool:
 
 def require_platform_admin(user: dict = Depends(get_current_user)) -> dict:
     if not has_platform_admin_role(user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only a Steel119 platform administrator can use this feature.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="플랫폼 관리자만 사용할 수 있습니다.")
     return user
 
 

@@ -1,0 +1,28 @@
+- generic [ref=e4]:
+  - generic [ref=e6]:
+    - generic:
+      - img "STEEL 119"
+    - generic [ref=e7]:
+      - heading "철강 비즈니스의 흐름을 한 곳에서 관리하다" [level=1] [ref=e9]: 철강 비즈니스의 흐름을한 곳에서 관리하다
+      - paragraph [ref=e10]: 주문부터 재고, 물류관리까지 스틸119 비즈니스 포털 하나로 해결하세요.
+  - generic [ref=e12]:
+    - generic [ref=e13]:
+      - paragraph [ref=e14]: SIGN IN
+      - heading "로그인" [level=1] [ref=e15]
+      - paragraph [ref=e16]: 등록된 비즈니스 계정으로 로그인해 주세요.
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e20]: 이메일
+        - textbox "이메일" [ref=e22]:
+          - /placeholder: 이메일 입력
+      - generic [ref=e23]:
+        - generic [ref=e24]: 비밀번호
+        - generic [ref=e25]:
+          - textbox "비밀번호" [ref=e27]:
+            - /placeholder: 비밀번호 입력
+          - button [aria-hidden] [ref=e29] [cursor=pointer]
+      - generic [ref=e35]:
+        - checkbox "아이디 저장" [ref=e37]
+        - generic [ref=e38]: 아이디 저장
+      - button "로그인" [ref=e40] [cursor=pointer]
+    - paragraph [ref=e44]: ©2026. MOSCO. All Rights Reserved.

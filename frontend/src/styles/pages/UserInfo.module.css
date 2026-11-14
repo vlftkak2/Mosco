@@ -1,0 +1,64 @@
+/* 사용자관리 (pages/system/UserInfo.jsx) — 골격은 User.module.css(고객사관리)를 쓰고, 여기는 파로스형 세부 모양만 */
+
+/* 왼쪽 직원 목록 : 오른쪽 기본정보 = 약 45 : 55 (입력 칸이 많아 오른쪽을 넓게) */
+.workspace.workspace { grid-template-columns: minmax(480px, 0.9fr) minmax(560px, 1.1fr); }
+
+.count { color: #888; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* 조회 조건 줄 (거래처관리와 같은 배치: 검색어 · 계정사용) */
+.searchBar { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #e0e6ef; background: #fff; }
+.keyword { flex: 1 1 auto; min-width: 160px; }
+.useynSelect { flex: 0 0 100px; }
+.inlineLabel { flex: 0 0 auto; margin-left: 6px; color: #222; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.searchBar :global(.mantine-Input-input) { height: 32px; min-height: 32px; border-color: #ccc; border-radius: 4px; font-size: 13px; }
+.searchBar :global(.mantine-Input-input:focus) { border-color: #e0434b; box-shadow: 0 0 0 2px #e0434b26; }
+
+/* 목록 표: 입고등록 표처럼 열 너비 합 = 표 너비 (User.module.css 의 width:100% 를 덮는다), 글자는 가운데 */
+.userTable.userTable.userTable { width: var(--user-table-width) !important; min-width: var(--user-table-width) !important; }
+.userTable.userTable.userTable th, .userTable.userTable.userTable td { text-align: center; }
+.inactiveRow td { color: #9aa3af !important; }
+
+/* 오른쪽: 기본정보 */
+.detailHead { display: flex; flex: 0 0 auto; align-items: baseline; gap: 10px; padding: 16px 20px 14px; border-bottom: 1px solid #e4e4e4; background: #fff; }
+.detailHead h3 { margin: 0; color: #222; font-size: 17px; font-weight: 700; letter-spacing: -.3px; }
+.detailHead span { color: #888; font-size: 12px; }
+.detailBody { min-height: 0; flex: 1 1 0; background: #fff; }
+.placeholder { padding: 40px 20px; color: #999; font-size: 13px; text-align: center; }
+
+/* 라벨 | 입력 | 라벨 | 입력 의 4칸 격자 (이미지처럼 라벨은 왼쪽) */
+.form { display: grid; grid-template-columns: 96px minmax(0, 1fr) 96px minmax(0, 1fr); align-items: center; gap: 14px 16px; padding: 20px 22px 24px; }
+.label { color: #222; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.required { margin-left: 3px; color: #e0434b; font-style: normal; }
+.control { min-width: 0; }
+.wide { grid-column: span 3; }
+.form :global(.mantine-Input-input) { height: 32px; min-height: 32px; padding-inline: 10px; border: 1px solid #ccc; border-radius: 4px; color: #333; font-size: 13px; }
+.form :global(.mantine-Input-input:focus), .form :global(.mantine-Input-input:focus-within) { border-color: #e0434b; box-shadow: 0 0 0 2px #e0434b26; }
+.form :global(.mantine-Input-input:disabled), .form :global(.mantine-Input-input[data-disabled]) { border-color: #e4e4e4; background: #f1f2f5; color: #888; opacity: 1; cursor: not-allowed; }
+.form :global(.mantine-Select-input) { padding-inline-end: 28px; }
+
+/* 사진 */
+.photoRow { display: flex; align-items: flex-start; gap: 16px; }
+.photoBox { display: flex; width: 120px; height: 160px; flex: 0 0 auto; align-items: center; justify-content: center; overflow: hidden; border: 1px solid #ddd; border-radius: 4px; background: #f3f4f6; color: #aaa; font-size: 12px; }
+.photoBox img { width: 100%; height: 100%; object-fit: cover; }
+.photoSide { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding-top: 4px; }
+.photoSize { color: #888; font-size: 12px; }
+.photoButtons { display: flex; gap: 6px; }
+.photoNote { color: #999; font-size: 12px; }
+.lineButton { height: 30px; padding: 0 16px; border: 1px solid #e0434b; border-radius: 4px; background: #fff; color: #e0434b; font-size: 13px; cursor: pointer; }
+.lineButton:hover { background: #fdeced; }
+
+/* 근무유형: 기본 라디오 + 빨간 accent */
+.radioRow { display: flex; min-height: 32px; align-items: center; gap: 24px; }
+.radio { display: inline-flex; align-items: center; gap: 7px; color: #333; font-size: 13px; cursor: pointer; user-select: none; }
+.radio input { width: 16px; height: 16px; margin: 0; accent-color: #e0434b; cursor: pointer; }
+
+/* 휴대폰 3칸 */
+.mobile { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; color: #888; }
+
+@media (max-width: 1050px) {
+  .workspace.workspace { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .form { grid-template-columns: 88px minmax(0, 1fr); }
+  .wide { grid-column: span 1; }
+}

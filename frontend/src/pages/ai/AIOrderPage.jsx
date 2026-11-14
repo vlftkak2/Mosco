@@ -4,21 +4,21 @@ import { useNavigate } from 'react-router-dom';
 import { writeAIOrderDraft } from './AIOrderDraft';
 import { TableVirtuoso } from 'react-virtuoso';
 import {
-  Badge, Box, Button, Group, Loader, Progress,
-  Modal, Paper, ScrollArea, SimpleGrid, Stack, Table, Text, TextInput, Textarea, ThemeIcon,
+  Badge, Box, Button, Group, Loader, Progress, Modal, Paper, ScrollArea, SimpleGrid, Stack, Table, Text, TextInput, ThemeIcon,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconAlertTriangle, IconBraces, IconCheck, IconClipboardCheck, IconClipboardOff, IconFileSearch, IconFileTypePdf, IconFiles, IconPhoto, IconFileUpload,
+  IconAlertTriangle, IconBraces, IconCheck, IconCircleCheck, IconClipboardCheck, IconClipboardOff, IconFileSearch, IconFileTypePdf, IconFiles, IconPhoto, IconFileUpload,
   IconFolderOpen, IconPlus, IconPlayerPlay, IconSparkles, IconTrash, IconZoomIn, IconZoomOut,
 } from '@tabler/icons-react';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
-import dashboardClasses from '../../styles/pages/HomePage.module.css';
 import outboundTableClasses from '../../styles/pages/CodeMasterPage.module.css';
 import classes from '../../styles/pages/AIOrder.module.css';
 import { aiOrderPageSession } from './AIOrderPageSession';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 
 const MAX_FILE_BYTES = 30 * 1024 * 1024;
 const MAX_PDF_PAGES = 10;
@@ -798,8 +798,10 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
       </Paper>
       <Paper className={`${sharedClasses.panel} ${classes.workPanel}`} withBorder>
         <Group className={classes.panelHeader} justify="space-between" wrap="nowrap">
-          <Group gap={8} wrap="nowrap" className={classes.panelTitleGroup}><span className={`${classes.panelIcon} ${classes.panelIconAi}`}><IconBraces size={17} /></span><Text fw={700} className={classes.panelTitle}>AI 추출 결과</Text><Badge size="sm" variant="light" color={statusColor}>{statusLabel}</Badge></Group>
-          <Group gap="sm" wrap="nowrap">{doc.cacheHit && <Badge size="md" fw={700} variant="light" color="gray">저장된 분석 결과</Badge>}{extraction && <Button size="xs" color="red" loading={confirming} disabled={!doc.analysisRequestId || !extraction.items?.length} onClick={() => onConfirm(doc)}>주문확정</Button>}</Group>
+          <Group gap={8} wrap="nowrap" className={classes.panelTitleGroup}><span className={`${classes.panelIcon} ${classes.panelIconAi}`}><IconBraces size={17} /></span><Text fw={700} className={classes.panelTitle}>AI 추출 결과</Text>{statusLabel !== '확인 필요' && <Badge size="sm" variant="light" color={statusColor}>{statusLabel}</Badge>}</Group>
+          <Group gap="sm" wrap="nowrap">{doc.cacheHit && <Badge size="md" fw={700} variant="light" color="gray">저장된 분석 결과</Badge>}{extraction && <button type="button" className={classes.confirmButton} disabled={confirming || !doc.analysisRequestId || !extraction.items?.length} onClick={() => onConfirm(doc)}>
+            {confirming ? <span className={classes.btnSpinner} aria-hidden="true" /> : <IconCircleCheck size={16} stroke={2} />}주문확정
+          </button>}</Group>
         </Group>
         {!extraction
           ? doc.status === 'analyzing'
@@ -809,13 +811,13 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
               : doc.status === 'failed'
                 ? <PanelPrompt tone="red" icon={<IconAlertTriangle size={24} stroke={1.7} />} title="분석에 실패했습니다." description="오류 내용을 확인하고 다시 실행해주세요." />
                 : <PanelPrompt icon={<IconFileSearch size={24} stroke={1.7} />} title="목록에서 발주서를 선택하고 분석을 실행해주세요." description="AI 일괄 분석을 실행하면 추출 결과가 여기에 표시됩니다." /> : <Box className={classes.resultContent}>
-          <Box className={classes.resultContentInner}><Box className={classes.orderHeaderSection}><Group gap="xs" mb="xs"><Text size="sm" fw={700} className={classes.sectionTitle}>주문서 헤더</Text>{extraction.header.needs_review && <Badge size="xs" color="orange" variant="light" title={(extraction.header.review_reasons || []).join(' · ')}>납품장소 확인 필요</Badge>}</Group>
+          <Box className={classes.resultContentInner}><Box className={classes.orderHeaderSection}><Group gap="xs" mb="xs"><Text size="sm" fw={700} className={classes.sectionTitle}>주문서 헤더</Text></Group>
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
               {HEADER_FIELDS.map(([key, label]) => <TextInput key={key} type={['order_date', 'due_date'].includes(key) ? 'date' : 'text'} style={key === 'delivery_location' ? { gridColumn: '1 / -1' } : undefined} label={<ExtractionFieldLabel label={label} source={aiSourceFor(extraction.header, key)} />} value={['order_date', 'due_date'].includes(key) ? dateInputValue(extraction.header[key]) : (extraction.header[key] || '')} onChange={(event) => updateHeader(key, event.currentTarget.value)} />)}
             </SimpleGrid>
             </Box><Paper className={classes.detailSection} withBorder>
-            <Group className={`${sharedClasses.toolbar} ${outboundTableClasses.toolbar} ${classes.detailToolbar}`} justify="space-between" align="center" wrap="wrap"><Group gap={8}><Text size="sm" fw={700} className={classes.sectionTitle}>상세 품목</Text><Badge size="sm" variant="light" className={classes.countBadge}>{extraction.items.length.toLocaleString()}행</Badge>{extraction.items.some((item) => item.needs_review) && <Badge size="sm" variant="light" color="orange" leftSection={<IconAlertTriangle size={11} />}>확인 필요 {extraction.items.filter((item) => item.needs_review).length.toLocaleString()}</Badge>}{extraction.items.some((item) => !item.__manual && LINE_COLUMNS.some(([key]) => aiSourceFor(item, key))) && <Badge className={classes.sectionAiBadge} size="sm" variant="light" color="gray">AI 추출</Badge>}</Group><Group gap={7} wrap="nowrap">
-              {selectedRows.length > 0 && <Text size="xs" c="dimmed">{selectedRows.length}개 선택</Text>}<Button size="xs" variant="subtle" color="red" leftSection={<IconTrash size={14} />} disabled={!selectedRows.length} onClick={requestDeleteSelectedRows}>선택 삭제</Button><Button size="xs" color="red" leftSection={<IconPlus size={14} />} onClick={addLine}>행 추가</Button>
+            <Group className={`${sharedClasses.toolbar} ${outboundTableClasses.toolbar} ${classes.detailToolbar}`} justify="space-between" align="center" wrap="wrap"><Group gap={8}><Text size="sm" fw={700} className={classes.sectionTitle}>상세 품목</Text><Badge size="sm" variant="light" className={classes.countBadge}>{extraction.items.length.toLocaleString()}행</Badge>{extraction.items.some((item) => !item.__manual && LINE_COLUMNS.some(([key]) => aiSourceFor(item, key))) && <Badge className={classes.sectionAiBadge} size="sm" variant="light" color="gray">AI 추출</Badge>}</Group><Group gap={7} wrap="nowrap">
+              <button type="button" className={classes.rowDeleteButton} disabled={!selectedRows.length} onClick={requestDeleteSelectedRows}><IconTrash size={14} stroke={1.9} />선택 삭제{selectedRows.length ? ` (${selectedRows.length})` : ''}</button><button type="button" className={classes.rowAddButton} onClick={addLine}><IconPlus size={14} stroke={2.2} />행 추가</button>
             </Group></Group>
             {!extraction.items.length ? <Box className={classes.resultEmpty}><Box className={classes.promptInner}><span className={classes.promptIcon}><IconClipboardOff size={22} stroke={1.7} /></span><Text className={classes.promptTitle}>인식된 품목 행이 없습니다.</Text><Text className={classes.promptDescription}>[행 추가]로 원본을 보며 직접 입력할 수 있습니다.</Text></Box></Box> : <Box ref={tableWrapRef} className={`${outboundTableClasses.tableWrap} ${classes.gridScroll}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }} onKeyDown={handleGridKeyDown}>
               <TableVirtuoso
@@ -838,15 +840,8 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
       </Box>}
       </Paper>
     </SimpleGrid>
-    <Modal opened={Boolean(deleteRowsRequest)} onClose={() => setDeleteRowsRequest(null)} title="상세 품목 삭제" centered size="sm">
-      <Stack gap="md">
-        <Text size="sm" c="dimmed">선택한 {deleteRowsRequest?.length || 0}개 품목 행을 삭제합니다. 삭제한 행은 복구할 수 없습니다.</Text>
-        <Group justify="flex-end">
-          <Button variant="default" onClick={() => setDeleteRowsRequest(null)}>취소</Button>
-          <Button color="red" leftSection={<IconTrash size={15} />} onClick={confirmDeleteSelectedRows}>삭제</Button>
-        </Group>
-      </Stack>
-    </Modal>
+    <ConfirmDeleteModal opened={Boolean(deleteRowsRequest)} onClose={() => setDeleteRowsRequest(null)} onConfirm={confirmDeleteSelectedRows}
+      title="상세 품목을 삭제할까요?" target={`선택 ${deleteRowsRequest?.length || 0}개 품목`} message="선택한 품목 행이 삭제되며" note="삭제한 행은 복구할 수 없습니다." />
   </>;
 }
 
@@ -1134,7 +1129,7 @@ export default function AIOrderPage() {
     useSaveColor: false,
   });
 
-  return <Box className={`${sharedClasses.pageShell} ${classes.page} ${classes.batchPage} ${documents.length ? classes.batchPageWithDocuments : ''}`}>
+  return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page} ${classes.batchPage} ${documents.length ? classes.batchPageWithDocuments : ''}`}>
     <ErpBreadcrumb parent="AI 가공솔루션" current="AI 주문서인식" />
 
     <Paper className={`${sharedClasses.panel} ${classes.uploadPanel}`} withBorder>

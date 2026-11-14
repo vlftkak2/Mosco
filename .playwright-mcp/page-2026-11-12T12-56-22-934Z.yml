@@ -1,0 +1,239 @@
+- generic [active] [ref=f13e1]:
+  - link "본문으로 건너뛰기" [ref=f13e2] [cursor=pointer]:
+    - /url: "#main"
+  - banner [ref=f13e3]:
+    - generic [ref=f13e4]:
+      - link "스틸119 홈" [ref=f13e5] [cursor=pointer]:
+        - /url: ./index.html
+        - strong [ref=f13e6]:
+          - text: 스틸119
+          - generic [ref=f13e7]: STEEL BUSINESS CONNECT
+      - navigation "주요 메뉴" [ref=f13e8]:
+        - link "서비스" [ref=f13e9] [cursor=pointer]:
+          - /url: "#services"
+        - link "STEEL119 ERP" [ref=f13e10] [cursor=pointer]:
+          - /url: "#erp"
+        - link "회사소개" [ref=f13e11] [cursor=pointer]:
+          - /url: ./company.html
+        - link "문의하기 ↗" [ref=f13e12] [cursor=pointer]:
+          - /url: "#inquiry"
+  - main [ref=f13e13]:
+    - generic [ref=f13e16]:
+      - generic [ref=f13e17]:
+        - paragraph [ref=f13e18]: STEEL119 · STEEL BUSINESS PLATFORM
+        - heading "철강의 모든 흐름을 하나로 연결하다." [level=1] [ref=f13e20]: 철강의 모든 흐름을하나로 연결하다.
+        - paragraph [ref=f13e21]: 필요한 자재를 찾는 순간부터발주, 재고, 출고 관리까지. 스틸119과 함께하세요.
+        - link "서비스 살펴보기 ↗" [ref=f13e22] [cursor=pointer]:
+          - /url: "#services"
+          - text: 서비스 살펴보기
+          - generic [ref=f13e23]: ↗
+        - generic [ref=f13e24]:
+          - generic [ref=f13e25]: STEEL. CONNECTED.
+          - link "아래 소개로 이동" [ref=f13e26] [cursor=pointer]:
+            - /url: "#goals"
+            - text: SCROLL TO EXPLORE
+            - generic [ref=f13e27]: ↓
+      - generic [ref=f13e28]:
+        - generic [ref=f13e31]: A CLEARER VIEW OF YOUR BUSINESS
+        - generic [ref=f13e32]:
+          - generic [ref=f13e33]: STEEL119 ERP
+          - img "계정과 업무 수치를 가린 실제 스틸119 ERP 대시보드" [ref=f13e38]
+        - generic [ref=f13e39]:
+          - text: 자재 문의부터 업무 관리까지
+          - generic [ref=f13e41]: →
+        - generic [ref=f13e42]: 실제 ERP 화면 · 업무 데이터 가림 처리
+    - generic [ref=f13e43]:
+      - generic [ref=f13e44]:
+        - paragraph [ref=f13e45]: OUR GOALS
+        - heading "복잡한 철강 업무에 더 명확한 연결을." [level=2] [ref=f13e46]: 복잡한 철강 업무에더 명확한 연결을.
+        - paragraph [ref=f13e47]: 철강 자재를 찾고 거래하는 일부터 일상의 업무 관리까지.스틸119은 현장에서 필요한 흐름을 한곳에 담습니다.
+      - generic [ref=f13e48]:
+        - article [ref=f13e49]:
+          - generic [ref=f13e50]: ↗
+          - heading "필요한 자재를 더 가깝게" [level=3] [ref=f13e51]
+          - paragraph [ref=f13e52]: 다양한 철강 자재와 규격에 대한 문의를 상담으로 연결합니다.
+          - text: "#철강자재 #규격문의 #상담"
+        - article [ref=f13e53]:
+          - generic [ref=f13e54]: ▤
+          - heading "이어지는 업무의 흐름" [level=3] [ref=f13e55]
+          - paragraph [ref=f13e56]: 현재 ERP의 매입, 매출, 가공, 재고, 자금 메뉴로 업무를 살펴봅니다.
+          - text: "#매입매출 #재고 #자금"
+        - article [ref=f13e57]:
+          - generic [ref=f13e58]: ◎
+          - heading "한눈에 보는 비즈니스" [level=3] [ref=f13e59]
+          - paragraph [ref=f13e60]: ERP 대시보드를 통해 여러 업무 현황을 하나의 화면에서 확인합니다.
+          - text: "#대시보드 #업무현황 #STEEL119"
+    - generic [ref=f13e62]:
+      - generic [ref=f13e63]:
+        - paragraph [ref=f13e64]: WHAT WE DO
+        - heading "철강 비즈니스의 다음 단계를 함께합니다." [level=2] [ref=f13e65]: 철강 비즈니스의다음 단계를 함께합니다.
+      - generic [ref=f13e66]:
+        - article [ref=f13e67]:
+          - generic [ref=f13e75]:
+            - text: 01 / MATERIALS
+            - heading "필요한 철강 자재, 스틸119에서." [level=3] [ref=f13e76]: 필요한 철강 자재,스틸119에서.
+            - paragraph [ref=f13e77]: 강관, 열연·냉연 강판, 도금 강판, 컬러 강판, 알루미늄, 스테인리스까지. 필요한 품목과 규격을 문의하세요.
+            - link "자재 문의하기 ↗" [ref=f13e78] [cursor=pointer]:
+              - /url: "#inquiry"
+              - text: 자재 문의하기
+              - generic [ref=f13e79]: ↗
+        - article [ref=f13e80]:
+          - text: 02 / BUSINESS PLATFORM
+          - heading "업무의 흐름을 담은 스틸119 ERP" [level=3] [ref=f13e81]: 업무의 흐름을 담은스틸119 ERP
+          - paragraph [ref=f13e82]: 대시보드부터 매입·매출, 재고, 자금 관리까지. 개발 중인 ERP의 실제 화면을 만나보세요.
+          - link "ERP 살펴보기 ↗" [ref=f13e83] [cursor=pointer]:
+            - /url: "#erp"
+            - text: ERP 살펴보기
+            - generic [ref=f13e84]: ↗
+          - generic [aria-hidden] [ref=f13e85]:
+            - generic [ref=f13e86]: 매입
+            - generic [ref=f13e87]: →
+            - generic [ref=f13e88]: 재고
+            - generic [ref=f13e89]: →
+            - generic [ref=f13e90]: 매출
+    - generic [ref=f13e91]:
+      - generic [ref=f13e92]:
+        - generic [ref=f13e93]:
+          - paragraph [ref=f13e94]: STEEL119 ERP
+          - heading "업무를 바라보는 더 넓은 시야." [level=2] [ref=f13e95]: 업무를 바라보는더 넓은 시야.
+        - paragraph [ref=f13e96]: 화면으로 만나는 스틸119 비즈니스 포털.업무별 메뉴와 대시보드를 한곳에 구성했습니다.
+      - generic [ref=f13e97]:
+        - tablist "ERP 소개" [ref=f13e98]:
+          - tab "업무 대시보드" [selected] [ref=f13e99] [cursor=pointer]
+          - tab "매입 · 매출" [ref=f13e100] [cursor=pointer]
+          - tab "재고 · 가공" [ref=f13e101] [cursor=pointer]
+          - tab "자금 관리" [ref=f13e102] [cursor=pointer]
+        - generic [ref=f13e103]:
+          - tabpanel [ref=f13e104]:
+            - text: 01 / DASHBOARD
+            - heading "흩어진 업무 현황을 한눈에." [level=3] [ref=f13e105]: 흩어진 업무 현황을한눈에.
+            - paragraph [ref=f13e106]: 대시보드에는 매입, 매출, 재고와 자금 관련 현황을 살펴볼 수 있는 영역이 구성돼 있습니다.
+            - link "시스템 소개 보기 ↗" [ref=f13e107] [cursor=pointer]:
+              - /url: ./company.html#erp
+          - figure "실제 대시보드 캡처 · 각 업무 메뉴 소개는 현재 소스 구성 기준" [ref=f13e108]:
+            - img "스틸119 ERP 실제 대시보드 화면. 사용자명과 업무 수치는 가림 처리됨" [ref=f13e109]
+    - region "취급 품목" [ref=f13e111]:
+      - generic [ref=f13e112]:
+        - paragraph [ref=f13e113]: MATERIALS & POSSIBILITIES
+        - heading "다양한 자재, 하나의 연결." [level=2] [ref=f13e114]
+      - generic [ref=f13e116]:
+        - generic [ref=f13e117]:
+          - generic [ref=f13e118]: STEEL PIPE
+          - generic [ref=f13e119]: ✳
+          - generic [ref=f13e120]: COLOR STEEL
+          - generic [ref=f13e121]: ✳
+          - generic [ref=f13e122]: ALUMINUM
+          - generic [ref=f13e123]: ✳
+          - generic [ref=f13e124]: STAINLESS
+          - generic [ref=f13e125]: ✳
+        - generic [aria-hidden] [ref=f13e126]:
+          - generic [ref=f13e127]: STEEL PIPE
+          - generic [ref=f13e128]: ✳
+          - generic [ref=f13e129]: COLOR STEEL
+          - generic [ref=f13e130]: ✳
+          - generic [ref=f13e131]: ALUMINUM
+          - generic [ref=f13e132]: ✳
+          - generic [ref=f13e133]: STAINLESS
+          - generic [ref=f13e134]: ✳
+    - generic [ref=f13e135]:
+      - generic [ref=f13e136]:
+        - paragraph [ref=f13e137]: STEEL NEWS
+        - generic [ref=f13e138]:
+          - heading "철강의 흐름을 읽다." [level=2] [ref=f13e139]
+          - generic [ref=f13e140]: 소식 연동 예정
+        - generic [ref=f13e141]:
+          - generic [ref=f13e142]: 철강 시황
+          - generic [ref=f13e143]: 가격 동향
+          - generic [ref=f13e144]: 스틸119 소식
+        - generic [ref=f13e145]:
+          - generic [ref=f13e146]: ↗
+          - generic [ref=f13e147]:
+            - heading "새로운 철강 소식을 준비하고 있습니다." [level=3] [ref=f13e148]
+            - paragraph [ref=f13e149]: 철강 시황과 스틸119 소식을 이곳에서 전해드립니다.
+      - complementary [ref=f13e150]:
+        - generic [ref=f13e151]:
+          - paragraph [ref=f13e152]: MARKET INDICATOR
+          - heading "오늘의 환율" [level=3] [ref=f13e153]
+        - generic [ref=f13e154]:
+          - generic [ref=f13e155]:
+            - term [ref=f13e156]: USD
+            - definition [ref=f13e157]: —
+          - generic [ref=f13e158]:
+            - term [ref=f13e159]: CNY
+            - definition [ref=f13e160]: —
+          - generic [ref=f13e161]:
+            - term [ref=f13e162]: JPY (100)
+            - definition [ref=f13e163]: —
+          - generic [ref=f13e164]:
+            - term [ref=f13e165]: EUR
+            - definition [ref=f13e166]: —
+        - text: 실시간 데이터 연동 예정
+    - region "광고 안내" [ref=f13e167]:
+      - generic [ref=f13e168]:
+        - paragraph [ref=f13e169]: PARTNER ADVERTISING
+        - heading "철강 비즈니스의 새로운 접점." [level=3] [ref=f13e170]
+        - paragraph [ref=f13e171]: 스틸119 광고 게재 문의
+      - link "1600-2579 ↗" [ref=f13e172] [cursor=pointer]:
+        - /url: tel:16002579
+    - generic [ref=f13e174]:
+      - generic [ref=f13e175]:
+        - paragraph [ref=f13e176]: LET’S CONNECT
+        - heading "필요한 자재가 있으신가요?" [level=2] [ref=f13e177]: 필요한 자재가있으신가요?
+        - paragraph [ref=f13e178]: 자재와 규격을 알려주세요.스틸119과 상담을 시작할 수 있습니다.
+        - link "1600-2579 ↗" [ref=f13e179] [cursor=pointer]:
+          - /url: tel:16002579
+        - button "● 카카오톡 상담 ↗" [ref=f13e180] [cursor=pointer]:
+          - text: ● 카카오톡 상담
+          - generic [ref=f13e181]: ↗
+      - generic [ref=f13e182]:
+        - generic [ref=f13e183]:
+          - generic [ref=f13e184]:
+            - text: 이름
+            - emphasis [ref=f13e185]: "*"
+            - textbox "이름 *" [ref=f13e186]:
+              - /placeholder: 이름을 입력해주세요
+          - generic [ref=f13e187]:
+            - text: 연락처
+            - emphasis [ref=f13e188]: "*"
+            - textbox "연락처 *" [ref=f13e189]:
+              - /placeholder: 010-0000-0000
+        - generic [ref=f13e190]:
+          - text: 필요 자재 · 규격
+          - emphasis [ref=f13e191]: "*"
+          - textbox "필요 자재 · 규격 *" [ref=f13e192]:
+            - /placeholder: 예) H빔 200 × 200 × 8 × 12
+        - generic [ref=f13e193]:
+          - text: 사이즈 · 수량
+          - emphasis [ref=f13e194]: "*"
+          - textbox "사이즈 · 수량 *" [ref=f13e195]:
+            - /placeholder: 예) 길이 6m / 수량 20본
+        - generic [ref=f13e196]:
+          - checkbox "이름·연락처·문의 내용의 수집 및 상담 이용에 동의합니다." [ref=f13e197]
+          - generic [ref=f13e198]: 이름·연락처·문의 내용의 수집 및 상담 이용에 동의합니다.
+        - paragraph [ref=f13e199]: 온라인 문의 접수는 준비 중입니다. 전화 상담을 이용해주세요.
+        - button "문의 접수하기 →" [ref=f13e200] [cursor=pointer]:
+          - text: 문의 접수하기
+          - generic [ref=f13e201]: →
+        - status
+  - contentinfo [ref=f13e202]:
+    - generic [ref=f13e203]:
+      - link "스틸119 STEEL BUSINESS CONNECT" [ref=f13e204] [cursor=pointer]:
+        - /url: ./index.html
+        - strong [ref=f13e205]:
+          - text: 스틸119
+          - generic [ref=f13e206]: STEEL BUSINESS CONNECT
+      - generic [ref=f13e207]:
+        - navigation [ref=f13e208]:
+          - link "회사소개" [ref=f13e209] [cursor=pointer]:
+            - /url: ./company.html
+          - link "서비스" [ref=f13e210] [cursor=pointer]:
+            - /url: "#services"
+          - link "문의하기" [ref=f13e211] [cursor=pointer]:
+            - /url: "#inquiry"
+        - paragraph [ref=f13e212]: "상호: (주)모스코 · 브랜드: 스틸119"
+        - text: © STEEL119. All rights reserved.
+      - link "고객센터 1600-2579" [ref=f13e213] [cursor=pointer]:
+        - /url: tel:16002579
+        - generic [ref=f13e214]: 고객센터
+        - text: 1600-2579
+  - status

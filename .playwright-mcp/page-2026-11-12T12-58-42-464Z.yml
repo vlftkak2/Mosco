@@ -1,0 +1,306 @@
+- generic [ref=f1e3]:
+  - banner [ref=f1e4]:
+    - generic [ref=f1e6]:
+      - button "조회" [ref=f1e7] [cursor=pointer]
+      - button "추가" [disabled] [ref=f1e15]
+      - button "복사" [disabled] [ref=f1e20]
+      - button "엑셀" [disabled] [ref=f1e27]
+      - button "저장" [ref=f1e35] [cursor=pointer]
+      - button "삭제" [disabled] [ref=f1e43]
+      - button "닫기" [ref=f1e51] [cursor=pointer]
+    - generic [ref=f1e58]:
+      - button "최형민님" [ref=f1e59] [cursor=pointer]
+      - generic [aria-hidden] [ref=f1e65]: "|"
+      - button "로그아웃" [ref=f1e66] [cursor=pointer]
+  - navigation [ref=f1e72]:
+    - generic [ref=f1e73]:
+      - img "스틸119" [ref=f1e75]
+      - button "네비게이션 접기" [ref=f1e76] [cursor=pointer]
+    - navigation [ref=f1e83]:
+      - button "홈" [ref=f1e85] [cursor=pointer]
+      - button "매입" [ref=f1e95] [cursor=pointer]
+      - button "매출" [ref=f1e106] [cursor=pointer]
+      - generic [ref=f1e116]:
+        - button "가공" [expanded] [ref=f1e117] [cursor=pointer]
+        - generic [ref=f1e125]:
+          - generic [ref=f1e126]:
+            - generic [ref=f1e127]: AI 가공솔루션
+            - button "AI 주문서인식" [ref=f1e129] [cursor=pointer]
+            - button "주문서관리" [ref=f1e132] [cursor=pointer]
+            - button "가공최적화" [ref=f1e135] [cursor=pointer]
+          - generic [ref=f1e137]:
+            - generic [ref=f1e138]: 재고가공
+            - button "가공공정 관리" [ref=f1e140] [cursor=pointer]
+            - button "재고가공 등록" [ref=f1e143] [cursor=pointer]
+            - button "재고가공 현황" [ref=f1e146] [cursor=pointer]
+      - button "재고" [ref=f1e149] [cursor=pointer]
+      - button "자금" [ref=f1e159] [cursor=pointer]
+      - button "게시판" [ref=f1e169] [cursor=pointer]
+      - button "설정" [ref=f1e178] [cursor=pointer]
+      - button "어드민" [ref=f1e187] [cursor=pointer]
+  - main [ref=f1e195]:
+    - tablist "열린 메뉴" [ref=f1e196]:
+      - tab "가공최적화 가공최적화 닫기" [selected] [ref=f1e197] [cursor=pointer]:
+        - generic "가공최적화" [ref=f1e198]
+        - button "가공최적화 닫기" [ref=f1e199]: ×
+    - generic [ref=f1e202]:
+      - navigation "현재 위치" [ref=f1e203]:
+        - generic [ref=f1e204]:
+          - generic [ref=f1e205]: AI 가공솔루션
+          - generic [ref=f1e206]: ›
+          - generic [ref=f1e207]: 가공최적화
+        - button "조회조건" [ref=f1e722] [cursor=pointer]
+      - generic [ref=f1e209]:
+        - generic [ref=f1e210]:
+          - generic [ref=f1e211]:
+            - strong [ref=f1e212]: 최적화 대상
+            - generic [ref=f1e213]: 1건
+            - radiogroup [ref=f1e215]:
+              - generic [ref=f1e217]:
+                - radio "코일·스켈프" [checked]
+                - generic [ref=f1e218] [cursor=pointer]: 코일·스켈프
+              - generic [ref=f1e219]:
+                - radio "시트·판재"
+                - generic [ref=f1e220] [cursor=pointer]: 시트·판재
+            - generic [ref=f1e564]: 창고 신영정밀금속
+          - table [ref=f1e222]:
+            - rowgroup [ref=f1e238]:
+              - row [ref=f1e239]:
+                - columnheader "구분 구분 열 너비 조절" [ref=f1e240]:
+                  - text: 구분
+                  - separator "구분 열 너비 조절" [ref=f1e241]
+                - columnheader "납기일 납기일 열 너비 조절" [ref=f1e242]:
+                  - text: 납기일
+                  - separator "납기일 열 너비 조절" [ref=f1e243]
+                - columnheader "주문번호 주문번호 열 너비 조절" [ref=f1e244]:
+                  - text: 주문번호
+                  - separator "주문번호 열 너비 조절" [ref=f1e245]
+                - columnheader "발주처 발주처 열 너비 조절" [ref=f1e246]:
+                  - text: 발주처
+                  - separator "발주처 열 너비 조절" [ref=f1e247]
+                - columnheader "창고 창고 열 너비 조절" [ref=f1e248]:
+                  - text: 창고
+                  - separator "창고 열 너비 조절" [ref=f1e249]
+                - columnheader "품명 품명 열 너비 조절" [ref=f1e250]:
+                  - text: 품명
+                  - separator "품명 열 너비 조절" [ref=f1e251]
+                - columnheader "강종 강종 열 너비 조절" [ref=f1e252]:
+                  - text: 강종
+                  - separator "강종 열 너비 조절" [ref=f1e253]
+                - columnheader "표면 표면 열 너비 조절" [ref=f1e254]:
+                  - text: 표면
+                  - separator "표면 열 너비 조절" [ref=f1e255]
+                - columnheader "두께 두께 열 너비 조절" [ref=f1e256]:
+                  - text: 두께
+                  - separator "두께 열 너비 조절" [ref=f1e257]
+                - columnheader "폭 폭 열 너비 조절" [ref=f1e258]:
+                  - text: 폭
+                  - separator "폭 열 너비 조절" [ref=f1e259]
+                - columnheader "발주(kg) 발주 열 너비 조절" [ref=f1e260]:
+                  - text: 발주(kg)
+                  - separator "발주 열 너비 조절" [ref=f1e261]
+                - columnheader "선가공(kg) 선가공 열 너비 조절" [ref=f1e262]:
+                  - text: 선가공(kg)
+                  - separator "선가공 열 너비 조절" [ref=f1e263]
+                - columnheader "필요(kg) 필요 열 너비 조절" [ref=f1e264]:
+                  - text: 필요(kg)
+                  - separator "필요 열 너비 조절" [ref=f1e265]
+                - columnheader "상태 상태 열 너비 조절" [ref=f1e266]:
+                  - text: 상태
+                  - separator "상태 열 너비 조절" [ref=f1e267]
+            - rowgroup [ref=f1e268]:
+              - row [ref=f1e478] [cursor=pointer]:
+                - cell "기준" [ref=f1e479]
+                - cell "2026-09-28" [ref=f1e481]
+                - cell "AI2026110900001-1" [ref=f1e482]
+                - cell "(주)금영피앤티" [ref=f1e483]
+                - cell "신영정밀금속" [ref=f1e484]
+                - cell "TIN" [ref=f1e485]
+                - cell [ref=f1e486]
+                - cell [ref=f1e487]
+                - cell "0.6" [ref=f1e488]
+                - cell "188" [ref=f1e489]
+                - cell "500" [ref=f1e490]
+                - cell "0" [ref=f1e491]
+                - cell "500" [ref=f1e492]
+                - cell "대기 빼기" [ref=f1e493]:
+                  - generic [ref=f1e494]: 대기
+                  - button "빼기" [ref=f1e495]
+        - generic [ref=f1e496]:
+          - generic [ref=f1e497]:
+            - generic [ref=f1e498]: "1"
+            - strong [ref=f1e499]: 발주·원자재 확인
+          - generic [ref=f1e503]:
+            - generic [ref=f1e565]:
+              - generic [ref=f1e566]: 발주처
+              - strong [ref=f1e568]: (주)금영피앤티
+            - generic [ref=f1e569]:
+              - generic [ref=f1e570]: 발주중량
+              - strong [ref=f1e572]: 500kg
+            - generic [ref=f1e573]:
+              - generic [ref=f1e574]: 선가공재고
+              - generic [ref=f1e575]:
+                - strong [ref=f1e576]: 0kg
+                - button "선가공재고 상세" [ref=f1e577] [cursor=pointer]:
+                  - generic [ref=f1e578]: ▾
+            - generic [ref=f1e579]:
+              - generic [ref=f1e580]: 필요중량
+              - strong [ref=f1e582]: 500kg
+            - generic [ref=f1e583]:
+              - generic [ref=f1e584]: 원코일재고
+              - generic [ref=f1e585]:
+                - strong [ref=f1e586]: 9,850kg
+                - button "원자재재고 상세" [ref=f1e587] [cursor=pointer]:
+                  - generic [ref=f1e588]: ▾
+        - generic [ref=f1e504]:
+          - generic [ref=f1e505]:
+            - generic [ref=f1e506]: "2"
+            - strong [ref=f1e507]: 원자재 후보 추천
+            - generic [ref=f1e508]: 연결 원자재 → 현재고 → 과거 매입 규격 순, 수율 높은 순
+          - generic [ref=f1e510]:
+            - generic [ref=f1e511]:
+              - generic [ref=f1e512]:
+                - generic [ref=f1e513]: 원자재 폭 직접 입력
+                - textbox "원자재 폭 직접 입력" [ref=f1e515]:
+                  - /placeholder: mm
+              - button "후보 추가" [ref=f1e516] [cursor=pointer]
+            - table [ref=f1e589]:
+              - rowgroup [ref=f1e601]:
+                - row [ref=f1e602]:
+                  - columnheader "우선순위 우선순위 열 너비 조절" [ref=f1e603]:
+                    - text: 우선순위
+                    - separator "우선순위 열 너비 조절" [ref=f1e604]
+                  - columnheader "구분 구분 열 너비 조절" [ref=f1e605]:
+                    - text: 구분
+                    - separator "구분 열 너비 조절" [ref=f1e606]
+                  - columnheader "품명 품명 열 너비 조절" [ref=f1e607]:
+                    - text: 품명
+                    - separator "품명 열 너비 조절" [ref=f1e608]
+                  - columnheader "후보규격 후보규격 열 너비 조절" [ref=f1e609]:
+                    - text: 후보규격
+                    - separator "후보규격 열 너비 조절" [ref=f1e610]
+                  - columnheader "창고 창고 열 너비 조절" [ref=f1e611]:
+                    - text: 창고
+                    - separator "창고 열 너비 조절" [ref=f1e612]
+                  - columnheader "중량(재고) 재고 열 너비 조절" [ref=f1e613]:
+                    - text: 중량(재고)
+                    - separator "재고 열 너비 조절" [ref=f1e614]
+                  - columnheader "투입중량 투입중량 열 너비 조절" [ref=f1e615]:
+                    - generic [ref=f1e616]:
+                      - text: 투입중량
+                      - 'generic "신규: 필요중량 × (후보폭 ÷ 사용폭) / 현재고: 원코일 실제중량" [ref=f1e617]'
+                    - separator "투입중량 열 너비 조절" [ref=f1e621]
+                  - columnheader "생산중량 생산중량 열 너비 조절" [ref=f1e622]:
+                    - generic [ref=f1e623]:
+                      - text: 생산중량
+                      - generic "투입중량 × (사용폭 ÷ 후보폭)" [ref=f1e624]
+                    - separator "생산중량 열 너비 조절" [ref=f1e628]
+                  - columnheader "로스중량 로스중량 열 너비 조절" [ref=f1e629]:
+                    - generic [ref=f1e630]:
+                      - text: 로스중량
+                      - generic "투입중량 − 생산중량" [ref=f1e631]
+                    - separator "로스중량 열 너비 조절" [ref=f1e635]
+                  - columnheader "수율 수율 열 너비 조절" [ref=f1e636]:
+                    - generic [ref=f1e637]:
+                      - text: 수율
+                      - generic "(생산중량 ÷ 투입중량) × 100" [ref=f1e638]
+                    - separator "수율 열 너비 조절" [ref=f1e642]
+              - rowgroup [ref=f1e643]:
+                - row [ref=f1e644] [cursor=pointer]:
+                  - cell "1순위" [ref=f1e645]
+                  - cell "연결 원자재" [ref=f1e646]
+                  - cell "TIN PLATE" [ref=f1e647]
+                  - cell "0.6 × 810 × C" [ref=f1e648]
+                  - cell "신영정밀금속" [ref=f1e649]
+                  - cell "4,160kg" [ref=f1e650]
+                  - cell "4,160kg" [ref=f1e651]
+                  - cell "3,862.1kg" [ref=f1e652]
+                  - cell "297.9kg" [ref=f1e653]
+                  - cell "92.84%" [ref=f1e654]
+                - row [ref=f1e656] [cursor=pointer]:
+                  - cell "2순위" [ref=f1e657]
+                  - cell "현재고" [ref=f1e658]
+                  - cell "TIN PLATE" [ref=f1e659]
+                  - cell "0.6 × 914 × C" [ref=f1e660]
+                  - cell "신영정밀금속" [ref=f1e661]
+                  - cell "5,690kg" [ref=f1e662]
+                  - cell "5,690kg" [ref=f1e663]
+                  - cell "4,681.5kg" [ref=f1e664]
+                  - cell "1,008.5kg" [ref=f1e665]
+                  - cell "82.28%" [ref=f1e666]
+        - generic [ref=f1e522]:
+          - generic [ref=f1e523]:
+            - generic [ref=f1e524]: "3"
+            - strong [ref=f1e525]: 원자재·가공방식
+          - generic [ref=f1e526]:
+            - generic [ref=f1e668]:
+              - generic [ref=f1e669]:
+                - generic [ref=f1e670]: 가공폭 (mm)
+                - textbox "가공폭 (mm)" [ref=f1e672]: "810"
+              - generic [ref=f1e673]:
+                - generic [ref=f1e674]: 가공중량 (kg)
+                - textbox "가공중량 (kg)" [ref=f1e676]: 4,160
+              - generic [ref=f1e677]:
+                - generic [ref=f1e678]: 두께 (mm)
+                - textbox "두께 (mm)" [ref=f1e680]: "0.6"
+              - generic [ref=f1e681]:
+                - generic [ref=f1e682]: 기본 로스 (mm)
+                - textbox "기본 로스 (mm)" [ref=f1e684]: "4"
+              - generic [ref=f1e685]:
+                - generic [ref=f1e686]: 가공방식
+                - textbox "가공방식" [ref=f1e688] [cursor=pointer]: 원샷
+            - generic [ref=f1e689]: 필요량(500kg)보다 3,362kg 더 생산됩니다. 가공방식을 '일부가공'으로 바꿔 가공중량을 줄일 수 있습니다.
+        - generic [ref=f1e528]:
+          - generic [ref=f1e529]:
+            - generic [ref=f1e530]: "4"
+            - strong [ref=f1e531]: 가공 추천조합
+          - generic [ref=f1e532]:
+            - generic [ref=f1e533]:
+              - radiogroup [ref=f1e535]:
+                - generic [ref=f1e537]:
+                  - radio "단독" [checked]
+                  - generic [ref=f1e538] [cursor=pointer]: 단독
+                - generic [ref=f1e539]:
+                  - radio "혼합"
+                  - generic [ref=f1e540] [cursor=pointer]: 혼합
+              - button "A안 · 단독가공 수율 92.84% 188 × 4칼 사용폭 752mm · 잔여폭 58mm · 로스 297.9kg" [ref=f1e690] [cursor=pointer]:
+                - generic [ref=f1e691]:
+                  - generic [ref=f1e692]: A안 · 단독가공
+                  - generic [ref=f1e693]:
+                    - text: 수율
+                    - generic [ref=f1e694]: 92.84%
+                - generic [ref=f1e695]: 188 × 4칼
+                - generic [ref=f1e696]: 사용폭 752mm · 잔여폭 58mm · 로스 297.9kg
+            - generic [ref=f1e543]:
+              - generic [ref=f1e544]:
+                - generic [ref=f1e697]: 선택안 · A안
+                - generic [ref=f1e698]: 원코일 810mm
+              - generic [ref=f1e699]:
+                - generic [ref=f1e700]: 가공 · 투입 4,160kg
+                - img "188 × 4칼 배치" [ref=f1e701]:
+                  - generic "188mm" [ref=f1e702]: "188"
+                  - generic "188mm" [ref=f1e703]: "188"
+                  - generic "188mm" [ref=f1e704]: "188"
+                  - generic "188mm" [ref=f1e705]: "188"
+                  - generic "잔여폭 58mm" [ref=f1e706]
+                - generic [ref=f1e707]:
+                  - generic [ref=f1e708]: 사용폭 752mm
+                  - generic [ref=f1e709]: 원코일 810mm
+                  - generic [ref=f1e710]: 잔여폭 58mm
+              - generic [ref=f1e711]:
+                - generic [ref=f1e712]:
+                  - generic [ref=f1e713]: 가공 투입중량
+                  - strong [ref=f1e714]: 4,160kg
+                - generic [ref=f1e715]:
+                  - generic [ref=f1e716]: 188mm 생산
+                  - strong [ref=f1e717]:
+                    - text: 3,862.1kg
+                    - generic [ref=f1e718]: 필요 500 · ▲3,362.1
+                - generic [ref=f1e719]:
+                  - generic [ref=f1e720]: 예상 로스중량
+                  - strong [ref=f1e721]: 297.9kg
+        - generic [ref=f1e545]:
+          - generic [ref=f1e546]: 1개 품목 선택
+          - button "주문서 관리로 돌려보내기" [ref=f1e547] [cursor=pointer]
+          - button "임시저장" [ref=f1e550] [cursor=pointer]
+          - button "계획 확정" [ref=f1e558] [cursor=pointer]

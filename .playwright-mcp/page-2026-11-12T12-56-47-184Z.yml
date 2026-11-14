@@ -1,0 +1,228 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - link [ref=e4] [cursor=pointer]:
+        - /url: index.html
+        - img "THE WIDE CONNECT" [ref=e5]
+      - link "language EN" [ref=e6] [cursor=pointer]:
+        - /url: en/company.html
+        - generic [ref=e7]: language
+        - text: EN
+      - navigation [ref=e8]:
+        - link "Spider OMS" [ref=e9] [cursor=pointer]:
+          - /url: solution1.html
+        - link "Spider WMS" [ref=e10] [cursor=pointer]:
+          - /url: solution2.html
+        - link "Spider Packing" [ref=e11] [cursor=pointer]:
+          - /url: solution3.html
+        - link "서비스" [ref=e12] [cursor=pointer]:
+          - /url: service.html
+        - link "회사소개" [ref=e13] [cursor=pointer]:
+          - /url: company.html
+      - link "문의하기" [ref=e14] [cursor=pointer]:
+        - /url: "#inquiry"
+  - generic [ref=e16]:
+    - generic [ref=e17]:
+      - heading [level=1] [ref=e18]:
+        - text: 우리는 기술과 비즈니스의
+        - emphasis [ref=e19]: 연결
+        - text: 을 설계합니다.
+      - paragraph [ref=e20]: 글로벌 물류부터 OMS·WMS, 포장 자동화, 기업 맞춤형 IT 개발까지, 물류와 비즈니스를 연결하는 최적의 솔루션을 제공합니다.
+      - generic [ref=e21]:
+        - link "Spider OMS" [ref=e22] [cursor=pointer]:
+          - /url: solution1.html
+        - link "Spider WMS" [ref=e23] [cursor=pointer]:
+          - /url: solution2.html
+        - link "Spider Packing" [ref=e24] [cursor=pointer]:
+          - /url: solution3.html
+    - generic [ref=e26]:
+      - generic [ref=e39]:
+        - generic [ref=e40]: OMS
+        - generic [ref=e41]: shopping_cart
+        - emphasis [ref=e42]
+      - generic [ref=e43]:
+        - generic [ref=e44]: WMS
+        - generic [ref=e45]: warehouse
+        - emphasis [ref=e46]
+      - generic [ref=e47]:
+        - generic [ref=e48]: Packing
+        - generic [ref=e49]: package_2
+        - emphasis [ref=e50]
+      - generic [ref=e51]:
+        - generic [ref=e52]: Delivery
+        - generic [ref=e53]: local_shipping
+        - emphasis [ref=e54]
+  - generic [ref=e56]:
+    - generic [ref=e57]:
+      - generic [ref=e58]: OUR PRINCIPLES
+      - heading "현장과 시스템을 연결하는 기술" [level=2] [ref=e59]
+      - paragraph [ref=e60]: 기술은 현장의 복잡한 업무를 더 명확하고 효율적으로 만드는 수단입니다. 우리는 물류 현장과 업무 흐름을 이해하고, 데이터와 시스템을 연결해 실제 업무에 도움이 되는 환경을 설계합니다.
+    - list [ref=e61]:
+      - listitem [ref=e62]:
+        - generic [ref=e63]: "01"
+        - generic [ref=e64]: Keep it simple
+        - paragraph [ref=e65]: 복잡한 업무 절차를 사용자의 실제 작업 순서에 맞춰 쉽고 직관적인 시스템으로 구현합니다.
+      - listitem [ref=e66]:
+        - generic [ref=e67]: "02"
+        - generic [ref=e68]: Connected end to end
+        - paragraph [ref=e69]: 주문·재고·출고·정산 등 분리된 업무 데이터가 필요한 시스템 사이에서 자연스럽게 연결되도록 설계합니다.
+      - listitem [ref=e70]:
+        - generic [ref=e71]: "03"
+        - generic [ref=e72]: With you, all the way
+        - paragraph [ref=e73]: 시스템 도입 이후에도 운영 과정에서 발생하는 이슈를 함께 확인하고, 유지보수와 기술 지원을 이어갑니다.
+  - generic [ref=e75]:
+    - generic [ref=e76]:
+      - generic [ref=e77]: WHAT WE DO
+      - heading "물류와 IT를 아우르는 주요 사업 영역" [level=2] [ref=e78]
+    - list [ref=e79]:
+      - listitem [ref=e80]:
+        - 'link "01 크로스보더 물류 글로벌 판매채널 주문부터 해외 창고, 국제 운송 및 배송까지 국가별 물류 서비스를 연결합니다. #해외배송 #창고 운영 #국제운송 #배송 연계 arrow_outward" [ref=e81] [cursor=pointer]':
+          - /url: service.html#logistics
+          - generic [ref=e82]: "01"
+          - generic [ref=e83]:
+            - generic [ref=e84]: 크로스보더 물류
+            - paragraph [ref=e85]: 글로벌 판매채널 주문부터 해외 창고, 국제 운송 및 배송까지 국가별 물류 서비스를 연결합니다.
+            - generic [ref=e86]:
+              - generic [ref=e87]: "#해외배송"
+              - generic [ref=e88]: "#창고 운영"
+              - generic [ref=e89]: "#국제운송"
+              - generic [ref=e90]: "#배송 연계"
+          - generic [ref=e91]: arrow_outward
+      - listitem [ref=e92]:
+        - 'link "02 물류관리 플랫폼 (OMS·WMS) Spider OMS와 Spider WMS를 통해 판매채널 주문 수집부터 창고 재고·출고 관리까지 지원합니다. #주문 수집 #재고·출고 관리 #판매채널 연동 #시스템 연계 arrow_outward" [ref=e93] [cursor=pointer]':
+          - /url: solution1.html
+          - generic [ref=e94]: "02"
+          - generic [ref=e95]:
+            - generic [ref=e96]: 물류관리 플랫폼 (OMS·WMS)
+            - paragraph [ref=e97]: Spider OMS와 Spider WMS를 통해 판매채널 주문 수집부터 창고 재고·출고 관리까지 지원합니다.
+            - generic [ref=e98]:
+              - generic [ref=e99]: "#주문 수집"
+              - generic [ref=e100]: "#재고·출고 관리"
+              - generic [ref=e101]: "#판매채널 연동"
+              - generic [ref=e102]: "#시스템 연계"
+          - generic [ref=e103]: arrow_outward
+      - listitem [ref=e104]:
+        - 'link "03 포장 관리 시스템 (Spider Packing) 상품 스캔, 포장 검수, 송장 출력 등 출고 현장의 반복 작업을 지원합니다. #상품 스캔 #포장 검수 #작업 기록 #송장 출력 arrow_outward" [ref=e105] [cursor=pointer]':
+          - /url: solution3.html
+          - generic [ref=e106]: "03"
+          - generic [ref=e107]:
+            - generic [ref=e108]: 포장 관리 시스템 (Spider Packing)
+            - paragraph [ref=e109]: 상품 스캔, 포장 검수, 송장 출력 등 출고 현장의 반복 작업을 지원합니다.
+            - generic [ref=e110]:
+              - generic [ref=e111]: "#상품 스캔"
+              - generic [ref=e112]: "#포장 검수"
+              - generic [ref=e113]: "#작업 기록"
+              - generic [ref=e114]: "#송장 출력"
+          - generic [ref=e115]: arrow_outward
+      - listitem [ref=e116]:
+        - 'link "04 시스템 개발 및 IT 기술 지원 물류 시스템, API 연동, 업무 플랫폼 등 기업의 요구사항에 맞춘 시스템 개발과 기술 지원을 제공합니다. #시스템 개발 #API 연동 #IT 기술 지원 #업무 플랫폼 구축 arrow_outward" [ref=e117] [cursor=pointer]':
+          - /url: service.html#it
+          - generic [ref=e118]: "04"
+          - generic [ref=e119]:
+            - generic [ref=e120]: 시스템 개발 및 IT 기술 지원
+            - paragraph [ref=e121]: 물류 시스템, API 연동, 업무 플랫폼 등 기업의 요구사항에 맞춘 시스템 개발과 기술 지원을 제공합니다.
+            - generic [ref=e122]:
+              - generic [ref=e123]: "#시스템 개발"
+              - generic [ref=e124]: "#API 연동"
+              - generic [ref=e125]: "#IT 기술 지원"
+              - generic [ref=e126]: "#업무 플랫폼 구축"
+          - generic [ref=e127]: arrow_outward
+  - generic [ref=e128]:
+    - img [aria-hidden] [ref=e129]:
+      - generic [ref=e141]:
+        - generic [ref=e142]: Incheon
+        - generic [ref=e143]: KOREA · ORIGIN
+      - generic [ref=e147]:
+        - generic [ref=e148]: Amsterdam
+        - generic [ref=e149]: NETHERLANDS
+      - generic [ref=e153]:
+        - generic [ref=e154]: New York
+        - generic [ref=e155]: USA
+      - generic [ref=e159]:
+        - generic [ref=e160]: Los Angeles
+        - generic [ref=e161]: USA
+      - generic [ref=e165]:
+        - generic [ref=e166]: Tokyo
+        - generic [ref=e167]: JAPAN
+      - generic [ref=e171]:
+        - generic [ref=e172]: Singapore
+        - generic [ref=e173]: SINGAPORE
+      - generic [ref=e177]:
+        - generic [ref=e178]: Sydney
+        - generic [ref=e179]: AUSTRALIA
+      - generic [ref=e183]:
+        - generic [ref=e184]: Dubai
+        - generic [ref=e185]: UAE
+      - generic [ref=e189]:
+        - generic [ref=e190]: Santiago
+        - generic [ref=e191]: CHILE
+    - heading "국내외 주요 판매채널 및 기업 시스템 연동 지원" [level=2] [ref=e201]
+  - generic [ref=e203]:
+    - img "shopify" [ref=e205]
+    - img "tiktok-shop" [ref=e207]
+    - img "amazon" [ref=e209]
+    - img "ulta" [ref=e211]
+    - img "sephora" [ref=e213]
+    - img "walmart" [ref=e215]
+    - img "target" [ref=e217]
+    - img "costco" [ref=e219]
+    - img "cvs" [ref=e221]
+    - img "boots" [ref=e223]
+    - img "shopline" [ref=e225]
+    - img "hktvmall" [ref=e227]
+    - img "shopee" [ref=e229]
+    - img "lazada" [ref=e231]
+    - img "qoo10" [ref=e233]
+    - img "rakuten" [ref=e235]
+    - img "cafe24" [ref=e237]
+    - img "sabangnet" [ref=e239]
+    - img "cj-onstyle" [ref=e241]
+    - img "salesforce" [ref=e243]
+    - img "sap" [ref=e245]
+    - img "ebay" [ref=e247]
+    - img "kakao" [ref=e249]
+    - img "woocommerce" [ref=e251]
+    - img "smartstore" [ref=e253]
+    - img "shopify" [ref=e255]
+    - img "tiktok-shop" [ref=e257]
+    - img "amazon" [ref=e259]
+    - img "ulta" [ref=e261]
+    - img "sephora" [ref=e263]
+    - img "walmart" [ref=e265]
+    - img "target" [ref=e267]
+    - img "costco" [ref=e269]
+    - img "cvs" [ref=e271]
+    - img "boots" [ref=e273]
+    - img "shopline" [ref=e275]
+    - img "hktvmall" [ref=e277]
+    - img "shopee" [ref=e279]
+    - img "lazada" [ref=e281]
+    - img "qoo10" [ref=e283]
+    - img "rakuten" [ref=e285]
+    - img "cafe24" [ref=e287]
+    - img "sabangnet" [ref=e289]
+    - img "cj-onstyle" [ref=e291]
+    - img "salesforce" [ref=e293]
+    - img "sap" [ref=e295]
+    - img "ebay" [ref=e297]
+    - img "kakao" [ref=e299]
+    - img "woocommerce" [ref=e301]
+    - img "smartstore" [ref=e303]
+  - contentinfo [ref=e304]:
+    - generic [ref=e305]:
+      - generic [ref=e307]:
+        - term [ref=e308]: 주소
+        - definition [ref=e309]: 서울특별시 송파구 법원로9길 26, H비즈니스파크 D동 807,808호
+        - term [ref=e310]: 대표
+        - definition [ref=e311]: KIM HEE EUN (김희은)
+        - term [ref=e312]: 사업자등록번호
+        - definition [ref=e313]: 339-81-03471
+        - term [ref=e314]: 문의
+        - definition [ref=e315]: contact@thewideconnect.com
+      - generic [ref=e316]:
+        - link "회사소개" [ref=e317] [cursor=pointer]:
+          - /url: company.html
+        - link "개인정보 처리방침" [ref=e318] [cursor=pointer]:
+          - /url: privacy.html
+      - generic [ref=e319]: © 2025–2026 THE WIDE CONNECT. All Rights Reserved.
+  - text: ▾ · · · · ·

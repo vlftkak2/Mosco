@@ -15,6 +15,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/InboundSearch.module.css';
 import pageClasses from '../../styles/pages/InstrumentStatus.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
@@ -54,8 +55,8 @@ const COLUMNS = [
   ['maturitydate', '만기일', 92], ['dday', 'D-day', 72], ['kind', '구분', 100], ['status', '상태', 84],
   ['instrumenttype', '종류', 88], ['instrumentno', '번호', 120], ['instrumentamt', '금액', 115],
   ['customname', '거래처', 140], ['issuercompany', '발행회사', 120], ['issuedate', '발행일', 90],
-  ['custodybank', '보관은행', 85], ['receiptdate', '수금/지급일', 92], ['receiptno', '전표번호', 140],
-  ['used_receiptno', '연결 전표', 125], ['processdate', '처리일', 90], ['discountfee', '할인료', 85], ['processmemo', '처리메모', 180],
+  ['custodybank', '보관은행', 85], ['receiptdate', '수금/지급일', 92], ['receiptno', '전표번호', 160],
+  ['used_receiptno', '연결 전표', 160], ['processdate', '처리일', 90], ['discountfee', '할인료', 85], ['processmemo', '처리메모', 180],
 ].map(([key, label, width]) => ({ key, label, width }));
 
 const pad = (value) => String(value).padStart(2, '0');
@@ -313,7 +314,7 @@ export default function InstrumentStatus() {
 
   const tableWidth = COLUMNS.reduce((sum, column) => sum + column.width, 0);
 
-  return <Box className={`${sharedClasses.pageShell} ${classes.page} ${pageClasses.page}`}>
+  return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page} ${pageClasses.page}`}>
     <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
       <Group className={classes.breadcrumbTrail} gap={7}>
         <Text component="span" className={classes.breadcrumbParent}>자금관리</Text>

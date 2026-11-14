@@ -121,6 +121,72 @@ entries AS (
 )
 """
 
+# 대시보드용 가벼운 집계: ENTRIES_SQL 과 금액·일자·순서 칸은 같고, 적요용 칸(첫 품목명·건수·증권번호)은 뺀다.
+DASHBOARD_ENTRIES_SQL = f"""
+WITH
+out_amt AS (
+    SELECT receiptno, SUM(COALESCE(supplyamt, 0) + COALESCE(vat, 0)) AS amt
+    FROM Outbound02t WHERE companyid = %(companyid)s GROUP BY receiptno
+),
+out_exp AS (
+    SELECT receiptno, SUM(COALESCE(totalamt, 0)) AS amt
+    FROM Outbound03t WHERE companyid = %(companyid)s AND UPPER(COALESCE(purchaseyn, 'N')) <> 'Y' GROUP BY receiptno
+),
+in_amt AS (
+    SELECT receiptno, SUM(COALESCE(supplyamt, 0) + COALESCE(vat, 0)) AS amt
+    FROM Inbound02t WHERE companyid = %(companyid)s GROUP BY receiptno
+),
+in_exp AS (
+    SELECT receiptno, SUM(COALESCE(totalamt, 0)) AS amt
+    FROM Inbound03t WHERE companyid = %(companyid)s AND UPPER(COALESCE(purchaseyn, 'N')) <> 'Y' GROUP BY receiptno
+),
+rp AS (
+    SELECT receiptno, SUM(COALESCE(cashamt, 0) + COALESCE(instrumentamt, 0) + COALESCE(bankamt, 0)
+                          + COALESCE(cardamt, 0) + COALESCE(offsetamt, 0) + COALESCE(lossamt, 0)) AS amt
+    FROM ReceiptPayment02t WHERE companyid = %(companyid)s GROUP BY receiptno
+),
+entries AS (
+    SELECT {_KEY.format(code='h.customcode', name='h.customname')} AS ckey, h.customcode, h.customname,
+           h.receptdate AS entrydate, 1 AS kindorder, h.receiptno AS docno,
+           COALESCE(i.amt, 0) + COALESCE(e.amt, 0) AS sales, 0::numeric AS receipt, 0::numeric AS purchase, 0::numeric AS payment
+    FROM Outbound01t h
+    LEFT JOIN out_amt i ON i.receiptno = h.receiptno
+    LEFT JOIN out_exp e ON e.receiptno = h.receiptno
+    WHERE h.companyid = %(companyid)s
+    UNION ALL
+    SELECT {_KEY.format(code='h.customcode', name='h.customname')}, h.customcode, h.customname,
+           h.receptdate, 3, h.receiptno, 0, 0, COALESCE(i.amt, 0) + COALESCE(e.amt, 0), 0
+    FROM Inbound01t h
+    LEFT JOIN in_amt i ON i.receiptno = h.receiptno
+    LEFT JOIN in_exp e ON e.receiptno = h.receiptno
+    WHERE h.companyid = %(companyid)s
+    UNION ALL
+    SELECT {_KEY.format(code='x.customcode', name='x.customname')}, MAX(x.customcode), MAX(x.customname),
+           h.receptdate, 4, h.receiptno, 0, 0, SUM(COALESCE(x.totalamt, 0)), 0
+    FROM (
+        SELECT 'OUT' AS src, companyid, receiptno, customcode, customname, totalamt, purchaseyn FROM Outbound03t
+        UNION ALL
+        SELECT 'IN', companyid, receiptno, customcode, customname, totalamt, purchaseyn FROM Inbound03t
+    ) x
+    JOIN (
+        SELECT 'OUT' AS src, companyid, receiptno, receptdate FROM Outbound01t
+        UNION ALL
+        SELECT 'IN', companyid, receiptno, receptdate FROM Inbound01t
+    ) h ON h.src = x.src AND h.companyid = x.companyid AND h.receiptno = x.receiptno
+    WHERE x.companyid = %(companyid)s AND UPPER(COALESCE(x.purchaseyn, 'N')) = 'Y'
+      AND (NULLIF(BTRIM(x.customcode), '') IS NOT NULL OR NULLIF(BTRIM(x.customname), '') IS NOT NULL)
+    GROUP BY 1, h.receptdate, h.receiptno, x.src
+    UNION ALL
+    SELECT {_KEY.format(code='h.customcode', name='h.customname')}, h.customcode, h.customname,
+           h.receiptdate, CASE WHEN h.transactiontype = 'RECEIPT' THEN 2 ELSE 5 END, h.receiptno,
+           0, CASE WHEN h.transactiontype = 'RECEIPT' THEN r.amt ELSE 0 END,
+           0, CASE WHEN h.transactiontype = 'PAYMENT' THEN r.amt ELSE 0 END
+    FROM ReceiptPayment01t h
+    JOIN rp r ON r.receiptno = h.receiptno
+    WHERE h.companyid = %(companyid)s AND h.transactiontype IN ('RECEIPT', 'PAYMENT')
+)
+"""
+
 KIND_NAMES = {"SALES": "매출", "RECEIPT": "수금", "PURCHASE": "매입", "PAYMENT": "지급", "COST": "비용"}
 
 
@@ -307,19 +373,54 @@ def _add_months(value: date, months: int) -> date:
 
 
 def dashboard(companyid: str, as_of: date, top_n: int = 10) -> dict:
-    """기준일 시점의 회사 전체 받을 돈 / 줄 돈 현황."""
+    """기준일 시점의 회사 전체 받을 돈 / 줄 돈 현황.
+
+    전표를 한 줄씩 가져오지 않고 SQL 에서 (거래처 x 월) 합계와 선입선출 미수 잔여분만 계산해 가져온다.
+    """
     start = get_settings(companyid)["ledgerstartdate"]
-    params = {"companyid": companyid, "start": start, "as_of": as_of}
+    month_from = _add_months(_month_start(as_of), -11)
+    params = {"companyid": companyid, "start": start, "as_of": as_of, "month_from": month_from}
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
-            ENTRIES_SQL + """
-            SELECT ckey, customcode, customname, entrydate, kind, docno, sales, receipt, purchase, payment
-            FROM entries
-            WHERE (%(start)s::date IS NULL OR entrydate >= %(start)s::date) AND entrydate <= %(as_of)s
-            ORDER BY entrydate, kindorder, docno""",
+            DASHBOARD_ENTRIES_SQL + """,
+            scoped AS MATERIALIZED (
+                SELECT ckey, customcode, customname, entrydate, kindorder, docno, sales, receipt, purchase, payment
+                FROM entries
+                WHERE (%(start)s::date IS NULL OR entrydate >= %(start)s::date) AND entrydate <= %(as_of)s
+            ),
+            -- 미수금 선입선출: 기초미수 -> 매출(일자·종류·전표순) 순으로 쌓고, 그 거래처의 수금 합계만큼 앞에서부터 지운다
+            debits AS (
+                SELECT customercode::varchar AS ckey, %(start)s::date AS d, 0 AS o1, 0 AS o2, ''::varchar AS o3,
+                       openingreceivable AS amt
+                FROM customer01t
+                WHERE companyid = %(companyid)s AND COALESCE(openingreceivable, 0) > 0
+                UNION ALL
+                SELECT ckey, entrydate, 1, kindorder, docno::varchar, sales FROM scoped WHERE sales <> 0
+            ),
+            credits AS (SELECT ckey, SUM(receipt) AS credit FROM scoped GROUP BY ckey),
+            fifo AS (
+                SELECT d.ckey, d.d, d.amt,
+                       SUM(d.amt) OVER (PARTITION BY d.ckey ORDER BY d.o1, d.d, d.o2, d.o3
+                                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum,
+                       COALESCE(c.credit, 0) AS credit
+                FROM debits d LEFT JOIN credits c ON c.ckey = d.ckey
+            )
+            SELECT 'M' AS tag, ckey,
+                   (ARRAY_AGG(customcode ORDER BY entrydate, kindorder, docno))[1] AS customcode,
+                   (ARRAY_AGG(customname ORDER BY entrydate, kindorder, docno))[1] AS customname,
+                   CASE WHEN entrydate < %(month_from)s THEN NULL
+                        ELSE date_trunc('month', entrydate)::date END AS month,
+                   MIN(entrydate) AS first_date, MAX(entrydate) AS last_date,
+                   SUM(sales) AS sales, SUM(receipt) AS receipt, SUM(purchase) AS purchase, SUM(payment) AS payment
+            FROM scoped
+            GROUP BY ckey, 5
+            UNION ALL
+            SELECT 'F', ckey, NULL, NULL, d, NULL, NULL, LEAST(amt, cum - credit), NULL, NULL, NULL
+            FROM fifo
+            WHERE cum - credit > 0""",
             params,
         )
-        entries = [_row_dict(cursor, row) for row in cursor.fetchall()]
+        rows = cursor.fetchall()
         cursor.execute(
             """SELECT customercode, customername, COALESCE(openingreceivable, 0), COALESCE(openingpayable, 0)
                FROM customer01t WHERE companyid = %s""",
@@ -337,7 +438,7 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10) -> dict:
                 "customname": base.get("name") or name or "",
                 "opening_recv": base.get("recv", ZERO), "opening_pay": base.get("pay", ZERO),
                 "recv": base.get("recv", ZERO), "pay": base.get("pay", ZERO),
-                "debits": [], "credit": ZERO, "last": None,
+                "credit": ZERO, "last": None,
             }
         return book[ckey]
 
@@ -345,69 +446,75 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10) -> dict:
         if info["recv"] or info["pay"]:
             account(ckey)
 
-    month_from = _add_months(_month_start(as_of), -11)
     months = {}
     for offset in range(12):
         key = _add_months(month_from, offset)
         months[key] = {"month": key.strftime("%Y-%m"), "sales": ZERO, "receipt": ZERO, "purchase": ZERO, "payment": ZERO}
 
-    for row in entries:
-        acc = account(row["ckey"], row["customcode"], row["customname"])
-        sales, receipt, purchase, payment = (_num(row[k]) for k in ("sales", "receipt", "purchase", "payment"))
+    # 거래처별 (12개월 이전 합계 + 월별 증감) -> 월말 잔액 추이
+    before = {}
+    per_month = {}
+    fifo_rows = [(row[1], row[4], _num(row[7])) for row in rows if row[0] == "F"]
+    # 거래처 이름·코드는 그 거래처의 가장 이른 전표 기준 (예전과 같은 결과)
+    month_rows = sorted((row for row in rows if row[0] == "M"), key=lambda row: row[5])
+    for _tag, ckey, code, name, month, _first, last_date, sales, receipt, purchase, payment in month_rows:
+        acc = account(ckey, code, name)
+        sales, receipt, purchase, payment = _num(sales), _num(receipt), _num(purchase), _num(payment)
         acc["recv"] += sales - receipt
         acc["pay"] += purchase - payment
-        acc["last"] = row["entrydate"]
-        if sales:
-            acc["debits"].append([row["entrydate"], sales])
         acc["credit"] += receipt
-        bucket = months.get(_month_start(row["entrydate"]))
-        if bucket:
-            bucket["sales"] += sales
-            bucket["receipt"] += receipt
-            bucket["purchase"] += purchase
-            bucket["payment"] += payment
+        if acc["last"] is None or last_date > acc["last"]:
+            acc["last"] = last_date
+        if month is None:
+            delta = before.setdefault(ckey, [ZERO, ZERO])
+        else:
+            bucket = months.get(month)
+            if bucket:
+                bucket["sales"] += sales
+                bucket["receipt"] += receipt
+                bucket["purchase"] += purchase
+                bucket["payment"] += payment
+            delta = per_month.setdefault(month, {}).setdefault(ckey, [ZERO, ZERO])
+        delta[0] += sales - receipt
+        delta[1] += purchase - payment
 
     # 월말 잔액 추이: 요약 카드와 같은 기준 (거래처별 잔액 중 0보다 큰 것만 더한다 = 선수·선급은 빼고)
-    month_ends = [(_add_months(key, 1) - timedelta(days=1), key) for key in sorted(months)]
     running = {ckey: [acc["opening_recv"], acc["opening_pay"]] for ckey, acc in book.items()}
+    for ckey, (recv_delta, pay_delta) in before.items():
+        balance = running.setdefault(ckey, [ZERO, ZERO])
+        balance[0] += recv_delta
+        balance[1] += pay_delta
     trend = []
-    index = 0
-    for month_end, key in month_ends:
-        while index < len(entries) and entries[index]["entrydate"] <= month_end:
-            row = entries[index]
-            balance = running.setdefault(row["ckey"], [ZERO, ZERO])
-            balance[0] += _num(row["sales"]) - _num(row["receipt"])
-            balance[1] += _num(row["purchase"]) - _num(row["payment"])
-            index += 1
+    for key in sorted(months):
+        for ckey, (recv_delta, pay_delta) in per_month.get(key, {}).items():
+            balance = running.setdefault(ckey, [ZERO, ZERO])
+            balance[0] += recv_delta
+            balance[1] += pay_delta
         trend.append({**months[key],
                       "recv_balance": sum((v[0] for v in running.values() if v[0] > 0), ZERO),
                       "pay_balance": sum((v[1] for v in running.values() if v[1] > 0), ZERO)})
 
-    # 미수금 경과 기간 (선입선출): 수금은 가장 오래된 매출(기초잔액 포함)부터 갚은 것으로 본다.
+    # 미수금 경과 기간 (선입선출): 수금은 가장 오래된 매출(기초잔액 포함)부터 갚은 것으로 본다. (잔여분은 SQL 에서 계산)
     aging = {key: ZERO for key, *_ in AGING_BUCKETS}
     aging["unknown"] = ZERO  # 원장 시작일이 없을 때의 기초잔액 (언제 생긴 돈인지 모름)
+    per_account = {}
+    for ckey, debit_date, left in fifo_rows:
+        if left <= 0:
+            continue
+        per = per_account.setdefault(ckey, {key: ZERO for key in aging})
+        if debit_date is None:
+            per["unknown"] += left
+            continue
+        days = (as_of - debit_date).days
+        for key, _label, low, high in AGING_BUCKETS:
+            if days >= low and (high is None or days <= high):
+                per[key] += left
+                break
     overdue = []
-    for acc in book.values():
-        debits = []
-        if acc["opening_recv"] > 0:
-            debits.append([start, acc["opening_recv"]])  # 원장 시작일이 없으면 날짜 미상
-        debits.extend(acc["debits"])
-        remaining_credit = acc["credit"]
-        per = {key: ZERO for key in aging}
-        for debit_date, amount in debits:
-            used = min(amount, remaining_credit)
-            remaining_credit -= used
-            left = amount - used
-            if left <= 0:
-                continue
-            if debit_date is None:
-                per["unknown"] += left
-                continue
-            days = (as_of - debit_date).days
-            for key, _label, low, high in AGING_BUCKETS:
-                if days >= low and (high is None or days <= high):
-                    per[key] += left
-                    break
+    for ckey, acc in book.items():  # 거래처 순서(동점 정렬)를 예전과 같게
+        per = per_account.get(ckey)
+        if not per:
+            continue
         for key in aging:
             aging[key] += per[key]
         late = per["d60"] + per["d90"] + per["over90"]

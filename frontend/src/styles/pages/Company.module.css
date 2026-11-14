@@ -144,3 +144,33 @@
 .compactRow { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 9px 12px; }
 .compactField { flex: 0 0 auto; width: 118px; }
 .compactField :global(.mantine-Input-input) { height: 33px; min-height: 33px; }
+
+/* 패널 머리 · 폼 안 보조 버튼: 흰 바탕 + 빨간 아이콘, 마우스를 올리면 연한 빨강 (사업장관리 주소 검색과 같은 모양) */
+.softButton.softButton { height: 32px; padding: 0 12px 0 10px; border: 1px solid #dfe5ec; border-radius: 9px; background: #fff; color: #34445a; font-size: 12px; font-weight: 700; transition: background 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 140ms ease; }
+.softButton.softButton svg { color: #e0434b; }
+.softButton.softButton:hover:not(:disabled) { border-color: #f2b7ba; background: #fff7f7; box-shadow: 0 2px 8px #e23d4514; color: #d23a42; }
+.softButton.softButton:focus-visible { outline: 2px solid #f0a3a7; outline-offset: 2px; }
+.softButtonTall.softButtonTall { height: 36px; }
+
+/* 주소 줄: 우편번호 · 기본주소 · [주소 검색]을 같은 높이로 맞추고, 버튼은 줄어들지 않게 */
+.addressField :global(.mantine-Input-input) { height: 36px; min-height: 36px; }
+.addressSearchButton.addressSearchButton { flex: 0 0 auto; height: 36px; min-width: 88px; padding: 0 14px; white-space: nowrap; }
+.addressSearchButton.addressSearchButton :global(.mantine-Button-label) { overflow: visible; }
+
+/* ── 상세 영역을 거래처관리와 같게: 구역 상자 없이 가는 선으로 구분 · 굵은 제목 · 32px 각진 회색 입력칸 · 굵은 라벨 ── */
+.formBody { padding: 4px 18px 18px !important; background: #fff !important; }
+.formSections { gap: 0 !important; }
+.formSection { padding: 18px 0 20px !important; border: 0 !important; border-bottom: 1px solid #e4e4e4 !important; border-radius: 0 !important; background: transparent !important; }
+.formSection:last-child { border-bottom: 0 !important; }
+.formSectionHead { margin-bottom: 14px !important; color: #222 !important; font-size: 15px !important; font-weight: 700 !important; }
+.formGrid { gap: 10px 14px !important; }
+.formGrid :global(.mantine-InputWrapper-label) { margin-bottom: 5px !important; color: #222 !important; font-size: 13px !important; font-weight: 600 !important; }
+.formGrid :global(.mantine-InputWrapper-required) { color: #ff2828 !important; }
+.formGrid :global(.mantine-Input-input) { height: 32px !important; min-height: 32px !important; padding-inline: 10px !important; border: 1px solid #cccccc !important; border-radius: 4px !important; color: #333 !important; font-size: 13.5px !important; }
+.formGrid :global(.mantine-Input-input:focus), .formGrid :global(.mantine-Input-input:focus-within) { border-color: #e0434b !important; box-shadow: 0 0 0 2px #e0434b2e !important; }
+.formGrid :global(.mantine-Input-input:disabled), .formGrid :global(.mantine-Input-input[data-disabled]) { border-color: #e4e4e4 !important; background: #f1f2f5 !important; color: #888 !important; }
+.formGrid :global(.mantine-Select-input), .formGrid :global(.mantine-NumberInput-input) { padding-inline-end: 28px !important; }
+.addressField :global(.mantine-Input-input) { height: 32px !important; min-height: 32px !important; }
+.addressSearchButton.addressSearchButton { height: 32px; border-radius: 4px !important; border-color: #cccccc !important; color: #333 !important; font-weight: 500 !important; }
+.addressSearchButton.addressSearchButton:hover { border-color: #e0434b !important; background: #fff !important; color: #e0434b !important; }
+

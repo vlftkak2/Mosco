@@ -1,0 +1,2 @@
+# Install after requirements.txt to run the FastAPI board regression tests.
+httpx==0.28.1

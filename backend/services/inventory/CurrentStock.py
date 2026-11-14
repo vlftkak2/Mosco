@@ -1,5 +1,4 @@
 import logging
-from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -10,7 +9,6 @@ from psycopg2.extras import execute_values
 from pydantic import BaseModel, Field, field_validator
 import xlsxwriter
 
-from config import DB_CONFIG
 
 logger = logging.getLogger(__name__)
 

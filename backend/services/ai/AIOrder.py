@@ -12,12 +12,11 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException, UploadFile, status
+from fastapi import UploadFile, status
 from openai import AsyncOpenAI
 from PIL import Image, ImageOps, UnidentifiedImageError
-import psycopg2
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
-from config import DB_CONFIG, JWT_SECRET_KEY  # Loads backend/.env before the AI settings are read.
+from config import JWT_SECRET_KEY  # Loads backend/.env before the AI settings are read.
 import db as _shared_db
 
 logger = logging.getLogger(__name__)

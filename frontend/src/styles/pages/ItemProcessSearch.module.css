@@ -70,3 +70,7 @@
 .filterToggle:hover { background: #edf1f6; }
 @media (max-width: 1050px) { .summaryGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; overflow: auto; } .filterSidebar { width: 100%; min-width: 0; max-height: 280px; grid-row: 2; } .resultsPanel { height: 560px; min-height: 460px; } }
 @media (max-width: 560px) { .summaryGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; } .summaryIcon { display: none; } .page { height: auto; min-height: calc(100dvh - 90px); flex: 0 0 auto; overflow: visible; } .workspace { overflow: visible; } }
+
+/* 조회 기간: 제목 · 건수 옆 (매입현황 · 매출현황과 같은 모양) */
+.toolbarMeta { display: inline-flex; min-width: 0; align-items: center; gap: 5px; overflow: hidden; color: #8290a5; font-size: 11px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.toolbarMeta > svg { flex: 0 0 auto; color: #a0abba; }

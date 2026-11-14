@@ -16,10 +16,12 @@ import ErpDateInput from '../../components/common/ErpDateInput';
 import PickerModal, { ColumnResizeHandle, PickerEmpty, SelectPickerModal, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import classes from '../../styles/pages/ReceiptPayment.module.css';
 import searchClasses from '../../styles/pages/ReceiptPaymentSearch.module.css';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' }, { value: '50', label: '50개씩' },
@@ -65,8 +67,9 @@ const DETAIL_NAVIGATION_FIELDS = [
 const SUMMARY_COLUMNS = [
   ['receiptdate', '수금/지급일', 95], ['transactiontype', '구분', 60], ['customname', '거래처', 125],
   ['line_count', '상세건수', 65], ['instrumentamt', '수표·어음', 95], ['cashamt', '현금', 85],
-  ['bankamt', '은행예금', 85], ['cardamt', '카드', 75], ['totalamt', '합계', 90],
-  ['offsetamt', '상계', 80], ['lossamt', '잡손실', 80], ['chargeamt', '과금', 80], ['receiptno', '전표번호', 135],
+  ['bankamt', '은행예금', 85], ['cardamt', '카드', 75], ['totalamt', '자금 합계', 90],
+  ['offsetamt', '상계', 80], ['lossamt', '잡손실', 80], ['settleamt', '상계·잡손실', 90], ['ledgeramt', '전표 합계', 95],
+  ['chargeamt', '과금', 80], ['receiptno', '전표번호', 160],
 ].map(([key, label, width]) => ({ key, label, width }));
 // 결제·할인·부도 처리 결과 (저장된 전표에서 처리, 입력 중에는 비어 있음)
 const PROCESS_COLUMNS = [
@@ -143,11 +146,13 @@ const ResizableHeaderCell = memo(function ResizableHeaderCell({ index, width, on
   </Table.Th>;
 });
 
+// 자금 합계 = 현금+수표·어음+은행예금+카드 / 상계·잡손실 = 돈이 오가지 않은 정리액 / 전표 합계 = 둘의 합 (거래처원장 반영액)
+const DOCUMENT_MONEY_KEYS = ['cashamt', 'instrumentamt', 'bankamt', 'cardamt', 'totalamt', 'offsetamt', 'lossamt', 'settleamt', 'ledgeramt', 'chargeamt'];
 const ReceiptPaymentSummaryRow = memo(function ReceiptPaymentSummaryRow({ doc, selected, onSelect }) {
   return <Table.Tr className={selected ? classes.selectedRow : ''} onClick={() => onSelect(doc.receiptno)}>
     {SUMMARY_COLUMNS.map((column) => {
       const value = doc[column.key];
-      const money = ['cashamt', 'instrumentamt', 'bankamt', 'cardamt', 'totalamt', 'offsetamt', 'lossamt', 'chargeamt'].includes(column.key);
+      const money = DOCUMENT_MONEY_KEYS.includes(column.key);
       return <Table.Td key={column.key} ta={money || column.key === 'line_count' ? 'right' : undefined} title={column.key === 'transactiontype' ? typeName(value) : String(value ?? '')}>
         {column.key === 'receiptdate' ? dateOnly(value)
           : column.key === 'transactiontype' // 수금/지급 현황과 같은 둥근 배지
@@ -461,7 +466,7 @@ const HELD_COLUMNS = [
   { key: 'issuercompany', label: '발행회사', width: 180 },
   { key: 'customname', label: '받은 거래처', width: 180 },
   { key: 'receiptdate', label: '수금일', width: 100 },
-  { key: 'receiptno', label: '수금전표', width: 150 },
+  { key: 'receiptno', label: '수금전표', width: 160 },
 ];
 const CUSTOMER_PICKER_COLUMNS = [
   { key: 'customercode', label: '거래처코드', width: 130 },
@@ -1252,15 +1257,16 @@ export default function ReceiptPayment() {
         발행구분: instrumentLabel('issuekind', row.issuekind), 만기일: dateOnly(row.maturitydate), 보관계좌: row.custodyaccount,
         보관은행: row.custodybank, 어음처리상태: statusText(row, header.transactiontype),
         처리일: dateOnly(row.processdate), 할인료: numeric(row.discountfee), 처리메모: row.processmemo || '',
-        현금: numeric(row.cashamt), 은행예금: numeric(row.bankamt), 카드: numeric(row.cardamt), 합계: totalOf(row), 상계: numeric(row.offsetamt),
-        잡손실: numeric(row.lossamt), 과금: numeric(row.chargeamt), 비고: row.description,
+        현금: numeric(row.cashamt), 은행예금: numeric(row.bankamt), 카드: numeric(row.cardamt), '자금 합계': totalOf(row), 상계: numeric(row.offsetamt),
+        잡손실: numeric(row.lossamt), '전표 합계': totalOf(row) + numeric(row.offsetamt) + numeric(row.lossamt), 과금: numeric(row.chargeamt), 비고: row.description,
         등록자: row.created_by || '', 수정자: row.updated_by || '',
       }))
       : documents.map((row) => ({
         수금지급일: dateOnly(row.receiptdate), 구분: typeName(row.transactiontype), 거래처: row.customname,
         상세건수: row.line_count, 수표어음: numeric(row.instrumentamt), 현금: numeric(row.cashamt),
-        은행예금: numeric(row.bankamt), 카드: numeric(row.cardamt), 합계: numeric(row.totalamt),
-        상계: numeric(row.offsetamt), 잡손실: numeric(row.lossamt), 과금: numeric(row.chargeamt), 전표번호: row.receiptno,
+        은행예금: numeric(row.bankamt), 카드: numeric(row.cardamt), '자금 합계': numeric(row.totalamt),
+        상계: numeric(row.offsetamt), 잡손실: numeric(row.lossamt), '상계·잡손실': numeric(row.settleamt), '전표 합계': numeric(row.ledgeramt),
+        과금: numeric(row.chargeamt), 전표번호: row.receiptno,
         등록자: row.created_by || '', 수정자: row.updated_by || '',
       }));
     if (!rows.length) {
@@ -1302,9 +1308,9 @@ export default function ReceiptPayment() {
 
   const visibleTotals = useMemo(() => documents.reduce((sum, row) => {
     sum.line_count += Number(row.line_count || 0);
-    ['cashamt', 'instrumentamt', 'bankamt', 'cardamt', 'totalamt', 'offsetamt', 'lossamt', 'chargeamt'].forEach((key) => { sum[key] += numeric(row[key]); });
+    DOCUMENT_MONEY_KEYS.forEach((key) => { sum[key] += numeric(row[key]); });
     return sum;
-  }, { line_count: 0, cashamt: 0, instrumentamt: 0, bankamt: 0, cardamt: 0, totalamt: 0, offsetamt: 0, lossamt: 0, chargeamt: 0 }), [documents]);
+  }, { line_count: 0, ...Object.fromEntries(DOCUMENT_MONEY_KEYS.map((key) => [key, 0])) }), [documents]);
   const syncListScroll = (left) => {
     for (const element of [listTableRef.current, listSubtotalRef.current]) {
       if (element && Math.abs(element.scrollLeft - left) > 0.5) element.scrollLeft = left;
@@ -1329,7 +1335,7 @@ export default function ReceiptPayment() {
   }, [hasDocuments, summaryTableWidth]);
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+    <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
         <Group className={inboundClasses.breadcrumbTrail} gap={7}>
           <Text component="span" className={inboundClasses.breadcrumbParent}>수금·지급</Text>
@@ -1453,18 +1459,15 @@ export default function ReceiptPayment() {
               {!items.length && <Box className={classes.emptyDetailMessage}>{detailLoading ? <Loader size="sm" color="red" /> : '상단의 추가를 눌러 수금/지급 전표를 등록하세요.'}</Box>}
             </Box>
             <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter} ${classes.detailFooter}`} justify="flex-end" wrap="wrap">
-              <Text size="xs" fw={700}>수표/어음 {formatted(totals.instrumentamt)} · 현금 {formatted(totals.cashamt)} · 은행예금 {formatted(totals.bankamt)} · 카드 {formatted(totals.cardamt)} · 합계 {formatted(totals.totalamt)} · 상계 {formatted(totals.offsetamt)} · 잡손실 {formatted(totals.lossamt)} · 과금 {formatted(totals.chargeamt)}</Text>
+              <Text size="xs" fw={700}>수표/어음 {formatted(totals.instrumentamt)} · 현금 {formatted(totals.cashamt)} · 은행예금 {formatted(totals.bankamt)} · 카드 {formatted(totals.cardamt)} · 자금 합계 {formatted(totals.totalamt)} · 상계 {formatted(totals.offsetamt)} · 잡손실 {formatted(totals.lossamt)} · 전표 합계 {formatted(totals.totalamt + totals.offsetamt + totals.lossamt)} · 과금 {formatted(totals.chargeamt)}</Text>
             </Group>
           </Paper>
         </Box>
 
         {filterOpen && <ReceiptPaymentFilterPanel initialValues={filterInputsRef.current} transactionOptions={TRANSACTION_FILTER_OPTIONS} onSearch={runSearch} onClose={closeFilter} />}
       </Box>
-      <Modal opened={deleteOpen} onClose={() => !saving && setDeleteOpen(false)} title="수금/지급 전표 삭제" centered size="sm">
-        <Stack gap="md"><Text size="sm" c="dimmed">{header.receiptno} 전표와 상세 행을 삭제합니다. 삭제한 전표는 복구할 수 없습니다.</Text>
-          <Group justify="flex-end"><Button variant="default" onClick={() => setDeleteOpen(false)} disabled={saving}>취소</Button><Button color="red" leftSection={<IconTrash size={15} />} onClick={() => void deleteDocument()} loading={saving}>삭제</Button></Group>
-        </Stack>
-      </Modal>
+      <ConfirmDeleteModal opened={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={() => void deleteDocument()} loading={saving}
+        title="수금/지급 전표를 삭제할까요?" target={header.receiptno} message="전표와 상세 행이 모두 삭제되며" note="삭제한 전표는 복구할 수 없습니다." />
       <ReceiptCustomerPickerModal opened={customerPickerOpen} onClose={() => setCustomerPickerOpen(false)} onSelect={chooseCustomer} />
       <ReceiptCustomerPickerModal opened={detailPicker?.field === 'issuercompany'} onClose={() => setDetailPicker(null)} onSelect={selectDetailCustomer} />
       <Modal opened={Boolean(manualOtherConfirm)} onClose={() => setManualOtherConfirm(null)} title="타수 증권 직접 입력 확인" centered size="md">

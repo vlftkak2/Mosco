@@ -157,3 +157,23 @@
   .userPanel,
   .menuPanel { height: max(480px, min(700px, calc(100vh - 200px))); min-height: 480px; }
 }
+
+/* ── 권한 표 (파로스 권한관리 모양): 가운데 정렬 머리글 · 묶음 줄 연한 바탕 · 하위 메뉴 └ 들여쓰기 · 각진 체크 ── */
+.permMatrix thead th { background: #f7f8fa !important; color: #333 !important; font-size: 13px !important; font-weight: 600 !important; text-align: center !important; }
+.permMatrix tbody td { height: 36px; border-bottom: 1px solid #ececec !important; color: #333; font-size: 13px; }
+.permMatrix .groupRow td { background: #f3f6fb !important; }
+.permMatrix .groupRow .groupLabel { color: #222; font-size: 13px; font-weight: 700; }
+.permMatrix .groupCount { margin-left: 8px; padding: 0; background: none !important; color: #888 !important; font-size: 12px; font-weight: 500; }
+.permMatrix .nameCell { padding-left: 18px !important; color: #333 !important; font-weight: 500; }
+.treeMark { margin-right: 6px; color: #aaa; }
+.permMatrix .checkColumn { text-align: center !important; }
+.permMatrix .checkColumn :global(.mantine-Checkbox-root) { display: inline-flex; }
+.headCheck { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.permMatrix .codeCell { color: #888 !important; font-size: 12.5px; }
+.statusOn { color: #333; text-align: center !important; }
+.statusOff { color: #aaa; text-align: center !important; }
+.permMatrix tbody tr:hover td { background: #fafbfc; }
+.permMatrix .groupRow:hover td { background: #eef2f8 !important; }
+
+/* 등록자 · 수정자: 가운데 */
+.tableWrap .permMatrix .auditCell { text-align: center !important; }

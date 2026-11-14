@@ -13,7 +13,9 @@ import {
 } from '@tabler/icons-react';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/InboundSearch.module.css';
+import { cachedDateFormat } from '../../utils/dateFormat';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' },
@@ -23,7 +25,7 @@ const PAGE_SIZE_OPTIONS = [
 ];
 const EMPTY_SUMMARY = { receipt_count: 0, total_qty: 0, detail_count: 0, total_weight: 0, total_amount: 0 };
 const TABLE_COLUMN_WIDTHS = {
-  no: 45, receptdate: 100, receiptno: 140, customname: 125, warehousecodename: 110,
+  no: 45, receptdate: 100, receiptno: 160, customname: 125, warehousecodename: 110,
   productname: 105, itemname: 125, materialname: 85, surfacename: 75, myrtle: 100,
   thickness: 60, width: 50, length: 60, qty: 70, weight: 80, unitprice: 90,
   supplyamt: 90, vat: 80, unitamt: 95, other_cost_amount: 105, qtyunit: 75, unit: 75, manager: 80,
@@ -58,7 +60,7 @@ const displayDateTime = (value) => {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
+  const parts = cachedDateFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
   const get = (type) => parts.find((part) => part.type === type)?.value || '';
   return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
 };
@@ -255,7 +257,7 @@ export default function OutboundSearchPage() {
   }, [registerPageRibbon, closeActivePage, runSearch, loading, exportExcel, exporting, total]);
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+    <Box className={`${sharedClasses.pageShell} ${classes.page} ${simpleTheme.simple}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
           <Text component="span" className={classes.breadcrumbParent}>매출관리</Text>
@@ -279,8 +281,8 @@ export default function OutboundSearchPage() {
           <Box className={classes.toolbarTitle}>
             <Text className={classes.sectionTitle} fw={700}>매출현황</Text>
             <span className={classes.countBadge}>{total.toLocaleString()}건</span>
+            <span className={classes.toolbarMeta} title="조회 기간 (출고일자)"><IconCalendar size={13} />{periodText(filters.date_from, filters.date_to)}</span>
           </Box>
-          <span className={classes.toolbarMeta} title="조회 기간 (출고일자)"><IconCalendar size={13} />{periodText(filters.date_from, filters.date_to)}</span>
         </Group>
 
         <Box className={classes.tableWrap}>

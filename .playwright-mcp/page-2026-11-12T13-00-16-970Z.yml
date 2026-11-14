@@ -1,0 +1,225 @@
+- generic [active] [ref=f16e1]:
+  - link "본문으로 건너뛰기" [ref=f16e2] [cursor=pointer]:
+    - /url: "#company-main"
+  - banner [ref=f16e3]:
+    - generic [ref=f16e4]:
+      - link "스틸119 홈" [ref=f16e5] [cursor=pointer]:
+        - /url: ./index.html
+        - strong [ref=f16e6]:
+          - text: 스틸119
+          - generic [ref=f16e7]: STEEL BUSINESS CONNECT
+      - button "메뉴 열기" [ref=f16e8] [cursor=pointer]
+  - main [ref=f16e12]:
+    - generic [ref=f16e14]:
+      - paragraph [ref=f16e15]: ABOUT STEEL119
+      - heading "철강 자재의 모든 흐름을 더 빠르고 명확하게." [level=1] [ref=f16e16]: 철강 자재의 모든 흐름을더 빠르고 명확하게.
+      - paragraph [ref=f16e17]: 필요한 자재를 찾고, 문의하고, 발주하는 과정.스틸119은 철강 거래의 각 단계를 하나로 연결합니다.
+      - link "스틸119 알아보기" [ref=f16e18] [cursor=pointer]:
+        - /url: "#vision"
+        - text: 스틸119 알아보기
+        - generic [aria-hidden] [ref=f16e19]: ↓
+    - region "스틸119 취급 품목" [ref=f16e26]:
+      - generic [ref=f16e27]:
+        - text: STEEL119 MATERIAL NETWORK
+        - generic [ref=f16e28]: 철강의 다양한 가능성을 연결합니다
+      - generic [ref=f16e30]:
+        - generic [ref=f16e31]:
+          - generic [ref=f16e32]: POSMAC
+          - generic [ref=f16e33]: STAINLESS
+          - generic [ref=f16e34]: H-BEAM
+          - generic [ref=f16e35]: STEEL PIPE
+          - generic [ref=f16e36]: COLOR STEEL
+          - generic [ref=f16e37]: ALUMINUM
+        - generic [aria-hidden] [ref=f16e38]:
+          - generic [ref=f16e39]: POSMAC
+          - generic [ref=f16e40]: STAINLESS
+          - generic [ref=f16e41]: H-BEAM
+          - generic [ref=f16e42]: STEEL PIPE
+          - generic [ref=f16e43]: COLOR STEEL
+          - generic [ref=f16e44]: ALUMINUM
+      - generic [ref=f16e46]:
+        - generic [ref=f16e47]:
+          - generic [ref=f16e48]: 열연강판
+          - generic [ref=f16e49]: 각형강관
+          - generic [ref=f16e50]: 냉연강판
+          - generic [ref=f16e51]: 도금강판
+          - generic [ref=f16e52]: 컬러강판
+          - generic [ref=f16e53]: 스테인리스
+        - generic [aria-hidden] [ref=f16e54]:
+          - generic [ref=f16e55]: 열연강판
+          - generic [ref=f16e56]: 각형강관
+          - generic [ref=f16e57]: 냉연강판
+          - generic [ref=f16e58]: 도금강판
+          - generic [ref=f16e59]: 컬러강판
+          - generic [ref=f16e60]: 스테인리스
+    - generic [ref=f16e61]:
+      - generic [ref=f16e62]:
+        - text: 01 / WHO WE ARE
+        - heading "철강 자재를 찾는 일에 집중할 수 있도록." [level=2] [ref=f16e63]: 철강 자재를 찾는 일에집중할 수 있도록.
+      - generic [ref=f16e64]:
+        - paragraph [ref=f16e65]: 스틸119은 (주)모스코가 운영하는 소량 전문 철강 전자상거래 서비스입니다. 필요한 철강 자재에 관해 문의하고, 상담부터 발주와 제품 수령까지 이어지는 과정을 안내합니다.
+        - paragraph [ref=f16e66]: 강관, 열연·냉연 강판, 도금 강판, 컬러 강판, 알루미늄, 스테인리스 등 다양한 품목을 다룹니다.
+        - link "현재 스틸119 사이트 보기" [ref=f16e67] [cursor=pointer]:
+          - /url: https://steel119.com/
+          - text: 현재 스틸119 사이트 보기 ↗
+    - generic [ref=f16e69]:
+      - generic [ref=f16e70]:
+        - text: 02 / WHAT WE DO
+        - heading "문의에서 제품 수령까지 이어지는 서비스" [level=2] [ref=f16e71]: 문의에서 제품 수령까지이어지는 서비스
+        - paragraph [ref=f16e72]: 공개된 주문 절차를 기준으로 스틸119의 흐름을 소개합니다.
+      - generic [ref=f16e73]:
+        - article [ref=f16e74]:
+          - text: "01"
+          - generic [ref=f16e75]: ▤
+          - heading "자재 문의와 상담" [level=3] [ref=f16e76]
+          - paragraph [ref=f16e77]: 필요한 품목과 규격을 전달하면 영업 담당자와 상담을 진행합니다.
+          - generic [ref=f16e78]:
+            - generic [ref=f16e79]: 품목
+            - generic [ref=f16e80]: 규격
+            - generic [ref=f16e81]: 상담
+        - article [ref=f16e82]:
+          - text: "02"
+          - generic [ref=f16e83]: ↗
+          - heading "견적과 발주" [level=3] [ref=f16e84]
+          - paragraph [ref=f16e85]: 발주를 진행하고 견적서를 확인한 뒤 거래 절차를 이어갑니다.
+          - generic [ref=f16e86]:
+            - generic [ref=f16e87]: 발주
+            - generic [ref=f16e88]: 견적
+            - generic [ref=f16e89]: 거래
+        - article [ref=f16e90]:
+          - text: "03"
+          - generic [ref=f16e91]: ◇
+          - heading "제품 수령" [level=3] [ref=f16e92]
+          - paragraph [ref=f16e93]: 거래명세서를 확인하고 제품을 수령하는 단계까지 연결합니다.
+          - generic [ref=f16e94]:
+            - generic [ref=f16e95]: 명세서
+            - generic [ref=f16e96]: 수령
+            - generic [ref=f16e97]: 계산서
+    - generic [ref=f16e98]:
+      - generic [ref=f16e99]:
+        - text: 03 / STEEL119 ERP
+        - heading "철강 업무를 한 화면에서 살펴보는 ERP" [level=2] [ref=f16e100]: 철강 업무를 한 화면에서살펴보는 ERP
+        - paragraph [ref=f16e101]: 스틸119 ERP의 실제 데이터가 표시된 대시보드 화면입니다. 매입·매출·재고와 자금 현황을 살펴보세요.
+      - generic [ref=f16e102]:
+        - generic [ref=f16e103]:
+          - text: STEEL119 BUSINESS PORTAL
+          - heading "업무 흐름을 연결하는 화면" [level=3] [ref=f16e104]: 업무 흐름을연결하는 화면
+          - paragraph [ref=f16e105]: 현재 ERP에는 대시보드와 매입, 매출, 가공, 재고, 자금 등의 메뉴가 구성돼 있습니다. 회사소개 페이지에서는 실제 화면을 통해 시스템의 모습을 보여드립니다.
+          - list [ref=f16e106]:
+            - listitem [ref=f16e107]: 업무 현황 대시보드
+            - listitem [ref=f16e108]: 매입·매출 관리 화면
+            - listitem [ref=f16e109]: 재고와 자금 메뉴
+        - figure "실제 데이터가 표시된 ERP 대시보드" [ref=f16e110]:
+          - img "실제 데이터가 표시된 스틸119 ERP 대시보드" [ref=f16e111]
+    - generic [ref=f16e113]:
+      - generic [ref=f16e114]:
+        - generic [ref=f16e115]:
+          - paragraph [ref=f16e116]: AI PROCESSING OPTIMIZATION
+          - heading "같은 원자재도, 더 효율적인 조합으로." [level=2] [ref=f16e117]: 같은 원자재도,더 효율적인 조합으로.
+        - paragraph [ref=f16e118]: 주문 규격과 재고를 바탕으로 원자재 후보를 비교하고,절단 조합과 예상 수율을 화면에서 확인하세요.
+      - generic [ref=f16e119]:
+        - generic [ref=f16e120]:
+          - generic [ref=f16e121]: 실제 ERP 계산 화면
+          - heading "발주서에서 가공 추천조합까지." [level=3] [ref=f16e122]: 발주서에서가공 추천조합까지.
+          - list [ref=f16e123]:
+            - listitem [ref=f16e124]:
+              - generic [ref=f16e125]: "01"
+              - generic [ref=f16e126]:
+                - strong [ref=f16e127]: AI 주문서 인식
+                - paragraph [ref=f16e128]: 발주서를 인식해 주문 품목을 정리하고 가공 최적화 대상으로 연결합니다.
+            - listitem [ref=f16e129]:
+              - generic [ref=f16e130]: "02"
+              - generic [ref=f16e131]:
+                - strong [ref=f16e132]: 원자재 후보 비교
+                - paragraph [ref=f16e133]: 연결 원자재, 현재고, 과거 매입 규격을 바탕으로 후보와 예상 수율을 비교합니다.
+            - listitem [ref=f16e134]:
+              - generic [ref=f16e135]: "03"
+              - generic [ref=f16e136]:
+                - strong [ref=f16e137]: 절단 배치 확인
+                - paragraph [ref=f16e138]: 추천조합의 사용폭, 잔여폭, 예상 로스와 수율을 살펴보고 가공 방식을 검토합니다.
+          - link "AI 가공솔루션 문의 ↗" [ref=f16e139] [cursor=pointer]:
+            - /url: ./index.html#inquiry
+        - figure "실제 주문·재고로 계산한 화면 · 클릭하면 크게 볼 수 있습니다." [ref=f16e140]:
+          - link "AI 가공 최적화 실제 화면 크게 보기" [ref=f16e141] [cursor=pointer]:
+            - /url: ./assets/erp-ai-optimization.png
+            - img "실제 주문 TIN 0.6 두께 188mm 품목의 원자재 후보와 92.84% 수율, 188mm 네 칼 절단 배치를 보여주는 가공 최적화 화면" [ref=f16e142]
+      - generic [ref=f16e144]:
+        - generic [ref=f16e145]:
+          - generic [ref=f16e146]: THIS CASE / 캡처 사례
+          - strong [ref=f16e147]: 원자재 폭 810mm
+        - generic [ref=f16e148]:
+          - generic [ref=f16e149]: SLITTING PATTERN
+          - strong [ref=f16e150]: 188mm × 4 칼
+        - generic [ref=f16e151]:
+          - generic [ref=f16e152]: EXPECTED YIELD
+          - strong [ref=f16e153]: 예상 수율 92.84%
+        - paragraph [ref=f16e154]: 캡처된 한 주문의 계산 결과이며, 수율은 원자재와 주문 규격·가공 조건에 따라 달라집니다.
+    - generic [ref=f16e155]:
+      - generic [ref=f16e156]:
+        - paragraph [ref=f16e157]: SIMPLE ERP, BETTER BUSINESS
+        - heading "철강 업무에 필요한 간이 ERP도 제공합니다." [level=2] [ref=f16e158]: 철강 업무에 필요한간이 ERP도 제공합니다.
+        - paragraph [ref=f16e159]: 매입·매출부터 재고와 자금 관리까지.일상적인 철강 업무를 스틸119 ERP에서 관리하세요.
+        - link "간이 ERP 도입 문의 ↗" [ref=f16e160] [cursor=pointer]:
+          - /url: ./index.html#inquiry
+          - text: 간이 ERP 도입 문의
+          - generic [ref=f16e161]: ↗
+      - generic [ref=f16e162]:
+        - article [ref=f16e163]:
+          - text: "01"
+          - heading "매입 · 매출" [level=3] [ref=f16e164]
+          - paragraph [ref=f16e165]: 입고·출고 등록과 거래 내역 조회
+        - article [ref=f16e166]:
+          - text: "02"
+          - heading "재고 관리" [level=3] [ref=f16e167]
+          - paragraph [ref=f16e168]: 현재고와 초기재고, 재고 현황 확인
+        - article [ref=f16e169]:
+          - text: "03"
+          - heading "자금 관리" [level=3] [ref=f16e170]
+          - paragraph [ref=f16e171]: 입출금과 거래처 원장·잔액 확인
+        - article [ref=f16e172]:
+          - text: "04"
+          - heading "업무 대시보드" [level=3] [ref=f16e173]
+          - paragraph [ref=f16e174]: 매입·매출·재고 현황을 한눈에
+    - generic [ref=f16e176]:
+      - generic [ref=f16e177]:
+        - text: 04 / PRODUCTS
+        - heading "필요한 철강 자재를 폭넓게 살펴보세요." [level=2] [ref=f16e178]: 필요한 철강 자재를폭넓게 살펴보세요.
+      - generic [ref=f16e179]:
+        - generic [ref=f16e180]: ↗강관 · 배관
+        - generic [ref=f16e181]: ↗열연 · 냉연 강판
+        - generic [ref=f16e182]: ↗도금 강판
+        - generic [ref=f16e183]: ↗컬러 강판
+        - generic [ref=f16e184]: ↗알루미늄
+        - generic [ref=f16e185]: ↗스테인리스
+    - generic [ref=f16e187]:
+      - text: CONTACT
+      - heading "필요한 철강 자재가 있으신가요?" [level=2] [ref=f16e188]
+      - paragraph [ref=f16e189]: 자재와 규격을 알려주시면 상담을 시작할 수 있습니다.
+      - generic [ref=f16e190]:
+        - link "자재 문의하기" [ref=f16e191] [cursor=pointer]:
+          - /url: ./index.html#inquiry
+          - text: 자재 문의하기 →
+        - link "전화 1600-2579" [ref=f16e192] [cursor=pointer]:
+          - /url: tel:16002579
+  - contentinfo [ref=f16e193]:
+    - generic [ref=f16e194]:
+      - link "스틸119 STEEL119" [ref=f16e195] [cursor=pointer]:
+        - /url: ./index.html
+        - generic [ref=f16e196]:
+          - strong [ref=f16e197]: 스틸119
+          - generic [ref=f16e198]: STEEL119
+      - generic [ref=f16e199]:
+        - generic [ref=f16e200]:
+          - link "홈" [ref=f16e201] [cursor=pointer]:
+            - /url: ./index.html
+          - link "회사소개" [ref=f16e202] [cursor=pointer]:
+            - /url: ./company.html
+          - link "문의하기" [ref=f16e203] [cursor=pointer]:
+            - /url: ./index.html#inquiry
+        - paragraph [ref=f16e204]: "상호: (주)모스코 · 브랜드: 스틸119"
+        - text: © STEEL119. All rights reserved.
+      - generic [ref=f16e205]:
+        - generic [ref=f16e206]: 고객센터
+        - link "1600-2579" [ref=f16e207] [cursor=pointer]:
+          - /url: tel:16002579
+        - generic [ref=f16e208]: STEEL119

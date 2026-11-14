@@ -71,3 +71,7 @@
 .badge_teal { background: #e6fcf5; color: #0c8599; }
 .badge_blue { background: #e7f5ff; color: #1971c2; }
 .badge_red { background: #fff5f5; color: #e03131; }
+
+/* 간결 디자인에서 표 글자를 키우면 만기일 칸이 잘려서, 이 화면 표만 한 단계 작게 */
+.page.page table tbody td { font-size: 12px !important; letter-spacing: -.1px; }
+

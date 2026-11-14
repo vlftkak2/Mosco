@@ -1,4 +1,4 @@
-import React, { useContext } from "react";
+import { useContext } from "react";
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { BrowserRouter, Navigate, Routes, Route,Outlet } from 'react-router-dom';
@@ -9,7 +9,6 @@ import HomePage from "./pages/dashboard/HomePage";
 
 import User from "./pages/system/User";
 import UserMenu from "./pages/system/UserMenu";
-import DepartmentPage from "./pages/system/DepartmentPage";
 import CustomerPage from "./pages/masterdata/CustomerPage";
 import CodeMasterPage from "./pages/masterdata/CodeMasterPage";
 import ItemMaster from "./pages/masterdata/ItemMasterPage";
@@ -18,7 +17,6 @@ import ItemProcessRegister from "./pages/process/ItemProcessRegister";
 import ItemProcessSearch from "./pages/process/ItemProcessSearch";
 import InboundRegisterPage from "./pages/inbound/InboundRegisterPage";
 import InboundSearchPage from "./pages/inbound/InboundSearchPage";
-import PurchasePage from "./pages/inbound/PurchasePage";
 import OutboundRegisterPage from "./pages/outbound/OutboundRegisterPage";
 import OutboundSearchPage from "./pages/outbound/OutboundSearchPage";
 import StockStandPage from "./pages/inventory/StockStandPage";
@@ -27,8 +25,11 @@ import IniopStockPage from "./pages/inventory/IniopStockPage";
 import AIOrderPage from "./pages/ai/AIOrderPage";
 import AIOrderOptimization from "./pages/ai/AIOrderOptimization";
 import AIOrderManage from "./pages/ai/AIOrderManage";
-import CustomerSupport from "./pages/system/CustomerSupport";
+import Board from "./pages/system/Board";
 import Company from "./pages/system/Company";
+import Workplace from "./pages/system/Workplace";
+import MonthClose from "./pages/system/MonthClose";
+import UserInfo from "./pages/system/UserInfo";
 import InoutmoveRegister from "./pages/inoutmove/InoutmoveRegister";
 import InoutmoveSearch from "./pages/inoutmove/inoutmoveSearch";
 import ReceiptPayment from "./pages/receiptpayment/ReceiptPayment";
@@ -48,7 +49,10 @@ const RequireAuthority = ({ allowed, children }) => {
   if (!access.loaded) return null;
   const authority = String(access.authority || 'USER').toUpperCase();
   const companyid = String(access.companyid || '');
-  const isAllowed = allowed.includes(authority) && (authority !== 'MASTER' || companyid === '001');
+  // MASTER 는 001(플랫폼)에서만, SUBMASTER 는 001 이외 고객사에서만 인정한다 (서버 규칙과 같게)
+  const isAllowed = allowed.includes(authority)
+    && (authority !== 'MASTER' || companyid === '001')
+    && (authority !== 'SUBMASTER' || companyid !== '001');
   return isAllowed ? children : <Navigate to={access.fallbackPath || '/login'} replace />;
 };
 
@@ -57,6 +61,14 @@ const RequireMenuAccess = ({ menuid, children }) => {
   if (!access.loaded) return null;
   if ((access.companyid === '001' && access.authority === 'MASTER') || access.menuids.includes(menuid)) return children;
   return <Navigate to={access.fallbackPath || '/login'} replace />;
+};
+
+// 사용자관리: 고객사 관리자는 메뉴 권한 없이도 들어간다 (플랫폼 관리자는 RequireMenuAccess 에서 통과)
+const RequireUserManagement = ({ children }) => {
+  const access = useContext(MenuAccessContext);
+  if (!access.loaded) return null;
+  if (String(access.authority || '').toUpperCase() === 'SUBMASTER' && access.companyid !== '001') return children;
+  return <RequireMenuAccess menuid="USER_MANAGEMENT">{children}</RequireMenuAccess>;
 };
 
 const menuPage = (menuid, element) => <RequireMenuAccess menuid={menuid}>{element}</RequireMenuAccess>;
@@ -91,7 +103,6 @@ function App() {
           <Route path="/ItemProcessSearch" element={menuPage('ITEM_PROCESS_SEARCH', <ItemProcessSearch />)} />
           <Route path="/InboundRegisterPage" element={menuPage('INBOUND_REGISTER', <InboundRegisterPage />)} />
           <Route path="/InboundSearchPage" element={menuPage('INBOUND_SEARCH', <InboundSearchPage />)} />
-          <Route path="/PurchasePage" element={menuPage('INBOUND_REGISTER', <PurchasePage />)} />
           <Route path="/OutboundRegisterPage" element={menuPage('OUTBOUND_REGISTER', <OutboundRegisterPage />)} />
           <Route path="/OutboundSearchPage" element={menuPage('OUTBOUND_SEARCH', <OutboundSearchPage />)} />
           <Route path="/StockStandPage" element={menuPage('STOCK_INITIAL', <StockStandPage />)} />
@@ -109,7 +120,11 @@ function App() {
           <Route path="/AIOrderPage" element={menuPage('AI_ORDER_RECOGNITION', <AIOrderPage />)} />
           <Route path="/AIOrderOptimization" element={menuPage('AI_OPTIMIZATION', <AIOrderOptimization />)} />
           <Route path="/AIOrderManage" element={menuPage('AI_ORDER_MANAGEMENT', <AIOrderManage />)} />
-          <Route path="/CustomerSupport" element={<RequireAuthority allowed={['MASTER']}><CustomerSupport /></RequireAuthority>} />
+          <Route path="/CustomerSupport" element={<Board />} />
+          <Route path="/Board" element={<Board />} />
+          <Route path="/Workplace" element={menuPage('WORKPLACE_MANAGEMENT', <Workplace />)} />
+          <Route path="/MonthClose" element={menuPage('MONTH_CLOSING', <MonthClose />)} />
+          <Route path="/UserInfo" element={<RequireUserManagement><UserInfo /></RequireUserManagement>} />
           <Route path="/Company" element={<RequireAuthority allowed={['MASTER']}><Company /></RequireAuthority>} />
 
           </Route>

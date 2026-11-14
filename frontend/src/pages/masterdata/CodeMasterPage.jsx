@@ -1,27 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import {
-  Box,
-  Button,
-  Group,
-  Loader,
-  Modal,
-  Paper,
-  ScrollArea,
-  Select,
-  Stack,
-  Table,
-  Text,
-  TextInput,
-} from '@mantine/core';
+import { Box, Loader, Paper, ScrollArea, Select, Table, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import {
-  IconCheck,
-  IconChevronRight,
-  IconDatabaseOff,
-  IconSearch,
-  IconTrash,
-} from '@tabler/icons-react';
+import { IconCheck, IconChevronRight, IconDatabaseOff, IconSearch } from '@tabler/icons-react';
 import XLSX from 'xlsx-js-style';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
@@ -29,9 +10,12 @@ import ExcelBulkActions from '../../components/common/ExcelBulkActions';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
 import { TableVirtuoso } from 'react-virtuoso';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import UseSwitch from '../../components/common/UseSwitch';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/CodeMasterPage.module.css';
 // 일반코드 관리 화면 전용 스타일 (공유 CSS는 수정하지 않고 이 모듈로 덮어씁니다)
 import s from '../../styles/pages/CodeMasterScreen.module.css';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 
 // 공통코드 API는 로그인 토큰으로 보호되므로 모든 요청에 인증 헤더를 붙입니다.
 const authHeaders = () => ({
@@ -95,7 +79,7 @@ const CodeMasterTableCells = memo(function CodeMasterTableCells({ row, index, co
       <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'name', element)} className={s.cellInput} aria-label={nameLabel} data-row-id={row.id} data-field="name" value={row.name ?? ''} disabled={disabled} onFocus={() => onFocusCell(row.id, 'name')} onPaste={paste('name')} onChange={(event) => onUpdateRow(row.id, 'name', event.currentTarget.value)} placeholder={`${nameLabel} 입력`} /></Table.Td>
       {propertyLabel && <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'property', element)} className={s.cellInput} aria-label={propertyLabel} data-row-id={row.id} data-field="property" value={row.property ?? ''} disabled={disabled} onFocus={() => onFocusCell(row.id, 'property')} onPaste={paste('property')} onChange={(event) => onUpdateRow(row.id, 'property', event.currentTarget.value)} /></Table.Td>}
       <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'order', element)} className={s.cellInput} aria-label="정렬 순서" data-row-id={row.id} data-field="order" type="number" min={0} value={String(row.order)} disabled={disabled} onFocus={() => onFocusCell(row.id, 'order')} onPaste={paste('order')} onChange={(event) => onUpdateRow(row.id, 'order', Number(event.currentTarget.value))} /></Table.Td>
-      <Table.Td className={s.useCell}><select ref={(element) => onRegisterCellInput(row.id, 'use', element)} className={`${s.cellSelect} ${s.useSelect} ${row.use ? s.useOn : s.useOff}`} aria-label={`${row.code || '코드'} 사용여부`} data-row-id={row.id} data-field="use" value={row.use ? 'Y' : 'N'} disabled={disabled} onFocus={() => onFocusCell(row.id, 'use')} onPaste={paste('use')} onChange={(event) => onUpdateRow(row.id, 'use', event.currentTarget.value === 'Y')}><option value="Y">사용중</option><option value="N">사용중지</option></select></Table.Td>
+      <Table.Td className={s.useCell}><UseSwitch inputRef={(element) => onRegisterCellInput(row.id, 'use', element)} label={`${row.code || '코드'} 사용여부`} data-row-id={row.id} data-field="use" checked={Boolean(row.use)} disabled={disabled} onFocus={() => onFocusCell(row.id, 'use')} onPaste={paste('use')} onToggle={(next) => onUpdateRow(row.id, 'use', next)} /></Table.Td>
       <Table.Td><input ref={(element) => onRegisterCellInput(row.id, 'description', element)} className={s.cellInput} aria-label="비고" data-row-id={row.id} data-field="description" value={row.description ?? ''} disabled={disabled} onFocus={() => onFocusCell(row.id, 'description')} onPaste={paste('description')} onChange={(event) => onUpdateRow(row.id, 'description', event.currentTarget.value)} /></Table.Td>
     </>
   );
@@ -187,7 +171,6 @@ export default function CodeMasterPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
-  const [exportLoading, setExportLoading] = useState(false);
   const [deleteRequest, setDeleteRequest] = useState(null);
   const [columnWidths, setColumnWidths] = useState({});
   const uploadInputRef = useRef(null);
@@ -327,7 +310,6 @@ export default function CodeMasterPage() {
   // 현재 선택된 그룹의 목록과 같은 헤더로 XLSX를 내보냅니다.
   const exportCodes = useCallback(async () => {
     if (!selectedGroup) return;
-    setExportLoading(true);
     try {
       const allRows = selectedGroup.rows || [];
       const exportRows = allRows.map((row) => dirtyRows[row.id] || row);
@@ -367,8 +349,6 @@ export default function CodeMasterPage() {
       notifications.show({ title: '엑셀 다운로드 완료', message: `${selectedGroup.name} ${total.toLocaleString()}건을 다운로드했습니다.`, color: 'teal', position: 'bottom-right' });
     } catch (error) {
       notifications.show({ title: '엑셀 다운로드 실패', message: errorMessage(error), color: 'red', position: 'bottom-right' });
-    } finally {
-      setExportLoading(false);
     }
   }, [selectedGroup, dirtyRows]);
 
@@ -872,7 +852,7 @@ export default function CodeMasterPage() {
   });
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page} ${s.screen}`}>
+    <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page} ${s.screen}`}>
       <ErpBreadcrumb parent="기준정보" current="일반코드 관리" />
 
       <div className={s.workspace}>
@@ -967,17 +947,8 @@ export default function CodeMasterPage() {
         </Paper>
       </div>
 
-      <Modal opened={Boolean(deleteRequest)} onClose={() => !saving && setDeleteRequest(null)} title="공통코드 삭제" centered size="xs" padding="sm">
-        <Stack gap="sm">
-          <Text size="sm" c="dimmed">
-            선택한 {deleteRequest?.rows.length || 0}개 코드를 삭제합니다. 삭제한 코드는 복구할 수 없습니다.
-          </Text>
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setDeleteRequest(null)} disabled={saving}>취소</Button>
-            <Button color="red" leftSection={<IconTrash size={15} />} onClick={confirmDelete} loading={saving}>삭제</Button>
-          </Group>
-        </Stack>
-      </Modal>
+      <ConfirmDeleteModal opened={Boolean(deleteRequest)} onClose={() => setDeleteRequest(null)} onConfirm={confirmDelete} loading={saving}
+        title="공통코드를 삭제할까요?" target={`선택 ${deleteRequest?.rows.length || 0}개 코드`} message="선택한 코드가 삭제되며" note="삭제한 코드는 복구할 수 없습니다." />
     </Box>
   );
 }

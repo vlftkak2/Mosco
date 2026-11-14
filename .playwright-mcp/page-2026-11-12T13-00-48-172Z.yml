@@ -1,0 +1,229 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e6]:
+      - button "조회" [ref=e7] [cursor=pointer]
+      - button "추가" [disabled] [ref=e15]
+      - button "복사" [disabled] [ref=e20]
+      - button "엑셀" [ref=e27] [cursor=pointer]
+      - button "저장" [disabled] [ref=e35]
+      - button "삭제" [disabled] [ref=e43]
+      - button "닫기" [ref=e51] [cursor=pointer]
+    - generic [ref=e58]:
+      - button "최형민님" [ref=e59] [cursor=pointer]
+      - generic [aria-hidden] [ref=e65]: "|"
+      - button "로그아웃" [ref=e66] [cursor=pointer]
+  - navigation [ref=e72]:
+    - generic [ref=e73]:
+      - img "스틸119" [ref=e75]
+      - button "네비게이션 접기" [ref=e76] [cursor=pointer]
+    - navigation [ref=e83]:
+      - button "홈" [ref=e85] [cursor=pointer]
+      - button "매입" [ref=e95] [cursor=pointer]
+      - button "매출" [ref=e106] [cursor=pointer]
+      - button "가공" [ref=e117] [cursor=pointer]
+      - button "재고" [ref=e126] [cursor=pointer]
+      - generic [ref=e135]:
+        - button "자금" [expanded] [ref=e136] [cursor=pointer]
+        - generic [ref=e145]:
+          - generic [ref=e146]:
+            - generic [ref=e147]: 수금·지급
+            - button "수금·지급 등록" [ref=e149] [cursor=pointer]
+            - button "수금·지급 현황" [ref=e152] [cursor=pointer]
+          - generic [ref=e154]:
+            - generic [ref=e155]: 자금관리
+            - button "수표·어음 관리" [ref=e157] [cursor=pointer]
+            - button "거래처원장" [ref=e160] [cursor=pointer]
+            - button "거래처 잔액 현황" [ref=e163] [cursor=pointer]
+      - button "게시판" [ref=e166] [cursor=pointer]
+      - button "설정" [ref=e175] [cursor=pointer]
+      - button "어드민" [ref=e184] [cursor=pointer]
+  - main [ref=e192]:
+    - tablist "열린 메뉴" [ref=e193]:
+      - tab "거래처원장 거래처원장 닫기" [selected] [ref=e194] [cursor=pointer]:
+        - generic "거래처원장" [ref=e195]
+        - button "거래처원장 닫기" [ref=e196]: ×
+    - generic [ref=e199]:
+      - navigation "현재 위치" [ref=e200]:
+        - generic [ref=e201]:
+          - generic [ref=e202]: 자금관리
+          - generic [ref=e203]: ›
+          - generic [ref=e204]: 거래처원장
+      - generic [ref=e205]:
+        - generic [ref=e206]:
+          - generic [ref=e207]:
+            - generic [ref=e208]:
+              - generic [ref=e209]:
+                - paragraph [ref=e210]: 거래처별 잔액
+                - generic [ref=e211]: 1곳
+              - generic [ref=e213]:
+                - generic [ref=e214]:
+                  - text: 미수금 합계
+                  - generic [ref=e215]: 600,000
+                - generic [ref=e216]:
+                  - text: 미지급금 합계
+                  - generic [ref=e217]: 50,000,000
+            - table "거래처별 잔액" [ref=e220]:
+              - rowgroup [ref=e232]:
+                - row [ref=e233]:
+                  - columnheader "거래처코드 거래처코드 열 너비 조절" [ref=e234]:
+                    - text: 거래처코드
+                    - separator "거래처코드 열 너비 조절" [ref=e235]
+                  - columnheader "거래처명 거래처명 열 너비 조절" [ref=e236]:
+                    - text: 거래처명
+                    - separator "거래처명 열 너비 조절" [ref=e237]
+                  - columnheader "미수금" [ref=e238]
+                  - columnheader "미지급금" [ref=e239]
+                - row [ref=e240]:
+                  - columnheader "기초 기초 열 너비 조절" [ref=e241]:
+                    - text: 기초
+                    - separator "기초 열 너비 조절" [ref=e242]
+                  - columnheader "매출 매출 열 너비 조절" [ref=e243]:
+                    - text: 매출
+                    - separator "매출 열 너비 조절" [ref=e244]
+                  - columnheader "수금 수금 열 너비 조절" [ref=e245]:
+                    - text: 수금
+                    - separator "수금 열 너비 조절" [ref=e246]
+                  - columnheader "기말 미수금 기말 미수금 열 너비 조절" [ref=e247]:
+                    - text: 기말 미수금
+                    - separator "기말 미수금 열 너비 조절" [ref=e248]
+                  - columnheader "기초 기초 열 너비 조절" [ref=e249]:
+                    - text: 기초
+                    - separator "기초 열 너비 조절" [ref=e250]
+                  - columnheader "매입 매입 열 너비 조절" [ref=e251]:
+                    - text: 매입
+                    - separator "매입 열 너비 조절" [ref=e252]
+                  - columnheader "지급 지급 열 너비 조절" [ref=e253]:
+                    - text: 지급
+                    - separator "지급 열 너비 조절" [ref=e254]
+                  - columnheader "기말 미지급금 기말 미지급금 열 너비 조절" [ref=e255]:
+                    - text: 기말 미지급금
+                    - separator "기말 미지급금 열 너비 조절" [ref=e256]
+              - rowgroup [ref=e257]:
+                - row [active] [ref=e320] [cursor=pointer]:
+                  - cell "Cust-00001" [ref=e321]
+                  - cell "(주)모스코" [ref=e322]
+                  - cell "600,000" [ref=e323]
+                  - cell [ref=e324]
+                  - cell [ref=e325]
+                  - cell "600,000" [ref=e326]
+                  - cell "50,000,000" [ref=e327]
+                  - cell [ref=e328]
+                  - cell [ref=e329]
+                  - cell "50,000,000" [ref=e330]
+              - rowgroup [ref=e331]:
+                - row [ref=e332]:
+                  - cell "합계 (1곳)" [ref=e333]
+                  - cell "600,000" [ref=e334]
+                  - cell "0" [ref=e335]
+                  - cell "0" [ref=e336]
+                  - cell "600,000" [ref=e337]
+                  - cell "50,000,000" [ref=e338]
+                  - cell "0" [ref=e339]
+                  - cell "0" [ref=e340]
+                  - cell "50,000,000" [ref=e341]
+          - generic [ref=e263]:
+            - generic [ref=e264]:
+              - generic [ref=e265]:
+                - paragraph [ref=e266]: 거래처원장
+                - generic [ref=e342]: (주)모스코
+                - generic [ref=e344]: 0건
+              - generic [ref=e345]:
+                - generic [ref=e346]:
+                  - text: 기말 미수금
+                  - generic [ref=e347]: 600,000
+                - generic [ref=e348]:
+                  - text: 기말 미지급금
+                  - generic [ref=e349]: 50,000,000
+            - table "거래처원장" [ref=e350]:
+              - rowgroup [ref=e363]:
+                - row [ref=e364]:
+                  - columnheader "일자 일자 열 너비 조절" [ref=e365]:
+                    - text: 일자
+                    - separator "일자 열 너비 조절" [ref=e366]
+                  - columnheader "구분 구분 열 너비 조절" [ref=e367]:
+                    - text: 구분
+                    - separator "구분 열 너비 조절" [ref=e368]
+                  - columnheader "전표번호 전표번호 열 너비 조절" [ref=e369]:
+                    - text: 전표번호
+                    - separator "전표번호 열 너비 조절" [ref=e370]
+                  - columnheader "적요 적요 열 너비 조절" [ref=e371]:
+                    - text: 적요
+                    - separator "적요 열 너비 조절" [ref=e372]
+                  - columnheader "매출 매출 열 너비 조절" [ref=e373]:
+                    - text: 매출
+                    - separator "매출 열 너비 조절" [ref=e374]
+                  - columnheader "수금 수금 열 너비 조절" [ref=e375]:
+                    - text: 수금
+                    - separator "수금 열 너비 조절" [ref=e376]
+                  - columnheader "미수잔액 미수잔액 열 너비 조절" [ref=e377]:
+                    - text: 미수잔액
+                    - separator "미수잔액 열 너비 조절" [ref=e378]
+                  - columnheader "매입 매입 열 너비 조절" [ref=e379]:
+                    - text: 매입
+                    - separator "매입 열 너비 조절" [ref=e380]
+                  - columnheader "지급 지급 열 너비 조절" [ref=e381]:
+                    - text: 지급
+                    - separator "지급 열 너비 조절" [ref=e382]
+                  - columnheader "미지급잔액 미지급잔액 열 너비 조절" [ref=e383]:
+                    - text: 미지급잔액
+                    - separator "미지급잔액 열 너비 조절" [ref=e384]
+                  - columnheader "비고 비고 열 너비 조절" [ref=e385]:
+                    - text: 비고
+                    - separator "비고 열 너비 조절" [ref=e386]
+              - rowgroup [ref=e387]:
+                - row [ref=e388]:
+                  - cell [ref=e389]
+                  - cell "이월" [ref=e390]
+                  - cell [ref=e391]
+                  - cell "원장 시작일 2026-11-13 기준 기초잔액 미수 600,000 · 미지급 50,000,000" [ref=e392]
+                  - cell [ref=e393]
+                  - cell [ref=e394]
+                  - cell "600,000" [ref=e395]
+                  - cell [ref=e396]
+                  - cell [ref=e397]
+                  - cell "50,000,000" [ref=e398]
+                  - cell [ref=e399]
+                - row [ref=e400]:
+                  - cell "기간 안에 거래가 없습니다." [ref=e401]
+              - rowgroup [ref=e402]:
+                - row [ref=e403]:
+                  - cell "기간 합계 · 기말 잔액" [ref=e404]
+                  - cell "0" [ref=e405]
+                  - cell "0" [ref=e406]
+                  - cell "600,000" [ref=e407]
+                  - cell "0" [ref=e408]
+                  - cell "0" [ref=e409]
+                  - cell "50,000,000" [ref=e410]
+                  - cell [ref=e411]
+        - complementary [ref=e271]:
+          - generic [ref=e272]:
+            - paragraph [ref=e273]: 조회조건
+            - button "조회조건 닫기" [ref=e274] [cursor=pointer]
+          - generic [ref=e279]:
+            - generic [ref=e280]:
+              - paragraph [ref=e281]: 조회 기간
+              - generic [ref=e282]:
+                - generic [ref=e284]:
+                  - textbox "조회 시작일" [ref=e285]:
+                    - /placeholder: YYYY-MM-DD
+                    - text: 2026-11-01
+                  - textbox [aria-hidden] [ref=e288] [cursor=pointer]: 2026-11-01
+                - generic [ref=e290]:
+                  - textbox "조회 종료일" [ref=e291]:
+                    - /placeholder: YYYY-MM-DD
+                    - text: 2026-11-12
+                  - textbox [aria-hidden] [ref=e294] [cursor=pointer]: 2026-11-12
+            - generic [ref=e295]:
+              - generic [ref=e296]: 거래처
+              - textbox "거래처" [ref=e298]:
+                - /placeholder: 거래처코드 또는 거래처명
+            - generic [ref=e300]:
+              - checkbox "잔액이 남은 거래처만" [ref=e302]
+              - generic [ref=e303]: 잔액이 남은 거래처만
+            - button "조회" [ref=e305] [cursor=pointer]
+          - generic [ref=e312]:
+            - generic [ref=e313]:
+              - paragraph [ref=e314]: 원장 시작일
+              - button "변경" [ref=e315] [cursor=pointer]
+            - generic [ref=e318]: 2026-11-13
+            - paragraph [ref=e319]: 이 날짜 이전 잔액은 거래처관리의 기초 미수금·미지급금으로 보고, 이 날짜부터의 전표만 원장에 쌓습니다.

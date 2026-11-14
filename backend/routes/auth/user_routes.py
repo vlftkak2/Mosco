@@ -14,7 +14,7 @@ def require_account_manager(user: dict = Depends(security_module.get_current_use
         return user
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail="플랫폼 관리자만 고객사 계정을 관리할 수 있습니다.",
+        detail="플랫폼 관리자 또는 고객사 관리자만 계정을 관리할 수 있습니다.",
     )
 
 
@@ -24,7 +24,7 @@ def get_company_users(
     user: dict = Depends(require_account_manager),
 ):
     if user["authority"] == "SUBMASTER" and companyid != user["companyid"]:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only view users in your own company.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="자기 회사 계정만 조회할 수 있습니다.")
     try:
         return {"success": True, **user_module.list_company_users(companyid)}
     except LookupError as error:
@@ -36,9 +36,9 @@ def create_company_user(data: user_module.UserCreateInput, user: dict = Depends(
     try:
         if user["authority"] == "SUBMASTER":
             if data.companyid != user["companyid"]:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only add users to your own company.")
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="자기 회사에만 계정을 추가할 수 있습니다.")
             if data.authority not in {"USER", "SUBMASTER"}:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Customer administrators can assign only USER or SUBMASTER authority.")
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="고객사 관리자는 일반 사용자 · 고객사 관리자 권한만 줄 수 있습니다.")
             data = data.model_copy(update={"companyname": ""})
         item = user_module.create_user(data, created_by=user["email"])
         return {
@@ -55,7 +55,7 @@ def create_company_user(data: user_module.UserCreateInput, user: dict = Depends(
 def update_company_user(data: user_module.UserUpdateInput, user: dict = Depends(require_account_manager)):
     try:
         if user["authority"] == "SUBMASTER" and data.companyid != user["companyid"]:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only update accounts in your own company.")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="자기 회사 계정만 수정할 수 있습니다.")
         item = user_module.update_user(data, actor=user if user["authority"] == "SUBMASTER" else None, actor_email=user.get("email"))
         security_module.invalidate_user_access_cache(data.companyid, data.original_email)
         security_module.invalidate_user_access_cache(data.companyid, data.email)

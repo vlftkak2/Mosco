@@ -12,10 +12,8 @@ from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-import psycopg2
 from psycopg2.extras import RealDictCursor
 
-from config import DB_CONFIG
 import db as _shared_db
 
 OPTIMIZE_STATUSES = ("NONE", "WAITING", "PLANNED", "DONE")

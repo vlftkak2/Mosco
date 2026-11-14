@@ -1,0 +1,131 @@
+- generic [active] [ref=f7e1]:
+  - link "본문으로 건너뛰기" [ref=f7e2] [cursor=pointer]:
+    - /url: "#company-main"
+  - banner [ref=f7e3]:
+    - generic [ref=f7e4]:
+      - link "스틸119 메인으로 이동" [ref=f7e5] [cursor=pointer]:
+        - /url: ./index.html
+        - generic [ref=f7e6]:
+          - strong [ref=f7e7]: 스틸119
+          - generic [ref=f7e8]: STEEL119
+      - navigation "주요 메뉴" [ref=f7e9]:
+        - link "홈" [ref=f7e10] [cursor=pointer]:
+          - /url: ./index.html
+        - link "회사소개" [ref=f7e11] [cursor=pointer]:
+          - /url: "#company-main"
+        - link "서비스" [ref=f7e12] [cursor=pointer]:
+          - /url: "#service"
+        - link "문의하기" [ref=f7e13] [cursor=pointer]:
+          - /url: ./index.html#inquiry
+          - text: 문의하기 ↗
+  - main [ref=f7e14]:
+    - generic [ref=f7e16]:
+      - paragraph [ref=f7e17]: ABOUT STEEL119
+      - heading "철강 자재의 모든 흐름을 더 빠르고 명확하게." [level=1] [ref=f7e18]: 철강 자재의 모든 흐름을더 빠르고 명확하게.
+      - paragraph [ref=f7e19]: 필요한 자재를 찾고, 문의하고, 발주하는 과정.스틸119은 철강 거래의 각 단계를 하나로 연결합니다.
+      - link "스틸119 알아보기" [ref=f7e20] [cursor=pointer]:
+        - /url: "#vision"
+        - text: 스틸119 알아보기
+        - generic [aria-hidden] [ref=f7e21]: ↓
+    - generic [ref=f7e28]:
+      - generic [ref=f7e29]:
+        - text: 01 / WHO WE ARE
+        - heading "철강 자재를 찾는 일에 집중할 수 있도록." [level=2] [ref=f7e30]: 철강 자재를 찾는 일에집중할 수 있도록.
+      - generic [ref=f7e31]:
+        - paragraph [ref=f7e32]: 스틸119은 (주)모스코가 운영하는 소량 전문 철강 전자상거래 서비스입니다. 필요한 철강 자재에 관해 문의하고, 상담부터 발주와 제품 수령까지 이어지는 과정을 안내합니다.
+        - paragraph [ref=f7e33]: 강관, 열연·냉연 강판, 도금 강판, 컬러 강판, 알루미늄, 스테인리스 등 다양한 품목을 다룹니다.
+        - link "현재 스틸119 사이트 보기" [ref=f7e34] [cursor=pointer]:
+          - /url: https://steel119.com/
+          - text: 현재 스틸119 사이트 보기 ↗
+    - generic [ref=f7e36]:
+      - generic [ref=f7e37]:
+        - text: 02 / WHAT WE DO
+        - heading "문의에서 제품 수령까지 이어지는 서비스" [level=2] [ref=f7e38]: 문의에서 제품 수령까지이어지는 서비스
+        - paragraph [ref=f7e39]: 공개된 주문 절차를 기준으로 스틸119의 흐름을 소개합니다.
+      - generic [ref=f7e40]:
+        - article [ref=f7e41]:
+          - text: "01"
+          - generic [ref=f7e42]: ▤
+          - heading "자재 문의와 상담" [level=3] [ref=f7e43]
+          - paragraph [ref=f7e44]: 필요한 품목과 규격을 전달하면 영업 담당자와 상담을 진행합니다.
+          - generic [ref=f7e45]:
+            - generic [ref=f7e46]: 품목
+            - generic [ref=f7e47]: 규격
+            - generic [ref=f7e48]: 상담
+        - article [ref=f7e49]:
+          - text: "02"
+          - generic [ref=f7e50]: ↗
+          - heading "견적과 발주" [level=3] [ref=f7e51]
+          - paragraph [ref=f7e52]: 발주를 진행하고 견적서를 확인한 뒤 거래 절차를 이어갑니다.
+          - generic [ref=f7e53]:
+            - generic [ref=f7e54]: 발주
+            - generic [ref=f7e55]: 견적
+            - generic [ref=f7e56]: 거래
+        - article [ref=f7e57]:
+          - text: "03"
+          - generic [ref=f7e58]: ◇
+          - heading "제품 수령" [level=3] [ref=f7e59]
+          - paragraph [ref=f7e60]: 거래명세서를 확인하고 제품을 수령하는 단계까지 연결합니다.
+          - generic [ref=f7e61]:
+            - generic [ref=f7e62]: 명세서
+            - generic [ref=f7e63]: 수령
+            - generic [ref=f7e64]: 계산서
+    - generic [ref=f7e65]:
+      - generic [ref=f7e66]:
+        - text: 03 / STEEL119 ERP
+        - heading "철강 업무를 한 화면에서 살펴보는 ERP" [level=2] [ref=f7e67]: 철강 업무를 한 화면에서살펴보는 ERP
+        - paragraph [ref=f7e68]: 현재 개발 중인 스틸119 ERP의 실제 대시보드 화면입니다. 계정과 업무 수치는 가려서 표시했습니다.
+      - generic [ref=f7e69]:
+        - generic [ref=f7e70]:
+          - text: STEEL119 BUSINESS PORTAL
+          - heading "업무 흐름을 연결하는 화면" [level=3] [ref=f7e71]: 업무 흐름을연결하는 화면
+          - paragraph [ref=f7e72]: 현재 ERP에는 대시보드와 매입, 매출, 가공, 재고, 자금 등의 메뉴가 구성돼 있습니다. 회사소개 페이지에서는 실제 화면을 통해 시스템의 모습을 보여드립니다.
+          - list [ref=f7e73]:
+            - listitem [ref=f7e74]: 업무 현황 대시보드
+            - listitem [ref=f7e75]: 매입·매출 관리 화면
+            - listitem [ref=f7e76]: 재고와 자금 메뉴
+        - figure "실제 ERP 화면 · 계정 및 업무 데이터 비공개 처리" [ref=f7e77]:
+          - img "업무 수치와 사용자 정보를 가린 스틸119 ERP 대시보드 화면" [ref=f7e78]
+    - generic [ref=f7e81]:
+      - generic [ref=f7e82]:
+        - text: 04 / PRODUCTS
+        - heading "필요한 철강 자재를 폭넓게 살펴보세요." [level=2] [ref=f7e83]: 필요한 철강 자재를폭넓게 살펴보세요.
+      - generic [ref=f7e84]:
+        - generic [ref=f7e85]: ↗강관 · 배관
+        - generic [ref=f7e86]: ↗열연 · 냉연 강판
+        - generic [ref=f7e87]: ↗도금 강판
+        - generic [ref=f7e88]: ↗컬러 강판
+        - generic [ref=f7e89]: ↗알루미늄
+        - generic [ref=f7e90]: ↗스테인리스
+    - generic [ref=f7e92]:
+      - text: CONTACT
+      - heading "필요한 철강 자재가 있으신가요?" [level=2] [ref=f7e93]
+      - paragraph [ref=f7e94]: 자재와 규격을 알려주시면 상담을 시작할 수 있습니다.
+      - generic [ref=f7e95]:
+        - link "자재 문의하기" [ref=f7e96] [cursor=pointer]:
+          - /url: ./index.html#inquiry
+          - text: 자재 문의하기 →
+        - link "전화 1600-2579" [ref=f7e97] [cursor=pointer]:
+          - /url: tel:16002579
+  - contentinfo [ref=f7e98]:
+    - generic [ref=f7e99]:
+      - link "스틸119 STEEL119" [ref=f7e100] [cursor=pointer]:
+        - /url: ./index.html
+        - generic [ref=f7e101]:
+          - strong [ref=f7e102]: 스틸119
+          - generic [ref=f7e103]: STEEL119
+      - generic [ref=f7e104]:
+        - generic [ref=f7e105]:
+          - link "홈" [ref=f7e106] [cursor=pointer]:
+            - /url: ./index.html
+          - link "회사소개" [ref=f7e107] [cursor=pointer]:
+            - /url: ./company.html
+          - link "문의하기" [ref=f7e108] [cursor=pointer]:
+            - /url: ./index.html#inquiry
+        - paragraph [ref=f7e109]: "상호: (주)모스코 · 브랜드: 스틸119"
+        - text: © STEEL119. All rights reserved.
+      - generic [ref=f7e110]:
+        - generic [ref=f7e111]: 고객센터
+        - link "1600-2579" [ref=f7e112] [cursor=pointer]:
+          - /url: tel:16002579
+        - generic [ref=f7e113]: STEEL119

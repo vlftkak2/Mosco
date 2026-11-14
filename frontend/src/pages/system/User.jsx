@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { apiErrorMessage } from '../../utils/apiError';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import {
   Badge,
@@ -17,7 +18,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { modals } from '@mantine/modals';
-import {
+import { IconRefresh,
   IconBuilding,
   IconInbox,
   IconKey,
@@ -29,24 +30,22 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import { ColumnResizeHandle, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/User.module.css';
 
 const authConfig = () => ({
   headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` },
 });
 
-const emptyUser = () => ({ companyid: '', username: '', email: '', team: '', authority: 'USER', password: '', useyn: 'Y' });
+const emptyUser = () => ({ companyid: '', username: '', email: '', authority: 'USER', password: '', useyn: 'Y' });
 const COMPANY_STATUS_LABELS = {
   PENDING: '승인대기',
   ACTIVE: '이용중',
   SUSPENDED: '이용정지',
   CLOSED: '종료',
 };
-const errorMessage = (error, fallback) => {
-  const detail = error.response?.data?.detail;
-  if (Array.isArray(detail)) return detail.map((item) => item.msg).join(', ');
-  return detail || error.message || fallback;
-};
+const errorMessage = (error, fallback) => apiErrorMessage(error, fallback);
 
 const AUTHORITY_LABELS = {
   MASTER: '플랫폼 관리자',
@@ -57,7 +56,17 @@ const AUTHORITY_COLORS = { MASTER: 'red', SUBMASTER: 'indigo', USER: 'gray' };
 const PAGE_SIZE_OPTIONS = [15, 20, 50, 100].map((value) => ({ value: String(value), label: `${value}개씩` }));
 const DEFAULT_PAGE_SIZE = 15;
 
+const USER_COLUMNS = [
+  { key: 'username', label: '사용자명', width: 120 },
+  { key: 'email', label: '이메일', width: 220 },
+  { key: 'authority', label: '권한', width: 110 },
+  { key: 'useyn', label: '사용여부', width: 90 },
+  { key: 'created_by', label: '등록자', width: 90 },
+  { key: 'updated_by', label: '수정자', width: 90 },
+];
+
 export default function User() {
+  const userCols = useResizableColumns(USER_COLUMNS); // 목록 열: 머리글 오른쪽 끝을 끌어 너비 조절
   const location = useLocation();
   const navigate = useNavigate();
   const currentAuthority = String(localStorage.getItem('user_authority') || 'USER').toUpperCase();
@@ -258,7 +267,6 @@ export default function User() {
         companyname: '',
         username,
         email,
-        team: String(draft.team ?? '').trim(),
         authority: draft.authority || 'USER',
         useyn: isSubmaster && isNew ? 'Y' : draft.useyn || 'Y',
         password,
@@ -364,7 +372,7 @@ export default function User() {
     : 0;
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+    <Box className={`${simpleTheme.simple} ${simpleTheme.noIcons} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
         <Text component="span" className={classes.breadcrumbParent}>고객사정보</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
@@ -380,16 +388,15 @@ export default function User() {
               <Badge className={classes.countBadge} variant="light" color="gray" radius="sm">{users.length.toLocaleString('ko-KR')}건</Badge>
             </Group>
             {companyInfo && (
-              <Group gap={6} wrap="nowrap">
-                <Badge
-                  variant="light"
-                  radius="sm"
-                  color={companyInfo.company_status === 'ACTIVE' ? 'teal' : companyInfo.company_status === 'SUSPENDED' ? 'orange' : 'gray'}
-                >
+              <span className={classes.seatText}>
+                <span className={companyInfo.company_status === 'ACTIVE' ? classes.seatStatusOn : classes.seatStatusOff}>
                   {COMPANY_STATUS_LABELS[companyInfo.company_status] || companyInfo.company_status}
-                </Badge>
-                <span className={classes.chip}>활성 계정 <b>{companyInfo.active_users}</b> / 허용 <b>{companyInfo.licensed_seats}</b>명</span>
-              </Group>
+                </span>
+                <i className={classes.seatDivider} aria-hidden="true" />
+                활성 계정 <b>{Number(companyInfo.active_users || 0).toLocaleString('ko-KR')}</b>명
+                <i className={classes.seatDivider} aria-hidden="true" />
+                허용 계정 <b>{Number(companyInfo.licensed_seats || 0).toLocaleString('ko-KR')}</b>명
+              </span>
             )}
           </Group>
           <Group className={classes.searchBar} gap={8} align="flex-end" wrap="nowrap">
@@ -436,25 +443,18 @@ export default function User() {
             )}
           </Group>
           <ScrollArea className={classes.tableWrap} type="always" scrollbars="xy" scrollbarSize={12}>
-            <Table className={`${sharedClasses.table} ${classes.table}`} highlightOnHover>
+            <Table className={`${sharedClasses.table} ${classes.table}`} highlightOnHover style={{ width: `max(100%, ${userCols.tableWidth}px)` }}>
               <colgroup>
-                <col style={{ width: '15%' }} />
-                <col style={{ width: '27%' }} />
-                <col style={{ width: '13%' }} />
-                <col style={{ width: '14%' }} />
-                <col style={{ width: '11%' }} />
-                <col style={{ width: '10%' }} />
-                <col style={{ width: '10%' }} />
+                {USER_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: userCols.widthOf(column) }} />)}
               </colgroup>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>사용자명</Table.Th>
-                  <Table.Th>이메일</Table.Th>
-                  <Table.Th>부서</Table.Th>
-                  <Table.Th>권한</Table.Th>
-                  <Table.Th>사용여부</Table.Th>
-                  <Table.Th>등록자</Table.Th>
-                  <Table.Th>수정자</Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>사용자명<ColumnResizeHandle column={USER_COLUMNS[0]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>이메일<ColumnResizeHandle column={USER_COLUMNS[1]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>권한<ColumnResizeHandle column={USER_COLUMNS[2]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>사용여부<ColumnResizeHandle column={USER_COLUMNS[3]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>등록자<ColumnResizeHandle column={USER_COLUMNS[4]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>수정자<ColumnResizeHandle column={USER_COLUMNS[5]} columns={userCols} /></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -466,7 +466,6 @@ export default function User() {
                   >
                     <Table.Td className={classes.nameCell} title={user.username}>{user.username}</Table.Td>
                     <Table.Td title={user.email}>{user.email}</Table.Td>
-                    <Table.Td title={user.team || '-'}>{user.team || '-'}</Table.Td>
                     <Table.Td>
                       <Badge size="sm" variant="light" radius="sm" color={AUTHORITY_COLORS[user.authority] || 'gray'}>
                         {AUTHORITY_LABELS[user.authority] || user.authority || AUTHORITY_LABELS.USER}
@@ -514,7 +513,7 @@ export default function User() {
               />
               <Text component="span" className={classes.seatHint}>
                 {companyInfo?.company_status === 'ACTIVE'
-                  ? `남은 계정 ${remainingSeats}개`
+                  ? <>남은 계정 <b>{Number(remainingSeats || 0).toLocaleString('ko-KR')}</b>개</>
                   : 'ACTIVE 고객사만 계정 등록 가능'}
               </Text>
             </Group>
@@ -533,8 +532,8 @@ export default function User() {
             {companyid && (
               <Button
                 size="xs"
-                variant="light"
-                color="red"
+                variant="default"
+                className={classes.softButton}
                 leftSection={<IconKey size={14} />}
                 onClick={() => {
                   if (selectedEmail && String(draft.authority || '').toUpperCase() === 'MASTER') {
@@ -579,7 +578,6 @@ export default function User() {
                 <div className={classes.formGrid}>
                   <TextInput label="사용자명" withAsterisk value={draft.username} onChange={(event) => updateDraft('username', event.currentTarget.value)} maxLength={20} disabled={readOnlyExisting} />
                   <TextInput label="이메일" withAsterisk type="email" value={draft.email} onChange={(event) => updateDraft('email', event.currentTarget.value)} maxLength={50} disabled={readOnlyExisting} />
-                  <TextInput label="부서" value={draft.team} onChange={(event) => updateDraft('team', event.currentTarget.value)} maxLength={50} disabled={readOnlyExisting} />
                   <Select
                     label="권한"
                     withAsterisk
@@ -622,7 +620,7 @@ export default function User() {
                         onChange={(event) => updateDraft('password', event.currentTarget.value)}
                         autoComplete="new-password"
                       />
-                      <Button size="xs" variant="light" color="gray" onClick={generateTemporaryPassword}>
+                      <Button size="xs" variant="default" className={classes.softButton} leftSection={<IconRefresh size={14} />} onClick={generateTemporaryPassword}>
                         임시값 생성
                       </Button>
                     </Group>
