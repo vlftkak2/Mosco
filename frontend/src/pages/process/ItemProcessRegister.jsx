@@ -1114,7 +1114,7 @@ export default function ItemProcessRegister() {
   ), [filters, loadDocuments, readOnly, reset]);
 
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="재고가공" current="재고가공 등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+    <ErpBreadcrumb parent="재고가공" current="재고가공등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
     <Box className={classes.workspace}>
       <Stack gap="sm" className={classes.main}>
         {documentListPanel}

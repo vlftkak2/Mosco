@@ -1,5 +1,5 @@
 
-import { AppShell, Burger, Group, Text, Box, ScrollArea, Modal, PasswordInput, Menu } from '@mantine/core';
+import { AppShell, Burger, Group, Text, Box, Modal, PasswordInput, Menu } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { SidebarNav } from './MainLayoutLink';
 import classes from '../../styles/layout/MainLayout.module.css';
@@ -8,7 +8,7 @@ import { useNavigate, useLocation, useOutlet, UNSAFE_LocationContext as Location
 import { clearAIOrderPageSession } from '../../pages/ai/AIOrderPageSession';
 import { clearAIOrderDraft } from '../../pages/ai/AIOrderDraft';
 import {
-  IconBox, IconCash, IconChevronDown, IconChevronsLeft, IconChevronsRight, IconClipboardText, IconCpu, IconHome, IconLogout, IconPackageExport, IconPackageImport, IconSettings, IconShieldLock, IconUser,
+  IconBox, IconCash, IconChevronDown, IconClipboardText, IconCpu, IconHome, IconLayoutSidebar, IconLogout, IconPackageExport, IconPackageImport, IconSettings, IconShieldLock,
 } from '@tabler/icons-react';
 import '@mantine/notifications/styles.css';
 import { notifications } from '@mantine/notifications';
@@ -47,8 +47,16 @@ const KeepAlivePage = memo(function KeepAlivePage({ path, active, activation, el
 });
 export const MenuAccessContext = createContext({ menuids: [], loaded: false, authority: 'USER', fallbackPath: null });
 
-// 메뉴 구성: 대메뉴 > 섹션(links 가 있는 항목) > 화면. 이름·순서는 네비게이션 시안(v185) 기준.
-const ic = { size: 20, stroke: 1.8 };
+// 메뉴 구성: 대메뉴 > 섹션(links 가 있는 항목) > 화면. 이름·순서는 디자인 고도화 시안 기준.
+// 이름을 바꾸면 backend/sql/menu_catalog_seed.sql 의 menuname 도 같이 맞춘다.
+const ic = { size: 18, stroke: 1.7 };
+// 어드민: 시안과 같은 방패 + 체크 (Tabler 기본 방패보다 둥근 모양, 선 굵게)
+const AdminShieldIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 2.8C9.7 4.8 6.8 5.5 4 6v5.5c0 4.6 3.2 8.2 8 10 4.8-1.8 8-5.4 8-10V6c-2.8-.5-5.7-1.2-8-3.2Z" />
+    <path d="m8.4 12 2.4 2.4 4.8-5" />
+  </svg>
+);
 const mockdata = [
   {
     label: '홈',
@@ -76,8 +84,8 @@ const mockdata = [
       { label: '매출관리', links: [
         { label: '매출등록', link: '/OutboundRegisterPage', MenuID: 'OUTBOUND_REGISTER' },
         { label: '매출현황', link: '/OutboundSearchPage', MenuID: 'OUTBOUND_SEARCH' },
-        { label: '매출이익 분석', link: '/GrossProfit', MenuID: 'GROSS_PROFIT' },
-        { label: '매출이익 현황', link: '/GrossProfitDashboard', MenuID: 'GROSS_PROFIT_DASHBOARD' },
+        { label: '매출이익분석', link: '/GrossProfit', MenuID: 'GROSS_PROFIT' },
+        { label: '매출이익요약', link: '/GrossProfitDashboard', MenuID: 'GROSS_PROFIT_DASHBOARD' },
       ] },
     ],
   },
@@ -85,15 +93,15 @@ const mockdata = [
     label: '가공',
     icon: <IconCpu {...ic} />,
     links: [
-      { label: 'AI 가공솔루션', links: [
-        { label: 'AI 주문서인식', link: '/AIOrderPage', MenuID: 'AI_ORDER_RECOGNITION' },
-        { label: '주문서관리', link: '/AIOrderManage', MenuID: 'AI_ORDER_MANAGEMENT' },
+      { label: 'AI가공솔루션', links: [
+        { label: 'AI주문서인식', link: '/AIOrderPage', MenuID: 'AI_ORDER_RECOGNITION' },
+        { label: '가공주문관리', link: '/AIOrderManage', MenuID: 'AI_ORDER_MANAGEMENT' },
         { label: '가공최적화', link: '/AIOrderOptimization', MenuID: 'AI_OPTIMIZATION' },
       ] },
       { label: '재고가공', links: [
-        { label: '가공공정 관리', link: '/ItemProcessMaster', MenuID: 'ITEM_PROCESS_MASTER' },
-        { label: '재고가공 등록', link: '/ItemProcessRegister', MenuID: 'ITEM_PROCESS_REGISTER' },
-        { label: '재고가공 현황', link: '/ItemProcessSearch', MenuID: 'ITEM_PROCESS_SEARCH' },
+        { label: '가공공정관리', link: '/ItemProcessMaster', MenuID: 'ITEM_PROCESS_MASTER' },
+        { label: '재고가공등록', link: '/ItemProcessRegister', MenuID: 'ITEM_PROCESS_REGISTER' },
+        { label: '재고가공현황', link: '/ItemProcessSearch', MenuID: 'ITEM_PROCESS_SEARCH' },
       ] },
     ],
   },
@@ -102,13 +110,13 @@ const mockdata = [
     icon: <IconBox {...ic} />,
     links: [
       { label: '재고관리', links: [
-        { label: '기초재고 등록', link: '/StockStandPage', MenuID: 'STOCK_INITIAL' },
-        { label: '현재고 현황', link: '/CurrentStockPage', MenuID: 'STOCK_CURRENT' },
-        { label: '재고수불 현황', link: '/IniopStockPage', MenuID: 'STOCK_HISTORY' },
+        { label: '기초재고등록', link: '/StockStandPage', MenuID: 'STOCK_INITIAL' },
+        { label: '현재고현황', link: '/CurrentStockPage', MenuID: 'STOCK_CURRENT' },
+        { label: '재고수불현황', link: '/IniopStockPage', MenuID: 'STOCK_HISTORY' },
       ] },
       { label: '재고이동', links: [
-        { label: '재고이동 등록', link: '/InoutmoveRegister', MenuID: 'INOUTMOVE_REGISTER' },
-        { label: '재고이동 현황', link: '/InoutmoveSearch', MenuID: 'INOUTMOVE_SEARCH' },
+        { label: '재고이동등록', link: '/InoutmoveRegister', MenuID: 'INOUTMOVE_REGISTER' },
+        { label: '재고이동현황', link: '/InoutmoveSearch', MenuID: 'INOUTMOVE_SEARCH' },
       ] },
     ],
   },
@@ -116,14 +124,14 @@ const mockdata = [
     label: '자금',
     icon: <IconCash {...ic} />,
     links: [
-      { label: '수금·지급', links: [
-        { label: '수금·지급 등록', link: '/ReceiptPayment', MenuID: 'RECEIPT_PAYMENT' },
-        { label: '수금·지급 현황', link: '/ReceiptPaymentSearch', MenuID: 'RECEIPT_PAYMENT_SEARCH' },
-      ] },
       { label: '자금관리', links: [
-        { label: '수표·어음 관리', link: '/InstrumentStatus', MenuID: 'INSTRUMENT_STATUS' },
+        { label: '수금/지급등록', link: '/ReceiptPayment', MenuID: 'RECEIPT_PAYMENT' },
+        { label: '수금/지급현황', link: '/ReceiptPaymentSearch', MenuID: 'RECEIPT_PAYMENT_SEARCH' },
+        { label: '수표/어음관리', link: '/InstrumentStatus', MenuID: 'INSTRUMENT_STATUS' },
+      ] },
+      { label: '장부관리', links: [
         { label: '거래처원장', link: '/CustomerLedger', MenuID: 'CUSTOMER_LEDGER' },
-        { label: '거래처 잔액 현황', link: '/CustomerBalanceDashboard', MenuID: 'CUSTOMER_BALANCE_DASHBOARD' },
+        { label: '채권채무요약', link: '/CustomerBalanceDashboard', MenuID: 'CUSTOMER_BALANCE_DASHBOARD' },
       ] },
     ],
   },
@@ -140,26 +148,26 @@ const mockdata = [
     label: '설정',
     icon: <IconSettings {...ic} />,
     links: [
-      { label: '기준정보', links: [
-        { label: '일반코드 관리', link: '/CodeMasterPage', MenuID: 'DATA_CODE' },
-        { label: '품목코드 관리', link: '/ItemMasterPage', MenuID: 'DATA_ITEM' },
+      { label: '정보관리', links: [
+        { label: '공통코드관리', link: '/CodeMasterPage', MenuID: 'DATA_CODE' },
+        { label: '품목코드관리', link: '/ItemMasterPage', MenuID: 'DATA_ITEM' },
         { label: '거래처관리', link: '/CustomerPage', MenuID: 'DATA_CUSTOMER' },
       ] },
-      { label: '운영정보', links: [
+      { label: '운영관리', links: [
         { label: '사업장관리', link: '/Workplace', MenuID: 'WORKPLACE_MANAGEMENT' },
-        { label: '월마감 관리', link: '/MonthClose', MenuID: 'MONTH_CLOSING' },
-        { label: '사용자관리', link: '/UserInfo', MenuID: 'USER_MANAGEMENT' },
+        { label: '월마감관리', link: '/MonthClose', MenuID: 'MONTH_CLOSING' },
+        { label: '직원관리', link: '/UserInfo', MenuID: 'USER_MANAGEMENT' },
       ] },
     ],
   },
   {
     label: '어드민',
-    icon: <IconShieldLock {...ic} />,
+    icon: <AdminShieldIcon />,
     links: [
-      { label: '고객사정보', links: [
+      { label: '고객사관리', links: [
         { label: '고객사등록', link: '/Company', MenuID: 'COMPANY_REGISTRATION' },
-        { label: '고객사관리', link: '/User', MenuID: 'COMPANY_USER_MANAGEMENT' },
-        { label: '고객사 메뉴권한', link: '/UserMenu', MenuID: 'USER_MENU_PERMISSION' },
+        { label: '고객계정관리', link: '/User', MenuID: 'COMPANY_USER_MANAGEMENT' },
+        { label: '메뉴권한관리', link: '/UserMenu', MenuID: 'USER_MENU_PERMISSION' },
       ] },
     ],
   },
@@ -190,6 +198,8 @@ function findMenuLabel(items, path) {
   if (found) return found.label;
   return canonicalPath === '/homepage' ? '대시보드' : path;
 }
+
+const isHomePath = (path) => String(path || '').replace(/\/+$/, '').toLowerCase() === '/homepage';
 
 export default function MainLayout({ children }) {
   const [opened, { toggle }] = useDisclosure();
@@ -246,17 +256,40 @@ export default function MainLayout({ children }) {
     setTabState({ pathname, tabs });
   }
   const pageTabs = tabState.tabs;
+  // 대시보드는 왼쪽 고정 홈 버튼으로 열고, 업무 탭 줄에는 나머지 화면만 둔다
+  const workTabs = useMemo(() => pageTabs.filter((tab) => !isHomePath(tab.path)), [pageTabs]);
   const visiblePageTabs = useMemo(() => {
     const maxVisible = 10;
-    if (pageTabs.length <= maxVisible) return pageTabs;
-    const initialTabs = pageTabs.slice(0, maxVisible);
+    if (workTabs.length <= maxVisible) return workTabs;
+    const initialTabs = workTabs.slice(0, maxVisible);
     if (initialTabs.some((tab) => tab.path === pathname)) return initialTabs;
-    return [...pageTabs.slice(0, maxVisible - 1), pageTabs.find((tab) => tab.path === pathname)].filter(Boolean);
-  }, [pageTabs, pathname]);
+    return [...workTabs.slice(0, maxVisible - 1), workTabs.find((tab) => tab.path === pathname)].filter(Boolean);
+  }, [workTabs, pathname]);
   const overflowPageTabs = useMemo(
-    () => pageTabs.filter((tab) => !visiblePageTabs.some((visibleTab) => visibleTab.path === tab.path)),
-    [pageTabs, visiblePageTabs],
+    () => workTabs.filter((tab) => !visiblePageTabs.some((visibleTab) => visibleTab.path === tab.path)),
+    [workTabs, visiblePageTabs],
   );
+  // 탭 끌어서 순서 바꾸기: 끄는 동안 지나가는 탭 자리로 바로 옮긴다
+  const dragTabRef = useRef(null);
+  const [draggingTab, setDraggingTab] = useState(null);
+  const moveDraggedTab = (event, targetPath) => {
+    const dragged = dragTabRef.current;
+    if (!dragged) return;
+    event.preventDefault();
+    if (dragged === targetPath) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const after = event.clientX > rect.left + rect.width / 2;
+    setTabState((current) => {
+      const tabs = current.tabs.filter((tab) => tab.path !== dragged);
+      const moving = current.tabs.find((tab) => tab.path === dragged);
+      let index = tabs.findIndex((tab) => tab.path === targetPath);
+      if (!moving || index < 0) return current;
+      if (after) index += 1;
+      tabs.splice(index, 0, moving);
+      const same = tabs.every((tab, i) => tab.path === current.tabs[i].path);
+      return same ? current : { ...current, tabs };
+    });
+  };
 
   const closePageTab = useCallback((event, path) => {
     event?.stopPropagation?.();
@@ -298,6 +331,52 @@ export default function MainLayout({ children }) {
       email: email || '' 
     };
   });
+
+  // 메뉴 즐겨찾기 (사용자별, 서버 usermenufavorite01t 에 저장). 첫 화면을 바로 그리려고 이 브라우저에도 사본을 둔다.
+  const favoriteCacheKey = `steel119-menu-favorites:${localStorage.getItem('user_company') || ''}:${userInfo.email}`.toLowerCase();
+  const [favoriteIds, setFavoriteIds] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(favoriteCacheKey) || '[]');
+      return Array.isArray(saved) ? saved : [];
+    } catch {
+      return [];
+    }
+  });
+  const favoriteIdsRef = useRef(favoriteIds);
+  const applyFavorites = useCallback((next) => {
+    favoriteIdsRef.current = next;
+    setFavoriteIds(next);
+    try { localStorage.setItem(favoriteCacheKey, JSON.stringify(next)); } catch { /* 저장 공간을 못 쓰면 화면 상태만 유지 */ }
+  }, [favoriteCacheKey]);
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token || !userInfo.email) return undefined;
+    let cancelled = false;
+    axios.get('/api/user-menu/favorites', { headers: { Authorization: `Bearer ${token}` } })
+      .then(({ data }) => { if (!cancelled && Array.isArray(data.menuids)) applyFavorites(data.menuids); })
+      .catch((error) => console.error('메뉴 즐겨찾기 조회 실패:', error));
+    return () => { cancelled = true; };
+  }, [applyFavorites, userInfo.email]);
+  const saveFavorites = useCallback((next) => {
+    const previous = favoriteIdsRef.current;
+    applyFavorites(next);
+    axios.put('/api/user-menu/favorites', { menuids: next }, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` },
+    }).catch((error) => {
+      console.error('메뉴 즐겨찾기 저장 실패:', error);
+      if (favoriteIdsRef.current === next) applyFavorites(previous);
+      notifications.show({ title: '즐겨찾기 저장 실패', message: '잠시 후 다시 시도해 주세요.', color: 'red', position: 'bottom-right' });
+    });
+  }, [applyFavorites]);
+  const toggleFavorite = useCallback((menuid) => {
+    const previous = favoriteIdsRef.current;
+    saveFavorites(previous.includes(menuid) ? previous.filter((id) => id !== menuid) : [...previous, menuid]);
+  }, [saveFavorites]);
+  // 즐겨찾기 순서 변경: 화면에 보이는 순서 + (권한이 빠져 안 보이는 즐겨찾기는 뒤에 그대로)
+  const reorderFavorites = useCallback((visibleOrder) => {
+    const rest = favoriteIdsRef.current.filter((id) => !visibleOrder.includes(id));
+    saveFavorites([...visibleOrder, ...rest]);
+  }, [saveFavorites]);
 
   // 내 메뉴 권한 다시 읽기: 화면 이동마다 읽지 않고(이동이 느려짐), 창으로 돌아올 때와 권한 저장 직후에만 읽는다.
   // (권한이 빠진 메뉴는 서버가 403 으로 막으므로 다음 확인 때까지 화면에 남아 있어도 안전하다)
@@ -546,7 +625,7 @@ const menuAccessContextValue = useMemo(() => ({
       className={`${isInboundWorkspace || isDashboard ? classes.appShellInbound : ''} ${sidebarCollapsed ? `${classes.sidebarCollapsed} steel119-sidebar-collapsed` : ''}`}
       header={{ height: 54 }}
       navbar={{
-        width: sidebarCollapsed ? 62 : 210,
+        width: sidebarCollapsed ? 62 : 256,
         breakpoint: 'sm',
         collapsed: { mobile: !opened },
       }}
@@ -570,7 +649,6 @@ const menuAccessContextValue = useMemo(() => ({
             tabIndex={0}
             onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') openPwModal(); }}
           >
-            <span className={classes.userAvatar} aria-hidden="true">{userInfo.name ? userInfo.name.slice(0, 1) : <IconUser size={14} />}</span>
             <span className={classes.userName}>{userInfo.name ? `${userInfo.name}님` : '사용자'}</span>
           </Group>
           <span className={classes.userDivider} aria-hidden="true" />
@@ -616,23 +694,32 @@ const menuAccessContextValue = useMemo(() => ({
             className={classes.sidebarToggle}
             onClick={toggleSidebar}
             aria-label={sidebarCollapsed ? '네비게이션 펼치기' : '네비게이션 접기'}
-            title={sidebarCollapsed ? '로고·네비게이션 함께 펼치기' : '로고·네비게이션 함께 접기'}
+            title={sidebarCollapsed ? '네비게이션 펼치기' : '네비게이션 접기'}
           >
-            {sidebarCollapsed ? <IconChevronsRight size={20} stroke={1.8} /> : <IconChevronsLeft size={20} stroke={1.8} />}
+            <IconLayoutSidebar size={19} stroke={1.7} />
           </button>
         </AppShell.Section>
-        <AppShell.Section grow component={ScrollArea} type="hover" scrollbars="y" scrollbarSize={6} className={classes.navScroll}>
-          <SidebarNav items={visibleMockdata} pathname={pathname} collapsed={sidebarCollapsed} onExpand={expandSidebar} />
+        <AppShell.Section grow className={classes.navScroll}>
+          <SidebarNav items={visibleMockdata} pathname={pathname} collapsed={sidebarCollapsed} onExpand={expandSidebar}
+            favoriteIds={favoriteIds} onToggleFavorite={toggleFavorite} onReorderFavorites={reorderFavorites} />
         </AppShell.Section>
       </AppShell.Navbar>
 
       <AppShell.Main className={`${classes.appMain} ${isDashboard ? classes.appMainDashboard : isInboundWorkspace ? classes.appMainInbound : ''}`}>
         <div className={classes.pageTabs} role="tablist" aria-label="열린 메뉴">
+          <button type="button" className={`${classes.pinnedHome} ${isDashboard ? classes.pinnedHomeActive : ''}`}
+            title="대시보드" aria-label="대시보드" aria-current={isDashboard ? 'page' : undefined} onClick={() => navigate('/HomePage')}>
+            <IconHome size={17} stroke={1.7} />
+          </button>
           {visiblePageTabs.map((tab) => {
             const label = findMenuLabel(mockdata, tab.path);
             return (
-              <div key={tab.path} role="tab" aria-selected={pathname === tab.path} tabIndex={0}
-                className={`${classes.pageTab} ${pathname === tab.path ? classes.pageTabActive : ''} ${String(tab.path || '').replace(/\/+$/, '').toLowerCase() === '/user' ? classes.pageTabNoBold : ''}`}
+              <div key={tab.path} role="tab" aria-selected={pathname === tab.path} tabIndex={0} draggable
+                className={`${classes.pageTab} ${pathname === tab.path ? classes.pageTabActive : ''} ${draggingTab === tab.path ? classes.pageTabDragging : ''}`}
+                onDragStart={(event) => { dragTabRef.current = tab.path; setDraggingTab(tab.path); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', tab.path); }}
+                onDragOver={(event) => moveDraggedTab(event, tab.path)}
+                onDrop={(event) => event.preventDefault()}
+                onDragEnd={() => { dragTabRef.current = null; setDraggingTab(null); }}
                 onClick={() => navigate(tab.path)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) navigate(tab.path); }}>
                 <span className={classes.pageTabLabel} title={label}>{label}</span>
                 <button type="button" className={classes.pageTabClose} aria-label={`${label} 닫기`}
@@ -643,11 +730,11 @@ const menuAccessContextValue = useMemo(() => ({
           {overflowPageTabs.length > 0 && <Menu position="bottom-end" withinPortal shadow="sm">
             <Menu.Target>
               <button type="button" className={classes.moreTabsButton} aria-label={`나머지 열린 화면 ${overflowPageTabs.length}개`}>
-                더보기 <span>{overflowPageTabs.length}</span><IconChevronDown className={classes.moreTabsChevron} size={13} stroke={1.8} aria-hidden="true" />
+                더보기 <span>{overflowPageTabs.length}</span><IconChevronDown className={classes.moreTabsChevron} size={14} stroke={2} aria-hidden="true" />
               </button>
             </Menu.Target>
             <Menu.Dropdown className={classes.moreTabsDropdown}>
-              <div className={classes.moreTabsHeading}>열린 화면 {pageTabs.length}개</div>
+              <div className={classes.moreTabsHeading}>열린 화면 {workTabs.length}개</div>
               {overflowPageTabs.map((tab) => {
                 const label = findMenuLabel(mockdata, tab.path);
                 return <div className={classes.moreTabRow} key={tab.path}>

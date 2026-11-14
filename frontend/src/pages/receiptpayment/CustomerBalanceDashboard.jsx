@@ -291,9 +291,9 @@ export default function CustomerBalanceDashboard() {
         <span className={searchClasses.ribbonSeparator} />
         <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} disabled>추가</Button>
         <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} disabled>복사</Button>
-        <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={() => ribbonActions.current.excel()} disabled={excelDisabled}>엑셀</Button>
         <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
         <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
+        <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={() => ribbonActions.current.excel()} disabled={excelDisabled}>엑셀</Button>
         <span className={searchClasses.ribbonSeparator} />
         <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closePage}>닫기</Button>
       </Group>,
@@ -328,7 +328,7 @@ export default function CustomerBalanceDashboard() {
   const net = toNumber(summary?.net);
   return (
     <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${searchClasses.page} ${classes.page}`}>
-      <DashboardHeader parent="자금관리" title="거래처 잔액 현황">
+      <DashboardHeader parent="장부관리" title="채권채무요약">
         <FilterBox label="기준일" onSearch={search} loading={loading}>
           <ErpDateInput aria-label="기준일" type="date" value={asOfInput} onChange={(event) => setAsOfInput(event.currentTarget.value)} />
         </FilterBox>

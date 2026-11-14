@@ -716,7 +716,7 @@ export default function ItemProcessMaster() {
 
   return (
     <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
-      <ErpBreadcrumb parent="재고가공" current="가공공정 관리" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+      <ErpBreadcrumb parent="재고가공" current="가공공정관리" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
       <Box className={classes.workspace}>
         <Paper className={`${sharedClasses.panel} ${classes.panel}`} withBorder>
           <Group className={classes.header} justify="space-between" align="flex-start">

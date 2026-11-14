@@ -6,6 +6,8 @@ import { startAppVersionCheck } from './utils/appVersion.js'
 // 필수 CSS 임포트
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
+// 네비게이션 · 상단 리본 글꼴 (필요한 글자만 내려받는 분할 버전)
+import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
 
 import { MantineProvider, createTheme } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';

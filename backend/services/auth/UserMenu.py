@@ -205,3 +205,48 @@ def save_user_menu_permissions(data: UserMenuPermissionInput, manager_email: str
             "username": target["username"],
             "granted_count": len(requested_menuids),
         }
+
+
+# ── 메뉴 즐겨찾기 (사용자별) ─────────────────────────────────────────────
+# 왼쪽 메뉴의 ☆. 목록 전체를 한 번에 바꿔 저장한다 (순서 = 전달한 순서).
+
+class MenuFavoriteInput(BaseModel):
+    menuids: list[str] = Field(default_factory=list, max_length=200)
+
+    @field_validator("menuids", mode="before")
+    @classmethod
+    def normalize_menuids(cls, value):
+        if not isinstance(value, list):
+            return []
+        return list(dict.fromkeys(str(item or "").strip() for item in value if str(item or "").strip()))
+
+
+def get_menu_favorites(companyid: str, useremail: str) -> list[str]:
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT menuid
+               FROM usermenufavorite01t
+               WHERE companyid = %s AND useremail = %s
+               ORDER BY sort_order, created_at""",
+            (companyid, useremail.lower()),
+        )
+        return [row[0] for row in cursor.fetchall()]
+
+
+def save_menu_favorites(companyid: str, useremail: str, menuids: list[str]) -> list[str]:
+    email = useremail.lower()
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "DELETE FROM usermenufavorite01t WHERE companyid = %s AND useremail = %s",
+            (companyid, email),
+        )
+        if menuids:
+            # 메뉴 목록에 있는 메뉴만 저장한다 (없는 ID는 조용히 버림)
+            cursor.execute(
+                """INSERT INTO usermenufavorite01t (companyid, useremail, menuid, sort_order)
+                   SELECT %s, %s, item.menuid, item.ord::int
+                   FROM unnest(%s::varchar[]) WITH ORDINALITY AS item(menuid, ord)
+                   JOIN menucatalog01t m ON m.menuid = item.menuid""",
+                (companyid, email, menuids),
+            )
+    return get_menu_favorites(companyid, email)

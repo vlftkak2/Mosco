@@ -252,7 +252,7 @@ export default function Workplace() {
   }, []);
 
   return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="운영정보" current="사업장관리" />
+    <ErpBreadcrumb parent="운영관리" current="사업장관리" />
 
     <Paper className={`${classes.panel} ${own.panel}`} withBorder>
       <div className={own.body}>

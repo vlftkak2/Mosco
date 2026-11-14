@@ -636,7 +636,7 @@ export default function AIOrderOptimization() {
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${reg.page} ${classes.optScope}`}>
     <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
       <Group className={inboundClasses.breadcrumbTrail} gap={7}>
-        <Text component="span" className={inboundClasses.breadcrumbParent}>AI 가공솔루션</Text>
+        <Text component="span" className={inboundClasses.breadcrumbParent}>AI가공솔루션</Text>
         <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
         <Text component="span" className={inboundClasses.breadcrumbCurrent}>가공최적화</Text>
       </Group>

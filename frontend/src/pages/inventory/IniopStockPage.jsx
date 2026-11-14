@@ -55,7 +55,7 @@ export default function IniopStockPage() {
   useErpPageRibbon({ onSearch: search, onExcel: exportExcel, showPrint: false, useSaveColor: false });
 
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="재고관리" current="재고수불 현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+    <ErpBreadcrumb parent="재고관리" current="재고수불현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
     <Box className={classes.inboundWorkspace}>
     {filterOpen && <Paper component="aside" className={classes.filterSidebar} withBorder>
       <Group className={classes.filterHeader} justify="space-between" align="center">

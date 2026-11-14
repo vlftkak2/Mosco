@@ -360,7 +360,7 @@ export default function HomePage() {
 
         <div className={classes.row2_1}>
           <Panel title={profit ? '월별 매출 · 매출이익' : '월별 매출'} sub={profit ? '최근 12개월 · 막대 전체 = 매출 (비용 + 매출이익) · 진한 막대 = 조회한 달' : '최근 12개월 · 진한 막대 = 조회한 달'}
-            action={<MoreLink onClick={go('GROSS_PROFIT_DASHBOARD', '/GrossProfitDashboard')}>매출이익 현황</MoreLink>}>
+            action={<MoreLink onClick={go('GROSS_PROFIT_DASHBOARD', '/GrossProfitDashboard')}>매출이익요약</MoreLink>}>
             {data ? <>
               <div className={classes.monthSummary}>
                 <div className={classes.monthStat}><span className={classes.monthStatLabel}>기간 매출</span><span className={classes.monthStatValue}>{compact(salesTotal.sales)}원</span><span className={classes.statTrend}><Trend current={salesTotal.sales} previous={sales.prev.sales} /></span></div>
@@ -392,7 +392,7 @@ export default function HomePage() {
         </div>
 
         <div className={classes.row1_1}>
-          <Panel title="장기재고" sub="입고일 · 기초재고일부터 오늘까지 경과 기간 (중량 기준)" action={<MoreLink onClick={go('STOCK_CURRENT', '/CurrentStockPage')}>현재고 현황</MoreLink>}>
+          <Panel title="장기재고" sub="입고일 · 기초재고일부터 오늘까지 경과 기간 (중량 기준)" action={<MoreLink onClick={go('STOCK_CURRENT', '/CurrentStockPage')}>현재고현황</MoreLink>}>
             {stock ? <StockAging stock={stock} /> : <Empty loading={loading} />}
           </Panel>
           <Panel title="오래된 재고" sub="1년 넘은 재고 · 오래된 순 · 재고이동한 재고는 처음 입고일 기준" className={classes.tablePanel}>

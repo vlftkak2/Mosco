@@ -39,7 +39,7 @@
   border-bottom: 1px solid #e0e6ef;
 }
 
-.title { color: #252a32; font-size: 14px; font-weight: 700; }
+.title { color: #252a32 !important; font-size: 14px !important; font-weight: 700 !important; }
 .subtitle { color: #8290a5 !important; font-size: 11px !important; }
 .count {
   min-height: 20px;

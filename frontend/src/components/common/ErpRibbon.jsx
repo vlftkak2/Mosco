@@ -31,9 +31,9 @@ export default function ErpRibbon({
       <span className={classes.ribbonSeparator} />
       <RibbonButton icon={IconPlus} label="추가" onClick={onAdd} disabled={disabled.add} loading={loading.add} />
       <RibbonButton icon={IconCopy} label="복사" onClick={onCopy} disabled={disabled.copy} loading={loading.copy} />
-      {(onExcel || showExcel) && <RibbonButton icon={IconFileSpreadsheet} label="엑셀" onClick={onExcel} disabled={disabled.excel} loading={loading.excel} />}
       <RibbonButton icon={IconDeviceFloppy} label="저장" onClick={onSave} disabled={disabled.save} loading={loading.save} className={useSaveColor ? classes.ribbonSave : undefined} />
       <RibbonButton icon={IconTrash} label="삭제" onClick={onDelete} disabled={disabled.delete} loading={loading.delete} />
+      {(onExcel || showExcel) && <RibbonButton icon={IconFileSpreadsheet} label="엑셀" onClick={onExcel} disabled={disabled.excel} loading={loading.excel} />}
       {showPrint && <RibbonButton icon={IconPrinter} label="인쇄" onClick={onPrint} disabled={disabled.print} loading={loading.print} />}
       <span className={classes.ribbonSeparator} />
       <RibbonButton icon={IconX} label="닫기" onClick={onClose} disabled={disabled.close} />

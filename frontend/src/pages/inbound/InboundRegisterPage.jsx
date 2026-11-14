@@ -2534,9 +2534,9 @@ export default function InboundRegisterPage() {
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={() => invokeRibbonAction('handleAddAction')} disabled={saving}>추가</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} onClick={() => invokeRibbonAction('copySelectedDetails')} disabled={readOnly || saving || selectedIds.length !== 1}>복사</Button>
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={() => invokeRibbonAction('exportDocument')} loading={exporting} disabled={!hasExportableRows || loading || detailLoading}>엑셀</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={() => invokeRibbonAction('saveDocument')} loading={saving} disabled={selectedReceiptno ? (locked || detailLoading || !hasManagerChanges) : (readOnly || detailLoading)}>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={() => invokeRibbonAction('requestToolbarDelete')} disabled={saving || (detailTab === 'expenses' ? (readOnly || !selectedExpenseIds.length) : (locked || (!selectedReceiptno && (!selectedIds.length || readOnly))))}>삭제</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={() => invokeRibbonAction('exportDocument')} loading={exporting} disabled={!hasExportableRows || loading || detailLoading}>엑셀</Button>
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={() => invokeRibbonAction('closeActivePage')}>닫기</Button>
       </Group>,
