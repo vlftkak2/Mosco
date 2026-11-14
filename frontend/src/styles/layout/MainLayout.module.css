@@ -40,24 +40,29 @@
   display: flex !important;
   height: 54px !important;
   align-items: center !important;
-  gap: 18px;
-  padding: 0 18px 0 12px;
-  border-bottom: 1px solid #d9dde3 !important;
+  gap: 16px;
+  padding: 0 16px 0 10px;
+  border-bottom: 1px solid #dce2e9 !important;
   background: #fff !important;
   box-shadow: none !important;
-  color: #27313d;
+  color: #242b35;
+  font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 .mobileBurger { flex: 0 0 auto; }
+.mobileBurger :global(.mantine-Burger-burger),
+.mobileBurger :global(.mantine-Burger-burger)::before,
+.mobileBurger :global(.mantine-Burger-burger)::after { background-color: #4b5563; }
 
 /* 사이드바 (로고 + 네비게이션) */
 .navBar {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-right: 1px solid #343b46 !important;
-  background: #171d27 !important;
-  color: #d4dbe5;
+  border-right: 1px solid #343a45 !important;
+  background: #20252f !important;
+  color: #dce3ec;
   transition-property: transform, top, height, width !important;
 }
 
@@ -66,9 +71,11 @@
   height: 54px;
   flex: 0 0 54px;
   align-items: center;
-  gap: 9px;
-  padding: 0 12px;
-  background: #0b0d10;
+  gap: 8px;
+  padding: 0 10px 0 19px;
+  border-right: 1px solid #15181d;
+  border-bottom: 1px solid #15181d;
+  background: #15181d;
 }
 
 .logoSlot {
@@ -95,22 +102,22 @@
 
 .sidebarToggle {
   display: flex;
-  width: 30px;
+  width: 32px;
   height: 34px;
   flex: none;
   align-items: center;
   justify-content: center;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
-  color: #adb8c7;
+  color: #d9e0e7;
   cursor: pointer;
 }
-.sidebarToggle:hover { background: #29313c; color: #fff; }
-.sidebarToggle:focus-visible { outline: 2px solid #ff8388; outline-offset: 2px; }
+.sidebarToggle:hover { background: #2a3038; color: #fff; }
+.sidebarToggle:focus-visible { outline: 2px solid rgba(255, 255, 255, .55); outline-offset: -2px; }
 
-.navScroll { min-height: 0; }
+.navScroll { min-height: 0; overflow: hidden; }
 
 .headerActions {
   display: flex;
@@ -121,57 +128,55 @@
   overflow-x: auto;
   scrollbar-width: none;
   padding: 0;
-  background: #fff;
+  background: transparent;
 }
 
 .headerActions::-webkit-scrollbar { display: none; }
 
+/* 계정 · 로그아웃 */
 .headerUser {
   min-width: max-content;
   align-items: center;
-  background: #fff;
+  gap: 12px !important;
   color: #4b5563;
-  font-size: 13px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
 .userIdentity {
   align-items: center;
-  height: 34px;
-  padding: 0 12px 0 4px;
-  border: 1px solid #e6eaf0;
-  border-radius: 999px;
-  background: #fff;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
-  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+  transition: background-color 120ms ease;
 }
-.userIdentity:hover { border-color: #f2b7ba; background: #fff7f7; box-shadow: 0 2px 8px #e23d4514; }
-.userIdentity:focus-visible { outline: 2px solid #f0a3a7; outline-offset: 2px; }
-.userAvatar { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, #f2545b 0%, #d9365a 100%); color: #fff; font-size: 12px; font-weight: 800; }
-.userName { color: #1f2937; font-size: 13px; font-weight: 700; letter-spacing: -0.1px; }
+.userIdentity:hover { background: #f5f6f8; }
+.userIdentity:focus-visible { outline: 2px solid rgba(209, 31, 38, .55); outline-offset: -2px; }
+.userName { color: #242b35; font-size: 13px; font-weight: 600; letter-spacing: -0.1px; }
 
-.userDivider { width: 1px; height: 18px; margin: 0 4px; background: #e3e7ed; }
+.userDivider { width: 1px; height: 17px; margin: 0; background: #dce2e9; }
 
 .logoutButton {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 34px;
-  padding: 0 12px;
-  border: 1px solid transparent;
-  border-radius: 999px;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
   background: transparent;
-  color: #5b6574;
+  color: #6b7280;
   font: inherit;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  transition: color 0.14s ease, background-color 0.14s ease;
 }
 .logoutButton:hover,
-.logoutButton:active { border-color: #f6d4d6; background: #fff4f4; color: #d23a42; }
-.logoutButton:focus-visible { outline: 2px solid #ff8388; outline-offset: 2px; }
+.logoutButton:active { background: #fdf2f2; color: #d11f26; }
+.logoutButton:focus-visible { outline: 2px solid rgba(209, 31, 38, .55); outline-offset: -2px; }
 
 
 /* 메인 콘텐츠 영역 */
@@ -185,111 +190,126 @@
 
 .appMain { background-color: #f4f4f4 !important; }
 
-/* 열린 화면 탭 */
+/* 열린 화면 탭 (디자인 고도화 시안): 연회색 줄 위 사각 탭, 선택 탭은 흰 바탕 + 빨간 밑줄 2px. 왼쪽에 대시보드 홈 버튼 고정. */
 .pageTabs {
   position: relative;
   display: flex;
-  height: 42px;
-  min-height: 42px;
+  height: 38px;
+  min-height: 38px;
   min-width: 0;
-  align-items: end;
-  gap: 3px;
+  align-items: stretch;
+  gap: 0;
   overflow: visible;
-  padding: 6px 12px 0 16px;
-  margin: 0 -16px 12px;
-  border-bottom: 1px solid #d9dde3;
-  background: #ececec;
+  padding: 0;
+  margin: 0 -12px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f3f4f6;
+  font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
+
+.pinnedHome {
+  display: flex;
+  width: 46px;
+  flex: 0 0 46px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid #e5e7eb;
+  background: transparent;
+  color: #556276;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+.pinnedHome:hover { background: #e9ebee; }
+.pinnedHomeActive,
+.pinnedHomeActive:hover { background: #fff; box-shadow: inset 0 -2px 0 #d11f26; }
 
 .pageTab {
   position: relative;
   display: inline-flex;
   min-width: 0;
-  max-width: 230px;
-  height: 34px;
+  max-width: 220px;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 0 14px;
-  border: 1px solid #d0d0d0;
-  border-bottom: 0;
-  border-radius: 9px 9px 0 0;
-  background: #d9d9d9;
-  color: #707070;
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
+  padding: 0 10px 0 15px;
+  border: 0;
+  border-right: 1px solid #dce1e8;
+  border-radius: 0;
+  background: #e8eaee;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
   white-space: nowrap;
   cursor: pointer;
+  user-select: none;
+  transition: background-color 140ms ease, color 140ms ease;
 }
-.pageTab:hover:not(.pageTabActive) { background: #d3d3d3; color: #585858; }
+.pageTab:hover:not(.pageTabActive) { background: #e0e4e9; color: #334155; }
+.pageTab:active { cursor: grabbing; }
 
 .pageTabLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
+.pinnedHome:focus-visible,
 .pageTab:focus-visible,
-.pageTabClose:focus-visible {
-  outline: 2px solid #ff8388;
+.pageTabClose:focus-visible,
+.moreTabsButton:focus-visible {
+  outline: 2px solid rgba(209, 31, 38, .55);
   outline-offset: -2px;
 }
 
 .pageTabActive {
   background: #fff;
-  color: #27313d;
+  color: #1f2937;
   font-weight: 700;
+  box-shadow: inset 0 -2px 0 #d11f26;
 }
-.pageTabActive::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 3px;
-  border-radius: 2px 2px 0 0;
-  background: #d11f26;
-}
-
-.pageTabNoBold { font-weight: 600; }
+.pageTabDragging { opacity: .5; }
 
 .pageTabClose {
   display: grid;
   width: 18px;
-  height: 22px;
+  height: 18px;
+  flex: none;
   place-items: center;
   padding: 0;
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: #9a9a9a;
+  color: #98a2b3;
   font: inherit;
   font-size: 16px;
   font-weight: 400;
   line-height: 1;
   cursor: pointer;
 }
-.pageTabActive .pageTabClose { color: #8f8f8f; }
-.pageTabClose:hover { color: #606060; }
+.pageTabClose:hover { background: transparent; color: #d11f26; }
 
 .moreTabsButton {
   display: inline-flex;
-  height: 34px;
   flex: 0 0 auto;
   align-items: center;
   gap: 6px;
-  padding: 0 12px;
-  border: 1px solid #d0d0d0;
-  border-bottom: 0;
-  border-radius: 9px 9px 0 0;
-  background: #d9d9d9;
-  color: #707070;
+  margin-left: auto;
+  padding: 0 14px;
+  border: 0;
+  border-left: 1px solid #dce1e8;
+  border-radius: 0;
+  background: #e8eaee;
+  color: #4b5563;
   font: inherit;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
 }
-.moreTabsButton:hover { background: #d3d3d3; color: #585858; }
-.moreTabsButton > span:first-of-type { min-width: 18px; padding: 1px 5px; border-radius: 9px; background: #c8c8c8; color: #505050; text-align: center; }
-.moreTabsChevron { flex: 0 0 auto; color: #8a8a8a; }
+.moreTabsButton:hover { background: #e0e4e9; }
+.moreTabsButton > span:first-of-type { min-width: 18px; padding: 1px 5px; border-radius: 9px; background: #d4d9e0; color: #4b5563; font-size: 11.5px; text-align: center; }
+.moreTabsChevron { flex: 0 0 auto; color: #6b7280; }
 .moreTabsDropdown { width: 260px; max-height: min(60vh, 420px); overflow-y: auto; padding: 5px; }
 .moreTabsHeading { padding: 6px 9px 8px; border-bottom: 1px solid #e5e9ef; color: #7b8797; font-size: 11px; }
 .moreTabRow { display: flex; min-width: 0; align-items: center; gap: 4px; }
@@ -307,7 +327,7 @@
 
 /* 접힌 사이드바: 로고 숨기고 접기 버튼만 가운데 */
 .sideHead { transition: gap 220ms ease, padding 220ms ease; }
-.sidebarCollapsed .sideHead { gap: 0; padding: 0 16px; }
+.sidebarCollapsed .sideHead { gap: 0; justify-content: center; padding: 0 12px; }
 .sidebarCollapsed .logoSlot { flex: 0 0 0; opacity: 0; pointer-events: none; }
 
 .appMainInbound {
@@ -321,9 +341,9 @@
 
 .appMainInbound .pageTabs,
 .appMainDashboard .pageTabs {
-  height: 42px;
-  min-height: 42px;
-  flex: 0 0 42px;
+  height: 38px;
+  min-height: 38px;
+  flex: 0 0 38px;
   margin-top: -12px;
   margin-bottom: 0;
 }
@@ -367,36 +387,42 @@
   .logoutButton span { display: none; }
 }
 
-/* 상단 명령 버튼 (조회 · 추가 · 복사 · 엑셀 · 저장 · 삭제 · 인쇄 · 닫기)
-   화면마다 따로 있는 ribbonTool 스타일을 여기 한 곳에서 덮어써 모든 화면이 같은 모양이 되게 한다. */
-.headerActions :global(.mantine-Group-root) { gap: 4px !important; }
+/* 상단 명령 버튼 (조회 · 추가 · 복사 · 저장 · 삭제 · 엑셀 · 인쇄 · 닫기) — 흰 리본, 아이콘별 색, 마우스를 올리면 브랜드 레드.
+   화면마다 따로 있는 ribbonTool 스타일을 여기 한 곳에서 덮어써 모든 화면이 같은 모양이 되게 한다.
+   아이콘 색은 Tabler 아이콘 클래스(tabler-icon-이름)로 정해 화면 코드를 고치지 않아도 된다. */
+.headerActions :global(.mantine-Group-root) { gap: 2px !important; }
 .headerActions :global(.mantine-Button-root) {
   height: 32px !important; min-height: 32px !important; padding: 0 12px !important;
-  border: 1px solid transparent !important; border-radius: 8px !important;
-  background: transparent !important; color: #3f4d61 !important;
-  font-weight: 600 !important;
-  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  border: 0 !important; border-radius: 6px !important;
+  background: transparent !important; color: #374151 !important;
+  font-weight: 500 !important;
+  transition: background-color 140ms ease, color 140ms ease;
 }
-.headerActions :global(.mantine-Button-root .mantine-Button-label) { font-size: 12px !important; letter-spacing: -.1px; }
-.headerActions :global(.mantine-Button-root .mantine-Button-section) { margin-inline-end: 6px; }
-.headerActions :global(.mantine-Button-root svg) { width: 16px !important; height: 16px !important; stroke-width: 1.9; color: currentColor !important; transition: color 120ms ease; }
-/* 모든 버튼(조회 · 저장 포함) 평소엔 같은 글자색, 마우스를 올렸을 때만 빨간 글자 + 빨간 네모 */
-.headerActions :global(.mantine-Button-root:hover:not(:disabled):not([data-disabled])) {
-  border-color: #f2b7ba !important; background: #fff5f5 !important; color: #e0434b !important;
-}
-.headerActions :global(.mantine-Button-root:active:not(:disabled):not([data-disabled])) { transform: translateY(1px); }
-.headerActions :global(.mantine-Button-root:focus-visible) { outline: 2px solid #f0444c !important; outline-offset: 1px !important; }
+.headerActions :global(.mantine-Button-root .mantine-Button-label) { font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif; font-size: 13.5px !important; line-height: 1; letter-spacing: -.1px; }
+.headerActions :global(.mantine-Button-root .mantine-Button-section) { margin-inline-end: 7px; }
+.headerActions :global(.mantine-Button-root svg) { width: 16px !important; height: 16px !important; stroke-width: 1.8; color: #4b5563 !important; transition: color 140ms ease; }
+.headerActions :global(.mantine-Button-root .tabler-icon-plus),
+.headerActions :global(.mantine-Button-root .tabler-icon-file-spreadsheet) { color: #16a06d !important; }
+.headerActions :global(.mantine-Button-root .tabler-icon-copy) { color: #d99a06 !important; }
+.headerActions :global(.mantine-Button-root .tabler-icon-device-floppy) { color: #2f6fd8 !important; }
+.headerActions :global(.mantine-Button-root .tabler-icon-trash) { color: #e0435c !important; }
+.headerActions :global(.mantine-Button-root .mantine-Loader-root) { --loader-color: #4b5563; }
 
-/* 쓸 수 없는 버튼: 흐리게, 배경 없이 */
+/* 마우스 오버 · 누름: 브랜드 레드 바탕 + 흰 글자 · 흰 아이콘 */
+.headerActions :global(.mantine-Button-root:hover:not(:disabled):not([data-disabled])) { background: #d11f26 !important; color: #fff !important; }
+.headerActions :global(.mantine-Button-root:active:not(:disabled):not([data-disabled])) { background: #b91c23 !important; color: #fff !important; transform: none; }
+.headerActions :global(.mantine-Button-root:hover:not(:disabled):not([data-disabled]) svg),
+.headerActions :global(.mantine-Button-root:active:not(:disabled):not([data-disabled]) svg) { color: #fff !important; }
+.headerActions :global(.mantine-Button-root:focus-visible) { outline: 2px solid rgba(209, 31, 38, .55) !important; outline-offset: -2px !important; }
+
+/* 쓸 수 없는 버튼: 흐리게 (아이콘 색은 남겨 어떤 버튼인지는 보이게) */
 .headerActions :global(.mantine-Button-root:disabled),
 .headerActions :global(.mantine-Button-root[data-disabled]) {
-  border-color: transparent !important; background: transparent !important; box-shadow: none !important; color: #b3bcc8 !important; cursor: not-allowed;
+  background: transparent !important; box-shadow: none !important; color: #374151 !important; opacity: .38; cursor: not-allowed;
 }
-.headerActions :global(.mantine-Button-root:disabled svg),
-.headerActions :global(.mantine-Button-root[data-disabled] svg) { color: #c9d0d9 !important; }
 
-/* 구분선 */
-.headerActions [class*="ribbonSeparator"] { width: 1px !important; height: 20px !important; margin: 0 6px !important; background: #e6eaf0 !important; }
+/* 구분선 (계정 구분선과 같은 색) */
+.headerActions [class*="ribbonSeparator"] { width: 1px !important; height: 17px !important; flex: 0 0 1px !important; margin: 0 7px !important; background: #dce2e9 !important; }
 
 /* 브레드크럼 (예: 매출관리 › 매출현황): 모든 화면을 '자금관리 › 거래처 잔액 현황'과 같은 글꼴 · 색 · 크기로.
    화면마다 CSS 모듈이 따로라 이름에 breadcrumb/crumb 이 들어간 클래스를 본문 영역에서 한 번에 맞춘다. */

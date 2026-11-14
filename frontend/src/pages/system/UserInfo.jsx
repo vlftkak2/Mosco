@@ -227,9 +227,9 @@ export default function UserInfo() {
   return (
     <Box className={`${simpleTheme.simple} ${simpleTheme.noIcons} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
-        <Text component="span" className={classes.breadcrumbParent}>운영정보</Text>
+        <Text component="span" className={classes.breadcrumbParent}>운영관리</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-        <Text component="span" className={classes.breadcrumbCurrent}>사용자관리</Text>
+        <Text component="span" className={classes.breadcrumbCurrent}>직원관리</Text>
       </Box>
 
       <div className={`${classes.workspace} ${own.workspace}`}>

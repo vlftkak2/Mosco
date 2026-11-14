@@ -4,8 +4,7 @@ import usePageReactivated from '../../components/common/usePageReactivated';
 import XLSX from 'xlsx-js-style';
 import { ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import {
-  IconArrowDownLeft, IconArrowUpRight, IconCalendar, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconInbox, IconListDetails, IconPlus, IconReceipt, IconSearch, IconTrash, IconX,
+import { IconCalendar, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconInbox, IconPlus, IconSearch, IconTrash, IconX,
 } from '@tabler/icons-react';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
@@ -106,16 +105,17 @@ const DetailRow = memo(function DetailRow({ item }) {
 });
 
 const periodText = (from, to) => (from || to ? `${from || '처음'} ~ ${to || '끝'}` : '전체 기간');
-function SummaryCard({ label, value, unit, icon: Icon, accent, note }) {
+// 요약 한 칸: 이름 · 큰 숫자 · (금액이면) 상계 내역. 칸 사이는 얇은 선 (PHAROS 스타일)
+function SummaryItem({ label, value, unit, tone, note }) {
   return (
-    <Paper className={`${classes.summaryCard} ${classes.summaryCardRow} ${accent}`} withBorder>
-      <Box className={classes.summaryText}>
-        <Text className={classes.summaryLabel}>{label}</Text>
-        <Text className={classes.summaryValue} title={`${value} ${unit}`.trim()}>{value}{unit && <span className={classes.summaryUnit}>{unit}</span>}</Text>
-        {note && <Text size="xs" c="dimmed" title={note}>{note}</Text>}
-      </Box>
-      <span className={classes.summaryIcon}><Icon size={18} stroke={1.8} /></span>
-    </Paper>
+    <div className={paymentClasses.summaryItem}>
+      <span className={paymentClasses.summaryItemLabel}>{label}</span>
+      <span className={paymentClasses.summaryItemLine}>
+        <span className={`${paymentClasses.summaryItemValue} ${tone || ''}`} title={`${value} ${unit}`.trim()}>{value}</span>
+        <span className={paymentClasses.summaryItemUnit}>{unit}</span>
+        {note && <span className={paymentClasses.summaryItemNote} title={note}>{note}</span>}
+      </span>
+    </div>
   );
 }
 
@@ -274,10 +274,10 @@ export default function ReceiptPaymentSearch() {
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} disabled>추가</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} disabled>복사</Button>
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />}
-          onClick={() => ribbonActions.current.excel()} loading={exporting} disabled={excelDisabled}>엑셀</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />}
+          onClick={() => ribbonActions.current.excel()} loading={exporting} disabled={excelDisabled}>엑셀</Button>
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closePage}>닫기</Button>
       </Group>,
@@ -290,19 +290,19 @@ export default function ReceiptPaymentSearch() {
     <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>수금·지급</Text>
+          <Text component="span" className={classes.breadcrumbParent}>자금관리</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-          <Text component="span" className={classes.breadcrumbCurrent}>수금·지급 현황</Text>
+          <Text component="span" className={classes.breadcrumbCurrent}>수금/지급현황</Text>
         </Group>
         {!filterOpen && <Button className={classes.filterToggle} variant="subtle" size="xs" leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
       </Box>
 
-      <Box className={classes.summaryGrid} aria-label="수금/지급 현황 요약">
-        <SummaryCard label="수금/지급 전표 수" value={Number(summary.receipt_count || 0).toLocaleString()} unit="건" icon={IconReceipt} accent={classes.accentSlate} />
-        <SummaryCard label="상세 건수" value={Number(summary.detail_count || 0).toLocaleString()} unit="건" icon={IconListDetails} accent={classes.accentBlue} />
-        <SummaryCard label="총 수금액 (자금)" value={formatNumber(summary.receipt_total || 0)} unit="원" icon={IconArrowDownLeft} accent={classes.accentGreen}
+      <Box className={paymentClasses.summaryStrip} aria-label="수금/지급 현황 요약">
+        <SummaryItem label="수금/지급 전표 수" value={Number(summary.receipt_count || 0).toLocaleString()} unit="건" />
+        <SummaryItem label="상세 건수" value={Number(summary.detail_count || 0).toLocaleString()} unit="건" />
+        <SummaryItem label="총 수금액 (자금)" value={formatNumber(summary.receipt_total || 0)} unit="원" tone={paymentClasses.toneReceipt}
           note={`상계·잡손실 ${formatNumber(summary.receipt_settle_total || 0)} · 전표 합계 ${formatNumber(Number(summary.receipt_total || 0) + Number(summary.receipt_settle_total || 0))}`} />
-        <SummaryCard label="총 지급액 (자금)" value={formatNumber(summary.payment_total || 0)} unit="원" icon={IconArrowUpRight} accent={classes.accentOrange}
+        <SummaryItem label="총 지급액 (자금)" value={formatNumber(summary.payment_total || 0)} unit="원" tone={paymentClasses.tonePayment}
           note={`상계·잡손실 ${formatNumber(summary.payment_settle_total || 0)} · 전표 합계 ${formatNumber(Number(summary.payment_total || 0) + Number(summary.payment_settle_total || 0))}`} />
       </Box>
 

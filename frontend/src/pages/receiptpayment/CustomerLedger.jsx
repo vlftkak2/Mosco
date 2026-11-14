@@ -322,10 +322,10 @@ export default function CustomerLedger() {
         <span className={searchClasses.ribbonSeparator} />
         <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} disabled>추가</Button>
         <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} disabled>복사</Button>
-        <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />}
-          onClick={() => ribbonActions.current.excel()} loading={exporting} disabled={excelDisabled}>엑셀</Button>
         <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
         <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
+        <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />}
+          onClick={() => ribbonActions.current.excel()} loading={exporting} disabled={excelDisabled}>엑셀</Button>
         <span className={searchClasses.ribbonSeparator} />
         <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closePage}>닫기</Button>
       </Group>,
@@ -337,7 +337,7 @@ export default function CustomerLedger() {
     <Box className={`${simpleTheme.simple} ${searchClasses.page}`}>
       <Box component="nav" aria-label="현재 위치" className={searchClasses.pageBreadcrumb}>
         <Group className={searchClasses.breadcrumbTrail} gap={7}>
-          <Text component="span" className={searchClasses.breadcrumbParent}>자금관리</Text>
+          <Text component="span" className={searchClasses.breadcrumbParent}>장부관리</Text>
           <Text component="span" className={searchClasses.breadcrumbChevron}>›</Text>
           <Text component="span" className={searchClasses.breadcrumbCurrent}>거래처원장</Text>
         </Group>

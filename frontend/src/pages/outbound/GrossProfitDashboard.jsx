@@ -306,9 +306,9 @@ export default function GrossProfitDashboard() {
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} disabled>추가</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} disabled>복사</Button>
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={() => actions.current.exportExcel()} disabled={!hasData}>엑셀</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={() => actions.current.exportExcel()} disabled={!hasData}>엑셀</Button>
         <span className={classes.ribbonSeparator} />
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closePage}>닫기</Button>
       </Group>,
@@ -362,7 +362,7 @@ export default function GrossProfitDashboard() {
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page} ${pageClasses.page} ${simpleTheme.simple}`}>
-      <DashboardHeader parent="매출관리" title="매출이익 현황">
+      <DashboardHeader parent="매출관리" title="매출이익요약">
         <FilterBox onSearch={search} loading={loading}>
           <ErpDateInput aria-label="시작일" type="date" value={inputs.date_from} onChange={(event) => { const { value } = event.currentTarget; setInputs((current) => ({ ...current, date_from: value })); }} />
           <FilterTilde />

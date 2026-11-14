@@ -1130,7 +1130,7 @@ export default function AIOrderPage() {
   });
 
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page} ${classes.batchPage} ${documents.length ? classes.batchPageWithDocuments : ''}`}>
-    <ErpBreadcrumb parent="AI 가공솔루션" current="AI 주문서인식" />
+    <ErpBreadcrumb parent="AI가공솔루션" current="AI주문서인식" />
 
     <Paper className={`${sharedClasses.panel} ${classes.uploadPanel}`} withBorder>
       <WorkflowSteps steps={workflowSteps} />

@@ -1971,7 +1971,7 @@ export default function StockStandPage() {
   });
 
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="재고관리" current="기초재고 등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+    <ErpBreadcrumb parent="재고관리" current="기초재고등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
 
     <Box className={`${classes.workspace} ${filterOpen ? classes.workspaceWithFilter : ''}`}>
     <Paper className={`${sharedClasses.panel} ${codeClasses.codePanel} ${classes.editorPanel}`} withBorder>

@@ -38,6 +38,22 @@ def get_my_permissions(user: dict = Depends(security_module.get_current_user)):
     }
 
 
+@router.get("/favorites")
+def get_my_favorites(user: dict = Depends(security_module.get_current_user)):
+    return {"success": True, "menuids": user_menu_module.get_menu_favorites(user["companyid"], user["email"])}
+
+
+@router.put("/favorites")
+def save_my_favorites(
+    payload: user_menu_module.MenuFavoriteInput,
+    user: dict = Depends(security_module.get_current_user),
+):
+    return {
+        "success": True,
+        "menuids": user_menu_module.save_menu_favorites(user["companyid"], user["email"], payload.menuids),
+    }
+
+
 @router.get("/companies")
 def get_manageable_companies(user: dict = Depends(require_menu_manager)):
     return {

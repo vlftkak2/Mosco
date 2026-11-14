@@ -1296,9 +1296,9 @@ export default function ReceiptPayment() {
         <span className={inboundClasses.ribbonSeparator} />
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={call('handleAddAction')} disabled={saving}>추가</Button>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} onClick={call('copySelected')} disabled={!copyEnabled}>복사</Button>
-        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={call('exportExcel')} disabled={!canExport}>엑셀</Button>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={call('saveDocument')} loading={saving} disabled={saving || !canSave}>저장</Button>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={call('deleteAction')} disabled={!deleteEnabled}>삭제</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={call('exportExcel')} disabled={!canExport}>엑셀</Button>
         <span className={inboundClasses.ribbonSeparator} />
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closePage}>닫기</Button>
       </Group>,
@@ -1338,9 +1338,9 @@ export default function ReceiptPayment() {
     <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
         <Group className={inboundClasses.breadcrumbTrail} gap={7}>
-          <Text component="span" className={inboundClasses.breadcrumbParent}>수금·지급</Text>
+          <Text component="span" className={inboundClasses.breadcrumbParent}>자금관리</Text>
           <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
-          <Text component="span" className={inboundClasses.breadcrumbCurrent}>수금·지급 등록</Text>
+          <Text component="span" className={inboundClasses.breadcrumbCurrent}>수금/지급등록</Text>
         </Group>
         {!filterOpen && (
           <Button className={inboundClasses.receiptFilterToggle} variant="subtle" size="xs"

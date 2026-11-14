@@ -52,7 +52,8 @@ const ago = (value) => {
   if (minutes < 60 * 24 * 7) return `${Math.round(minutes / 1440)}일 전`;
   return shortDate(value);
 };
-const isNew = (value) => value && Date.now() - new Date(value).getTime() < 3 * 24 * 60 * 60 * 1000;
+// N 표시: 글을 쓴 지 24시간 이내
+const isNew = (value) => value && Date.now() - new Date(value).getTime() < 24 * 60 * 60 * 1000;
 
 function StatusBadge({ status }) {
   const meta = STATUS[status] || STATUS.waiting;

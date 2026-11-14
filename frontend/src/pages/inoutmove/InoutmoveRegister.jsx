@@ -543,9 +543,9 @@ export default function InoutmoveRegister() {
       <span className={inboundClasses.ribbonSeparator} />
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={openStockPicker} disabled={saving}>추가</Button>
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} disabled>복사</Button>
-      <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportDocument} disabled={!items.length}>엑셀</Button>
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={saveDocument} loading={saving} disabled={readOnly || !items.length}>저장</Button>
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={requestDelete} disabled={saving || (!selectedReceiptno && !selectedIds.length)}>삭제</Button>
+      <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportDocument} disabled={!items.length}>엑셀</Button>
       <span className={inboundClasses.ribbonSeparator} />
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={pageLayout.closeActivePage}>닫기</Button>
     </Group>);
@@ -600,7 +600,7 @@ export default function InoutmoveRegister() {
       <Group className={inboundClasses.breadcrumbTrail} gap={7}>
         <Text component="span" className={inboundClasses.breadcrumbParent}>재고이동</Text>
         <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
-        <Text component="span" className={inboundClasses.breadcrumbCurrent}>재고이동 등록</Text>
+        <Text component="span" className={inboundClasses.breadcrumbCurrent}>재고이동등록</Text>
       </Group>
       {!filterOpen && <Button className={inboundClasses.receiptFilterToggle} variant="subtle" size="xs" leftSection={<IconSearch size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
     </Box>
