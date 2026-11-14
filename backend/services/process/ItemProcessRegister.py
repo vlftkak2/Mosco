@@ -1,14 +1,13 @@
 import logging
-from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from services.ai.stock_links import ensure_not_linked, linked_orders_sql
 import db as _shared_db
+from services.closing import MonthClose as month_close_module
 from services.inventory.CurrentStock import user_name_sql
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from config import DB_CONFIG
 
 
 logger = logging.getLogger(__name__)
@@ -530,6 +529,14 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
         # 입고·출고·기초재고와 같은 회사별 재고 잠금을 공유해 동시 차감 순서를 직렬화한다.
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         processno = str(payload.get("processno") or "").strip()
+        # 수정이면 원래 가공일과 바뀐 가공일 둘 다 마감 전이어야 한다
+        original_date = None
+        if processno:
+            cursor.execute("SELECT processdate FROM Process01t WHERE companyid=%s AND processno=%s", (companyid, processno))
+            found = cursor.fetchone()
+            original_date = found[0] if found else None
+        month_close_module.ensure_open(cursor, companyid, [payload["processdate"], original_date],
+                                       "수정" if processno else "등록")
         # 등록자/수정자: a new document is created by `actor`; an edited document keeps its original creator
         # (its detail / ledger / stock rows are deleted and re-inserted below) and records `actor` as modifier.
         detail_created_by, detail_updated_by = actor or None, None
@@ -669,7 +676,6 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
             iniop_out.append((source_line, stock, qty, weight))
 
             products = source["products"]
-            by_id = {p["clientid"]: p for p in products}
             line_by_id = {}
             level_by_id = {}
             pending = list(products)
@@ -679,8 +685,6 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
                     parent_id = product.get("parent_clientid")
                     if parent_id and parent_id not in line_by_id:
                         continue
-                    parent_product = by_id.get(parent_id)
-                    input_itemname = parent_product.get("productname") if parent_product else stock["itemname"]
                     line_no += 1
                     parent_line = line_by_id.get(parent_id, source_line)
                     level = level_by_id.get(parent_id, 0) + 1
@@ -779,11 +783,13 @@ def delete_documents(companyid: str, processnos: list[str], actor: str | None = 
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         for processno in dict.fromkeys(processnos):
             cursor.execute(
-                "SELECT processno FROM Process01t WHERE companyid=%s AND processno=%s FOR UPDATE",
+                "SELECT processno, processdate FROM Process01t WHERE companyid=%s AND processno=%s FOR UPDATE",
                 (companyid, processno),
             )
-            if not cursor.fetchone():
+            header = cursor.fetchone()
+            if not header:
                 raise ValueError(f"가공전표를 찾을 수 없습니다: {processno}")
+            month_close_module.ensure_open(cursor, companyid, [header[1]], "삭제")
 
             cursor.execute(
                 """SELECT lineno, stocksourcetype, stocksourceno, stocksourceline, qty, weight

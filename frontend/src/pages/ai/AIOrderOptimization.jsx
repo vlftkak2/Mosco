@@ -11,6 +11,7 @@ import { IconCheck, IconDeviceFloppy, IconFilter, IconFolderOpen, IconInfoCircle
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 // 주문서 관리와 같은 틀(패널·표·배지·버튼)을 그대로 쓴다
 import reg from '../../styles/pages/AIOrderRegistry.module.css';
@@ -632,7 +633,7 @@ export default function AIOrderOptimization() {
   const summary = shownAnalysis?.summary;
   const confirmedDetail = viewingConfirmed ? activePlan.detail : null;
 
-  return <Box className={`${sharedClasses.pageShell} ${reg.page} ${classes.optScope}`}>
+  return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${reg.page} ${classes.optScope}`}>
     <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
       <Group className={inboundClasses.breadcrumbTrail} gap={7}>
         <Text component="span" className={inboundClasses.breadcrumbParent}>AI 가공솔루션</Text>

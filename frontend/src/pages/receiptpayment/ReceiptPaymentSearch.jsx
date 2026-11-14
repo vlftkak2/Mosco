@@ -10,26 +10,29 @@ import {
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/InboundSearch.module.css';
 import paymentClasses from '../../styles/pages/ReceiptPaymentSearch.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import { INSTRUMENT_OPTIONS_BY_FIELD, INSTRUMENT_TYPE_OPTIONS, instrumentLabel } from '../../utils/instrumentCodes';
+import { cachedDateFormat } from '../../utils/dateFormat';
 
 const PAGE_SIZE_OPTIONS = [15, 50, 100, 200].map((value) => ({ value: String(value), label: `${value}개씩` }));
 const COLUMNS = [
   ['receiptdate', '수금/지급일', 100], ['transactiontype', '구분', 75], ['customname', '거래처', 100],
   ['cashamt', '현금', 90], ['instrumenttype', '수표/어음 종류', 90], ['instrumentno', '수표/어음 번호', 90],
   ['instrumentamt', '수표·어음', 95],
-  ['issuercompany', '발행회사', 100], ['issuekind', '발행구분', 90], ['maturitydate', '만기일', 80],
-  ['instrumentstatus', '어음처리상태', 90], ['processdate', '처리일', 90], ['discountfee', '할인료', 80], ['processmemo', '처리메모', 130],
+  ['issuercompany', '발행회사', 100], ['issuekind', '발행구분', 90], ['maturitydate', '만기일', 100],
+  ['instrumentstatus', '어음처리상태', 90], ['processdate', '처리일', 100], ['discountfee', '할인료', 80], ['processmemo', '처리메모', 130],
   ['bankamt', '은행예금', 70], ['cardamt', '카드', 70],
-  ['offsetamt', '상계', 70], ['lossamt', '잡손실', 70], ['chargeamt', '과금', 70], ['totalamt', '합계', 80],
-  ['detail_description', '비고', 130], ['receiptno', '전표번호', 110], ['lineno', '전표순번', 70],
-  ['linked_receiptno', '연결 전표', 115],
+  ['offsetamt', '상계', 70], ['lossamt', '잡손실', 70], ['chargeamt', '과금', 70], ['totalamt', '자금 합계', 80],
+  ['settleamt', '상계·잡손실', 85], ['ledgeramt', '전표 합계', 90],
+  ['detail_description', '비고', 130], ['receiptno', '전표번호', 160], ['lineno', '전표순번', 70],
+  ['linked_receiptno', '연결 전표', 160],
   ['created_at', '등록일자', 110], ['updated_at', '수정일자', 110],
   ['created_by', '등록자', 80], ['updated_by', '수정자', 80],
 ].map(([key, label, width]) => ({ key, label, width, minWidth: Math.min(width, 65) }));
-const NUMERIC_COLUMNS = new Set(['cashamt', 'instrumentamt', 'bankamt', 'cardamt', 'offsetamt', 'lossamt', 'chargeamt', 'totalamt', 'discountfee']);
+const NUMERIC_COLUMNS = new Set(['cashamt', 'instrumentamt', 'bankamt', 'cardamt', 'offsetamt', 'lossamt', 'chargeamt', 'totalamt', 'settleamt', 'ledgeramt', 'discountfee']);
 const DATE_COLUMNS = ['receiptdate', 'issuedate', 'maturitydate', 'processdate'];
 // 발행한 어음(지급·자수)은 처리 전 상태를 '출금 예정'(만기에 통장에서 나갈 돈)으로 보여 준다 (수금/지급 등록과 같음).
 const statusText = (item) => {
@@ -65,7 +68,7 @@ const displayDateTime = (value) => {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
+  const parts = cachedDateFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
   const get = (type) => parts.find((part) => part.type === type)?.value || '';
   return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
 };
@@ -103,12 +106,13 @@ const DetailRow = memo(function DetailRow({ item }) {
 });
 
 const periodText = (from, to) => (from || to ? `${from || '처음'} ~ ${to || '끝'}` : '전체 기간');
-function SummaryCard({ label, value, unit, icon: Icon, accent }) {
+function SummaryCard({ label, value, unit, icon: Icon, accent, note }) {
   return (
     <Paper className={`${classes.summaryCard} ${classes.summaryCardRow} ${accent}`} withBorder>
       <Box className={classes.summaryText}>
         <Text className={classes.summaryLabel}>{label}</Text>
         <Text className={classes.summaryValue} title={`${value} ${unit}`.trim()}>{value}{unit && <span className={classes.summaryUnit}>{unit}</span>}</Text>
+        {note && <Text size="xs" c="dimmed" title={note}>{note}</Text>}
       </Box>
       <span className={classes.summaryIcon}><Icon size={18} stroke={1.8} /></span>
     </Paper>
@@ -283,7 +287,7 @@ export default function ReceiptPaymentSearch() {
 
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+    <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
           <Text component="span" className={classes.breadcrumbParent}>수금·지급</Text>
@@ -296,15 +300,17 @@ export default function ReceiptPaymentSearch() {
       <Box className={classes.summaryGrid} aria-label="수금/지급 현황 요약">
         <SummaryCard label="수금/지급 전표 수" value={Number(summary.receipt_count || 0).toLocaleString()} unit="건" icon={IconReceipt} accent={classes.accentSlate} />
         <SummaryCard label="상세 건수" value={Number(summary.detail_count || 0).toLocaleString()} unit="건" icon={IconListDetails} accent={classes.accentBlue} />
-        <SummaryCard label="총 수금액" value={formatNumber(summary.receipt_total || 0)} unit="원" icon={IconArrowDownLeft} accent={classes.accentGreen} />
-        <SummaryCard label="총 지급액" value={formatNumber(summary.payment_total || 0)} unit="원" icon={IconArrowUpRight} accent={classes.accentOrange} />
+        <SummaryCard label="총 수금액 (자금)" value={formatNumber(summary.receipt_total || 0)} unit="원" icon={IconArrowDownLeft} accent={classes.accentGreen}
+          note={`상계·잡손실 ${formatNumber(summary.receipt_settle_total || 0)} · 전표 합계 ${formatNumber(Number(summary.receipt_total || 0) + Number(summary.receipt_settle_total || 0))}`} />
+        <SummaryCard label="총 지급액 (자금)" value={formatNumber(summary.payment_total || 0)} unit="원" icon={IconArrowUpRight} accent={classes.accentOrange}
+          note={`상계·잡손실 ${formatNumber(summary.payment_settle_total || 0)} · 전표 합계 ${formatNumber(Number(summary.payment_total || 0) + Number(summary.payment_settle_total || 0))}`} />
       </Box>
 
       <Box className={classes.inboundWorkspace}>
         <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder>
           <Group className={classes.resultsToolbar} justify="space-between" wrap="wrap">
-            <Box className={classes.toolbarTitle}><Text className={classes.sectionTitle} fw={700}>수금/지급 현황</Text><span className={classes.countBadge}>{total.toLocaleString()}건</span></Box>
-            <span className={classes.toolbarMeta} title="조회 기간 (수금/지급일)"><IconCalendar size={13} />{periodText(filters.date_from, filters.date_to)}</span>
+            <Box className={classes.toolbarTitle}><Text className={classes.sectionTitle} fw={700}>수금/지급 현황</Text><span className={classes.countBadge}>{total.toLocaleString()}건</span>
+              <span className={classes.toolbarMeta} title="조회 기간 (수금/지급일)"><IconCalendar size={13} />{periodText(filters.date_from, filters.date_to)}</span></Box>
           </Group>
           <Box className={classes.tableWrap}>
             {loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}

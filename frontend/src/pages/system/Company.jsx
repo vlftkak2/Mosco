@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { apiErrorMessage } from '../../utils/apiError';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import {
   Badge,
@@ -30,22 +31,26 @@ import {
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import { ColumnResizeHandle, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/Company.module.css';
+import { cachedDateFormat } from '../../utils/dateFormat';
 
 const PAGE_SIZE_OPTIONS = [15, 20, 50, 100].map((value) => ({ value: String(value), label: `${value}개씩` }));
 const DEFAULT_PAGE_SIZE = 15;
 let postcodeScriptPromise;
 const COMPANY_COLUMNS = [
-  { key: 'companyid', label: '고객사코드', width: '11%' },
-  { key: 'companyname', label: '고객사명', width: '17%' },
-  { key: 'plan_code', label: '서비스유형', width: '10%' },
-  { key: 'company_status', label: '이용상태', width: '10%' },
-  { key: 'licensed_seats', label: '허용계정', width: '8%' },
-  { key: 'createdat', label: '등록일자', width: '13%' },
-  { key: 'updatedat', label: '수정일자', width: '13%' },
-  { key: 'created_by', label: '등록자', width: '9%' },
-  { key: 'updated_by', label: '수정자', width: '9%' },
+  { key: 'companyid', label: '고객사코드', width: 90 },
+  { key: 'companyname', label: '고객사명', width: 150 },
+  { key: 'plan_code', label: '서비스유형', width: 90 },
+  { key: 'company_status', label: '이용상태', width: 90 },
+  { key: 'licensed_seats', label: '허용계정', width: 80 },
+  { key: 'createdat', label: '등록일자', width: 110 },
+  { key: 'updatedat', label: '수정일자', width: 110 },
+  { key: 'created_by', label: '등록자', width: 80 },
+  { key: 'updated_by', label: '수정자', width: 80 },
 ];
 const PLAN_OPTIONS = [
   { value: 'BASIC', label: '기본형' },
@@ -72,7 +77,7 @@ const loadPostcodeService = () => {
   if (!postcodeScriptPromise) {
     postcodeScriptPromise = new Promise((resolve, reject) => {
       const script = document.createElement('script');
-      script.src = 'https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
+      script.src = 'https://t1.kakaocdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
       script.onload = resolve;
       script.onerror = () => {
         postcodeScriptPromise = null;
@@ -90,7 +95,6 @@ const emptyCompany = () => ({
   businessno: '',
   ceoname: '',
   phone: '',
-  email: '',
   zipcode: '',
   address1: '',
   address2: '',
@@ -109,7 +113,6 @@ const normalizeCompany = (row = {}) => ({
   businessno: String(row.businessno ?? ''),
   ceoname: String(row.ceoname ?? ''),
   phone: String(row.phone ?? ''),
-  email: String(row.email ?? ''),
   zipcode: String(row.zipcode ?? ''),
   address1: String(row.address1 ?? ''),
   address2: String(row.address2 ?? ''),
@@ -122,7 +125,7 @@ const formatDateTime = (value) => {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat('ko-KR', {
+  return cachedDateFormat('ko-KR', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -136,16 +139,13 @@ const formatDate = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   const pad = (part) => String(part).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`; // 목록은 YYYY-MM-DD (시각은 마우스를 올리면 보임)
 };
 
-const errorMessage = (error, fallback) => {
-  const detail = error.response?.data?.detail;
-  if (Array.isArray(detail)) return detail.map((item) => item.msg).join(', ');
-  return detail || error.message || fallback;
-};
+const errorMessage = (error, fallback) => apiErrorMessage(error, fallback);
 
 export default function Company() {
+  const companyCols = useResizableColumns(COMPANY_COLUMNS); // 목록 열: 머리글 오른쪽 끝을 끌어 너비 조절
   const navigate = useNavigate();
   const [companies, setCompanies] = useState([]);
   const [selectedId, setSelectedId] = useState('');
@@ -162,6 +162,8 @@ export default function Company() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [addressOpen, setAddressOpen] = useState(false);
   const postcodeContainerRef = useRef(null);
   const selectedIdRef = useRef(selectedId);
@@ -295,7 +297,6 @@ export default function Company() {
         businessno: String(draft.businessno ?? '').trim(),
         ceoname: String(draft.ceoname ?? '').trim(),
         phone: String(draft.phone ?? '').trim(),
-        email: String(draft.email ?? '').trim(),
         zipcode: String(draft.zipcode ?? '').trim(),
         address1: String(draft.address1 ?? '').trim(),
         address2: String(draft.address2 ?? '').trim(),
@@ -328,10 +329,30 @@ export default function Company() {
     }
   }, [draft, isNew, loadCompanies, selectedId]);
 
+  // 삭제: 플랫폼 운영사(001)는 지울 수 없다. 업무 자료가 있는 고객사는 서버가 막고 '종료'를 안내한다.
+  const canDelete = !isNew && Boolean(selectedId) && selectedId !== '001' && !deleting;
+  const handleDelete = useCallback(async () => {
+    setDeleting(true);
+    try {
+      await axios.delete(`/api/companies/${encodeURIComponent(selectedId)}`, authConfig());
+      notifications.show({ title: '삭제 완료', message: `${draft.companyname || selectedId} 고객사를 삭제했습니다.`, color: 'teal' });
+      setDeleteOpen(false);
+      selectedIdRef.current = '';
+      setSelectedId('');
+      await loadCompanies();
+    } catch (error) {
+      setDeleteOpen(false);
+      notifications.show({ title: '삭제 실패', message: errorMessage(error, '고객사를 삭제하지 못했습니다.'), color: 'red', autoClose: 7000 });
+    } finally {
+      setDeleting(false);
+    }
+  }, [draft.companyname, loadCompanies, selectedId]);
+
   useErpPageRibbon({
     onSearch: handleSearch,
     onAdd: handleAdd,
     onSave: saving ? undefined : handleSave,
+    onDelete: canDelete ? () => setDeleteOpen(true) : undefined,
     showPrint: false,
     showExcel: false,
     useSaveColor: false,
@@ -349,7 +370,7 @@ export default function Company() {
   }, [draft.active_users, draft.licensed_seats]);
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+    <Box className={`${simpleTheme.simple} ${simpleTheme.noIcons} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
         <Text component="span" className={classes.breadcrumbParent}>고객사정보</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
@@ -411,13 +432,13 @@ export default function Company() {
             />
           </Group>
           <ScrollArea className={classes.tableWrap} type="auto">
-            <Table className={`${sharedClasses.table} ${classes.table}`} highlightOnHover>
+            <Table className={`${sharedClasses.table} ${classes.table}`} highlightOnHover style={{ width: `max(100%, ${companyCols.tableWidth}px)` }}>
               <colgroup>
-                {COMPANY_COLUMNS.map(({ key, width }) => <col key={key} style={{ width }} />)}
+                {COMPANY_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: companyCols.widthOf(column) }} />)}
               </colgroup>
               <Table.Thead>
                 <Table.Tr>
-                  {COMPANY_COLUMNS.map(({ key, label }) => <Table.Th key={key}>{label}</Table.Th>)}
+                  {COMPANY_COLUMNS.map((column) => <Table.Th key={column.key} className={pickerClasses.resizableHead}>{column.label}<ColumnResizeHandle column={column} columns={companyCols} /></Table.Th>)}
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -430,8 +451,8 @@ export default function Company() {
                     </Table.Td>
                     <Table.Td><Badge size="sm" variant="light" color={company.company_status === 'ACTIVE' ? 'teal' : company.company_status === 'SUSPENDED' ? 'orange' : 'gray'}>{STATUS_LABEL[company.company_status] || company.company_status}</Badge></Table.Td>
                     <Table.Td>{Number(company.licensed_seats || 0).toLocaleString('ko-KR')}</Table.Td>
-                    <Table.Td className={classes.mutedCell} title={formatDate(company.createdat)}>{formatDate(company.createdat)}</Table.Td>
-                    <Table.Td className={classes.mutedCell} title={formatDate(company.updatedat)}>{formatDate(company.updatedat)}</Table.Td>
+                    <Table.Td className={classes.mutedCell} title={formatDateTime(company.createdat)}>{formatDate(company.createdat)}</Table.Td>
+                    <Table.Td className={classes.mutedCell} title={formatDateTime(company.updatedat)}>{formatDate(company.updatedat)}</Table.Td>
                     <Table.Td title={company.created_by_name || company.created_by || ''}>{company.created_by_name || company.created_by || ''}</Table.Td>
                     <Table.Td title={company.updated_by_name || company.updated_by || ''}>{company.updated_by_name || company.updated_by || ''}</Table.Td>
                   </Table.Tr>
@@ -479,8 +500,8 @@ export default function Company() {
             {!isNew && selectedId && (
               <Button
                 size="xs"
-                variant="light"
-                color="red"
+                variant="default"
+                className={classes.softButton}
                 leftSection={<IconUsers size={14} />}
                 onClick={() => navigate('/User', { state: { companyid: selectedId } })}
               >
@@ -498,7 +519,6 @@ export default function Company() {
                   <TextInput label="사업자번호" value={draft.businessno} onChange={(event) => updateDraft('businessno', event.currentTarget.value)} maxLength={20} />
                   <TextInput label="대표자명" value={draft.ceoname} onChange={(event) => updateDraft('ceoname', event.currentTarget.value)} maxLength={100} />
                   <TextInput label="전화번호" value={draft.phone} onChange={(event) => updateDraft('phone', event.currentTarget.value)} maxLength={30} />
-                  <TextInput label="이메일" value={draft.email} onChange={(event) => updateDraft('email', event.currentTarget.value)} maxLength={255} />
                 </div>
               </section>
 
@@ -538,7 +558,7 @@ export default function Company() {
                       onChange={(event) => updateDraft('address1', event.currentTarget.value)}
                       style={{ flex: 1 }}
                     />
-                    <Button variant="light" onClick={() => setAddressOpen(true)}>주소 검색</Button>
+                    <Button variant="default" className={`${classes.softButton} ${classes.addressSearchButton}`} onClick={() => setAddressOpen(true)}>주소 검색</Button>
                   </Group>
                   <TextInput className={classes.fullWidth} label="상세주소" value={draft.address2} onChange={(event) => updateDraft('address2', event.currentTarget.value)} maxLength={300} />
                 </div>
@@ -569,6 +589,9 @@ export default function Company() {
         <Box ref={postcodeContainerRef} h={520} w="100%" />
       </Modal>
 
+      <ConfirmDeleteModal opened={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={handleDelete} loading={deleting}
+        title="고객사를 삭제할까요?" target={`${selectedId} ${draft.companyname || ''}`.trim()}
+        message="고객사와 소속 계정 · 메뉴권한이 모두 삭제되며" note="업무 자료가 있는 고객사는 삭제되지 않습니다." />
     </Box>
   );
 }

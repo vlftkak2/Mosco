@@ -12,10 +12,11 @@ import {
   Bar, BarChart, Cell, CartesianGrid, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import ErpDateInput from '../../components/common/ErpDateInput';
-import { DashboardHeader, FilterBox, KPI_PALETTE, KpiCard, KpiGrid, PillNote, SubSep, TrendPill } from '../../components/common/DashboardKit';
+import { DashboardHeader, FilterBox, KPI_PALETTE, KpiCard, KpiGrid, PillNote, TrendPill } from '../../components/common/DashboardKit';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import searchClasses from '../../styles/pages/InboundSearch.module.css';
 import classes from '../../styles/pages/CustomerBalanceDashboard.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
@@ -305,17 +306,13 @@ export default function CustomerBalanceDashboard() {
     if (!data) return null;
     const trend = data.trend || [];
     const prev = trend.length >= 2 ? trend[trend.length - 2] : null;
-    const recvSeries = trend.map((row) => toNumber(row.recv_balance));
-    const paySeries = trend.map((row) => toNumber(row.pay_balance));
-    const netSeries = trend.map((row) => toNumber(row.recv_balance) - toNumber(row.pay_balance));
     const rate = (row) => (toNumber(row.sales) > 0 ? (toNumber(row.receipt) / toNumber(row.sales)) * 100 : null);
-    const rateSeries = trend.map((row) => rate(row) ?? 0);
     const monthRate = toNumber(data.summary.month_sales) > 0 ? (toNumber(data.summary.month_receipt) / toNumber(data.summary.month_sales)) * 100 : null;
     return {
       prevRecv: prev ? toNumber(prev.recv_balance) : null, prevPay: prev ? toNumber(prev.pay_balance) : null,
       prevNet: prev ? toNumber(prev.recv_balance) - toNumber(prev.pay_balance) : null, prevRate: prev ? rate(prev) : null,
-      recvSeries, paySeries, netSeries, rateSeries, monthRate,
-      paymentSeries: trend.map((row) => toNumber(row.payment)), prevPayment: prev ? toNumber(prev.payment) : null,
+      monthRate,
+      prevPayment: prev ? toNumber(prev.payment) : null,
       peakRecv: trend.reduce((best, row) => (toNumber(row.recv_balance) > best.value ? { value: toNumber(row.recv_balance), month: row.month } : best), { value: 0, month: '' }),
       avgRate: (() => {
         const salesSum = trend.reduce((sum, row) => sum + toNumber(row.sales), 0);
@@ -330,10 +327,8 @@ export default function CustomerBalanceDashboard() {
   const summary = data?.summary;
   const net = toNumber(summary?.net);
   return (
-    <Box className={`${sharedClasses.pageShell} ${searchClasses.page} ${classes.page}`}>
-      <DashboardHeader parent="자금관리" title="거래처 잔액 현황" subtitle={<>
-        기준일까지의 전표로 계산 · 거래처원장과 같은 기준{data?.ledgerstartdate ? ` · 원장 시작일 ${dateText(data.ledgerstartdate)}` : ''}<SubSep />거래처를 누르면 거래처원장이 열립니다
-      </>}>
+    <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${searchClasses.page} ${classes.page}`}>
+      <DashboardHeader parent="자금관리" title="거래처 잔액 현황">
         <FilterBox label="기준일" onSearch={search} loading={loading}>
           <ErpDateInput aria-label="기준일" type="date" value={asOfInput} onChange={(event) => setAsOfInput(event.currentTarget.value)} />
         </FilterBox>
@@ -343,23 +338,18 @@ export default function CustomerBalanceDashboard() {
         {summary && derived ? <KpiGrid count={5}>
           <KpiCard palette={KPI_PALETTE.blue} icon={IconCoins} label="미수금" basis="기준일 · 받을 금액" value={Math.round(toNumber(summary.receivable)).toLocaleString('ko-KR')}
             trend={<TrendPill mode="diff" current={summary.receivable} previous={derived.prevRecv} goodWhenUp={false} format={compact} unit="원" note="전월말 대비" emptyText="전월말 비교 없음" />}
-            bars={derived.recvSeries}
             stats={[{ label: '남은 거래처', value: `${summary.receivable_customers}곳` }, { label: '30일 넘은 미수금', value: derived.late > 0 ? `${compact(derived.late)}원` : '없음', warn: derived.late > 0 }]} />
           <KpiCard palette={KPI_PALETTE.orange} icon={IconReceipt} label="미지급금" basis="기준일 · 줄 금액" value={Math.round(toNumber(summary.payable)).toLocaleString('ko-KR')}
             trend={<TrendPill mode="diff" current={summary.payable} previous={derived.prevPay} neutral format={compact} unit="원" note="전월말 대비" emptyText="전월말 비교 없음" />}
-            bars={derived.paySeries}
             stats={[{ label: '남은 거래처', value: `${summary.payable_customers}곳` }, { label: '선급금 거래처', value: derived.prepaid ? `${derived.prepaid}곳` : '없음', warn: derived.prepaid > 0 }]} />
           <KpiCard palette={KPI_PALETTE.slate} icon={IconScale} label="순잔액" basis="미수금 − 미지급금" value={Math.round(net).toLocaleString('ko-KR')} negative={net < 0}
             trend={<TrendPill mode="diff" current={net} previous={derived.prevNet} format={compact} unit="원" note="전월말 대비" emptyText="전월말 비교 없음" />}
-            bars={derived.netSeries}
             stats={[{ label: '상태', value: net < 0 ? '미지급금이 더 많음' : '미수금이 더 많음', warn: net < 0, good: net >= 0 }, { label: '전월말', value: derived.prevNet === null ? '–' : `${compact(derived.prevNet)}원` }]} />
           <KpiCard palette={KPI_PALETTE.green} icon={IconPercentage} label="이번 달 회수율" basis="수금 ÷ 매출" value={derived.monthRate === null ? '–' : derived.monthRate.toFixed(1)} unit={derived.monthRate === null ? '' : '%'}
             trend={derived.monthRate === null ? <PillNote>이번 달 매출 없음</PillNote> : <TrendPill mode="point" current={derived.monthRate} previous={derived.prevRate} />}
-            bars={derived.rateSeries}
             stats={[{ label: '이번 달 수금', value: `${compact(summary.month_receipt)}원` }, { label: '이번 달 매출', value: `${compact(summary.month_sales)}원` }]} />
           <KpiCard palette={KPI_PALETTE.amber} icon={IconCash} label="이번 달 지급" basis="지급 전표 합계" value={Math.round(toNumber(summary.month_payment)).toLocaleString('ko-KR')}
             trend={<TrendPill current={summary.month_payment} previous={derived.prevPayment} neutral />}
-            bars={derived.paymentSeries}
             stats={[{ label: '이번 달 매입', value: `${compact(summary.month_purchase)}원` }, { label: '지급 ÷ 매입', value: toNumber(summary.month_purchase) > 0 ? pct((toNumber(summary.month_payment) / toNumber(summary.month_purchase)) * 100) : '–' }]} />
         </KpiGrid> : <Empty loading={loading} />}
 

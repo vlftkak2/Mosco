@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Group, Loader, Modal, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconCheck, IconFileInvoice, IconPencil, IconPrinter, IconRestore, IconTruckDelivery, IconX } from '@tabler/icons-react';
-import bar from './OutboundPrintDocument.module.css';
+import bar from '../../styles/pages/OutboundPrintDocument.module.css';
 
 // 매출등록 > 거래명세서 / 송장 출력.
 // - 출력할 때마다 서버에서 저장된 전표를 다시 읽는다 (화면에서 고치고 저장하지 않은 값은 출력되지 않는다).

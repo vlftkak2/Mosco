@@ -51,3 +51,7 @@
 @media (max-width: 1200px) {
   .cardGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+
+/* 간결 디자인에서 표 글자를 키우면 매출일자 칸이 잘려서, 이 화면 표만 반 단계 작게 */
+.page.page table tbody td, .page.page table tfoot td { font-size: 12.5px !important; letter-spacing: -.1px; }
+

@@ -3,10 +3,7 @@ import axios from 'axios';
 import { usePageActivation } from '../../components/common/usePageReactivated';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { SelectPickerModal } from '../../components/common/PickerModal';
-import {
-  ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper, Popover,
-  Select, Stack, Table, Text, TextInput,
-} from '@mantine/core';
+import { ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Popover, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconBox, IconBuildingStore, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconListDetails,
@@ -16,12 +13,15 @@ import { TableVirtuoso } from 'react-virtuoso';
 import XLSX from 'xlsx-js-style';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
 import classes from '../../styles/pages/OutboundRegister.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import OutboundStockPickerModal from './OutboundStockPickerModal';
 import OutboundPrintDocument from './OutboundPrintDocument';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
+import { cachedDateFormat } from '../../utils/dateFormat';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' }, { value: '50', label: '50개씩' },
@@ -71,7 +71,7 @@ const DETAIL_FIELDS = [
   { key: 'sourcecustomname', label: '매입처', width: 100 },
   { key: 'receiptdate', label: '재고입고일자', width: 100 },
   { key: 'sourcetype', label: '재고구분', width: 90 },
-  { key: 'stocksourceno', label: '원천전표', width: 110 },
+  { key: 'stocksourceno', label: '원천전표', width: 160 },
   { key: 'stocksourceline', label: '원천순번', width: 90 },
 ];
 const RECEIPT_COLUMNS = [
@@ -87,7 +87,7 @@ const RECEIPT_COLUMNS = [
   { key: 'other_cost_amount', label: '기타비용', width: 110, minWidth: 110, align: 'right' },
   { key: 'qtyunit', label: '수량단위', width: 80, minWidth: 80 },
   { key: 'unit', label: '단가기준', width: 80, minWidth: 80 },
-  { key: 'receiptno', label: '출고전표', width: 110, minWidth: 110 },
+  { key: 'receiptno', label: '출고전표', width: 160, minWidth: 140 },
   { key: 'description', label: '비고', width: 175, minWidth: 175 },
 ];
 const fitReceiptColumnWidth = (label, values, baseWidth, minWidth, maxWidth = 420) => {
@@ -463,7 +463,7 @@ const formatExcelDateTime = (value) => {
   if (!value) return '';
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return String(value);
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  const parts = cachedDateFormat('en-CA', {
     timeZone: 'Asia/Seoul',
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
@@ -965,11 +965,44 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
 const VirtualRow = ({ item, context, className, ...props }) => (
   <Table.Tr {...props} className={[className, item?.is_new && codeClasses.newRow, item?.is_new && classes.newRow, context?.selectedSet?.has(item?.id) && classes.selectedRow].filter(Boolean).join(' ')} />
 );
+// 상세 표 맨 아래 고정 소계 줄 (매출·입고등록 공용). columns 앞 두 칸(선택·No.)을 합쳐 '소계'를 쓰고,
+// values[column.key]가 있는 칸만 숫자를 오른쪽 정렬로 채운다.
+export const DetailSubtotalRow = ({ columns, values }) => <Table.Tr>
+  <Table.Td colSpan={2} className={inboundClasses.detailSubtotalCell}>소계</Table.Td>
+  {columns.slice(2).map((column) => <Table.Td key={column.key} className={`${inboundClasses.detailSubtotalCell} ${values[column.key] != null ? inboundClasses.detailSubtotalNumber : ''}`}>{values[column.key] ?? ''}</Table.Td>)}
+</Table.Tr>;
+export const DetailSubtotalFoot = (props) => <Table.Tfoot {...props} className={inboundClasses.detailSubtotalFoot} />;
+// 행이 적어도 상세 영역 맨 아래에 붙는 소계 표 (출고 기본 소계 줄과 같은 위치). 본 표와 같은 스크롤 영역 안에 두어 가로 스크롤이 함께 움직인다.
+export const DetailSubtotalTable = ({ columns, widths = {}, values, minWidth = 'var(--code-table-min-width)' }) => <Table className={inboundClasses.detailSubtotalTable} withTableBorder withColumnBorders horizontalSpacing={0}
+  style={{ width: '100%', minWidth, tableLayout: 'fixed' }}>
+  <colgroup>{columns.map((column) => <col key={column.key} style={{ width: widths[column.key] ?? column.width }} />)}</colgroup>
+  <Table.Tbody><DetailSubtotalRow columns={columns} values={values} /></Table.Tbody>
+</Table>;
+export const detailSubtotalValues = (totals) => ({
+  qty: totals.qty.toLocaleString(undefined, { maximumFractionDigits: 3 }),
+  weight: totals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 }),
+  supplyamt: formatWon(totals.amount.toFixed(2)),
+  vat: formatWon(totals.vat.toFixed(2)),
+  unitamt: formatWon(totals.total.toFixed(2)),
+});
+
+// 기타비용 표 소계 줄의 열 (표 머리글 너비와 같게, 비고 칸은 남는 너비)
+export const expenseSubtotalColumns = (withCostFlag) => [
+  { key: 'select', width: 42 }, { key: 'number', width: 52 }, { key: 'costcode', width: 160 },
+  { key: 'supplyamt', width: 145 }, { key: 'vat', width: 135 }, { key: 'total', width: 145 }, { key: 'customcode', width: 190 },
+  ...(withCostFlag ? [{ key: 'costyn', width: 105 }] : []), { key: 'description' },
+];
+export const expenseSubtotalValues = (totals) => ({
+  supplyamt: formatWon(String(totals.supply)), vat: formatWon(String(totals.vat)), total: formatWon(String(totals.total)),
+});
+const OUTBOUND_EXPENSE_SUBTOTAL_COLUMNS = expenseSubtotalColumns(true);
+
 const virtuosoComponents = {
   Table: ({ style, ...props }) => <Table {...props} className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0} style={{ ...style, width: '100%', tableLayout: 'fixed' }} />,
   TableHead: Table.Thead,
   TableBody: Table.Tbody,
   TableRow: VirtualRow,
+  TableFoot: DetailSubtotalFoot,
 };
 
 // Mantine <Table> hands a fresh context value to every Table.Td/Th whenever it re-renders,
@@ -1106,12 +1139,14 @@ export default function OutboundRegisterPage() {
   const detailTotals = useMemo(() => rows.reduce((totals, row) => {
     const amount = Number(amountOf(row, unitOptions.price)) || 0;
     const vat = Number(vatAmountOf(row, unitOptions.price)) || 0;
+    totals.qty += Number(cleanNumericInput(row.qty)) || 0;
     totals.weight += Number(cleanNumericInput(row.weight)) || 0;
     totals.amount += amount;
     totals.vat += vat;
     totals.total += amount + vat;
     return totals;
-  }, { weight: 0, amount: 0, vat: 0, total: 0 }), [rows, unitOptions.price]);
+  }, { qty: 0, weight: 0, amount: 0, vat: 0, total: 0 }), [rows, unitOptions.price]);
+  const detailSubtotals = useMemo(() => detailSubtotalValues(detailTotals), [detailTotals]);
   const quantitySummary = useMemo(() => {
     if (!rows.length) return '0';
     const totals = new Map();
@@ -2428,7 +2463,7 @@ export default function OutboundRegisterPage() {
   </>), [customerPickerOpen, selectCustomer, expenseCostPickerId, expenseOptions, changeExpense, stockPickerOpen, selectedReceiptno, rows, applyAvailableStocks, itemPickerTargetId, selectItem, masterPickerTarget, unitOptions, selectMasterOption]);
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+    <Box className={`${sharedClasses.pageShell} ${classes.page} ${simpleTheme.simple}`}>
       <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
         <Group className={inboundClasses.breadcrumbTrail} gap={7}>
           <Text component="span" className={inboundClasses.breadcrumbParent}>매출관리</Text>
@@ -2493,13 +2528,14 @@ export default function OutboundRegisterPage() {
           {detailTab === 'details' && <>
           <Box ref={detailScrollerRef} className={`${codeClasses.tableWrap} ${(rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? classes.savedDetailScroller : ''} ${!detailLoading && !rows.length ? inboundClasses.emptyDetailWrap : ''}`} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
             {detailLoading ? <Box className={classes.receiptLoading}><Loader size="sm" color="red" /></Box> : rows.length ? (
-              (rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? <>
+              (rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? <Box className={inboundClasses.detailFillWrap}>
                 <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
                   style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
                   <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
                   <Table.Tbody>{rows.map((row, index) => <Table.Tr key={row.id} className={[row.is_new && classes.newRow, selectedSet.has(row.id) && classes.selectedRow].filter(Boolean).join(' ')}>{rowContent(index, row)}</Table.Tr>)}</Table.Tbody>
                 </Table>
-              </> : <TableVirtuoso ref={virtuosoRef} data={rows} context={virtuosoContext} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} increaseViewportBy={{ top: 84, bottom: 84 }} fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>} itemContent={rowContent} />
+                <DetailSubtotalTable columns={headerColumns} widths={columnWidths} values={detailSubtotals} />
+              </Box> : <TableVirtuoso ref={virtuosoRef} data={rows} context={virtuosoContext} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} increaseViewportBy={{ top: 84, bottom: 84 }} fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>} fixedFooterContent={() => <DetailSubtotalRow columns={headerColumns} values={detailSubtotals} />} itemContent={rowContent} />
             ) : (
               <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
                 style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
@@ -2523,7 +2559,10 @@ export default function OutboundRegisterPage() {
             </>}
           {detailTab === 'expenses' && <Box className={classes.expenseTabPanel}>
               <Box ref={expenseTableScrollerRef} className={`${codeClasses.tableWrap} ${classes.expenseTableWrap} ${expenses.length <= 100 ? classes.savedDetailScroller : ''} ${!expenses.length ? inboundClasses.emptyDetailWrap : ''}`}>
-                <ExpenseRowsContext.Provider value={expenseRowsValue}>{expenseTable}</ExpenseRowsContext.Provider>
+                <Box className={inboundClasses.detailFillWrap}>
+                  <ExpenseRowsContext.Provider value={expenseRowsValue}>{expenseTable}</ExpenseRowsContext.Provider>
+                  {expenses.length > 0 && <DetailSubtotalTable columns={OUTBOUND_EXPENSE_SUBTOTAL_COLUMNS} values={expenseSubtotalValues(expenseTotals)} minWidth={1120} />}
+                </Box>
                 {!expenses.length && <Box className={inboundClasses.emptyDetailMessage}>등록된 기타비용이 없습니다.</Box>}
               </Box>
               <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="flex-end" wrap="wrap">
@@ -2543,12 +2582,8 @@ export default function OutboundRegisterPage() {
 
 
 
-      <Modal opened={deleteOpen} onClose={() => !saving && setDeleteOpen(false)} title="출고전표 삭제" centered size="sm">
-        <Stack gap="md">
-          <Text size="sm" c="dimmed">{selectedReceiptno} 전표와 상세 내역을 삭제합니다. 삭제한 전표는 복구할 수 없습니다.</Text>
-          <Group justify="flex-end"><Button variant="default" onClick={() => setDeleteOpen(false)} disabled={saving}>취소</Button><Button color="red" leftSection={<IconTrash size={15} />} onClick={requestDeleteReceipt} loading={saving}>삭제</Button></Group>
-        </Stack>
-      </Modal>
+      <ConfirmDeleteModal opened={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={requestDeleteReceipt} loading={saving}
+        title="출고전표를 삭제할까요?" target={selectedReceiptno} message="전표와 상세 내역이 모두 삭제되며" note="삭제한 전표는 복구할 수 없습니다." />
 
 
       {pickerModals}

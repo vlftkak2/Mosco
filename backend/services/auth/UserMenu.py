@@ -1,4 +1,3 @@
-import psycopg2
 import db as _shared_db
 from psycopg2.extras import RealDictCursor, execute_values
 from pydantic import BaseModel, Field, field_validator
@@ -74,7 +73,8 @@ def list_manageable_users(companyid: str, is_master: bool):
         if not company:
             raise LookupError("고객사를 찾을 수 없습니다.")
 
-        allowed_roles = ("USER", "SUBMASTER") if is_master else ("USER",)
+        # 플랫폼 관리자 · 고객사 관리자 모두 고객사 계정(USER · SUBMASTER, 자기 포함)의 메뉴를 정한다. 회사 범위는 라우트에서 제한한다.
+        allowed_roles = ("USER", "SUBMASTER")
         cursor.execute(
             """SELECT companyid, username, email, team,
                       UPPER(COALESCE(authority, 'USER')) AS authority,
@@ -100,7 +100,7 @@ def _get_target_user(cursor, companyid: str, useremail: str, is_master: bool):
     target = cursor.fetchone()
     if not target:
         raise LookupError("사용자 계정을 찾을 수 없습니다.")
-    allowed_roles = {"USER", "SUBMASTER"} if is_master else {"USER"}
+    allowed_roles = {"USER", "SUBMASTER"}
     if target["authority"] not in allowed_roles:
         raise PermissionError("해당 계정의 메뉴 권한을 관리할 수 없습니다.")
     return target

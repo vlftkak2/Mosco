@@ -3,9 +3,7 @@ import axios from 'axios';
 import { usePageActivation } from '../../components/common/usePageReactivated';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { SelectPickerModal } from '../../components/common/PickerModal';
-import {
-  ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination, Paper, Popover, Select, Stack, Table, Text, TextInput,
-} from '@mantine/core';
+import { ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Popover, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus,
@@ -15,12 +13,17 @@ import { TableVirtuoso } from 'react-virtuoso';
 import XLSX from 'xlsx-js-style';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
 import classes from '../../styles/pages/InboundRegister.module.css';
 import itemMasterClasses from '../../styles/pages/ItemMaster.module.css';
 import outboundClasses from '../../styles/pages/OutboundRegister.module.css';
-import { makeExpense, ExpenseCostAutocompleteCell, ExpenseCustomerAutocompleteCell, ExpenseNumericCell, ExpenseDescriptionCell } from '../outbound/OutboundRegisterPage';
+import { makeExpense, ExpenseCostAutocompleteCell, ExpenseCustomerAutocompleteCell, ExpenseNumericCell, ExpenseDescriptionCell, DetailSubtotalRow, DetailSubtotalFoot, DetailSubtotalTable, detailSubtotalValues, expenseSubtotalColumns, expenseSubtotalValues } from '../outbound/OutboundRegisterPage';
+
+const INBOUND_EXPENSE_SUBTOTAL_COLUMNS = expenseSubtotalColumns(false);
 import { PageRibbonContext } from '../../components/layout/MainLayout';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
+import { cachedDateFormat } from '../../utils/dateFormat';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' },
@@ -148,7 +151,7 @@ const RECEIPT_COLUMNS = [
   { key: 'other_cost_amount', label: '기타비용', width: 100, minWidth: 80, align: 'right' },
   { key: 'qtyunit', label: '수량단위', width: 80, minWidth: 80 },
   { key: 'unit', label: '단가기준', width: 80, minWidth: 80 },
-  { key: 'receiptno', label: '입고전표', width: 110, minWidth: 110 },
+  { key: 'receiptno', label: '입고전표', width: 160, minWidth: 140 },
   { key: 'description', label: '비고', width: 175, minWidth: 110 },
 ];
 const NAVIGABLE_FIELDS = DETAIL_FIELDS.map(({ key }) => key);
@@ -257,7 +260,7 @@ const formatExcelDateTime = (value) => {
   if (!value) return '';
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return String(value);
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  const parts = cachedDateFormat('en-CA', {
     timeZone: 'Asia/Seoul',
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
@@ -1204,6 +1207,20 @@ const InboundDetailRow = memo(function InboundDetailRow({ row, index, renderCell
 const DetailRowsContext = createContext([]);
 const ExpenseRowsContext = createContext({ expenses: [], selectedExpenseSet: new Set() });
 
+// 상세 표 맨 아래 고정 소계 줄. 행 입력이 끊기지 않도록 하단 합계와 같이 지연값으로 계산한다.
+const InboundDetailSubtotalRow = memo(function InboundDetailSubtotalRow({ columns, unitOptions }) {
+  const summaryRows = useDeferredValue(useContext(DetailRowsContext));
+  const values = useMemo(() => detailSubtotalValues(summaryRows.reduce((totals, row) => {
+    totals.qty += Number(cleanNumericInput(row.qty)) || 0;
+    totals.weight += Number(cleanNumericInput(row.weight)) || 0;
+    totals.amount += Number(amountOf(row, unitOptions.price)) || 0;
+    totals.vat += Number(vatOf(row, unitOptions.price)) || 0;
+    totals.total += Number(totalAmountOf(row, unitOptions.price)) || 0;
+    return totals;
+  }, { qty: 0, weight: 0, amount: 0, vat: 0, total: 0 })), [summaryRows, unitOptions.price]);
+  return <DetailSubtotalRow columns={columns} values={values} />;
+});
+
 const InboundDetailTableRows = memo(function InboundDetailTableRows({ renderCells }) {
   const rows = useContext(DetailRowsContext);
   return rows.map((row, index) => <InboundDetailRow key={row.id} row={row} index={index} renderCells={renderCells} />);
@@ -1255,6 +1272,7 @@ const virtuosoComponents = {
   TableHead: Table.Thead,
   TableBody: Table.Tbody,
   TableRow: VirtualRow,
+  TableFoot: DetailSubtotalFoot,
 };
 
 export default function InboundRegisterPage() {
@@ -1270,7 +1288,6 @@ export default function InboundRegisterPage() {
   const [filters, setFilters] = useState(createDefaultReceiptFilters);
   const [filterOpen, setFilterOpen] = useState(true);
   const [header, setHeader] = useState(EMPTY_HEADER);
-  const [receiptMetadata, setReceiptMetadata] = useState({ companyid: '', companyname: '', created_at: '', updated_at: '' });
   const [rows, setRows] = useState([]);
   const detailRowsRef = useRef(rows);
   useLayoutEffect(() => { detailRowsRef.current = rows; }, [rows]);
@@ -1327,7 +1344,6 @@ export default function InboundRegisterPage() {
     totals.total += (Number(cleanNumericInput(row.supplyamt)) || 0) + (Number(cleanNumericInput(row.vat)) || 0);
     return totals;
   }, { supply: 0, vat: 0, total: 0 }), [expenses]);
-  const hasPendingExpenses = useMemo(() => expenses.some((row) => row.is_new || row.is_dirty), [expenses]);
   const receiptAutoWidths = useMemo(
     () => Object.fromEntries(RECEIPT_COLUMNS.map((column) => [column.key, column.width])),
     [],
@@ -1697,12 +1713,6 @@ export default function InboundRegisterPage() {
         manager: receipt.manager || '',
         description: receipt.description || receipt.items?.[0]?.description || '',
       });
-      setReceiptMetadata({
-        companyid: receipt.companyid || '',
-        companyname: receipt.companyname || '',
-        created_at: receipt.created_at || '',
-        updated_at: receipt.updated_at || '',
-      });
       setRows((receipt.items || []).map((item) => {
         const detail = { ...item };
         delete detail.manager;
@@ -1757,7 +1767,6 @@ export default function InboundRegisterPage() {
       setDetailLoading(false);
     }
     setHeader({ ...EMPTY_HEADER, receptdate: localDate() });
-    setReceiptMetadata({ companyid: '', companyname: '', created_at: '', updated_at: '' });
     setRows([]);
     setExpenses([]);
     setSelectedExpenseIds([]);
@@ -2543,7 +2552,6 @@ export default function InboundRegisterPage() {
       notifications.show({ title: '입고 삭제 완료', message: `${selectedReceiptno} 전표를 삭제했습니다.`, color: 'teal' });
       setDeleteOpen(false);
       setHeader({ ...EMPTY_HEADER, receptdate: localDate() });
-      setReceiptMetadata({ companyid: '', companyname: '', created_at: '', updated_at: '' });
       setRows([]); setExpenses([]); setSelectedExpenseIds([]); expenseSelectionAnchorRef.current = '';
       setSelectedReceiptno(''); setSubulyn('N'); setDocumentDirty(false); setDetailTab('details');
       await loadReceipts(page, filters);
@@ -2643,12 +2651,19 @@ export default function InboundRegisterPage() {
     </Table.Tr></Table.Thead>
   ), [saving, readOnly, allExpensesSelected, toggleAllExpenses]);
   const detailTable = useMemo(() => (
-    <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
-      style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
-      <Table.Thead>{detailHeaderRow}</Table.Thead>
-      <Table.Tbody><InboundDetailTableRows renderCells={rowContent} /></Table.Tbody>
-    </Table>
-  ), [detailHeaderRow, rowContent]);
+    <Box className={classes.detailFillWrap}>
+      <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
+        style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
+        <Table.Thead>{detailHeaderRow}</Table.Thead>
+        <Table.Tbody><InboundDetailTableRows renderCells={rowContent} /></Table.Tbody>
+      </Table>
+      <Table className={classes.detailSubtotalTable} withTableBorder withColumnBorders horizontalSpacing={0}
+        style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
+        <colgroup>{headerColumns.map((column) => <col key={column.key} style={{ width: columnWidths[column.key] ?? column.width }} />)}</colgroup>
+        <Table.Tbody><InboundDetailSubtotalRow columns={headerColumns} unitOptions={unitOptions} /></Table.Tbody>
+      </Table>
+    </Box>
+  ), [detailHeaderRow, rowContent, headerColumns, columnWidths, unitOptions]);
   const expenseRowsValue = useMemo(() => ({ expenses, selectedExpenseSet }), [expenses, selectedExpenseSet]);
   const expenseTable = useMemo(() => (
     <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} withTableBorder withColumnBorders horizontalSpacing="xs" verticalSpacing="xs"
@@ -2775,7 +2790,7 @@ export default function InboundRegisterPage() {
   ), [filterInputs, runSearch]);
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+    <Box className={`${sharedClasses.pageShell} ${classes.page} ${simpleTheme.simple}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
           <Text component="span" className={classes.breadcrumbParent}>매입관리</Text>
@@ -2822,7 +2837,7 @@ export default function InboundRegisterPage() {
             {detailLoading ? <Box className={classes.receiptLoading}><Loader size="sm" color="red" /></Box> : rows.length ? (
               (rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? <>
                 <DetailRowsContext.Provider value={rows}>{detailTable}</DetailRowsContext.Provider>
-              </> : <TableVirtuoso ref={virtuosoRef} data={rows} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} increaseViewportBy={{ top: 84, bottom: 84 }} fixedHeaderContent={renderDetailHeaderRow} itemContent={rowContent} />
+              </> : <DetailRowsContext.Provider value={rows}><TableVirtuoso ref={virtuosoRef} data={rows} style={{ height: '100%' }} components={virtuosoComponents} computeItemKey={(_index, row) => row.id} increaseViewportBy={{ top: 84, bottom: 84 }} fixedHeaderContent={renderDetailHeaderRow} fixedFooterContent={() => <InboundDetailSubtotalRow columns={headerColumns} unitOptions={unitOptions} />} itemContent={rowContent} /></DetailRowsContext.Provider>
             ) : (
               <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
                 style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
@@ -2839,7 +2854,10 @@ export default function InboundRegisterPage() {
           </>}
           {detailTab === 'expenses' && <Box className={outboundClasses.expenseTabPanel}>
             <Box className={`${codeClasses.tableWrap} ${outboundClasses.expenseTableWrap} ${expenses.length <= 100 ? classes.savedDetailScroller : ''} ${!expenses.length ? classes.emptyDetailWrap : ''}`}>
-              <ExpenseRowsContext.Provider value={expenseRowsValue}>{expenseTable}</ExpenseRowsContext.Provider>
+              <Box className={classes.detailFillWrap}>
+                <ExpenseRowsContext.Provider value={expenseRowsValue}>{expenseTable}</ExpenseRowsContext.Provider>
+                {expenses.length > 0 && <DetailSubtotalTable columns={INBOUND_EXPENSE_SUBTOTAL_COLUMNS} values={expenseSubtotalValues(expenseTotals)} minWidth={1120} />}
+              </Box>
               {!expenses.length && <Box className={classes.emptyDetailMessage}>등록된 기타비용이 없습니다.</Box>}
             </Box>
             <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="flex-end" wrap="wrap">
@@ -2853,12 +2871,8 @@ export default function InboundRegisterPage() {
         {filterOpen && filterSidebar}
       </Box>
 
-      <Modal opened={deleteOpen} onClose={() => !saving && setDeleteOpen(false)} title="입고전표 삭제" centered size="sm">
-        <Stack gap="md">
-          <Text size="sm" c="dimmed">{selectedReceiptno} 전표와 상세 내역을 삭제합니다. 삭제한 전표는 복구할 수 없습니다.</Text>
-          <Group justify="flex-end"><Button variant="default" onClick={() => setDeleteOpen(false)} disabled={saving}>취소</Button><Button color="red" leftSection={<IconTrash size={15} />} onClick={requestDeleteReceipt} loading={saving}>삭제</Button></Group>
-        </Stack>
-      </Modal>
+      <ConfirmDeleteModal opened={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={requestDeleteReceipt} loading={saving}
+        title="입고전표를 삭제할까요?" target={selectedReceiptno} message="전표와 상세 내역이 모두 삭제되며" note="삭제한 전표는 복구할 수 없습니다." />
 
       <CustomerPickerModal opened={customerPickerOpen} onClose={closeCustomerPicker} onSelect={selectCustomer} />
       <MasterOptionPickerModal

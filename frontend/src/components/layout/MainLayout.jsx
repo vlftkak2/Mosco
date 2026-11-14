@@ -1,28 +1,14 @@
 
-import { AppShell, Burger, Group, Text, Box, ScrollArea, Button, Stack, Modal, PasswordInput, Menu } from '@mantine/core';
+import { AppShell, Burger, Group, Text, Box, ScrollArea, Modal, PasswordInput, Menu } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { SidebarNav } from './MainLayoutLink';
 import classes from '../../styles/layout/MainLayout.module.css';
-import { createContext, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useLocation, useOutlet } from 'react-router-dom';
+import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useLocation, useOutlet, UNSAFE_LocationContext as LocationContext } from 'react-router-dom';
 import { clearAIOrderPageSession } from '../../pages/ai/AIOrderPageSession';
 import { clearAIOrderDraft } from '../../pages/ai/AIOrderDraft';
 import {
-  IconBox,
-  IconCash,
-  IconChevronDown,
-  IconChevronsLeft,
-  IconChevronsRight,
-  IconClipboardText,
-  IconCpu,
-  IconHome,
-  IconLogout,
-  IconPackageExport,
-  IconPackageImport,
-  IconSettings,
-  IconShieldLock,
-  IconUser,
-  IconUserCircle,
+  IconBox, IconCash, IconChevronDown, IconChevronsLeft, IconChevronsRight, IconClipboardText, IconCpu, IconHome, IconLogout, IconPackageExport, IconPackageImport, IconSettings, IconShieldLock, IconUser,
 } from '@tabler/icons-react';
 import '@mantine/notifications/styles.css';
 import { notifications } from '@mantine/notifications';
@@ -44,12 +30,19 @@ const KeepAlivePage = memo(function KeepAlivePage({ path, active, activation, el
     registerPageRibbon: (content) => setRibbons((current) => ({ ...current, [path]: content })),
     closeActivePage: () => closeTabRef.current?.(null, path),
   }), [path, setRibbons, closeTabRef]);
+  // 숨은 탭에는 마지막으로 보였을 때의 주소를 그대로 준다. useNavigate · useLocation 은 주소가 바뀔 때마다 다시 그려지므로,
+  // 그대로 두면 열린 탭 전체가(숨어 있어도) 탭을 옮길 때마다 다시 그려져 이동이 느려진다.
+  const liveLocation = useContext(LocationContext);
+  const [tabLocation, setTabLocation] = useState(liveLocation);
+  if (active && tabLocation !== liveLocation) setTabLocation(liveLocation);
   return <div style={{ display: active ? 'contents' : 'none' }} data-tab-path={path} aria-hidden={active ? undefined : true}>
-    <PageActiveContext.Provider value={active}>
-      <PageActivationContext.Provider value={activation}>
-        <PageRibbonContext.Provider value={ribbonContext}>{element}</PageRibbonContext.Provider>
-      </PageActivationContext.Provider>
-    </PageActiveContext.Provider>
+    <LocationContext.Provider value={active ? liveLocation : tabLocation}>
+      <PageActiveContext.Provider value={active}>
+        <PageActivationContext.Provider value={activation}>
+          <PageRibbonContext.Provider value={ribbonContext}>{element}</PageRibbonContext.Provider>
+        </PageActivationContext.Provider>
+      </PageActiveContext.Provider>
+    </LocationContext.Provider>
   </div>;
 });
 export const MenuAccessContext = createContext({ menuids: [], loaded: false, authority: 'USER', fallbackPath: null });
@@ -112,6 +105,8 @@ const mockdata = [
         { label: '기초재고 등록', link: '/StockStandPage', MenuID: 'STOCK_INITIAL' },
         { label: '현재고 현황', link: '/CurrentStockPage', MenuID: 'STOCK_CURRENT' },
         { label: '재고수불 현황', link: '/IniopStockPage', MenuID: 'STOCK_HISTORY' },
+      ] },
+      { label: '재고이동', links: [
         { label: '재고이동 등록', link: '/InoutmoveRegister', MenuID: 'INOUTMOVE_REGISTER' },
         { label: '재고이동 현황', link: '/InoutmoveSearch', MenuID: 'INOUTMOVE_SEARCH' },
       ] },
@@ -151,7 +146,9 @@ const mockdata = [
         { label: '거래처관리', link: '/CustomerPage', MenuID: 'DATA_CUSTOMER' },
       ] },
       { label: '운영정보', links: [
-        { label: '사용자관리', disabled: true },
+        { label: '사업장관리', link: '/Workplace', MenuID: 'WORKPLACE_MANAGEMENT' },
+        { label: '월마감 관리', link: '/MonthClose', MenuID: 'MONTH_CLOSING' },
+        { label: '사용자관리', link: '/UserInfo', MenuID: 'USER_MANAGEMENT' },
       ] },
     ],
   },
@@ -181,6 +178,7 @@ function findMenuLabel(items, path) {
   const routeLabelAliases = {
     '/inboundregister': '매입등록',
     '/inboundsearch': '매입현황',
+    '/board': '상담게시판',
   };
 
 
@@ -228,8 +226,8 @@ export default function MainLayout({ children }) {
   const isInboundWorkspace = [
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
     '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage',
-    '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/itemprocessmaster', '/itemprocessregister', '/itemprocesssearch', '/customersupport',
-    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/instrumentstatus', '/customerledger', '/customerbalancedashboard', '/grossprofit', '/grossprofitdashboard', '/company', '/user', '/usermenu',
+    '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/itemprocessmaster', '/itemprocessregister', '/itemprocesssearch', '/customersupport', '/board',
+    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/instrumentstatus', '/customerledger', '/customerbalancedashboard', '/grossprofit', '/grossprofitdashboard', '/company', '/user', '/usermenu', '/workplace', '/monthclose', '/userinfo',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
   // 탭별 화면 / 리본 보관 (key = 경로)
   const [pageCache, setPageCache] = useState({});
@@ -290,7 +288,7 @@ export default function MainLayout({ children }) {
     String(localStorage.getItem('user_company') || '')
   );
 
-  const [userInfo, setUserInfo] = useState(() => {
+  const [userInfo] = useState(() => {
     
     const name = localStorage.getItem('user_name');
     const email = localStorage.getItem('user_email');
@@ -300,6 +298,23 @@ export default function MainLayout({ children }) {
       email: email || '' 
     };
   });
+
+  // 내 메뉴 권한 다시 읽기: 화면 이동마다 읽지 않고(이동이 느려짐), 창으로 돌아올 때와 권한 저장 직후에만 읽는다.
+  // (권한이 빠진 메뉴는 서버가 403 으로 막으므로 다음 확인 때까지 화면에 남아 있어도 안전하다)
+  const [permissionsVersion, setPermissionsVersion] = useState(0);
+  // navigate 는 주소가 바뀔 때마다 새로 만들어지므로, 아래 권한 읽기가 이동마다 다시 돌지 않게 ref 로 쓴다
+  const navigateRef = useRef(navigate);
+  useEffect(() => { navigateRef.current = navigate; }, [navigate]);
+  useEffect(() => {
+    const refresh = () => setPermissionsVersion((value) => value + 1);
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    window.addEventListener('menu-permissions-changed', refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('menu-permissions-changed', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -312,7 +327,9 @@ export default function MainLayout({ children }) {
       headers: { Authorization: `Bearer ${token}` },
     }).then(({ data }) => {
       if (!cancelled) {
-        setMyPermissions(data.menuids || []);
+        const nextMenuids = data.menuids || [];
+        // 바뀐 게 없으면 같은 배열을 유지해 메뉴 전체를 다시 그리지 않는다
+        setMyPermissions((current) => (current.length === nextMenuids.length && current.every((id, index) => id === nextMenuids[index]) ? current : nextMenuids));
         const authority = String(data.authority || 'USER').toUpperCase();
         setCurrentAuthority(authority);
         localStorage.setItem('user_authority', authority);
@@ -332,13 +349,13 @@ export default function MainLayout({ children }) {
           setCurrentCompanyId('');
           ['access_token', 'user_name', 'user_email', 'user_company', 'user_companyname', 'user_authority']
             .forEach((key) => localStorage.removeItem(key));
-          navigate('/login', { replace: true });
+          navigateRef.current('/login', { replace: true });
         }
       }
     });
 
     return () => { cancelled = true; };
-  }, [navigate, pathname, userInfo.email]);
+  }, [permissionsVersion, userInfo.email]);
 
 // 1. 함수 앞에 async를 붙입니다.
 const handlePasswordChange = async (e) => {
@@ -441,8 +458,11 @@ const handlePasswordChange = async (e) => {
 const isPlatformMaster = currentCompanyId === '001' && currentAuthority === 'MASTER';
 const canSeeMenu = (link) => {
   if (link.link === '/Company') return isPlatformMaster;
-  if (link.link === '/User' || link.link === '/UserMenu') return ['MASTER', 'SUBMASTER'].includes(currentAuthority);
-  if (link.link === '/CustomerSupport') return isPlatformMaster;
+  // 고객사관리 · 고객사 메뉴권한: 플랫폼 관리자(001 MASTER)와 고객사 관리자(001 이외 SUBMASTER)만 (서버 규칙과 같게)
+  if (link.link === '/User' || link.link === '/UserMenu') return isPlatformMaster || (currentAuthority === 'SUBMASTER' && currentCompanyId !== '001');
+  if (link.link === '/CustomerSupport') return true;
+  // 사용자관리: 관리자(고객사 관리자 · 플랫폼 관리자)는 항상, 그 밖에는 메뉴 권한을 받은 계정만
+  if (link.link === '/UserInfo' && (currentAuthority === 'SUBMASTER' && currentCompanyId !== '001')) return true;
   if (isPlatformMaster) return true;
   return !link.MenuID || myPermissions.includes(link.MenuID);
 };
@@ -486,13 +506,15 @@ if (!dashboardBlocked && outlet && isOpenTab && (!cachedPage || (opensWithParams
   }));
 }
 
-const menuAccessContextValue = {
+// 값이 같으면 같은 객체를 유지한다 — 새 객체면 이 값을 읽는 화면(대시보드 등)이 숨어 있어도 탭 이동마다 다시 그려진다
+const fallbackPath = firstAccessiblePath || '/HomePage';
+const menuAccessContextValue = useMemo(() => ({
   menuids: myPermissions,
   loaded: myPermissionsLoaded,
   authority: currentAuthority,
   companyid: currentCompanyId,
-  fallbackPath: firstAccessiblePath || '/HomePage',
-};
+  fallbackPath,
+}), [currentAuthority, currentCompanyId, fallbackPath, myPermissions, myPermissionsLoaded]);
 
 //   /* 잠시 주석처리 */
 // const links = useMemo(() => {
@@ -537,10 +559,10 @@ const menuAccessContextValue = {
           {ribbons[pathname] ?? null}
         </Box>
 
-        <Group className={classes.headerUser} gap={10} wrap="nowrap">
+        <Group className={classes.headerUser} gap={6} wrap="nowrap">
           <Group
             className={classes.userIdentity}
-            gap={9}
+            gap={8}
             wrap="nowrap"
             onClick={openPwModal}
             title="비밀번호 변경"
@@ -548,47 +570,39 @@ const menuAccessContextValue = {
             tabIndex={0}
             onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') openPwModal(); }}
           >
-            <IconUserCircle className={classes.userIcon} size={18} stroke={1.8} />
-            <span className={classes.userName}>{userInfo.name ? `${userInfo.name}님` : <IconUser size={15} />}</span>
+            <span className={classes.userAvatar} aria-hidden="true">{userInfo.name ? userInfo.name.slice(0, 1) : <IconUser size={14} />}</span>
+            <span className={classes.userName}>{userInfo.name ? `${userInfo.name}님` : '사용자'}</span>
           </Group>
-          <span className={classes.userDivider} aria-hidden="true">|</span>
+          <span className={classes.userDivider} aria-hidden="true" />
           <button type="button" className={classes.logoutButton} onClick={handleLogout}>
             <IconLogout size={16} stroke={1.8} />
             <span>로그아웃</span>
           </button>
         </Group>
 
-        <Modal opened={pwModalOpened} onClose={closePwModal} title={<Text fw={700} size="md">비밀번호 수정</Text>} centered size="sm" padding="md">
-            <form onSubmit={handlePasswordChange}>
-              <Stack gap="md">
-                {/* [필수 수정] value와 onChange를 연결해야 pwdForm에 값이 담깁니다. */}
-                <PasswordInput 
-                  label="현재 비밀번호" 
-                  size="sm"
-                  required 
-                  value={pwdForm.current}
-                  onChange={(e) => setPwdForm({ ...pwdForm, current: e.target.value })}
-                />
-                <PasswordInput 
-                  label="새 비밀번호" 
-                  size="sm"
-                  required 
-                  value={pwdForm.next}
-                  onChange={(e) => setPwdForm({ ...pwdForm, next: e.target.value })}
-                />
-                <PasswordInput 
-                  label="새 비밀번호 확인" 
-                  size="sm"
-                  required 
-                  value={pwdForm.confirm}
-                  onChange={(e) => setPwdForm({ ...pwdForm, confirm: e.target.value })}
-                />
-                <Group justify="flex-end" mt="xs">
-                  <Button size="sm" variant="outline" color="gray" onClick={closePwModal}>취소</Button>
-                  <Button size="sm" type="submit" color="red.8">패스워드 변경</Button>
-                </Group>
-              </Stack>
-            </form>
+        <Modal opened={pwModalOpened} onClose={closePwModal} centered size={380} withCloseButton={false} padding={0} radius={16}
+          overlayProps={{ backgroundOpacity: 0.2 }} classNames={{ content: classes.pwModal }}>
+          <form onSubmit={handlePasswordChange}>
+            <div className={classes.pwTop}>
+              <span className={classes.pwIcon} aria-hidden="true"><IconShieldLock size={24} stroke={1.8} /></span>
+              <h2>비밀번호 변경</h2>
+              <p>현재 비밀번호를 확인한 뒤 새 비밀번호로 바꿉니다.</p>
+            </div>
+            <div className={classes.pwFields}>
+              <PasswordInput label="현재 비밀번호" placeholder="현재 비밀번호" required data-autofocus autoComplete="current-password"
+                value={pwdForm.current} onChange={(e) => setPwdForm({ ...pwdForm, current: e.target.value })} />
+              <PasswordInput label="새 비밀번호" placeholder="새 비밀번호" required autoComplete="new-password"
+                value={pwdForm.next} onChange={(e) => setPwdForm({ ...pwdForm, next: e.target.value })} />
+              <PasswordInput label="새 비밀번호 확인" placeholder="새 비밀번호 다시 입력" required autoComplete="new-password"
+                value={pwdForm.confirm} onChange={(e) => setPwdForm({ ...pwdForm, confirm: e.target.value })}
+                error={pwdForm.confirm && pwdForm.next !== pwdForm.confirm ? '새 비밀번호가 일치하지 않습니다.' : null} />
+            </div>
+            <div className={classes.pwActions}>
+              <button type="button" className={classes.pwCancel} onClick={closePwModal}>취소</button>
+              <button type="submit" className={classes.pwSubmit}
+                disabled={!pwdForm.current || !pwdForm.next || pwdForm.next !== pwdForm.confirm}>변경하기</button>
+            </div>
+          </form>
         </Modal>
       </AppShell.Header>
 

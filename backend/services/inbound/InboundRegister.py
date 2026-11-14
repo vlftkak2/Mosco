@@ -1,6 +1,5 @@
 from psycopg2.extras import execute_values
 import logging
-from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
@@ -9,7 +8,7 @@ from psycopg2 import IntegrityError
 import db as _shared_db
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from config import DB_CONFIG
+from services.closing import MonthClose as month_close_module
 from services.inventory import CurrentStock as current_stock_module
 
 logger = logging.getLogger(__name__)
@@ -183,35 +182,45 @@ def list_receipts(
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(f"SELECT COUNT(*) FROM Inbound01t AS h WHERE {where_sql}", params)
         total = cursor.fetchone()[0]
+        # 헤더만 먼저 정렬·페이징한 뒤 그 전표들의 상세·기타비용만 집계한다 (전체 전표 집계 후 자르지 않음).
         cursor.execute(
             f"""
-            SELECT h.receiptno, h.receptdate, h.customcode, h.customname, h.manager,
-                   COALESCE(NULLIF(BTRIM(h.description), ''), STRING_AGG(DISTINCT NULLIF(d.description, ''), ', ')) AS description,
-                   h.subulyn, h.created_at,
-                   COUNT(d.lineno)::integer AS line_count,
-                   STRING_AGG(DISTINCT NULLIF(d.warehousecode, ''), ', ') AS warehousecode,
-                   STRING_AGG(DISTINCT NULLIF(d.warehousecodename, ''), ', ') AS warehousecodename,
-                   COALESCE(SUM(d.qty), 0)::numeric(15, 3) AS total_qty,
-                   STRING_AGG(DISTINCT NULLIF(d.qtyunit, ''), ', ') AS qtyunit,
-                   COALESCE(SUM(d.weight), 0)::numeric(15, 3) AS total_weight,
-                   STRING_AGG(DISTINCT NULLIF(d.unit, ''), ', ') AS unit,
-                   COALESCE(SUM(COALESCE(d.supplyamt, d.unitamt)), 0)::numeric(15, 2) AS supply_amount,
-                   COALESCE(SUM(COALESCE(d.vat, ROUND(COALESCE(d.supplyamt, d.unitamt, 0) * 0.1, 2))), 0)::numeric(15, 2) AS vat_amount,
-                   (COALESCE(SUM(COALESCE(d.supplyamt, d.unitamt)), 0) + COALESCE(SUM(COALESCE(d.vat, ROUND(COALESCE(d.supplyamt, d.unitamt, 0) * 0.1, 2))), 0))::numeric(15, 2) AS total_amount,
-                   COALESCE(MAX(expenses.other_cost_amount), 0)::numeric(15, 2) AS other_cost_amount
-            FROM Inbound01t AS h
-            LEFT JOIN Inbound02t AS d
-              ON d.companyid = h.companyid AND d.receiptno = h.receiptno
-            LEFT JOIN (
-                SELECT companyid, receiptno, SUM(totalamt) AS other_cost_amount
-                FROM Inbound03t
-                GROUP BY companyid, receiptno
-            ) AS expenses
-              ON expenses.companyid = h.companyid AND expenses.receiptno = h.receiptno
-            WHERE {where_sql}
-            GROUP BY h.companyid, h.receiptno, h.description
-            ORDER BY h.receptdate ASC, h.customname ASC, h.receiptno ASC
-            LIMIT %s OFFSET %s
+            WITH page AS (
+                SELECT h.companyid, h.receiptno, h.receptdate, h.customcode, h.customname, h.manager,
+                       h.description, h.subulyn, h.created_at
+                FROM Inbound01t AS h
+                WHERE {where_sql}
+                ORDER BY h.receptdate ASC, h.customname ASC, h.receiptno ASC
+                LIMIT %s OFFSET %s
+            )
+            SELECT p.receiptno, p.receptdate, p.customcode, p.customname, p.manager,
+                   COALESCE(NULLIF(BTRIM(p.description), ''), d.description) AS description,
+                   p.subulyn, p.created_at,
+                   d.line_count, d.warehousecode, d.warehousecodename, d.total_qty, d.qtyunit,
+                   d.total_weight, d.unit, d.supply_amount, d.vat_amount,
+                   (d.supply_amount + d.vat_amount)::numeric(15, 2) AS total_amount,
+                   COALESCE(e.other_cost_amount, 0)::numeric(15, 2) AS other_cost_amount
+            FROM page AS p
+            CROSS JOIN LATERAL (
+                SELECT COUNT(d.lineno)::integer AS line_count,
+                       STRING_AGG(DISTINCT NULLIF(d.description, ''), ', ') AS description,
+                       STRING_AGG(DISTINCT NULLIF(d.warehousecode, ''), ', ') AS warehousecode,
+                       STRING_AGG(DISTINCT NULLIF(d.warehousecodename, ''), ', ') AS warehousecodename,
+                       COALESCE(SUM(d.qty), 0)::numeric(15, 3) AS total_qty,
+                       STRING_AGG(DISTINCT NULLIF(d.qtyunit, ''), ', ') AS qtyunit,
+                       COALESCE(SUM(d.weight), 0)::numeric(15, 3) AS total_weight,
+                       STRING_AGG(DISTINCT NULLIF(d.unit, ''), ', ') AS unit,
+                       COALESCE(SUM(COALESCE(d.supplyamt, d.unitamt)), 0)::numeric(15, 2) AS supply_amount,
+                       COALESCE(SUM(COALESCE(d.vat, ROUND(COALESCE(d.supplyamt, d.unitamt, 0) * 0.1, 2))), 0)::numeric(15, 2) AS vat_amount
+                FROM Inbound02t AS d
+                WHERE d.companyid = p.companyid AND d.receiptno = p.receiptno
+            ) AS d
+            LEFT JOIN LATERAL (
+                SELECT SUM(e.totalamt) AS other_cost_amount
+                FROM Inbound03t AS e
+                WHERE e.companyid = p.companyid AND e.receiptno = p.receiptno
+            ) AS e ON TRUE
+            ORDER BY p.receptdate ASC, p.customname ASC, p.receiptno ASC
             """,
             (*params, page_size, (page - 1) * page_size),
         )
@@ -373,6 +382,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
             # (stock rows are row-locked), while opening stock / transfer / processing still take
             # the exclusive lock and therefore never overlap with them (same as before).
             cursor.execute("SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
+            month_close_module.ensure_open(cursor, companyid, [item["receptdate"] for item in items], "등록")
             customer_codes = list(dict.fromkeys(item["customcode"] for item in items if item["customcode"]))
             customer_tokens = list(dict.fromkeys(
                 item["customname"].strip().lower() for item in items if not item["customcode"] and item["customname"].strip()
@@ -617,7 +627,7 @@ def update_receipt_manager(companyid: str, receiptno: str, manager: str, actor: 
         # the exclusive lock and therefore never overlap with them (same as before).
         cursor.execute("SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
-            """SELECT COALESCE(subulyn, 'N')
+            """SELECT COALESCE(subulyn, 'N'), receptdate
                FROM Inbound01t
                WHERE companyid = %s AND receiptno = %s
                FOR UPDATE""",
@@ -626,6 +636,7 @@ def update_receipt_manager(companyid: str, receiptno: str, manager: str, actor: 
         receipt = cursor.fetchone()
         if not receipt:
             raise ValueError("수정할 입고전표를 찾을 수 없습니다.")
+        month_close_module.ensure_open(cursor, companyid, [receipt[1]], "수정")
         if str(receipt[0] or "N").strip().upper() in {"Y", "YES", "확정"}:
             raise ValueError("수불 확정된 입고전표의 담당자는 수정할 수 없습니다.")
 
@@ -676,12 +687,13 @@ def delete_receipt(companyid: str, receiptno: str):
         # the exclusive lock and therefore never overlap with them (same as before).
         cursor.execute("SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
-            "SELECT COALESCE(subulyn, 'N') FROM Inbound01t WHERE companyid = %s AND receiptno = %s FOR UPDATE",
+            "SELECT COALESCE(subulyn, 'N'), receptdate FROM Inbound01t WHERE companyid = %s AND receiptno = %s FOR UPDATE",
             (companyid, receiptno),
         )
         row = cursor.fetchone()
         if not row:
             return 0
+        month_close_module.ensure_open(cursor, companyid, [row[1]], "삭제")
         if str(row[0] or "N").strip().upper() in {"Y", "YES", "확정"}:
             raise ValueError("수불 확정된 입고전표는 삭제할 수 없습니다.")
         cursor.execute(

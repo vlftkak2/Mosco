@@ -1,10 +1,8 @@
 import logging
-from contextlib import contextmanager
 
 import db as _shared_db
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from config import DB_CONFIG
 from services.inventory.CurrentStock import user_name_sql
 
 

@@ -1,20 +1,7 @@
-import pyodbc
-import psycopg2
 import db as _shared_db
 from psycopg2.extras import execute_values
 from config import DB_CONFIG
-from datetime import datetime
-import time
-import jwt
-import requests
-import math
-import os
-import zipfile
-import fitz
-import re
 #from tkinter import Tk, filedialog 
-import pdfkit
-import io
 from decimal import Decimal, InvalidOperation
 from pydantic import BaseModel, Field, field_validator
 from typing import List
@@ -42,6 +29,7 @@ class CustomModifyRequest(BaseModel):
     manager: str = ""
     zipcode: str = ""
     address: str = ""
+    address2: str = ""
     phone: str = ""
     fax: str = ""
     email: str = ""
@@ -236,8 +224,7 @@ def _validate_customer_batch_references(cursor, items: List[CustomModifyRequest]
         )
         missing_banks = bank_values - {row[0] for row in cursor.fetchall()}
         if missing_banks:
-            codes = ", ".join(sorted(missing_banks)[:10])
-            return {"success": False, "message": f"기본정보관리-은행코드를 입력해주세요"}
+            return {"success": False, "message": "기본정보관리-은행코드를 입력해주세요"}
 
     return {"success": True}
 
@@ -270,14 +257,14 @@ def CustomerCreate(item: CustomModifyRequest, actor: str | None = None):
             INSERT INTO customer01t (
                 companyid, companyname, customercode, customername, businessno,
                 corporationno, ceoname, tradetype, businesstype, industry, manager,
-                zipcode, address, phone, fax, email, bankcode, accountno, useyn, remark, createdby,
+                zipcode, address, address2, phone, fax, email, bankcode, accountno, useyn, remark, createdby,
                 openingreceivable, openingpayable
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         cursor.execute(query, (
             item.companyid, item.companyname, customercode, item.customername,
             item.businessno, item.corporationno, item.ceoname, item.tradetype,
-            item.businesstype, item.industry, item.manager, item.zipcode, item.address, item.phone,
+            item.businesstype, item.industry, item.manager, item.zipcode, item.address, item.address2 or None, item.phone,
             item.fax, item.email, item.bankcode or None, item.accountno, _db_useyn(item.useryn), item.remark,
             actor or None, item.openingreceivable, item.openingpayable,
         ))
@@ -341,14 +328,14 @@ def CustomerBulkCreate(items: List[CustomModifyRequest], actor: str | None = Non
                 INSERT INTO customer01t
                     (companyid, companyname, customercode, customername, businessno,
                      corporationno, ceoname, tradetype, businesstype, industry, manager,
-                     zipcode, address, phone, fax, email, bankcode, accountno, useyn, remark, createdby,
+                     zipcode, address, address2, phone, fax, email, bankcode, accountno, useyn, remark, createdby,
                      openingreceivable, openingpayable)
                 VALUES %s
             """
             values = [
                 (item.companyid, item.companyname, assigned_code, item.customername,
                  item.businessno, item.corporationno, item.ceoname, item.tradetype,
-                 item.businesstype, item.industry, item.manager, item.zipcode, item.address, item.phone,
+                 item.businesstype, item.industry, item.manager, item.zipcode, item.address, item.address2 or None, item.phone,
                  item.fax, item.email, item.bankcode or None, item.accountno, _db_useyn(item.useryn), item.remark,
                  actor or None, item.openingreceivable, item.openingpayable)
                 for item, assigned_code in zip(items, assigned_codes)
@@ -382,7 +369,7 @@ def CustomerModify(item: CustomModifyRequest, actor: str | None = None, update_o
             UPDATE customer01t
             SET customername=%s, businessno=%s, corporationno=%s, ceoname=%s,
                 tradetype=%s, businesstype=%s, industry=%s, manager=%s,
-                zipcode=%s, address=%s, phone=%s, fax=%s, email=%s, bankcode=%s, accountno=%s,
+                zipcode=%s, address=%s, address2=%s, phone=%s, fax=%s, email=%s, bankcode=%s, accountno=%s,
                 useyn=%s, remark=%s, updatedat=NOW(), updatedby=%s,
                 openingreceivable = CASE WHEN %s THEN %s ELSE openingreceivable END,
                 openingpayable = CASE WHEN %s THEN %s ELSE openingpayable END
@@ -391,7 +378,7 @@ def CustomerModify(item: CustomModifyRequest, actor: str | None = None, update_o
         cursor.execute(query, (
             item.customername, item.businessno, item.corporationno, item.ceoname,
             item.tradetype, item.businesstype, item.industry, item.manager,
-            item.zipcode, item.address, item.phone, item.fax, item.email, item.bankcode or None, item.accountno,
+            item.zipcode, item.address, item.address2 or None, item.phone, item.fax, item.email, item.bankcode or None, item.accountno,
             _db_useyn(item.useryn), item.remark, actor or None,
             bool(update_opening_balances), item.openingreceivable,
             bool(update_opening_balances), item.openingpayable,

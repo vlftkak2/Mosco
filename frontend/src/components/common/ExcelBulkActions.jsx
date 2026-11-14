@@ -1,5 +1,5 @@
 import { IconDownload, IconUpload } from '@tabler/icons-react';
-import classes from './ExcelBulkActions.module.css';
+import classes from '../../styles/components/ExcelBulkActions.module.css';
 
 // 샘플양식 · 엑셀 일괄등록 버튼 묶음 (여러 화면 공통 디자인).
 // 동작은 화면이 넘겨주는 함수 그대로: 샘플 = onDownloadTemplate, 일괄등록 = 숨은 파일 입력(inputRef)을 열어 onUpload.

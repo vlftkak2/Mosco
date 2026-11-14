@@ -84,8 +84,8 @@
 .tableWrap .table tbody td { height: 35px; padding: 0 8px; overflow: hidden; border-right: 1px solid #edf0f4; border-bottom: 1px solid #e9edf2; color: #26364e; font-size: 12px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .tableWrap .table th:last-child,
 .tableWrap .table td:last-child { border-right: 0; }
-.tableWrap .table th:nth-child(4), .tableWrap .table td:nth-child(4),
-.tableWrap .table th:nth-child(5), .tableWrap .table td:nth-child(5) { text-align: center; }
+.tableWrap .table th:nth-child(3), .tableWrap .table td:nth-child(3),
+.tableWrap .table th:nth-child(4), .tableWrap .table td:nth-child(4) { text-align: center; }
 .tableWrap .table tbody tr { cursor: pointer; }
 .tableWrap .table tbody tr:hover td { background: #f5f9ff; }
 .tableWrap .table tbody tr.selectedRow td { background: #fff0f1; }
@@ -109,7 +109,9 @@
 .paginationBar { min-height: 44px; flex: 0 0 auto; padding: 6px 12px; border-top: 1px solid #e5e9ef; background: #fff; }
 .totalText { color: #64758d; font-size: 12px; font-variant-numeric: tabular-nums; }
 .totalText b { color: #1e2e45; font-weight: 700; }
-.seatHint { padding-left: 8px; border-left: 1px solid #e1e6ee; color: #8290a5; font-size: 11px; white-space: nowrap; }
+/* 남은 계정: 작은 회색 배지 (숫자만 진하게) */
+.seatHint.seatHint { display: inline-flex; align-items: center; gap: 3px; height: 24px; margin-left: 8px; padding: 0; background: none; color: #666; font-size: 13px; white-space: nowrap; }
+.seatHint b { color: #222; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 /* 입력 영역 */
 .formBody { min-height: 0; flex: 1 1 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 12px 14px 14px; background: #fafbfc; }
@@ -136,3 +138,30 @@
   .formPanel { height: max(480px, min(700px, calc(100vh - 200px))); min-height: 480px; }
 }
 
+/* 패널 머리 · 폼 안 보조 버튼: 흰 바탕 + 빨간 아이콘, 마우스를 올리면 연한 빨강 (사업장관리 주소 검색과 같은 모양) */
+.softButton.softButton { height: 32px; padding: 0 12px 0 10px; border: 1px solid #dfe5ec; border-radius: 9px; background: #fff; color: #34445a; font-size: 12px; font-weight: 700; transition: background 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 140ms ease; }
+.softButton.softButton svg { color: #e0434b; }
+.softButton.softButton:hover:not(:disabled) { border-color: #f2b7ba; background: #fff7f7; box-shadow: 0 2px 8px #e23d4514; color: #d23a42; }
+.softButton.softButton:focus-visible { outline: 2px solid #f0a3a7; outline-offset: 2px; }
+.softButtonTall.softButtonTall { height: 36px; }
+
+/* ── 상세 영역을 거래처관리와 같게: 구역 상자 없이 가는 선으로 구분 · 굵은 제목 · 32px 각진 회색 입력칸 · 굵은 라벨 ── */
+.formBody { padding: 4px 18px 18px !important; background: #fff !important; }
+.formSections { gap: 0 !important; }
+.formSection { padding: 18px 0 20px !important; border: 0 !important; border-bottom: 1px solid #e4e4e4 !important; border-radius: 0 !important; background: transparent !important; }
+.formSection:last-child { border-bottom: 0 !important; }
+.formSectionHead { margin-bottom: 14px !important; color: #222 !important; font-size: 15px !important; font-weight: 700 !important; }
+.formGrid { gap: 10px 14px !important; }
+.formGrid :global(.mantine-InputWrapper-label) { margin-bottom: 5px !important; color: #222 !important; font-size: 13px !important; font-weight: 600 !important; }
+.formGrid :global(.mantine-InputWrapper-required) { color: #ff2828 !important; }
+.formGrid :global(.mantine-Input-input) { height: 32px !important; min-height: 32px !important; padding-inline: 10px !important; border: 1px solid #cccccc !important; border-radius: 4px !important; color: #333 !important; font-size: 13.5px !important; }
+.formGrid :global(.mantine-Input-input:focus), .formGrid :global(.mantine-Input-input:focus-within) { border-color: #e0434b !important; box-shadow: 0 0 0 2px #e0434b2e !important; }
+.formGrid :global(.mantine-Input-input:disabled), .formGrid :global(.mantine-Input-input[data-disabled]) { border-color: #e4e4e4 !important; background: #f1f2f5 !important; color: #888 !important; }
+.formGrid :global(.mantine-Select-input), .formGrid :global(.mantine-NumberInput-input) { padding-inline-end: 28px !important; }
+
+/* 계정 수: 칩 대신 글자 (파로스형) — 이용중 | 활성 계정 n명 | 허용 계정 n명 */
+.seatText { display: inline-flex; align-items: center; gap: 4px; color: #666; font-size: 13px; white-space: nowrap; }
+.seatText b { color: #222; font-weight: 700; font-variant-numeric: tabular-nums; }
+.seatStatusOn { color: #e0434b; font-weight: 700; }
+.seatStatusOff { color: #888; font-weight: 700; }
+.seatDivider { display: inline-block; width: 1px; height: 11px; margin: 0 8px; background: #d5d5d5; }

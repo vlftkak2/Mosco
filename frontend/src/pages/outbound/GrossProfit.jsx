@@ -1,5 +1,5 @@
 // 매출이익분석 (메뉴: GROSS_PROFIT)
-// 출고(매출) 행마다 원가(매입금액·매입비용·가공비)와 매출비용을 붙여 이익·마진율을 보여 준다. 매출처별 그룹·소계·총계.
+// 출고(매출) 행마다 원가(매입금액·매입비용·가공비·원자재원가)와 매출비용을 붙여 이익·마진율을 보여 준다. 매출처별 그룹·소계·총계.
 // 계산식은 backend/services/outbound/GrossProfit.py 상단 설명 참고.
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
@@ -15,11 +15,14 @@ import { useLocation } from 'react-router-dom';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/InboundSearch.module.css';
 import pageClasses from '../../styles/pages/GrossProfit.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 
 const ORIGIN_LABELS = { INBOUND: '입고', OPENING: '기초재고', PROCESS: '가공', UNKNOWN: '확인 필요' };
+// 매입금액 = 매입단가 × 기준수량. 기준수량은 원가기준에 따라 중량(kg) · 중량÷1000(톤) · 수량 · 길이
+const COST_UNIT_LABELS = { KG: 'KG', TON: 'TON', QTY: '수량', LENGTH: '길이' };
 const PROFIT_OPTIONS = [{ value: '', label: '전체' }, { value: 'GAIN', label: '이익' }, { value: 'LOSS', label: '손실' }];
 // 옛 프로그램과 같은 순서: 이익금액 → 매입금액 → 매입비용 → 가공비 → 매출금액 → 매출비용(+/−) → 마진율
 const COLUMNS = [
@@ -32,6 +35,7 @@ const COLUMNS = [
   { key: 'purchase_amt', label: '매입금액', width: 105, type: 'money' },
   { key: 'purchase_cost', label: '매입비용', width: 88, type: 'money' },
   { key: 'process_amt', label: '가공비', width: 88, type: 'money' },
+  { key: 'material_amt', label: '원자재원가', width: 96, type: 'money' },
   { key: 'profit_amt', label: '이익금액', width: 105, type: 'money' },
   { key: 'margin_rate', label: '마진율(%)', width: 88, type: 'margin' },
   { key: 'productname', label: '품명', width: 110 },
@@ -46,10 +50,12 @@ const COLUMNS = [
   { key: 'weight', label: '중량', width: 82, type: 'decimal' },
   { key: 'sales_price', label: '매출단가', width: 86, type: 'decimal' },
   { key: 'purchase_price', label: '매입단가', width: 86, type: 'decimal' },
+  { key: 'cost_unit', label: '원가기준', width: 70, align: 'center' },
+  { key: 'cost_qty', label: '기준수량', width: 86, type: 'decimal' },
   { key: 'origin_kind', label: '원가구분', width: 74, align: 'center' },
-  { key: 'origin_no', label: '원천번호', width: 140 },
+  { key: 'origin_no', label: '원천번호', width: 160 },
   { key: 'warehousecodename', label: '창고', width: 100 },
-  { key: 'receiptno', label: '출고번호', width: 140 },
+  { key: 'receiptno', label: '출고번호', width: 160 },
 ];
 // 행이 이보다 많으면 매출처별 소계만 먼저 보여 주고, 매출처를 눌러 펼친다 (수천 행을 한 번에 그리지 않도록)
 const AUTO_COLLAPSE_ROWS = 300;
@@ -72,7 +78,7 @@ const money = (value) => Math.round(Number(value || 0)).toLocaleString('ko-KR');
 const decimal = (value) => (value === null || value === undefined || value === '' ? '' : Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 3 }));
 const marginText = (value) => (value === null || value === undefined ? '–' : Number(value).toFixed(2));
 const groupKey = (entry) => `${entry.customcode || ''}|${entry.customname || ''}`;
-const costTotal = (entry) => Number(entry?.purchase_amt || 0) + Number(entry?.purchase_cost || 0) + Number(entry?.process_amt || 0);
+const costTotal = (entry) => Number(entry?.purchase_amt || 0) + Number(entry?.purchase_cost || 0) + Number(entry?.process_amt || 0) + Number(entry?.material_amt || 0);
 
 function MarginCell({ value, profit }) {
   if (value === null || value === undefined) return <span className={pageClasses.marginNone}>–</span>;
@@ -85,6 +91,7 @@ const renderCell = (row, column, index) => {
   if (column.key === 'no') return index;
   if (column.key === 'receptdate') return value ? String(value).slice(0, 10) : '';
   if (column.key === 'origin_kind') return ORIGIN_LABELS[value] || value || '';
+  if (column.key === 'cost_unit') return COST_UNIT_LABELS[value] || value || '';
   if (column.type === 'money') return money(value);
   if (column.type === 'decimal') return decimal(value);
   if (column.type === 'margin') return <MarginCell value={value} profit={row.profit_amt} />;
@@ -233,6 +240,7 @@ export default function GrossProfit() {
     const toRow = (row, index) => Object.fromEntries(COLUMNS.map((column) => {
       if (column.key === 'no') return [column.label, index];
       if (column.key === 'origin_kind') return [column.label, ORIGIN_LABELS[row.origin_kind] || ''];
+      if (column.key === 'cost_unit') return [column.label, COST_UNIT_LABELS[row.cost_unit] || row.cost_unit || ''];
       if (column.key === 'receptdate') return [column.label, row.receptdate ? String(row.receptdate).slice(0, 10) : ''];
       if (column.type === 'money') return [column.label, Math.round(Number(row[column.key] || 0))];
       if (column.type === 'margin') return [column.label, row.margin_rate === null ? '' : Number(row.margin_rate)];
@@ -284,14 +292,14 @@ export default function GrossProfit() {
   const salesTotal = Number(total?.sales_amt || 0) + Number(total?.sales_plus || 0); // 매출비용(+)도 매출
   const cards = [
     { label: '매출금액', value: `${money(Number(total?.sales_amt || 0) + Number(total?.sales_plus || 0))}원`, hint: `판매 ${money(total?.sales_amt)} + 매출비용(+) ${money(total?.sales_plus)}`, accent: pageClasses.statSales, icon: IconChartBar },
-    { label: '매입원가', value: `${money(costTotal(total))}원`, hint: `매입금액 ${money(total?.purchase_amt)} + 매입비용 ${money(total?.purchase_cost)} + 가공비 ${money(total?.process_amt)}`, accent: pageClasses.statCost, icon: IconShoppingCart },
+    { label: '매입원가', value: `${money(costTotal(total))}원`, hint: `매입금액 ${money(total?.purchase_amt)} + 매입비용 ${money(total?.purchase_cost)} + 가공비 ${money(total?.process_amt)} + 원자재원가 ${money(total?.material_amt)}`, accent: pageClasses.statCost, icon: IconShoppingCart },
     { label: '판매비용', value: `${money(total?.sales_minus)}원`, hint: "출고 기타비용 중 비용여부 '예' (운반비 등 우리가 부담한 비용)", accent: pageClasses.statExpense, icon: IconTruckDelivery },
     { label: '이익금액', value: `${money(total?.profit_amt)}원`, hint: '매출금액(매출비용(+) 포함) − 매입원가 − 판매비용', tone: Number(total?.profit_amt || 0) < 0 ? 'loss' : 'gain', accent: pageClasses.statProfit, icon: IconCoin },
     { label: '마진율', value: salesTotal ? `${marginText(total?.margin_rate)}%` : '–', hint: '이익금액 ÷ (매출금액 + 매출비용(+))', tone: Number(total?.profit_amt || 0) < 0 ? 'loss' : 'gain', accent: pageClasses.statMargin, icon: IconPercentage },
   ];
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page} ${pageClasses.page}`}>
+    <Box className={`${sharedClasses.pageShell} ${classes.page} ${pageClasses.page} ${simpleTheme.simple}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
           <Text component="span" className={classes.breadcrumbParent}>매출관리</Text>

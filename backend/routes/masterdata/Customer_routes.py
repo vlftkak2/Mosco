@@ -1,6 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
-from config import ALLOWED_ORIGINS
 from pydantic import BaseModel, Field
 from typing import List
 from decimal import Decimal

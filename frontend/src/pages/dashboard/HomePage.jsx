@@ -17,11 +17,12 @@ import {
   Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import ErpDateInput from '../../components/common/ErpDateInput';
-import { DashboardHeader, FilterBox, FilterTilde, KPI_PALETTE, KpiCard, KpiGrid, PillNote, SubSep, TrendPill } from '../../components/common/DashboardKit';
+import { DashboardHeader, FilterBox, FilterTilde, KPI_PALETTE, KpiCard, KpiGrid, PillNote, TrendPill } from '../../components/common/DashboardKit';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import { MenuAccessContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import searchClasses from '../../styles/pages/InboundSearch.module.css';
 import classes from '../../styles/pages/HomeDashboard.module.css';
 
@@ -36,7 +37,6 @@ const AXIS_TICK = { fontSize: 11, fill: '#5d6b80' };
 const pad = (value) => String(value).padStart(2, '0');
 const toDate = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 const thisMonth = () => { const now = new Date(); return { date_from: toDate(new Date(now.getFullYear(), now.getMonth(), 1)), date_to: toDate(now) }; };
-const todayLabel = () => new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const toNumber = (value) => Number(value || 0);
 const won = (value) => `${Math.round(toNumber(value)).toLocaleString('ko-KR')}원`;
@@ -319,23 +319,23 @@ export default function HomePage() {
   const kpis = [];
   if (data) {
     kpis.push({ key: 'sales', tone: 'sales', icon: IconChartBar, label: '매출', basis: '조회기간 · 공급가액', value: Math.round(toNumber(sales.total.sales)).toLocaleString('ko-KR'),
-      trend: <Trend current={sales.total.sales} previous={sales.prev.sales} />, bars: sales.trend.map((row) => row.sales),
+      trend: <Trend current={sales.total.sales} previous={sales.prev.sales} />,
       stats: [{ label: '판매중량', value: tons(sales.total.weight) }, { label: '매출 전표', value: `${toNumber(sales.total.slips)}장` }],
       onClick: go('OUTBOUND_SEARCH', '/OutboundSearchPage') });
     kpis.push({ key: 'purchase', tone: 'purchase', icon: IconShoppingCart, label: '매입', basis: '조회기간 · 공급가액', value: Math.round(toNumber(purchase.total.amount)).toLocaleString('ko-KR'),
-      trend: <Trend current={purchase.total.amount} previous={purchase.prev.amount} neutral />, bars: (purchase.trend || []).map((row) => row.amount),
+      trend: <Trend current={purchase.total.amount} previous={purchase.prev.amount} neutral />,
       stats: [{ label: '매입중량', value: tons(purchase.total.weight) }, { label: '매입 전표', value: `${toNumber(purchase.total.count)}장` }],
       onClick: go('INBOUND_SEARCH', '/InboundSearchPage') });
     if (profit) kpis.push({ key: 'profit', tone: 'profit', icon: IconTrendingUp, label: '매출이익', basis: '조회기간 · 매출 − 비용', value: Math.round(toNumber(profit.total.profit)).toLocaleString('ko-KR'),
-      trend: <Trend current={profit.total.profit} previous={profit.prev.profit} />, bars: profit.trend.map((row) => row.profit),
+      trend: <Trend current={profit.total.profit} previous={profit.prev.profit} />,
       stats: [{ label: '매출이익률', value: pctText(profit.total.margin_rate) }, { label: '톤당 이익', value: toNumber(sales.total.weight) > 0 ? `${compact((toNumber(profit.total.profit) / toNumber(sales.total.weight)) * 1000)}원` : '–' }],
       onClick: go('GROSS_PROFIT_DASHBOARD', '/GrossProfitDashboard') });
     if (balance) kpis.push({ key: 'recv', tone: 'recv', icon: IconCoins, label: '미수금', basis: '오늘 기준 · 받을 금액', value: Math.round(toNumber(balance.receivable)).toLocaleString('ko-KR'),
-      trend: <PillNote>{balance.receivable_customers}곳에 남아 있음</PillNote>, bars: (balance.trend || []).map((row) => row.recv),
+      trend: <PillNote>{balance.receivable_customers}곳에 남아 있음</PillNote>,
       stats: [{ label: '30일 넘은 미수금', value: toNumber(balance.late) > 0 ? `${compact(balance.late)}원` : '없음', warn: toNumber(balance.late) > 0 }, { label: '미지급금', value: `${compact(balance.payable)}원` }],
       onClick: go('CUSTOMER_BALANCE_DASHBOARD', '/CustomerBalanceDashboard') });
     kpis.push({ key: 'stock', tone: 'stock', icon: IconBox, label: '현재고', basis: '오늘 기준 · 중량', value: (toNumber(stock.total_weight) / 1000).toLocaleString('ko-KR', { maximumFractionDigits: 1 }), unit: '톤',
-      trend: <PillNote>재고금액 {compact(stock.total_amount)}원</PillNote>, bars: stock.buckets.filter((row) => row.key !== 'unknown').map((row) => row.weight),
+      trend: <PillNote>재고금액 {compact(stock.total_amount)}원</PillNote>,
       stats: [{ label: '1년 넘은 재고', value: tons(stock.long_weight), warn: toNumber(stock.long_weight) > 0 }, { label: '장기재고 비중', value: toNumber(stock.total_weight) ? `${((toNumber(stock.long_weight) / toNumber(stock.total_weight)) * 100).toFixed(1)}%` : '–' }],
       onClick: go('STOCK_CURRENT', '/CurrentStockPage') });
   }
@@ -344,8 +344,8 @@ export default function HomePage() {
   const marginPrev = profit?.prev?.margin_rate;
 
   return (
-    <div className={`${sharedClasses.pageShell} ${searchClasses.page} ${classes.page}`}>
-      <DashboardHeader title="대시보드" subtitle={<>{todayLabel()}{data ? <><SubSep />비교 기준: 전월 같은 기간 ({shortDate(data.period.prev_from)} ~ {shortDate(data.period.prev_to)}) · 미수금 · 재고는 오늘 기준</> : null}</>}>
+    <div className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${searchClasses.page} ${classes.page}`}>
+      <DashboardHeader title="대시보드">
         <FilterBox onSearch={search} loading={loading}>
           <ErpDateInput aria-label="시작일" type="date" value={inputs.date_from} onChange={(event) => { const { value } = event.currentTarget; setInputs((current) => ({ ...current, date_from: value })); }} />
           <FilterTilde />

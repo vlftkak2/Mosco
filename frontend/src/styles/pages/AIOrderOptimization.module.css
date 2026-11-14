@@ -201,3 +201,11 @@
 .optScope .plan { padding: 10px 12px; border: 1px solid #e1e7ef; border-radius: 10px; box-shadow: 0 1px 2px #1f2a3a0a; transition: border-color 120ms ease, box-shadow 140ms ease, transform 120ms ease; }
 .optScope .plan:hover { border-color: #f4b6ba; box-shadow: 0 4px 12px #1f2a3a12; transform: translateY(-1px); }
 .optScope .planSelected { padding: 9px 11px; border: 2px solid #e2454d; background: linear-gradient(135deg, #fff5f5 0%, #ffffff 70%); box-shadow: 0 4px 12px #e2454d1f; }
+
+/* 탭 (코일·스켈프 / 시트·판재, 조합 방식): 회색 바탕 + 고른 탭만 흰 카드, 글자는 빨강 */
+.optScope :global(.mantine-SegmentedControl-root) { padding: 3px; border-radius: 10px; background: #eef1f5; }
+.optScope :global(.mantine-SegmentedControl-indicator) { border-radius: 8px; background: #fff !important; box-shadow: 0 1px 3px #1f2a3a24 !important; }
+.optScope :global(.mantine-SegmentedControl-label) { padding: 4px 14px; color: #5d6b80 !important; font-size: 12px; font-weight: 700; transition: color 120ms ease; }
+.optScope :global(.mantine-SegmentedControl-label:hover) { color: #1f2a3a !important; }
+.optScope :global(.mantine-SegmentedControl-label[data-active]) { color: #e2454d !important; }
+.optScope :global(.mantine-SegmentedControl-control:not(:first-of-type)) { border-color: transparent !important; }

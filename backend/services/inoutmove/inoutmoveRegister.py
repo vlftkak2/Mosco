@@ -1,7 +1,6 @@
 from psycopg2.extras import execute_values
 from services.ai.stock_links import ensure_not_linked, linked_orders_sql
 import logging
-from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
@@ -10,7 +9,7 @@ from psycopg2 import IntegrityError
 import db as _shared_db
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from config import DB_CONFIG
+from services.closing import MonthClose as month_close_module
 from services.inventory.CurrentStock import user_name_sql
 
 logger = logging.getLogger(__name__)
@@ -273,6 +272,7 @@ def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | 
         with _connect() as connection, connection.cursor() as cursor:
             # Coordinate with inbound, outbound, and processing stock mutations for this tenant.
             cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
+            month_close_module.ensure_open(cursor, companyid, [payload["receptdate"]], "등록")
             codes = [payload["fromwarehousecode"], payload["towarehousecode"]]
             cursor.execute(
                 """SELECT code, code_name FROM CodeMaster01t
@@ -444,14 +444,15 @@ def delete_transfer(companyid: str, receiptno: str, actor: str | None = None):
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
-            """SELECT fromwarehousecode, fromwarehousename, towarehousecode
+            """SELECT fromwarehousecode, fromwarehousename, towarehousecode, receptdate
                FROM inoutmove01t WHERE companyid = %s AND receiptno = %s FOR UPDATE""",
             (companyid, receiptno),
         )
         header_row = cursor.fetchone()
         if not header_row:
             return 0
-        from_code, from_name, to_code = header_row
+        from_code, from_name, to_code, transfer_date = header_row
+        month_close_module.ensure_open(cursor, companyid, [transfer_date], "삭제")
         cursor.execute(
             """SELECT lineno, stocksourcetype, stocksourceno, stocksourceline,
                       qty, weight FROM inoutmove02t

@@ -125,7 +125,6 @@
 .customerTableWrap::-webkit-scrollbar-corner { background: #f1f4f7; }
 
 .partnerTable {
-  width: max(100%, 980px) !important;
   border-collapse: separate !important;
   border-spacing: 0;
   table-layout: fixed !important;
@@ -440,3 +439,75 @@
 
   .toolbarLabel { display: none; }
 }
+
+/* 주소 검색 버튼 (주소 줄 끝, 입력칸과 줄 맞춤) */
+.addressSearchButton { display: inline-flex; height: 33px; margin-top: 22px; flex: 0 0 auto; align-items: center; gap: 5px; padding: 0 14px 0 12px; border: 1px solid #dfe5ec; border-radius: 10px; background: #fff; color: #34445a; font: inherit; font-size: 12.5px; font-weight: 700; white-space: nowrap; cursor: pointer; transition: background 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 140ms ease; }
+.addressSearchButton svg { color: #e0434b; }
+.addressSearchButton:hover { border-color: #f2b7ba; background: #fff7f7; box-shadow: 0 2px 8px #e23d4514; color: #d23a42; }
+.addressSearchButton:focus-visible { outline: 2px solid #f0a3a7; outline-offset: 2px; }
+
+/* 열 너비 조절 손잡이 (머리글 오른쪽 끝) */
+.columnResizeHandle { position: absolute; z-index: 4; top: 0; right: 0; width: 7px; height: 100%; cursor: col-resize; touch-action: none; }
+.columnResizeHandle:hover, .columnResizeHandle:active { background: #e4515938; }
+
+/* ==================================================================
+   거래처관리 간결 디자인 (사업장관리와 같은 규칙): 아이콘 · 색 칩 없이, 각진 회색 테두리 입력칸, 굵은 라벨, Pretendard.
+   .simple 은 거래처관리 화면에만 붙는다 (사업장관리도 이 모듈의 .page · .panel 을 쓰므로 범위를 묶음).
+   ================================================================== */
+.simple { font-family: 'Pretendard Variable', 'Pretendard', -apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif; }
+.simple :global(.mantine-Input-input), .simple button, .simple input, .simple textarea { font-family: inherit; }
+.simple .panel { border-color: #e1e5ea !important; border-radius: 8px !important; box-shadow: none !important; }
+.simple .toolbar { min-height: 52px; padding: 0 18px; border-bottom: 1px solid #e4e4e4; background: #fff; }
+.simple .sectionTitle { color: #222 !important; font-size: 16px !important; font-weight: 700 !important; letter-spacing: -.3px; }
+.simple .countBadge { height: 20px; padding: 0 7px; border-radius: 4px !important; background: #f0f0f0 !important; color: #888 !important; font-size: 12px !important; font-weight: 500 !important; }
+.simple svg { display: none; }
+/* 엑셀 버튼(샘플양식 · 엑셀 일괄등록 · 기초잔액 엑셀)은 품목코드 관리처럼 아이콘을 보인다 */
+.simple [role="group"][aria-label="엑셀 일괄등록"] svg { display: inline-block; }
+.simple :global(.mantine-Select-section) svg, .simple :global(.mantine-Pagination-control) svg, .simple :global(.mantine-Pagination-dots) svg, .simple :global(.mantine-Loader-root) svg, .simple :global(.mantine-Checkbox-icon), .simple :global(.mantine-NumberInput-section) svg, .simple :global(.mantine-Modal-close) svg { display: inline-block; }
+
+/* 목록 위 버튼(샘플양식 · 엑셀 일괄등록 · 기초잔액 엑셀): 흰 바탕 · 회색 테두리 */
+.simple .toolbarActions button { height: 30px; border-color: #cccccc; border-radius: 4px; color: #333; font-size: 13px; font-weight: 500; }
+.simple .toolbarActions button:hover:not(:disabled) { border-color: #e0434b; background: #fff; color: #e0434b; }
+
+/* 입력칸 · 선택칸: 높이 32 · 각진 회색 테두리 */
+.simple :global(.mantine-Input-input) { min-height: 32px; height: 32px; border: 1px solid #cccccc; border-radius: 4px; color: #333; font-size: 13.5px; }
+.simple :global(textarea.mantine-Input-input) { height: auto; }
+.simple :global(.mantine-Input-input::placeholder) { color: #9b959f; }
+.simple :global(.mantine-Input-input:focus), .simple :global(.mantine-Input-input:focus-within) { border-color: #e0434b; box-shadow: 0 0 0 2px #e0434b2e; }
+.simple :global(.mantine-Input-input:disabled) { border-color: #e4e4e4; background: #f1f2f5; color: #888; opacity: 1; }
+.simple :global(.mantine-InputWrapper-label) { margin-bottom: 5px; color: #222; font-size: 13px; font-weight: 600; }
+.simple :global(.mantine-InputWrapper-required) { color: #ff2828; }
+.simple .filterLabel { color: #333; font-size: 13px; font-weight: 600; }
+
+/* 목록 표: 머리글 가운데 · 연회색, 행은 흰 바탕 · 가는 선, 선택 행은 연한 빨강 */
+.simple .partnerTable thead th { height: 36px; border-right: 1px solid #e4e4e4; border-bottom: 1px solid #cccccc !important; background: #f7f8fa; color: #333; font-size: 12.5px; font-weight: 600; text-align: center; }
+.simple .partnerTable tbody td { height: 36px; border-right: 1px solid #f0f1f4; border-bottom: 1px solid #ececec !important; color: #333; font-size: 13px; }
+.simple .partnerTable tbody tr:hover td { background: #f7f8fa; }
+.simple .partnerTable tbody tr.selectedRow td { background: #fff3f3; }
+.simple .partnerTable tbody tr.selectedRow td:first-child { box-shadow: inset 3px 0 #e0434b; }
+.simple .partnerNameCell { color: #222; font-weight: 600; }
+.simple .codeCell { color: #666 !important; font-size: 12.5px !important; font-weight: 400; }
+.simple .selectedRow .partnerNameCell { color: #222 !important; }
+/* 거래구분 · 사용여부: 색 칩 대신 글자만 (사용중지는 흐리게) */
+.simple .tag { padding: 0 !important; border: 0 !important; background: none !important; color: #333 !important; font-size: 13px !important; font-weight: 400 !important; }
+.simple .tagInactive { color: #aaa !important; }
+.simple .emptyState strong { color: #666; font-size: 13px; font-weight: 600; }
+
+/* 상세: 이름 줄은 아이콘 없이 글자만 */
+.simple .identityStrip { padding: 16px 18px; border-bottom: 1px solid #e4e4e4; background: #fff; }
+.simple .identityStrip strong { color: #222; font-size: 17px; font-weight: 700; letter-spacing: -.3px; }
+.simple .identityMeta { gap: 0 8px; color: #888; font-size: 12.5px; }
+.simple .identityCode { padding: 0 !important; border: 0 !important; background: none !important; color: #888 !important; font-size: 12.5px !important; }
+.simple .identityMeta > * + *::before { margin-right: 8px; color: #ccc; content: '|'; }
+/* 상세 구역: 빨간 막대 없이 굵은 제목 + 가는 선 */
+.simple .formSection { padding: 18px 0 20px; border-bottom: 1px solid #e4e4e4; }
+.simple .formSection:last-child { border-bottom: 0; }
+.simple .formSectionHead { margin-bottom: 14px; }
+.simple .formSectionTitle { padding-left: 0 !important; border-left: 0 !important; color: #222; font-size: 15px; font-weight: 700; }
+.simple .formSectionTitle::before { display: none !important; }
+.simple .formSectionHint { color: #888; font-size: 12px; }
+.simple .lockChip, .simple .lockNote { color: #888; font-size: 12px; }
+/* 주소 검색: 흰 바탕 · 회색 테두리 */
+.simple .addressSearchButton { height: 32px; margin-top: 25px; padding: 0 12px; border: 1px solid #cccccc; border-radius: 4px; background: #fff; box-shadow: none; color: #333; font-size: 13px; font-weight: 500; }
+.simple .addressSearchButton:hover { border-color: #e0434b; background: #fff; box-shadow: none; color: #e0434b; }
+

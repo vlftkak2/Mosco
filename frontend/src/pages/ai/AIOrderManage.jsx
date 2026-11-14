@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
-import { ActionIcon, Box, Button, Group, Modal as MantineModal, Pagination, Paper, Popover, Select, Stack, Text, TextInput } from '@mantine/core';
+import { ActionIcon, Box, Button, Group, Pagination, Paper, Popover, Select, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconAdjustments, IconArrowBackUp, IconArrowRight, IconCheck, IconFilter, IconLink, IconPackages, IconPencil, IconSearch, IconSend, IconTrash, IconX } from '@tabler/icons-react';
+import { IconAdjustments, IconArrowBackUp, IconArrowRight, IconCheck, IconFilter, IconLink, IconPackages, IconPencil, IconSearch, IconSend, IconX } from '@tabler/icons-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import PickerModal, { PickerEmpty, pickerClasses } from '../../components/common/PickerModal';
@@ -11,8 +11,10 @@ import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import { clearAIOrderDraft, readAIOrderDraft, writeAIOrderDraft } from './AIOrderDraft';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import classes from '../../styles/pages/AIOrderRegistry.module.css';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' },
@@ -23,7 +25,7 @@ const PAGE_SIZE_OPTIONS = [
 const DETAIL_NAV_FIELDS = ['itemname', 'steelgrade', 'surface', 'thickness', 'width', 'length', 'quantity', 'weight_kg', 'notes'];
 const ORDER_COLUMNS = [
   { key: 'orderdate', label: '주문일자', width: 105, minWidth: 78 },
-  { key: 'orderid', label: '주문번호', width: 110, minWidth: 110 },
+  { key: 'orderid', label: '주문번호', width: 160, minWidth: 140 },
   { key: 'buyer', label: '발주처', width: 105, minWidth: 80 },
   { key: 'receiver', label: '수신처', width: 70, minWidth: 70 },
   { key: 'duedate', label: '납기일', width: 70, minWidth: 70 },
@@ -91,7 +93,7 @@ const MATCH_COLUMNS = [
   { key: 'warehouse', label: '창고', width: 120, minWidth: 60 },
   { key: 'qty', label: '현재고 수량', width: 92, minWidth: 60, align: 'right' },
   { key: 'weight', label: '중량(KG)', width: 92, minWidth: 60, align: 'right' },
-  { key: 'sourceno', label: '원천전표', width: 140, minWidth: 80 },
+  { key: 'sourceno', label: '원천전표', width: 160, minWidth: 140 },
   { key: 'sourcetype', label: '입고유형', width: 70, minWidth: 50, align: 'center' },
   { key: 'receiptdate', label: '입고일자', width: 92, minWidth: 70, align: 'center' },
   { key: 'sourceline', label: '순번', width: 56, minWidth: 40, align: 'center' },
@@ -865,17 +867,10 @@ export default function AIOrderManage() {
 
   const renderModal = () => {
     if (!modal || !selectedOrder) return null;
-    if (modal.type === 'delete-order') return <MantineModal opened onClose={() => !saving && setModal(null)} title="주문 삭제" centered size="sm">
-      <Stack gap="md">
-        <Text size="sm" c="dimmed">{selectedOrder.isDraft
-          ? '저장하지 않은 주문을 취소합니다. AI 주문서인식의 분석 결과는 그대로 남아 있어 다시 넘길 수 있습니다.'
-          : `${selectedOrder.orderid} 주문과 상세 내역을 삭제합니다. 삭제한 주문은 복구할 수 없습니다.`}</Text>
-        <Group justify="flex-end">
-          <Button variant="default" onClick={() => setModal(null)} disabled={saving}>취소</Button>
-          <Button color="red" leftSection={<IconTrash size={15} />} onClick={() => void deleteOrder()} loading={saving}>삭제</Button>
-        </Group>
-      </Stack>
-    </MantineModal>;
+    if (modal.type === 'delete-order') return <ConfirmDeleteModal opened onClose={() => setModal(null)} onConfirm={() => void deleteOrder()} loading={saving}
+      title={selectedOrder.isDraft ? '주문을 취소할까요?' : '주문을 삭제할까요?'} target={selectedOrder.isDraft ? '저장 전 주문' : selectedOrder.orderid}
+      message={selectedOrder.isDraft ? '저장하지 않은 주문을 취소합니다. AI 주문서인식의 분석 결과는 그대로 남아 있어 다시 넘길 수 있습니다.' : '주문과 상세 내역이 모두 삭제되며'}
+      note={selectedOrder.isDraft ? '' : '삭제한 주문은 복구할 수 없습니다.'} />;
     if (modal.type === 'stock-match') {
       const targetItem = itemDrafts.find((item) => item.lineno === modal.lineno);
       const setFilter = (field) => (event) => {
@@ -976,7 +971,7 @@ export default function AIOrderManage() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const itemCount = Number(selectedOrder?.item_count || 0);
 
-  return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+  return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
         <Group className={inboundClasses.breadcrumbTrail} gap={7}>
           <Text component="span" className={inboundClasses.breadcrumbParent}>AI 가공솔루션</Text>

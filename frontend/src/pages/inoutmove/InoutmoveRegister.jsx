@@ -12,9 +12,11 @@ import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import outboundClasses from '../../styles/pages/OutboundRegister.module.css';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
-import classes from './InoutmoveRegister.module.css';
+import classes from '../../styles/pages/InoutmoveRegister.module.css';
+import { cachedDateFormat } from '../../utils/dateFormat';
 
 const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 // Same Excel date-time text as 입고/출고등록: "YYYY-MM-DD HH:mm:ss" (KST).
@@ -22,7 +24,7 @@ const formatExcelDateTime = (value) => {
   if (!value) return '';
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return String(value);
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  const parts = cachedDateFormat('en-CA', {
     timeZone: 'Asia/Seoul',
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
@@ -55,7 +57,7 @@ const LIST_COLUMNS = [
   { key: 'total_qty', label: '수량', width: 75, minWidth: 75 },
   { key: 'total_weight', label: '중량(KG)', width: 80, minWidth: 80 },
   { key: 'manager', label: '담당자', width: 80, minWidth: 75 },
-  { key: 'receiptno', label: '재고이전전표', width: 110, minWidth: 110 },
+  { key: 'receiptno', label: '재고이전전표', width: 160, minWidth: 140 },
   { key: 'description', label: '비고', width: 110, minWidth: 90 },
 ];
 const DETAIL_COLUMNS = [
@@ -77,7 +79,7 @@ const DETAIL_COLUMNS = [
   { key: 'customname', label: '매입처', width: 120, minWidth: 90 },
   { key: 'source_date', label: '재고입고일자', width: 90, minWidth: 90 },
   { key: 'sourcetype', label: '재고구분', width: 80, minWidth: 65 },
-  { key: 'stocksourceno', label: '원천전표', width: 110, minWidth: 110 },
+  { key: 'stocksourceno', label: '원천전표', width: 160, minWidth: 140 },
   { key: 'stocksourceline', label: '원천순번', width: 90, minWidth: 90 },
 ];
 const initialColumnWidths = (columns) => Object.fromEntries(columns.map(({ key, width }) => [key, width]));
@@ -593,10 +595,10 @@ export default function InoutmoveRegister() {
   ), [items, selectedIds, selectedSet, readOnly, header.receptdate, fromWarehouse, toWarehouse, detailColumnWidths, detailTableWidth, resizeGridColumn]);
 
   const updateHeader = (field, value) => setHeader((current) => ({ ...current, [field]: value || '' }));
-  return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+  return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
     <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
       <Group className={inboundClasses.breadcrumbTrail} gap={7}>
-        <Text component="span" className={inboundClasses.breadcrumbParent}>재고관리</Text>
+        <Text component="span" className={inboundClasses.breadcrumbParent}>재고이동</Text>
         <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
         <Text component="span" className={inboundClasses.breadcrumbCurrent}>재고이동 등록</Text>
       </Group>

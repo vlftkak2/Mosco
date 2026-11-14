@@ -3,7 +3,7 @@
 매출이익분석(GrossProfit.py)과 같은 계산(_build_query)을 쓰고 묶는 기준만 바꾼다 → 두 화면의 숫자가 항상 같다.
 
   매출   = 매출금액(판매) + 매출비용(+)
-  비용   = 매입원가(매입금액 + 매입비용 + 가공비) + 판매비용(매출비용 −)
+  비용   = 매입원가(매입금액 + 매입비용 + 가공비 + 원자재원가) + 판매비용(매출비용 −)
   순이익 = 매출 − 비용   (= 매출이익분석의 이익금액)
   마진율 = 순이익 ÷ 매출 × 100
   톤당 매출/이익 = 매출(순이익) ÷ 중량(kg) × 1000  (원/톤, 중량 0 이면 없음)
@@ -19,10 +19,11 @@ _MEASURES = """
     COALESCE(SUM(sales_amt + sales_plus), 0) AS sales,
     COALESCE(SUM(sales_amt), 0) AS sales_goods,
     COALESCE(SUM(sales_plus), 0) AS sales_plus,
-    COALESCE(SUM(purchase_amt + purchase_cost + process_amt), 0) AS cost_of_goods,
+    COALESCE(SUM(purchase_amt + purchase_cost + process_amt + material_amt), 0) AS cost_of_goods,
     COALESCE(SUM(purchase_amt), 0) AS purchase_amt,
     COALESCE(SUM(purchase_cost), 0) AS purchase_cost,
     COALESCE(SUM(process_amt), 0) AS process_amt,
+    COALESCE(SUM(material_amt), 0) AS material_amt,
     COALESCE(SUM(sales_minus), 0) AS selling_cost,
     COALESCE(SUM(profit_amt), 0) AS profit,
     COALESCE(SUM(weight), 0) AS weight,
@@ -64,10 +65,10 @@ def dashboard(companyid: str, date_from: date, date_to: date):
     trend_from = _shift_month(date(date_to.year, date_to.month, 1), -11, False)
     trend_prev_from = _shift_month(trend_from, -12, False)
 
-    def cte(start, end):
-        return gross_profit._build_query({"companyid": companyid, "date_from": start, "date_to": end})
-
     with gross_profit._connect() as connection, connection.cursor() as cursor:
+        def cte(start, end):
+            return gross_profit._build_query({"companyid": companyid, "date_from": start, "date_to": end}, cursor)
+
         def fetch(sql, params):
             cursor.execute(sql, params)
             columns = [column[0] for column in cursor.description]

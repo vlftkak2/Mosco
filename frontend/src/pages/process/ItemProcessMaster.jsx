@@ -3,12 +3,9 @@ import axios from 'axios';
 import usePageReactivated from '../../components/common/usePageReactivated';
 // xlsx-js-style: same API as 'xlsx', but actually writes cell styles (red header via applyExcelHeaderStyle).
 import XLSX from 'xlsx-js-style';
-import {
-  ActionIcon, Badge, Box, Button, Group, Loader, Modal, Paper,
-  Popover, Stack, Text, TextInput,
-} from '@mantine/core';
+import { ActionIcon, Badge, Box, Group, Loader, Paper, Popover, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconBox, IconSearch, IconTool, IconTrash, IconX } from '@tabler/icons-react';
+import { IconBox, IconSearch, IconTool, IconX } from '@tabler/icons-react';
 
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
 import ErpRibbon from '../../components/common/ErpRibbon';
@@ -16,7 +13,10 @@ import { SelectPickerModal } from '../../components/common/PickerModal';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/ItemProcessMaster.module.css';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
+import { cachedDateFormat } from '../../utils/dateFormat';
 
 
 // Same Excel date-time text as the other register exports: "YYYY-MM-DD HH:mm:ss" (KST).
@@ -24,7 +24,7 @@ const formatExcelDateTime = (value) => {
   if (!value) return '';
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return String(value);
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  const parts = cachedDateFormat('en-CA', {
     timeZone: 'Asia/Seoul',
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
@@ -715,7 +715,7 @@ export default function ItemProcessMaster() {
   );
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+    <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
       <ErpBreadcrumb parent="재고가공" current="가공공정 관리" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
       <Box className={classes.workspace}>
         <Paper className={`${sharedClasses.panel} ${classes.panel}`} withBorder>
@@ -779,11 +779,8 @@ export default function ItemProcessMaster() {
         onSelect={(item) => { if (pickerTarget) selectItem(pickerTarget, item); }} />
       <ProcessPickerModal key={processPickerTarget || 'closed'} opened={Boolean(processPickerTarget)} onClose={() => setProcessPickerTarget('')}
         options={processOptions} onSelect={(option) => { if (processPickerTarget) selectProcess(processPickerTarget, option); }} />
-      <Modal opened={Boolean(deleteRequest?.length)} onClose={() => !saving && setDeleteRequest(null)} title="가공공정 삭제" centered size="xs">
-        <Stack gap="sm"><Text size="sm" c="dimmed">선택한 {deleteRequest?.length || 0}개 가공공정을 삭제합니다. 삭제 후 복구할 수 없습니다.</Text>
-          <Group justify="flex-end"><Button variant="default" onClick={() => setDeleteRequest(null)} disabled={saving}>취소</Button>
-            <Button color="red" leftSection={<IconTrash size={15} />} onClick={confirmDelete} loading={saving}>삭제</Button></Group></Stack>
-      </Modal>
+      <ConfirmDeleteModal opened={Boolean(deleteRequest?.length)} onClose={() => setDeleteRequest(null)} onConfirm={confirmDelete} loading={saving}
+        title="가공공정을 삭제할까요?" target={`선택 ${deleteRequest?.length || 0}개 가공공정`} message="선택한 가공공정이 삭제되며" note="삭제한 가공공정은 복구할 수 없습니다." />
     </Box>
   );
 }

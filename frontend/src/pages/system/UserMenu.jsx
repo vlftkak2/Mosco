@@ -1,33 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { apiErrorMessage } from '../../utils/apiError';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import {
-  Badge,
-  Box,
-  Checkbox,
-  Group,
-  Pagination,
-  Paper,
-  ScrollArea,
-  Select,
-  Switch,
-  Table,
-  Text,
-  TextInput,
+  Badge, Box, Checkbox, Group, Pagination, Paper, ScrollArea, Select, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconBuilding,
-  IconInbox,
-  IconListCheck,
-  IconSearch,
-  IconShieldLock,
-  IconUserSearch,
-  IconUsersGroup,
+  IconBuilding, IconInbox, IconSearch, IconShieldLock, IconUsersGroup,
 } from '@tabler/icons-react';
 import { useLocation } from 'react-router-dom';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import { ColumnResizeHandle, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/UserMenu.module.css';
 
 
@@ -35,11 +21,7 @@ const authConfig = () => ({
   headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` },
 });
 
-const errorMessage = (error, fallback) => {
-  const detail = error.response?.data?.detail;
-  if (Array.isArray(detail)) return detail.map((item) => item.msg).join(', ');
-  return detail || error.message || fallback;
-};
+const errorMessage = (error, fallback) => apiErrorMessage(error, fallback);
 
 const AUTHORITY_LABELS = {
   MASTER: '플랫폼 관리자',
@@ -73,7 +55,7 @@ const MENU_SECTIONS = [
     menuids: ['RECEIPT_PAYMENT', 'RECEIPT_PAYMENT_SEARCH', 'INSTRUMENT_STATUS', 'CUSTOMER_LEDGER', 'CUSTOMER_BALANCE_DASHBOARD'],
   },
   { label: '게시판', menuids: ['CUSTOMER_SUPPORT'] },
-  { label: '설정', menuids: ['DATA_CODE', 'DATA_ITEM', 'DATA_CUSTOMER'] },
+  { label: '설정', menuids: ['DATA_CODE', 'DATA_ITEM', 'DATA_CUSTOMER', 'WORKPLACE_MANAGEMENT', 'MONTH_CLOSING', 'USER_MANAGEMENT'] },
 ];
 const MENU_SECTION_BY_ID = Object.fromEntries(
   MENU_SECTIONS.flatMap((section, index) => section.menuids.map((menuid) => [menuid, index])),
@@ -81,7 +63,24 @@ const MENU_SECTION_BY_ID = Object.fromEntries(
 const OTHER_SECTION_LABEL = '기타';
 
 
+const MENU_USER_COLUMNS = [
+  { key: 'username', label: '사용자명', width: 130 },
+  { key: 'email', label: '이메일', width: 240 },
+  { key: 'authority', label: '권한', width: 110 },
+  { key: 'useyn', label: '사용여부', width: 90 },
+];
+const PERM_COLUMNS = [
+  { key: 'menu', label: '메뉴', width: 240 },
+  { key: 'access', label: '접근', width: 84, minWidth: 70 },
+  { key: 'status', label: '운영상태', width: 88 },
+  { key: 'created_by', label: '등록자', width: 90 },
+  { key: 'updated_by', label: '수정자', width: 90 },
+];
+
 export default function UserMenu() {
+  // 표 열: 머리글 오른쪽 끝을 끌어 너비 조절 (두 번 누르면 기본 너비)
+  const userCols = useResizableColumns(MENU_USER_COLUMNS);
+  const permCols = useResizableColumns(PERM_COLUMNS);
   const location = useLocation();
   const currentAuthority = String(localStorage.getItem('user_authority') || 'USER').toUpperCase();
   const isPlatformMaster = currentAuthority === 'MASTER';
@@ -268,6 +267,10 @@ export default function UserMenu() {
         message: `${selectedUser.username} 계정에 ${selectedMenuids.length}개 메뉴 권한을 반영했습니다.`,
         color: 'teal',
       });
+      // 내 권한을 바꿨으면 왼쪽 메뉴도 바로 다시 읽는다
+      if (selectedUser.email.toLowerCase() === String(localStorage.getItem('user_email') || '').toLowerCase()) {
+        window.dispatchEvent(new Event('menu-permissions-changed'));
+      }
       await loadPermissions(companyid, selectedUser.email);
     } catch (error) {
       notifications.show({
@@ -293,7 +296,7 @@ export default function UserMenu() {
   });
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+    <Box className={`${simpleTheme.simple} ${simpleTheme.noIcons} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
         <Text component="span" className={classes.breadcrumbParent}>고객사정보</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
@@ -348,13 +351,14 @@ export default function UserMenu() {
           </Group>
 
           <ScrollArea className={classes.tableWrap} type="always" scrollbars="xy" scrollbarSize={10}>
-            <Table className={`${sharedClasses.table} ${classes.userTable}`} highlightOnHover>
+            <Table className={`${sharedClasses.table} ${classes.userTable}`} highlightOnHover style={{ width: `max(100%, ${userCols.tableWidth}px)` }}>
+              <colgroup>{MENU_USER_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: userCols.widthOf(column) }} />)}</colgroup>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>사용자명</Table.Th>
-                  <Table.Th>이메일</Table.Th>
-                  <Table.Th>권한</Table.Th>
-                  <Table.Th>사용여부</Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>사용자명<ColumnResizeHandle column={MENU_USER_COLUMNS[0]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>이메일<ColumnResizeHandle column={MENU_USER_COLUMNS[1]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>권한<ColumnResizeHandle column={MENU_USER_COLUMNS[2]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>사용여부<ColumnResizeHandle column={MENU_USER_COLUMNS[3]} columns={userCols} /></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -393,7 +397,7 @@ export default function UserMenu() {
                                 ? '플랫폼 관리자 계정은 전체 메뉴 권한이 있어 개별 설정 대상이 아닙니다.'
                                 : isPlatformMaster
                                   ? '선택한 고객사에 메뉴 권한을 관리할 계정이 없습니다.'
-                                  : '등록된 일반 사용자 계정이 없습니다. 고객사 계정관리에서 USER 계정을 추가해 주세요.'}
+                                  : '등록된 계정이 없습니다. 고객사관리에서 계정을 추가해 주세요.'}
                         </strong>
                       </div>
                     </Table.Td>
@@ -447,39 +451,29 @@ export default function UserMenu() {
             )}
           </Group>
 
-          <Group className={classes.permissionBar} justify="space-between" wrap="nowrap">
-            <Text className={classes.permissionHint}>접근 스위치는 선택 사용자 권한만 변경합니다.</Text>
-            <Checkbox
-              size="xs"
-              color="red"
-              label="전체 허용"
-              checked={allSelected}
-              indeterminate={partiallySelected}
-              disabled={!selectedUser || menus.length === 0}
-              onChange={(event) => setSelectedMenuids(
-                event.currentTarget.checked ? menus.map((menu) => menu.menuid) : [],
-              )}
-            />
+          <Group className={classes.permissionBar} justify="flex-end" wrap="nowrap">
+            <Text className={classes.permissionHint}>※ 수정 후 위쪽 [저장]을 눌러 주세요. 선택한 사용자 권한만 바뀝니다.</Text>
           </Group>
 
+          {/* 권한 표 (파로스 권한관리 모양): 머리글 체크로 모든 메뉴를 한 번에 체크 */}
           <ScrollArea className={classes.tableWrap} type="auto">
-            <Table className={`${sharedClasses.table} ${classes.menuTable}`} highlightOnHover>
-              <colgroup>
-                <col style={{ width: 84 }} />
-                <col style={{ width: '27%' }} />
-                <col />
-                <col style={{ width: 96 }} />
-                <col style={{ width: '13%' }} />
-                <col style={{ width: '13%' }} />
-              </colgroup>
+            <Table className={`${sharedClasses.table} ${classes.menuTable} ${classes.permMatrix}`} style={{ width: `max(100%, ${permCols.tableWidth}px)` }}>
+              <colgroup>{PERM_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: permCols.widthOf(column) }} />)}</colgroup>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th className={classes.checkColumn}>사용자 접근</Table.Th>
-                  <Table.Th>메뉴코드</Table.Th>
-                  <Table.Th>메뉴명</Table.Th>
-                  <Table.Th>메뉴 운영상태</Table.Th>
-                  <Table.Th>등록자</Table.Th>
-                  <Table.Th>수정자</Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>메뉴<ColumnResizeHandle column={PERM_COLUMNS[0]} columns={permCols} /></Table.Th>
+                  <Table.Th className={`${pickerClasses.resizableHead} ${classes.checkColumn}`}>
+                    <span className={classes.headCheck}>
+                      <Checkbox size="xs" color="red" radius={3} aria-label="모든 메뉴 접근 허용"
+                        checked={allSelected} indeterminate={partiallySelected} disabled={!selectedUser || menus.length === 0}
+                        onChange={(event) => setSelectedMenuids(event.currentTarget.checked ? menus.map((menu) => menu.menuid) : [])} />
+                      접근
+                    </span>
+                    <ColumnResizeHandle column={PERM_COLUMNS[1]} columns={permCols} />
+                  </Table.Th>
+                  <Table.Th className={`${pickerClasses.resizableHead} ${classes.statusColumn}`}>운영상태<ColumnResizeHandle column={PERM_COLUMNS[2]} columns={permCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>등록자<ColumnResizeHandle column={PERM_COLUMNS[3]} columns={permCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>수정자<ColumnResizeHandle column={PERM_COLUMNS[4]} columns={permCols} /></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -487,49 +481,35 @@ export default function UserMenu() {
                   const grantedCount = group.items.filter((menu) => selectedMenuSet.has(menu.menuid)).length;
                   return [
                     <Table.Tr key={`group:${group.key}`} className={classes.groupRow}>
-                      <Table.Td colSpan={6}>
-                        <span className={classes.groupLabel}>{group.label}</span>
-                        <span className={`${classes.groupCount} ${grantedCount ? classes.groupCountOn : ''}`}>
-                          {grantedCount} / {group.items.length}
-                        </span>
-                      </Table.Td>
+                      <Table.Td><span className={classes.groupLabel}>{group.label}</span><span className={classes.groupCount}>{grantedCount} / {group.items.length}</span></Table.Td>
+                      <Table.Td />
+                      <Table.Td /><Table.Td /><Table.Td />
                     </Table.Tr>,
                     ...group.items.map((menu) => (
                       <Table.Tr
                         key={menu.menuid}
-                        className={`${menu.useyn === 'Y' ? '' : classes.inactiveMenuRow} ${selectedMenuSet.has(menu.menuid) ? classes.grantedRow : ''}`}
+                        className={`${menu.useyn === 'Y' ? '' : classes.inactiveMenuRow}`}
                         title={menu.useyn === 'Y' ? undefined : '전역 메뉴 운영상태가 사용중지입니다. 사용자 권한과 별도로 유지됩니다.'}
                       >
+                        <Table.Td className={classes.nameCell} title={menu.menuname}><span className={classes.treeMark}>└</span>{menu.menuname}</Table.Td>
                         <Table.Td className={classes.checkColumn}>
-                          <Switch
-                            size="xs"
-                            color="red"
+                          <Checkbox size="xs" color="red" radius={3}
                             checked={selectedMenuSet.has(menu.menuid)}
                             disabled={!selectedUser}
                             onChange={(event) => toggleMenu(menu.menuid, event.currentTarget.checked)}
                             onClick={(event) => event.stopPropagation()}
-                            aria-label={`${menu.menuname} 접근 허용`}
-                          />
+                            aria-label={`${menu.menuname} 접근 허용`} />
                         </Table.Td>
-                        <Table.Td className={classes.codeCell} title={menu.menuid}>{menu.menuid}</Table.Td>
-                        <Table.Td className={classes.nameCell} title={menu.menuname}>{menu.menuname}</Table.Td>
-                        <Table.Td className={classes.statusColumn}>
-                          <Badge size="sm" variant="light" color={menu.useyn === 'Y' ? 'teal' : 'gray'}>
-                            {menu.useyn === 'Y' ? '사용중' : '사용중지'}
-                          </Badge>
-                        </Table.Td>
-                        <Table.Td title={menu.created_by || ''}>{menu.created_by || ''}</Table.Td>
-                        <Table.Td title={menu.updated_by || ''}>{menu.updated_by || ''}</Table.Td>
+                        <Table.Td className={`${classes.statusColumn} ${menu.useyn === 'Y' ? classes.statusOn : classes.statusOff}`}>{menu.useyn === 'Y' ? '사용중' : '사용중지'}</Table.Td>
+                        <Table.Td className={classes.auditCell} title={menu.created_by || ''}>{menu.created_by || ''}</Table.Td>
+                        <Table.Td className={classes.auditCell} title={menu.updated_by || ''}>{menu.updated_by || ''}</Table.Td>
                       </Table.Tr>
                     )),
                   ];
                 }) : (
                   <Table.Tr className={classes.emptyRow}>
-                    <Table.Td colSpan={6} className={classes.emptyCell}>
+                    <Table.Td colSpan={PERM_COLUMNS.length} className={classes.emptyCell}>
                       <div className={classes.empty}>
-                        <span className={classes.emptyIcon}>
-                          {loadingMenus ? <IconSearch size={20} /> : selectedUser ? <IconListCheck size={20} /> : <IconUserSearch size={20} />}
-                        </span>
                         <strong>
                           {loadingMenus
                             ? '조회 중...'

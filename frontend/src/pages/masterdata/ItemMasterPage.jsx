@@ -1,25 +1,8 @@
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import {
-  ActionIcon,
-  Box,
-  Button,
-  Group,
-  Loader,
-  Modal,
-  Pagination,
-  Paper,
-  Popover,
-  ScrollArea,
-  Select,
-  Stack,
-  Table,
-  Text,
-  TextInput,
-  Tooltip,
-} from '@mantine/core';
+import { ActionIcon, Box, Group, Loader, Modal, Pagination, Paper, Popover, ScrollArea, Select, Stack, Table, Text, TextInput, Tooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconAdjustmentsHorizontal, IconDatabaseOff, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { IconDatabaseOff, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
 import XLSX from 'xlsx-js-style';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
@@ -28,12 +11,15 @@ import ExcelBulkActions from '../../components/common/ExcelBulkActions';
 import ErpRibbon from '../../components/common/ErpRibbon';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import UseSwitch from '../../components/common/UseSwitch';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/ItemMaster.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import outboundClasses from '../../styles/pages/OutboundRegister.module.css';
 import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
 // 품목코드 관리 화면 전용 스타일 (공유 CSS는 수정하지 않고 이 모듈로 덮어씁니다)
 import s from '../../styles/pages/ItemMasterScreen.module.css';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 
 const authHeaders = () => ({
   Authorization: `Bearer ${localStorage.getItem('access_token') || ''}`,
@@ -252,10 +238,7 @@ const ItemCells = memo(function ItemCells({ item, index, selected, disabled, sha
               </Popover.Dropdown>
             </Popover>
           ) : key === 'use_yn' ? (
-            <select ref={(element) => registerCellInput(item.id, key, element)} className={`${s.cellSelect} ${s.useSelect} ${(item.use_yn || 'Y') === 'N' ? s.useOff : s.useOn}`} aria-label={label} data-row-id={item.id} data-field={key} value={item.use_yn || 'Y'} disabled={disabled} onFocus={() => onFocusCell(item.id, key)} onKeyDown={onCellKeyDown} onPaste={handlePaste(key)} onChange={(event) => onChange(item.id, key, event.currentTarget.value)}>
-              <option value="Y">사용중</option>
-              <option value="N">사용중지</option>
-            </select>
+            <UseSwitch inputRef={(element) => registerCellInput(item.id, key, element)} label={label} data-row-id={item.id} data-field={key} checked={(item.use_yn || 'Y') !== 'N'} disabled={disabled} onFocus={() => onFocusCell(item.id, key)} onKeyDown={onCellKeyDown} onPaste={handlePaste(key)} onToggle={(next) => onChange(item.id, key, next ? 'Y' : 'N')} />
           ) : (
             <input
               ref={(element) => {
@@ -972,7 +955,7 @@ export default function ItemMaster() {
   };
 
   return (
-    <Box className={`${sharedClasses.pageShell} ${classes.page} ${s.screen}`}>
+    <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page} ${s.screen}`}>
       <ErpBreadcrumb parent="기준정보" current="품목코드 관리" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
 
       <Box className={s.workspace}>
@@ -1026,7 +1009,7 @@ export default function ItemMaster() {
       </Paper>
       {filterOpen && <Paper component="aside" className={s.filterSidebar} withBorder>
         <div className={s.filterHead}>
-          <Group gap={6} wrap="nowrap"><IconAdjustmentsHorizontal size={16} color="#8290a5" /><strong>조회조건</strong></Group>
+          <strong>조회조건</strong>
           <ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}><IconX size={16} /></ActionIcon>
         </div>
         <div className={s.filterBody}>
@@ -1044,15 +1027,8 @@ export default function ItemMaster() {
       </Paper>}
       </Box>
 
-      <Modal opened={Boolean(deleteRequest?.length)} onClose={() => !saving && setDeleteRequest(null)} title="품목 삭제" centered size="xs" padding="sm">
-        <Stack gap="sm">
-          <Text size="sm" c="dimmed">선택한 {deleteRequest?.length || 0}개 저장된 품목을 삭제합니다. 삭제한 품목은 복구할 수 없습니다.</Text>
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setDeleteRequest(null)} disabled={saving}>취소</Button>
-            <Button color="red" leftSection={<IconTrash size={15} />} onClick={confirmDelete} loading={saving}>삭제</Button>
-          </Group>
-        </Stack>
-      </Modal>
+      <ConfirmDeleteModal opened={Boolean(deleteRequest?.length)} onClose={() => setDeleteRequest(null)} onConfirm={confirmDelete} loading={saving}
+        title="품목을 삭제할까요?" target={`선택 ${deleteRequest?.length || 0}개 품목`} message="선택한 저장된 품목이 삭제되며" note="삭제한 품목은 복구할 수 없습니다." />
 
       <ShapePickerModal
         key={shapePickerTarget || 'closed'}

@@ -9,7 +9,9 @@ import ResizableVirtualTable from '../../components/common/ResizableVirtualTable
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/InboundSearch.module.css';
+import { cachedDateFormat } from '../../utils/dateFormat';
 
 const monthFilters = () => {
   const now = new Date(); const y = now.getFullYear(); const m = now.getMonth(); const pad = (v) => String(v).padStart(2, '0');
@@ -20,7 +22,7 @@ const TYPE_OPTIONS = [{ value: "ALL", label: "전체" }, { value: "ST", label: "
 const TYPE_NAMES = { ST: "기초", IN: "입고", OUT: "출고" };
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
-const timestampText = (value) => { if (!value) return ''; const d = new Date(value); return Number.isNaN(d.getTime()) ? String(value) : new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d); };
+const timestampText = (value) => { if (!value) return ''; const d = new Date(value); return Number.isNaN(d.getTime()) ? String(value) : cachedDateFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d); };
 // 칸 표시: 숫자 오른쪽 정렬, 글자는 넘치면 … + 마우스를 올리면 전체 표시
 const num = (value) => <span className={classes.cellNum}>{value}</span>;
 const center = (value) => <span className={classes.cellCenter}>{value}</span>;
@@ -52,7 +54,7 @@ export default function IniopStockPage() {
 
   useErpPageRibbon({ onSearch: search, onExcel: exportExcel, showPrint: false, useSaveColor: false });
 
-  return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+  return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
     <ErpBreadcrumb parent="재고관리" current="재고수불 현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
     <Box className={classes.inboundWorkspace}>
     {filterOpen && <Paper component="aside" className={classes.filterSidebar} withBorder>
@@ -77,15 +79,15 @@ export default function IniopStockPage() {
         <Box className={classes.toolbarTitle}>
           <Text className={classes.sectionTitle} fw={700}>재고수불현황</Text>
           <span className={classes.countBadge}>{total.toLocaleString()}건</span>
+          <span className={classes.toolbarMeta} title="조회 기간 (수불일자)"><IconCalendar size={13} />{periodText(filters.date_from, filters.date_to)}</span>
         </Box>
-        <span className={classes.toolbarMeta} title="조회 기간 (수불일자)"><IconCalendar size={13} />{periodText(filters.date_from, filters.date_to)}</span>
       </Group>
       <Box className={classes.tableWrap}>{loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}{items.length ? <ResizableVirtualTable data={items} computeItemKey={(_index, item) => `${item.iniotype}:${item.receiptno}:${item.lineno}`} rowOffset={(page - 1) * pageSize} minTableWidth={0} columns={[
           { key: 'no', label: 'No.', width: 48, minWidth: 45, render: (_item, index) => center(index + 1) },
           { key: 'iniotype', label: '수불유형', width: 70, minWidth: 60, render: (item) => typeBadge(item.iniotype) },
           { key: 'iniodate', label: '수불일자', width: 100, minWidth: 90, render: (item) => center(String(item.iniodate || '').slice(0, 10)) },
           { key: 'customname', label: '거래처명', width: 125, minWidth: 105, render: (item) => text(item.customname || '') },
-          { key: 'receiptno', label: '수불전표', width: 140, minWidth: 125, render: (item) => text(item.receiptno || '') },
+          { key: 'receiptno', label: '수불전표', width: 160, minWidth: 140, render: (item) => text(item.receiptno || '') },
           { key: 'lineno', label: '순번', width: 55, minWidth: 48, render: (item) => num(item.lineno ?? '') },
           { key: 'warehousecodename', label: '창고명', width: 110, minWidth: 95, render: (item) => text(item.warehousecodename || '') },
           { key: 'itemname', label: '품명', width: 120, minWidth: 102, render: (item) => text(item.itemname || '') },

@@ -1,7 +1,6 @@
 from psycopg2.extras import execute_values
 from services.ai.stock_links import ensure_not_linked
 import logging
-from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -9,7 +8,7 @@ from psycopg2 import IntegrityError
 import db as _shared_db
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from config import DB_CONFIG
+from services.closing import MonthClose as month_close_module
 from services.inventory import CurrentStock as current_stock_module
 
 logger = logging.getLogger(__name__)
@@ -341,6 +340,7 @@ def save_stand_items(companyid: str, companyname: str, standdate: date, items: l
     try:
         with _connect() as connection, connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
+            month_close_module.ensure_open(cursor, companyid, [item.get("standdate") or standdate for item in items], "등록")
             codes = _load_active_codes(cursor, companyid)
             item_codes = list(dict.fromkeys(item["itemcode"].strip() for item in items))
             cursor.execute(
@@ -509,10 +509,12 @@ def update_stand_prices(companyid: str, items: list[dict], actor: str | None = N
 
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
-            "SELECT lineno, qty, length, weight FROM StandStock01t WHERE companyid = %s AND lineno = ANY(%s) FOR UPDATE",
+            "SELECT lineno, qty, length, weight, standdate FROM StandStock01t WHERE companyid = %s AND lineno = ANY(%s) FOR UPDATE",
             (companyid, linenos),
         )
-        stock_values = {row[0]: row[1:] for row in cursor.fetchall()}
+        fetched = cursor.fetchall()
+        month_close_module.ensure_open(cursor, companyid, [row[4] for row in fetched], "수정")
+        stock_values = {row[0]: row[1:4] for row in fetched}
         found = set(stock_values)
         missing = sorted(set(linenos) - found)
         if missing:
@@ -573,7 +575,7 @@ def delete_stand_lines(companyid: str, linenos: list[int]):
         # processing cannot draw from these rows while they are checked and deleted.
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
-            f"""SELECT s.lineno, s.itemname, s.productname, cs.sourceno, {_DELETE_BLOCK_SQL} AS delete_block
+            f"""SELECT s.lineno, s.itemname, s.productname, cs.sourceno, {_DELETE_BLOCK_SQL} AS delete_block, s.standdate
                 FROM StandStock01t s
                 LEFT JOIN CurrentStock01t cs
                   ON cs.companyid = s.companyid AND cs.sourcetype = 'OPENING' AND cs.sourceline = s.lineno
@@ -585,6 +587,8 @@ def delete_stand_lines(companyid: str, linenos: list[int]):
         rows = cursor.fetchall()
         if len(rows) != len(targets):
             raise ValueError("삭제할 기초재고 행을 찾을 수 없습니다. 목록을 새로고침해 주세요.")
+        month_close_module.ensure_open(cursor, companyid, [row[5] for row in rows], "삭제")
+        rows = [row[:5] for row in rows]
         blocked = [
             f"{productname or itemname}: {_DELETE_BLOCK_TEXT.get(block, block)}"
             for _lineno, itemname, productname, _sourceno, block in rows if block
@@ -624,7 +628,7 @@ def delete_stand_items(companyid: str):
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
-            """SELECT s.lineno, s.itemcode, s.warehousecode
+            """SELECT s.lineno, s.itemcode, s.warehousecode, s.standdate
                FROM StandStock01t s
                WHERE s.companyid = %s
                FOR UPDATE""",
@@ -633,6 +637,7 @@ def delete_stand_items(companyid: str):
         selected = cursor.fetchall()
         if not selected:
             return 0
+        month_close_module.ensure_open(cursor, companyid, [row[3] for row in selected], "삭제")
 
         cursor.execute(
             """SELECT EXISTS (

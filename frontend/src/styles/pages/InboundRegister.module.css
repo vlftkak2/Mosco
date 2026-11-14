@@ -570,3 +570,14 @@
 }
 .editorPanel :global(tbody td input[type='checkbox']:focus-visible),
 .editorPanel :global(thead th input[type='checkbox']:focus-visible) { outline: 2px solid #e45159; outline-offset: 2px; }
+
+/* 매출·입고 상세 소계 줄: 출고 기본 소계 줄(topReceiptSubtotalCell)과 같은 위치·색·글자 크기.
+   행이 적으면 상세 영역 맨 아래에 붙고, 행이 많으면 스크롤 영역 아래쪽에 고정된다. */
+.detailFillWrap { display: flex; min-height: 100%; flex-direction: column; }
+.detailSubtotalTable { position: sticky; bottom: 0; z-index: 3; margin-top: auto; border-collapse: collapse; }
+.detailSubtotalFoot { position: sticky; bottom: 0; z-index: 3; }
+/* .editorPanel tbody td { padding: 0 !important } 보다 강하게 지정해 칸 안쪽 여백이 실제로 들어가게 한다 */
+.detailFillWrap .detailSubtotalTable :global(.mantine-Table-tbody) td,
+.detailSubtotalTable td, .detailSubtotalFoot td { height: 30px; overflow: hidden; padding: 0 12px !important; border: 1px solid #dfe5ed; background: #eef2f7; color: #1e2e45; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; text-overflow: ellipsis; vertical-align: middle; white-space: nowrap; }
+.detailSubtotalCell { text-align: left; }
+.detailSubtotalNumber { text-align: right !important; }

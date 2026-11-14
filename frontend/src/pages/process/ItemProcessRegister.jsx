@@ -8,17 +8,20 @@ import {
   Paper, Popover, Select, Stack, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconBox, IconPlus, IconSearch, IconTool, IconTrash, IconX } from '@tabler/icons-react';
+import { IconBox, IconPlus, IconSearch, IconTool, IconX } from '@tabler/icons-react';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import PickerModal, { ColumnResizeHandle, PickerEmpty, SelectPickerModal, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
 import ErpRibbon from '../../components/common/ErpRibbon';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/ItemProcessRegister.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import outboundClasses from '../../styles/pages/OutboundRegister.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
+import { cachedDateFormat } from '../../utils/dateFormat';
 
 
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
@@ -41,7 +44,7 @@ const formatExcelDateTime = (value) => {
   if (!value) return '';
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return String(value);
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  const parts = cachedDateFormat('en-CA', {
     timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
   }).formatToParts(date);
@@ -1110,7 +1113,7 @@ export default function ItemProcessRegister() {
       </Paper>
   ), [filters, loadDocuments, readOnly, reset]);
 
-  return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
+  return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
     <ErpBreadcrumb parent="재고가공" current="재고가공 등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
     <Box className={classes.workspace}>
       <Stack gap="sm" className={classes.main}>
@@ -1150,23 +1153,16 @@ export default function ItemProcessRegister() {
               <Box><Text className={classes.balanceCaption}>미정산 중량</Text><Text className={classes.balanceAmount}>{numberText(Math.abs(weightDifference))} kg</Text></Box>
             </Group>
             <Group gap="md" wrap="nowrap" className={classes.balanceResult}>
-              <Box ta="right"><Text fw={700} c={isWeightBalanced ? 'teal' : sources.length ? 'red' : 'dimmed'}>{weightStatusText}</Text><Text size="xs" c="dimmed">미정산 {numberText(Math.abs(weightDifference))} kg</Text></Box>
-              <Button size="xs" variant="light" color="red" disabled={readOnly} onClick={autoMatchWeight}>↔ 중량 자동맞춤</Button>
+              <Box ta="right"><Text className={classes.balanceStatus} c={isWeightBalanced ? 'teal' : sources.length ? 'red' : 'dimmed'}>{weightStatusText}</Text><Text className={classes.balanceSub}>미정산 {numberText(Math.abs(weightDifference))} kg</Text></Box>
+              <Button size="sm" variant="light" color="red" disabled={readOnly} onClick={autoMatchWeight}>↔ 중량 자동맞춤</Button>
             </Group>
           </Group>
         </Paper>
       </Stack>
       {filterOpen && filterPanel}
     </Box>
-    <Modal opened={deleteDocumentsOpen} onClose={() => !saving && setDeleteDocumentsOpen(false)} title="가공전표 삭제" centered size="sm">
-      <Stack gap="md">
-        <Text size="sm" c="dimmed">{deleteDocumentNos[0]} 전표와 상세 내역을 삭제합니다. 삭제한 전표는 복구할 수 없습니다.</Text>
-        <Group justify="flex-end">
-          <Button variant="default" disabled={saving} onClick={() => setDeleteDocumentsOpen(false)}>취소</Button>
-          <Button color="red" leftSection={<IconTrash size={15} />} loading={saving} onClick={confirmDeleteDocuments}>삭제</Button>
-        </Group>
-      </Stack>
-    </Modal>
+    <ConfirmDeleteModal opened={deleteDocumentsOpen} onClose={() => setDeleteDocumentsOpen(false)} onConfirm={confirmDeleteDocuments} loading={saving}
+      title="가공전표를 삭제할까요?" target={deleteDocumentNos[0]} message="전표와 상세 내역이 모두 삭제되며" note="삭제한 전표는 복구할 수 없습니다." />
     <StockPicker opened={stockOpen} onClose={() => setStockOpen(false)} onApply={addStocks} existingKeys={existingKeys} existingWarehouseCode={sources[0]?.stock?.warehousecode || ''} />
   </Box>;
 }

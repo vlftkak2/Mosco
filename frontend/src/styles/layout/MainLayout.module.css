@@ -137,30 +137,40 @@
 
 .userIdentity {
   align-items: center;
+  height: 34px;
+  padding: 0 12px 0 4px;
+  border: 1px solid #e6eaf0;
+  border-radius: 999px;
+  background: #fff;
   cursor: pointer;
   white-space: nowrap;
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
 }
-.userIcon { flex: none; color: #4b5563; }
-.userName { color: #1f2937; font-size: 13px; font-weight: 600; letter-spacing: -0.1px; }
+.userIdentity:hover { border-color: #f2b7ba; background: #fff7f7; box-shadow: 0 2px 8px #e23d4514; }
+.userIdentity:focus-visible { outline: 2px solid #f0a3a7; outline-offset: 2px; }
+.userAvatar { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, #f2545b 0%, #d9365a 100%); color: #fff; font-size: 12px; font-weight: 800; }
+.userName { color: #1f2937; font-size: 13px; font-weight: 700; letter-spacing: -0.1px; }
 
-.userDivider { color: #69717c; font-size: 13px; }
+.userDivider { width: 1px; height: 18px; margin: 0 4px; background: #e3e7ed; }
 
 .logoutButton {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 4px;
+  gap: 5px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
   background: transparent;
-  color: #4b5563;
+  color: #5b6574;
   font: inherit;
   font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
 }
 .logoutButton:hover,
-.logoutButton:active { background: #fef2f2; color: #b91c1c; }
+.logoutButton:active { border-color: #f6d4d6; background: #fff4f4; color: #d23a42; }
 .logoutButton:focus-visible { outline: 2px solid #ff8388; outline-offset: 2px; }
 
 
@@ -369,34 +379,13 @@
 }
 .headerActions :global(.mantine-Button-root .mantine-Button-label) { font-size: 12px !important; letter-spacing: -.1px; }
 .headerActions :global(.mantine-Button-root .mantine-Button-section) { margin-inline-end: 6px; }
-.headerActions :global(.mantine-Button-root svg) { width: 16px !important; height: 16px !important; stroke-width: 1.9; color: #6b7a8f; transition: color 120ms ease; }
+.headerActions :global(.mantine-Button-root svg) { width: 16px !important; height: 16px !important; stroke-width: 1.9; color: currentColor !important; transition: color 120ms ease; }
+/* 모든 버튼(조회 · 저장 포함) 평소엔 같은 글자색, 마우스를 올렸을 때만 빨간 글자 + 빨간 네모 */
 .headerActions :global(.mantine-Button-root:hover:not(:disabled):not([data-disabled])) {
-  border-color: #e3e8ef !important; background: #f4f6f9 !important; color: #1f2a3a !important;
+  border-color: #f2b7ba !important; background: #fff5f5 !important; color: #e0434b !important;
 }
 .headerActions :global(.mantine-Button-root:active:not(:disabled):not([data-disabled])) { transform: translateY(1px); }
 .headerActions :global(.mantine-Button-root:focus-visible) { outline: 2px solid #f0444c !important; outline-offset: 1px !important; }
-
-/* 동작별 아이콘 색 */
-.headerActions :global(.mantine-Button-root:has(.tabler-icon-plus) svg) { color: #2a78d6; }
-.headerActions :global(.mantine-Button-root:has(.tabler-icon-copy) svg) { color: #7a5fc7; }
-.headerActions :global(.mantine-Button-root:has(.tabler-icon-file-spreadsheet) svg) { color: #16834a; }
-.headerActions :global(.mantine-Button-root:has(.tabler-icon-printer) svg) { color: #52607a; }
-.headerActions :global(.mantine-Button-root:has(.tabler-icon-trash) svg) { color: #d0454c; }
-.headerActions :global(.mantine-Button-root:has(.tabler-icon-trash):hover:not(:disabled):not([data-disabled])) { border-color: #f6d4d6 !important; background: #fff4f4 !important; color: #c4363f !important; }
-.headerActions :global(.mantine-Button-root:has(.tabler-icon-x):hover:not(:disabled):not([data-disabled])) { color: #1f2a3a !important; }
-
-/* 조회 = 주 동작: 브랜드 빨강으로 채움 */
-.headerActions :global(.mantine-Button-root:has(.tabler-icon-search)) {
-  background: #f0444c !important; color: #fff !important; box-shadow: 0 1px 2px #c21f2733;
-}
-.headerActions :global(.mantine-Button-root:has(.tabler-icon-search) svg) { color: #fff; }
-.headerActions :global(.mantine-Button-root:has(.tabler-icon-search):hover:not(:disabled):not([data-disabled])) {
-  border-color: transparent !important; background: #dc323a !important; color: #fff !important; box-shadow: 0 2px 6px #c21f2740;
-}
-/* 저장 = 두 번째로 중요한 동작: 옅은 빨강 바탕 */
-.headerActions :global(.mantine-Button-root:has(.tabler-icon-device-floppy)) { border-color: #f8d3d5 !important; background: #fff5f5 !important; color: #d93a42 !important; }
-.headerActions :global(.mantine-Button-root:has(.tabler-icon-device-floppy) svg) { color: #e0434b; }
-.headerActions :global(.mantine-Button-root:has(.tabler-icon-device-floppy):hover:not(:disabled):not([data-disabled])) { border-color: #f2b7ba !important; background: #ffeaea !important; color: #c4363f !important; }
 
 /* 쓸 수 없는 버튼: 흐리게, 배경 없이 */
 .headerActions :global(.mantine-Button-root:disabled),
@@ -419,3 +408,29 @@
 .appMain [class*="_breadcrumbParent_"], .appMain [class*="_crumbParent_"] { color: #a2abb9 !important; font-weight: 600 !important; }
 .appMain [class*="_breadcrumbChevron_"], .appMain [class*="_crumbChevron_"] { color: #a2abb9 !important; font-weight: 400 !important; }
 .appMain [class*="_breadcrumbCurrent_"], .appMain [class*="_crumbCurrent_"] { color: #233148 !important; font-weight: 700 !important; }
+
+/* ── 비밀번호 변경 창 (삭제 확인 창과 같은 심플형) ── */
+.pwModal { overflow: hidden; border: 1px solid #edf0f4; box-shadow: 0 28px 70px #0f172a38, 0 6px 18px #0f172a1a; }
+.pwTop { display: flex; flex-direction: column; align-items: center; padding: 28px 26px 6px; text-align: center; }
+.pwIcon { display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; margin-bottom: 14px; border-radius: 50%; background: #ffe3e4; box-shadow: 0 0 0 7px #fff2f2; color: #e0434b; }
+.pwTop h2 { margin: 0 0 6px; color: #18212f; font-size: 17px; font-weight: 800; letter-spacing: -.3px; }
+.pwTop p { margin: 0; color: #6b7889; font-size: 13px; line-height: 1.6; word-break: keep-all; }
+.pwFields { display: flex; flex-direction: column; gap: 12px; padding: 18px 22px 20px; }
+.pwFields :global(.mantine-InputWrapper-label) { margin-bottom: 5px; color: #34445a; font-size: 12.5px; font-weight: 700; }
+.pwFields :global(.mantine-PasswordInput-input), .pwFields :global(.mantine-Input-input) { height: 40px; border-color: #dfe5ec; border-radius: 10px; font-size: 13px; }
+.pwFields :global(.mantine-PasswordInput-input:focus-within), .pwFields :global(.mantine-Input-input:focus) { border-color: #f0a3a7; box-shadow: 0 0 0 3px #fde3e4; }
+.pwFields :global(.mantine-PasswordInput-innerInput) { height: 38px; font-size: 13px; }
+.pwFields :global(.mantine-InputWrapper-error) { margin-top: 5px; font-size: 11.5px; }
+.pwActions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 22px 22px; }
+.pwCancel, .pwSubmit { display: inline-flex; align-items: center; justify-content: center; height: 42px; border: 0; border-radius: 10px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; transition: background-color 120ms ease, box-shadow 120ms ease; }
+.pwCancel { background: #f1f3f6; color: #3f4d61; }
+.pwCancel:hover { background: #e7eaef; }
+.pwSubmit { background: #ef444c; color: #fff; }
+.pwSubmit:hover:not(:disabled) { background: #dc323a; box-shadow: 0 4px 12px #e23d4540; }
+.pwSubmit:disabled { cursor: not-allowed; opacity: .5; }
+.pwCancel:focus, .pwSubmit:focus { outline: none; }
+.pwCancel:focus-visible, .pwSubmit:focus-visible { outline: 2px solid #f0a3a7; outline-offset: 2px; }
+
+/* 본문 스크롤바: 화면 전체 스크롤(대시보드 등)도 표 스크롤과 같은 얇은 굵기 */
+.appMain, .appMain * { scrollbar-width: thin; scrollbar-color: #b9c2cd transparent; }
+

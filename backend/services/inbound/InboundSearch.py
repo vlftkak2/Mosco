@@ -111,7 +111,7 @@ def list_inbound_details(
                  AND mr.receiptno = e.receiptno
                 GROUP BY e.companyid, e.receiptno
             )
-            SELECT h.receiptno, h.receptdate,
+            SELECT h.receiptno, h.receptdate, d.lineno,
                h.customname AS customname,
                d.warehousecodename, d.productname, d.itemname, d.materialname, d.surfacename, d.myrtle,
                    d.thickness, d.width, d.length, d.qty,

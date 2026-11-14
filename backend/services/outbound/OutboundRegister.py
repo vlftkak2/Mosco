@@ -1,7 +1,7 @@
 from psycopg2.extras import execute_values
 from services.ai.stock_links import ensure_not_linked, linked_orders_sql
+from services.closing import MonthClose as month_close_module
 import logging
-from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
@@ -10,7 +10,6 @@ from psycopg2 import IntegrityError
 import db as _shared_db
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from config import DB_CONFIG
 from services.inventory import CurrentStock as current_stock_module
 
 logger = logging.getLogger(__name__)
@@ -193,38 +192,48 @@ def list_receipts(
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(f"SELECT COUNT(*) FROM Outbound01t AS h WHERE {where}", params)
         total = cursor.fetchone()[0]
+        # 헤더만 먼저 정렬·페이징한 뒤 그 전표들의 상세·기타비용만 집계한다 (전체 전표 집계 후 자르지 않음).
         cursor.execute(
             f"""
-            SELECT h.receiptno, h.receptdate, h.customcode, h.customname,
-                   h.description, h.subulyn, h.created_at,
-                   COUNT(d.lineno)::integer AS line_count,
-                   STRING_AGG(DISTINCT NULLIF(d.warehousecode, ''), ', ') AS warehousecode,
+            WITH page AS (
+                SELECT h.companyid, h.receiptno, h.receptdate, h.customcode, h.customname,
+                       h.description, h.subulyn, h.created_at
+                FROM Outbound01t AS h
+                WHERE {where}
+                ORDER BY h.receptdate DESC, h.receiptno DESC
+                LIMIT %s OFFSET %s
+            )
+            SELECT p.receiptno, p.receptdate, p.customcode, p.customname,
+                   p.description, p.subulyn, p.created_at,
+                   d.line_count, d.warehousecode,
                    -- Same label as the detail header when a receipt spans several warehouses.
-                   CASE WHEN COUNT(DISTINCT NULLIF(d.warehousecode, '')) > 1
-                        THEN '복수 창고 (' || COUNT(DISTINCT NULLIF(d.warehousecode, '')) || ')'
-                        ELSE STRING_AGG(DISTINCT NULLIF(d.warehousecodename, ''), ', ')
-                   END AS warehousecodename,
-                   COALESCE(SUM(d.qty), 0)::numeric(15, 3) AS total_qty,
-                   STRING_AGG(DISTINCT NULLIF(d.qtyunit, ''), ', ') AS qtyunit,
-                   COALESCE(SUM(d.weight), 0)::numeric(15, 3) AS total_weight,
-                   STRING_AGG(DISTINCT NULLIF(d.unit, ''), ', ') AS unit,
-                   COALESCE(SUM(COALESCE(d.supplyamt, d.unitamt)), 0)::numeric(15, 2) AS supply_amount,
-                   COALESCE(SUM(COALESCE(d.vat, ROUND(d.unitamt * 0.10, 2))), 0)::numeric(15, 2) AS vat_amount,
-                   COALESCE(SUM(CASE WHEN d.supplyamt IS NULL THEN d.unitamt + ROUND(d.unitamt * 0.10, 2) ELSE d.unitamt END), 0)::numeric(15, 2) AS total_amount,
-                   COALESCE(MAX(expenses.other_cost_amount), 0)::numeric(15, 2) AS other_cost_amount
-            FROM Outbound01t AS h
-            LEFT JOIN Outbound02t AS d
-              ON d.companyid = h.companyid AND d.receiptno = h.receiptno
-            LEFT JOIN (
-                SELECT companyid, receiptno, SUM(totalamt) AS other_cost_amount
-                FROM Outbound03t
-                GROUP BY companyid, receiptno
-            ) AS expenses
-              ON expenses.companyid = h.companyid AND expenses.receiptno = h.receiptno
-            WHERE {where}
-            GROUP BY h.companyid, h.receiptno
-            ORDER BY h.receptdate DESC, h.receiptno DESC
-            LIMIT %s OFFSET %s
+                   CASE WHEN d.warehouse_count > 1 THEN '복수 창고 (' || d.warehouse_count || ')'
+                        ELSE d.warehousecodename END AS warehousecodename,
+                   d.total_qty, d.qtyunit, d.total_weight, d.unit,
+                   d.supply_amount, d.vat_amount, d.total_amount,
+                   COALESCE(e.other_cost_amount, 0)::numeric(15, 2) AS other_cost_amount
+            FROM page AS p
+            CROSS JOIN LATERAL (
+                SELECT COUNT(d.lineno)::integer AS line_count,
+                       STRING_AGG(DISTINCT NULLIF(d.warehousecode, ''), ', ') AS warehousecode,
+                       COUNT(DISTINCT NULLIF(d.warehousecode, '')) AS warehouse_count,
+                       STRING_AGG(DISTINCT NULLIF(d.warehousecodename, ''), ', ') AS warehousecodename,
+                       COALESCE(SUM(d.qty), 0)::numeric(15, 3) AS total_qty,
+                       STRING_AGG(DISTINCT NULLIF(d.qtyunit, ''), ', ') AS qtyunit,
+                       COALESCE(SUM(d.weight), 0)::numeric(15, 3) AS total_weight,
+                       STRING_AGG(DISTINCT NULLIF(d.unit, ''), ', ') AS unit,
+                       COALESCE(SUM(COALESCE(d.supplyamt, d.unitamt)), 0)::numeric(15, 2) AS supply_amount,
+                       COALESCE(SUM(COALESCE(d.vat, ROUND(d.unitamt * 0.10, 2))), 0)::numeric(15, 2) AS vat_amount,
+                       COALESCE(SUM(CASE WHEN d.supplyamt IS NULL THEN d.unitamt + ROUND(d.unitamt * 0.10, 2) ELSE d.unitamt END), 0)::numeric(15, 2) AS total_amount
+                FROM Outbound02t AS d
+                WHERE d.companyid = p.companyid AND d.receiptno = p.receiptno
+            ) AS d
+            LEFT JOIN LATERAL (
+                SELECT SUM(e.totalamt) AS other_cost_amount
+                FROM Outbound03t AS e
+                WHERE e.companyid = p.companyid AND e.receiptno = p.receiptno
+            ) AS e ON TRUE
+            ORDER BY p.receptdate DESC, p.receiptno DESC
             """,
             (*params, page_size, (page - 1) * page_size),
         )
@@ -250,20 +259,19 @@ def get_print_document(companyid: str, receiptno: str):
         header = _row_dict(cursor, header_row)
 
         cursor.execute(
-            """SELECT companyname, businessno, ceoname, phone, email, zipcode,
+            """SELECT companyname, businessno, ceoname, phone, zipcode, businesstype, industry,
                       NULLIF(BTRIM(CONCAT_WS(' ', NULLIF(BTRIM(address1), ''), NULLIF(BTRIM(address2), ''))), '') AS address
                FROM company01t WHERE companyid = %s""",
             (companyid,),
         )
         supplier_row = cursor.fetchone()
         supplier = _row_dict(cursor, supplier_row) if supplier_row else {}
-        # company01t 에는 업태·종목 칸이 없다 (필요하면 회사 정보에 칸을 추가해야 함).
-        supplier.setdefault("businesstype", None)
-        supplier.setdefault("industry", None)
+        # 업태 · 종목은 사업장관리에서 입력한다.
 
         cursor.execute(
             """SELECT customername, businessno, ceoname, businesstype, industry,
-                      zipcode, address, phone, fax, manager
+                      zipcode, NULLIF(BTRIM(CONCAT_WS(' ', NULLIF(BTRIM(address), ''), NULLIF(BTRIM(address2), ''))), '') AS address,
+                      phone, fax, manager
                FROM customer01t WHERE companyid = %s AND customercode = %s""",
             (companyid, header["customcode"]),
         )
@@ -618,6 +626,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict, ac
             # (stock rows are row-locked), while opening stock / transfer / processing still take
             # the exclusive lock and therefore never overlap with them (same as before).
             cursor.execute("SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
+            month_close_module.ensure_open(cursor, companyid, [item["receptdate"] for item in items], "등록")
             customer_codes = list(dict.fromkeys(item["customcode"] for item in items if item["customcode"]))
             customer_names_input = list(dict.fromkeys(
                 item["customname"].strip().lower() for item in items
@@ -862,11 +871,16 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
                 raise ValueError("단가 기준을 확인해 주세요: " + " / ".join(unit_errors[:5]))
 
             cursor.execute(
-                """SELECT COALESCE(subulyn, 'N'), customcode, description, created_by
+                """SELECT COALESCE(subulyn, 'N'), customcode, description, created_by, receptdate
                    FROM Outbound01t WHERE companyid = %s AND receiptno = %s FOR UPDATE""",
                 (companyid, receiptno),
             )
             existing = cursor.fetchone()
+            # 수정이면 원래 일자와 바뀐 일자 둘 다 마감 전이어야 한다
+            month_close_module.ensure_open(
+                cursor, companyid, [payload["receptdate"], existing[4] if existing else None],
+                "수정" if existing else "등록",
+            )
             if existing and str(existing[0] or "N").strip().upper() in {"Y", "YES", "확정"}:
                 raise ValueError("수불 확정된 출고전표는 수정할 수 없습니다.")
             if existing and (
@@ -878,6 +892,16 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
                 raise ValueError(f"이미 등록된 출고전표번호입니다: {receiptno}")
             if not payload.get("is_new") and not existing:
                 raise ValueError("수정할 출고전표가 없습니다. 목록을 새로고침해 주세요.")
+
+            # 원래 전표에 있던 원천 재고 (주문 연결 검사에서 제외) — 상세를 지우기 전에 읽는다
+            existing_sources = set()
+            if existing:
+                cursor.execute(
+                    """SELECT DISTINCT UPPER(stocksourcetype), stocksourceno, stocksourceline
+                       FROM Outbound02t WHERE companyid = %s AND receiptno = %s""",
+                    (companyid, receiptno),
+                )
+                existing_sources = {(t, n, int(l)) for t, n, l in cursor.fetchall()}
 
             if existing:
                 current_stock_module.reverse_document(cursor, companyid, "OUT", receiptno, actor=actor)
@@ -911,15 +935,6 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
             # record the editor as the modifier.
             detail_created_by = (existing[3] if existing else actor) or None
             detail_updated_by = (actor or None) if existing else None
-            existing_sources = set()
-            if existing:
-                cursor.execute(
-                    """SELECT DISTINCT UPPER(stocksourcetype), stocksourceno, stocksourceline
-                       FROM Outbound02t WHERE companyid = %s AND receiptno = %s""",
-                    (companyid, receiptno),
-                )
-                existing_sources = {(t, n, int(l)) for t, n, l in cursor.fetchall()}
-
             quantity_unit_codes, quantity_unit_names = _load_quantity_unit_maps(cursor, companyid)
             source_cache = {}
             demands = {}
@@ -1031,7 +1046,7 @@ def update_receipt_manager(companyid: str, receiptno: str, manager: str, actor: 
         # the exclusive lock and therefore never overlap with them (same as before).
         cursor.execute("SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
-            """SELECT COALESCE(subulyn, 'N')
+            """SELECT COALESCE(subulyn, 'N'), receptdate
                FROM Outbound01t
                WHERE companyid = %s AND receiptno = %s
                FOR UPDATE""",
@@ -1040,6 +1055,7 @@ def update_receipt_manager(companyid: str, receiptno: str, manager: str, actor: 
         receipt = cursor.fetchone()
         if not receipt:
             raise ValueError("Outbound receipt was not found.")
+        month_close_module.ensure_open(cursor, companyid, [receipt[1]], "수정")
         if str(receipt[0] or "N").strip().upper() in {"Y", "YES", "\uD655\uC815"}:
             raise ValueError("A confirmed outbound receipt cannot be edited.")
 
@@ -1082,12 +1098,13 @@ def delete_receipt(companyid: str, receiptno: str, actor: str | None = None):
         # the exclusive lock and therefore never overlap with them (same as before).
         cursor.execute("SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
-            "SELECT COALESCE(subulyn, 'N') FROM Outbound01t WHERE companyid = %s AND receiptno = %s FOR UPDATE",
+            "SELECT COALESCE(subulyn, 'N'), receptdate FROM Outbound01t WHERE companyid = %s AND receiptno = %s FOR UPDATE",
             (companyid, receiptno),
         )
         row = cursor.fetchone()
         if not row:
             return 0
+        month_close_module.ensure_open(cursor, companyid, [row[1]], "삭제")
         if str(row[0] or "N").strip().upper() in {"Y", "YES", "확정"}:
             raise ValueError("수불 확정된 출고전표는 삭제할 수 없습니다.")
         current_stock_module.reverse_document(cursor, companyid, "OUT", receiptno, actor=actor)

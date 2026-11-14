@@ -10,6 +10,7 @@ import usePageReactivated from '../../components/common/usePageReactivated';
 import { ColumnResizeHandle, useResizableColumns } from '../../components/common/PickerModal';
 import { MenuAccessContext, PageRibbonContext } from '../../components/layout/MainLayout';
 import searchClasses from '../../styles/pages/InboundSearch.module.css';
+import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/CustomerLedger.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 
@@ -46,7 +47,7 @@ const BALANCE_COLUMNS = [
 const LEDGER_COLUMNS = [
   { key: 'entrydate', label: '일자', width: 96 },
   { key: 'kindname', label: '구분', width: 62 },
-  { key: 'docno', label: '전표번호', width: 140 },
+  { key: 'docno', label: '전표번호', width: 160 },
   { key: 'summary', label: '적요', width: 300 },
   { key: 'sales', label: '매출', width: 110, group: 'recv' },
   { key: 'receipt', label: '수금', width: 110, group: 'recv' },
@@ -169,20 +170,19 @@ const FilterSidebar = memo(function FilterSidebar({ filterInputs, setFilterInput
         onChange={(event) => { const { value } = event.currentTarget; setFilterInputs((current) => ({ ...current, keyword: value })); }} />
       <Checkbox size="xs" color="red" label="잔액이 남은 거래처만" checked={filterInputs.balance_only}
         onChange={(event) => { const { checked } = event.currentTarget; setFilterInputs((current) => ({ ...current, balance_only: checked })); }} />
-      <Button size="xs" color="red" leftSection={<IconSearch size={14} />} onClick={onSearch}>조회</Button>
     </Stack>
     <div className={classes.startBox}>
-      <Group justify="space-between" gap={4}><Text size="xs" fw={700}>원장 시작일</Text>
-        {canEditStart && !editingStart && <Button size="compact-xs" variant="subtle" color="gray" onClick={() => setEditingStart(true)}>변경</Button>}</Group>
+      <div className={classes.startHead}><span>원장 시작일</span>
+        {canEditStart && !editingStart && <button type="button" className={classes.startEdit} onClick={() => setEditingStart(true)}>변경</button>}</div>
       {editingStart
         ? <Stack gap={6} mt={6}>
           <ErpDateInput aria-label="원장 시작일" type="date" value={startInput} onChange={(event) => setStartInput(event.currentTarget.value)} />
-          <Group gap={6} grow>
-            <Button size="compact-sm" variant="default" onClick={() => { setStartInput(startDate || ''); setEditingStart(false); }}>취소</Button>
-            <Button size="compact-sm" color="red" onClick={async () => { if (await onSaveStart(startInput || null)) setEditingStart(false); }}>저장</Button>
-          </Group>
+          <div className={classes.startActions}>
+            <button type="button" className={classes.startCancel} onClick={() => { setStartInput(startDate || ''); setEditingStart(false); }}>취소</button>
+            <button type="button" className={classes.startSave} onClick={async () => { if (await onSaveStart(startInput || null)) setEditingStart(false); }}>저장</button>
+          </div>
         </Stack>
-        : <div className={classes.startValue} style={{ marginTop: 4 }}>{startDate ? dateText(startDate) : '지정 안 됨 (첫 거래부터)'}</div>}
+        : <div className={classes.startValue}>{startDate ? dateText(startDate) : '지정 안 됨 (첫 거래부터)'}</div>}
       <p>이 날짜 이전 잔액은 거래처관리의 기초 미수금·미지급금으로 보고, 이 날짜부터의 전표만 원장에 쌓습니다.{canEditStart ? '' : ' 변경은 관리자만 할 수 있습니다.'}</p>
     </div>
   </Paper>;
@@ -334,7 +334,7 @@ export default function CustomerLedger() {
   }, [registerRibbon, closePage, exporting, excelDisabled]);
 
   return (
-    <Box className={`${searchClasses.page}`}>
+    <Box className={`${simpleTheme.simple} ${searchClasses.page}`}>
       <Box component="nav" aria-label="현재 위치" className={searchClasses.pageBreadcrumb}>
         <Group className={searchClasses.breadcrumbTrail} gap={7}>
           <Text component="span" className={searchClasses.breadcrumbParent}>자금관리</Text>

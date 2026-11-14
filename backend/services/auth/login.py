@@ -1,5 +1,3 @@
-import pyodbc
-import psycopg2
 import db as _shared_db
 from pydantic import BaseModel
 from config import DB_CONFIG
