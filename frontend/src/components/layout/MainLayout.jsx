@@ -62,7 +62,7 @@ const mockdata = [
     label: '홈',
     icon: <IconHome {...ic} />,
     links: [
-      { label: '업무현황', links: [
+      { label: 'Home', links: [
         { label: '대시보드', link: '/HomePage', MenuID: 'HOME' },
       ] },
     ],
@@ -93,8 +93,8 @@ const mockdata = [
     label: '가공',
     icon: <IconCpu {...ic} />,
     links: [
-      { label: 'AI가공솔루션', links: [
-        { label: 'AI주문서인식', link: '/AIOrderPage', MenuID: 'AI_ORDER_RECOGNITION' },
+      { label: 'AI 가공솔루션', links: [
+        { label: 'AI 주문서인식', link: '/AIOrderPage', MenuID: 'AI_ORDER_RECOGNITION' },
         { label: '가공주문관리', link: '/AIOrderManage', MenuID: 'AI_ORDER_MANAGEMENT' },
         { label: '가공최적화', link: '/AIOrderOptimization', MenuID: 'AI_OPTIMIZATION' },
       ] },
@@ -539,7 +539,6 @@ const canSeeMenu = (link) => {
   if (link.link === '/Company') return isPlatformMaster;
   // 고객사관리 · 고객사 메뉴권한: 플랫폼 관리자(001 MASTER)와 고객사 관리자(001 이외 SUBMASTER)만 (서버 규칙과 같게)
   if (link.link === '/User' || link.link === '/UserMenu') return isPlatformMaster || (currentAuthority === 'SUBMASTER' && currentCompanyId !== '001');
-  if (link.link === '/CustomerSupport') return true;
   // 사용자관리: 관리자(고객사 관리자 · 플랫폼 관리자)는 항상, 그 밖에는 메뉴 권한을 받은 계정만
   if (link.link === '/UserInfo' && (currentAuthority === 'SUBMASTER' && currentCompanyId !== '001')) return true;
   if (isPlatformMaster) return true;
@@ -625,7 +624,7 @@ const menuAccessContextValue = useMemo(() => ({
       className={`${isInboundWorkspace || isDashboard ? classes.appShellInbound : ''} ${sidebarCollapsed ? `${classes.sidebarCollapsed} steel119-sidebar-collapsed` : ''}`}
       header={{ height: 54 }}
       navbar={{
-        width: sidebarCollapsed ? 62 : 256,
+        width: sidebarCollapsed ? 62 : 232,
         breakpoint: 'sm',
         collapsed: { mobile: !opened },
       }}

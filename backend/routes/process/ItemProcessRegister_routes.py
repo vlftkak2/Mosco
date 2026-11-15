@@ -56,6 +56,28 @@ def available_stock(page: int = Query(default=1, ge=1), page_size: int = Query(d
         raise HTTPException(status_code=500, detail="가공 가능한 현재고를 조회하지 못했습니다.") from error
 
 
+@router.get("/plans")
+def plan_runs(user: dict = Depends(security_module.get_current_user)):
+    """가공 최적화에서 확정한 코일 계획 (계획 불러오기 목록)."""
+    try:
+        return {"success": True, **process_module.list_plan_runs(user["companyid"])}
+    except Exception as error:
+        process_module.logger.exception("Plan list failed company=%s", user.get("companyid"))
+        raise HTTPException(status_code=500, detail="확정 계획 목록을 조회하지 못했습니다.") from error
+
+
+@router.get("/plans/{planno}/draft")
+def plan_draft(planno: str, user: dict = Depends(security_module.get_current_user)):
+    """계획 전체를 가공전표 초안(원소재 → 등분 → 슬리팅 · 로스 배부)으로 만든다. 저장은 하지 않는다."""
+    try:
+        return {"success": True, **process_module.plan_draft(user["companyid"], planno)}
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        process_module.logger.exception("Plan draft failed company=%s", user.get("companyid"))
+        raise HTTPException(status_code=500, detail="계획을 가공전표로 불러오지 못했습니다.") from error
+
+
 @router.get("/documents/{processno}")
 def document(processno: str, user: dict = Depends(security_module.get_current_user)):
     try:

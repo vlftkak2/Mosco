@@ -1,4 +1,4 @@
-// 상담게시판 (메뉴: CUSTOMER_SUPPORT, 로그인한 모든 계정) — 왼쪽 목록 · 오른쪽 상세 + 대화형 답글.
+// 상담게시판 (메뉴: CUSTOMER_SUPPORT, 메뉴 권한 받은 계정) — 왼쪽 목록 · 오른쪽 상세 + 대화형 답글.
 // 탭: 공지사항(답글 없음) · AI ERP문의 = 운영사(001)만 보고 관리, 재고 · 시스템문의 = 각 회사가 등록 · 관리(운영사도 시험 등록 가능).
 // 처리상태: 답변대기(답글 없음) · 답변완료(운영사가 마지막) · 추가문의(회사가 마지막). 서버: backend/services/system/Board.py
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';

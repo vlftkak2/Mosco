@@ -119,16 +119,27 @@
 .foldAll:hover { border-color: #627084; background: var(--nav-hover); color: #fff; }
 
 /* 메뉴 목록 */
-.viewport { min-height: 0; flex: 1; }
-.list { padding: 4px 9px 24px; }
+.viewport {
+  min-height: 0;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* 스크롤바: 시안(nav-viewport)과 같게 브라우저 기본 얇은 막대, #566273, 트랙 투명 */
+  scrollbar-width: thin;
+  scrollbar-color: #566273 transparent;
+  /* 스크롤바 자리를 항상 비워 둔다: 메뉴를 펼쳐 스크롤이 생겨도 화살표 · 별 위치가 움직이지 않게 */
+  scrollbar-gutter: stable;
+}
+/* 정렬 기준: 대메뉴 아이콘 왼쪽 10px, 대메뉴·섹션·하위메뉴 글자 시작 39px, 화살표·별 오른쪽 끝 24px (전체·즐겨찾기 공통) */
+.list { padding: 4px 0 24px 9px; } /* 오른쪽 여백은 스크롤바 자리(scrollbar-gutter)가 대신한다 */
 
 .groupTitle {
   display: flex;
   width: 100%;
-  height: 44px;
+  height: 40px;
   align-items: center;
   gap: 11px;
-  padding: 0 10px;
+  padding: 0 24px 0 10px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -139,19 +150,19 @@
   text-align: left;
   cursor: pointer;
 }
-.groupIcon { display: flex; width: 20px; height: 20px; flex: none; align-items: center; justify-content: center; color: #afbbcb; }
-.groupIcon svg { width: 20px; height: 20px; }
+.groupIcon { display: flex; width: 18px; height: 18px; flex: none; align-items: center; justify-content: center; color: #afbbcb; }
+.groupIcon svg { width: 18px; height: 18px; }
 .groupName { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chevron { flex: none; color: #9ba9bb; transition: transform .15s ease; }
+.chevron { flex: none; width: 14px; height: 14px; color: #9ba9bb; transition: transform .15s ease; }
 .groupClosed .chevron { transform: rotate(-90deg); }
 
 /* 섹션 제목: 짧은 레드 세로 바 + 흐린 글씨 (클릭 대상 아님) */
 .sectionTitle {
   position: relative;
   display: flex;
-  height: 32px;
+  height: 28px;
   align-items: center;
-  margin: 6px 0 0 41px;
+  margin: 2px 0 0 39px;
   color: #9aa6b6;
   font-size: 13.5px;
   font-weight: 600;
@@ -170,16 +181,21 @@
   background: var(--brand);
   transform: translateY(-50%);
 }
-.groupItems > div:first-child > .sectionTitle { margin-top: 2px; }
+.groupItems { padding-bottom: 4px; }
+/* 앞 섹션의 마지막 메뉴와 다음 섹션 제목 사이는 조금 띄운다 (첫 섹션은 그대로) */
+.groupItems > div + div > .sectionTitle { margin-top: 10px; }
 
 /* 화면 줄: 호버 · 선택 배경은 글자부터 별까지 하나의 둥근 사각형 */
 .row {
   position: relative;
   display: flex;
   width: 100%;
-  height: 38px;
+  height: 34px;
+  box-sizing: border-box;
   align-items: center;
+  padding: 1px 0 1px 3px;
   isolation: isolate;
+  pointer-events: none;
   color: #d5dce6;
 }
 .row::before {
@@ -204,14 +220,15 @@
   position: relative;
   z-index: 1;
   display: flex;
-  height: 36px;
+  height: 32px;
   min-width: 0;
   flex: 1;
   align-items: center;
-  margin-left: 3px;
-  padding: 0 6px 0 38px;
+  margin: 0;
+  padding: 0 6px 0 36px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 6px 0 0 6px;
+  pointer-events: auto;
   background: transparent;
   color: inherit;
   font: inherit;
@@ -221,6 +238,8 @@
 }
 .row:hover .link { color: #fff; }
 .rowActive .link { font-weight: 600; }
+.link, .star { flex-shrink: 0; }
+.link { flex: 1 1 0; }
 .linkName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .rowDisabled,
@@ -232,11 +251,14 @@
   position: relative;
   z-index: 2;
   display: grid;
-  width: 30px;
-  height: 36px;
-  flex: 0 0 30px;
-  place-items: center;
-  padding: 0;
+  width: 46px;
+  height: 32px;
+  flex: 0 0 46px;
+  place-items: center end;
+  padding: 0 24px 0 0;
+  line-height: 0;
+  border-radius: 0 6px 6px 0;
+  pointer-events: auto;
   border: 0;
   background: transparent;
   color: #9aa8ba;
@@ -246,6 +268,7 @@
 .row:hover .star,
 .star:focus-visible,
 .starOn { opacity: 1; }
+.star svg { width: 14px; height: 14px; }
 .star:hover,
 .starOn { color: var(--star); }
 
@@ -256,7 +279,7 @@
   position: absolute;
   z-index: 3;
   top: 50%;
-  left: 13px;
+  left: 15px;
   display: flex;
   width: 18px;
   height: 24px;
@@ -266,6 +289,7 @@
   color: #8a97a9;
   opacity: .6;
   cursor: grab;
+  pointer-events: auto;
   transform: translateY(-50%);
 }
 .favRow:hover .grip { opacity: 1; color: #c5cfdb; }

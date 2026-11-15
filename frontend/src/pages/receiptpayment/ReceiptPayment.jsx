@@ -1421,7 +1421,7 @@ export default function ReceiptPayment() {
                       title={selectedItems.length ? undefined : '처리할 증권 행을 선택해 주세요.'} onClick={() => openProcess(action)}>{PROCESS_ACTION_INFO[action].label}</Button>;
                   })}
                 </Group>
-                : <Button size="xs" variant="light" color="red" leftSection={<IconSearch size={14} />}
+                : <Button size="xs" variant="filled" color="red" leftSection={<IconSearch size={14} />}
                   disabled={saving || header.transactiontype !== 'PAYMENT'}
                   title={header.transactiontype !== 'PAYMENT' ? '지급 전표에서 사용할 수 있습니다.' : undefined}
                   onClick={() => setHeldPickerOpen(true)}>보유증권 불러오기</Button>}

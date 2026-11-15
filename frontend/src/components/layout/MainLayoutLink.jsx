@@ -1,6 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ScrollArea } from '@mantine/core';
 import {
   IconChevronDown, IconGripVertical, IconLayoutGrid, IconSearch, IconStar, IconStarFilled, IconX,
 } from '@tabler/icons-react';
@@ -67,7 +66,7 @@ function MenuRow({ item, pathname, navigate, favorite, onToggleFavorite, drag })
           aria-pressed={favorite}
           onClick={() => onToggleFavorite(item.MenuID)}
         >
-          {favorite ? <IconStarFilled size={15} /> : <IconStar size={15} stroke={1.8} />}
+          {favorite ? <IconStarFilled size={14} /> : <IconStar size={14} stroke={1.8} />}
         </button>
       )}
     </div>
@@ -80,7 +79,7 @@ function MenuGroup({ group, open, onToggle, pathname, navigate, favorites, onTog
       <button type="button" className={classes.groupTitle} aria-expanded={open} onClick={onToggle}>
         <span className={classes.groupIcon}>{group.icon}</span>
         <span className={classes.groupName}>{group.label}</span>
-        <IconChevronDown className={classes.chevron} size={15} stroke={2} />
+        <IconChevronDown className={classes.chevron} size={14} stroke={2} />
       </button>
       {open && (
         <div className={classes.groupItems}>
@@ -159,7 +158,7 @@ function FavoriteGroup({ favoriteItems, open, onToggle, pathname, navigate, onTo
       <button type="button" className={classes.groupTitle} aria-expanded={open} onClick={onToggle}>
         <span className={`${classes.groupIcon} ${classes.favGroupIcon}`}><IconStarFilled size={18} /></span>
         <span className={classes.groupName}>즐겨찾기</span>
-        <IconChevronDown className={classes.chevron} size={15} stroke={2} />
+        <IconChevronDown className={classes.chevron} size={14} stroke={2} />
       </button>
       {open && (
         <div className={classes.groupItems}>
@@ -279,7 +278,7 @@ export function SidebarNav({ items, pathname, collapsed = false, onExpand, favor
         </button>
       </div>
 
-      <ScrollArea className={classes.viewport} type="hover" scrollbars="y" scrollbarSize={6}>
+      <div className={classes.viewport}>
         <nav className={classes.list}>
           {view === 'fav' ? (
             <FavoriteGroup favoriteItems={favoriteItems} open={isOpen(FAV)} onToggle={() => toggleGroup(FAV)} query={q}
@@ -292,7 +291,7 @@ export function SidebarNav({ items, pathname, collapsed = false, onExpand, favor
             {!tree.length && q && <div className={classes.empty}>검색된 메뉴가 없습니다.</div>}
           </>)}
         </nav>
-      </ScrollArea>
+      </div>
     </div>
   );
 }
