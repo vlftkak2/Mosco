@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { ActionIcon, Box, Button, Group, Pagination, Paper, Popover, Select, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconAdjustments, IconArrowBackUp, IconArrowRight, IconCheck, IconFilter, IconLink, IconPackages, IconPencil, IconSearch, IconSend, IconX } from '@tabler/icons-react';
+import { IconCheck, IconFilter, IconHelpCircle, IconPackages, IconSearch, IconX } from '@tabler/icons-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import PickerModal, { PickerEmpty, pickerClasses } from '../../components/common/PickerModal';
@@ -14,6 +14,8 @@ import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import classes from '../../styles/pages/AIOrderRegistry.module.css';
+import { CodePickerModal, CodeSuggestInput, ItemNameSuggestInput, ItemPickerModal, findMasterItemName, loadCodeOptions } from './AIItemNameLookup';
+import manageClasses from '../../styles/pages/AIOrderManage.module.css';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 
 const PAGE_SIZE_OPTIONS = [
@@ -43,7 +45,7 @@ const DETAIL_COLUMNS = [
   { key: 'select', label: '', width: 40, minWidth: 34 },
   { key: 'lineno', label: '순번', width: 40, minWidth: 40 },
   { key: 'itemname', label: '품명', width: 75, minWidth: 75, required: true },
-  { key: 'steelgrade', label: '강종', width: 70, minWidth: 55 },
+  { key: 'steelgrade', label: '강종', width: 70, minWidth: 55, required: true },
   { key: 'surface', label: '표면', width: 60, minWidth: 50 },
   { key: 'thickness', label: '두께', width: 50, minWidth: 50 },
   { key: 'width', label: '폭', width: 50, minWidth: 50 },
@@ -68,6 +70,7 @@ const createDefaultOrderFilters = (orderNo = '', orderDate = '') => {
   };
 };
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
+
 const dateText = (value) => value ? String(value).slice(0, 10) : '';
 const number = (value) => Number(value || 0).toLocaleString('ko-KR');
 const dimension = (value) => (value === null || value === undefined || value === ''
@@ -98,6 +101,14 @@ const MATCH_COLUMNS = [
   { key: 'receiptdate', label: '입고일자', width: 92, minWidth: 70, align: 'center' },
   { key: 'sourceline', label: '순번', width: 56, minWidth: 40, align: 'center' },
 ];
+// 두께는 정수여도 소수 한 자리까지 보이게 (1 → 1.0)
+const thicknessText = (value) => {
+  if (value === null || value === undefined || value === '') return '';
+  const text = String(value).replaceAll(',', '').trim();
+  return /^\d+$/.test(text) ? `${text}.0` : text;
+};
+// 강종 · 표면 칸 → 공통코드 그룹 (자동맞춤 + 돋보기 선택 창)
+const CODE_FIELDS = { steelgrade: { group: 'MATERIAL', title: '강종 선택' }, surface: { group: 'SURFACE', title: '표면 선택' } };
 const formatNumericValue = (value) => {
   const raw = String(value ?? '');
   if (!raw) return '';
@@ -133,7 +144,7 @@ const toItemDraft = (item) => ({
   steelgrade: item.steelgrade || '',
   surface: item.surface || '',
   size: item.size || '',
-  thickness: item.thickness ?? '',
+  thickness: thicknessText(item.thickness),
   width: item.width ?? '',
   length: item.length ?? '',
   quantity: item.quantity ?? item.quantity_raw ?? '',
@@ -145,10 +156,56 @@ const toItemDraft = (item) => ({
 });
 
 function Badge({ value, tone = 'blue' }) {
-  return <span className={`${classes.badge} ${classes[tone]}`}>{value}</span>;
+  return <span className={`${manageClasses.status} ${manageClasses[`status_${tone}`] || manageClasses.status_gray}`}>{value}</span>;
 }
 
-function Modal({ title, subtitle, icon, children, actions, onClose, wide = false }) {
+// 진행 상태 안내 (서버 상태 변경 규칙 기준: AIOrderManage.py · AIOrderOptimization.py)
+const LINE_PROGRESS_GUIDE = [
+  { tone: 'gray', label: '미전송', desc: '가공 최적화 요청 전 품목',
+    lines: ['품목 정보 수정, 삭제, 재고매칭을 할 수 있습니다.', <><b>[가공 최적화로 보내기]</b> 시 최적화 대기로 전환됩니다.</>] },
+  { tone: 'blue', label: '최적화 대기', desc: '가공 최적화 요청 완료, 계획 수립 대기',
+    lines: ['품목 정보가 잠기며 수정할 수 없습니다.',
+      <><b>[보내기 취소]</b> 또는 가공 최적화의 <b>[돌려보내기]</b> 시 미전송으로 전환됩니다. 계획에 포함된 품목은 계획을 먼저 삭제해야 합니다.</>,
+      <>가공 최적화에서 <b>[계획 확정]</b> 시 계획확정으로 전환됩니다. 임시저장은 상태를 변경하지 않습니다.</>] },
+  { tone: 'orange', label: '계획확정', desc: '가공 계획 확정 및 원자재 배정 완료',
+    lines: [<>가공 최적화에서 <b>[계획 취소]</b> 시 최적화 대기로 전환되며, 배정된 원자재는 해제됩니다.</>] },
+  { tone: 'green', label: '가공완료', desc: '가공 작업 완료',
+    lines: ['자동 전환 기능은 준비 중입니다.'] },
+];
+const ORDER_PROGRESS_GUIDE = [
+  { tone: 'orange', label: '저장 전', desc: 'AI 주문서인식 결과, 저장 전',
+    lines: [<><b>[저장]</b> 시 주문번호가 발급되고 미전송으로 등록됩니다.</>] },
+  { tone: 'gray', label: '미전송', desc: '모든 품목이 미전송', lines: ['주문을 삭제할 수 있습니다.'] },
+  { tone: 'orange', label: '일부 전송', desc: '일부 품목만 가공 최적화 요청', lines: ['요청된 품목이 있으면 주문을 삭제할 수 없습니다.'] },
+  { tone: 'blue', label: '최적화 진행', desc: '모든 품목 가공 최적화 요청', lines: [<><b>[가공 최적화 이동]</b>으로 해당 품목을 바로 확인할 수 있습니다.</>] },
+  { tone: 'green', label: '가공 완료', desc: '모든 품목 가공 완료', lines: [] },
+];
+function ProgressGuideList({ items }) {
+  return items.map((item) => <div key={item.label} className={manageClasses.guideItem}>
+    <div className={manageClasses.guideHead}>
+      <span className={`${manageClasses.status} ${manageClasses[`status_${item.tone}`]}`}>{item.label}</span>
+      <span>{item.desc}</span>
+    </div>
+    {item.lines.length > 0 && <ul className={manageClasses.guideBox}>{item.lines.map((line, index) => <li key={index}>{line}</li>)}</ul>}
+  </div>);
+}
+function ProgressGuideModal({ onClose }) {
+  return <Modal title="진행 상태 안내" onClose={onClose} className={manageClasses.guideModal}
+    actions={<button type="button" className={`${manageClasses.btn} ${manageClasses.btnLine}`} onClick={onClose}>닫기</button>}>
+    <div className={manageClasses.guideSection}>
+      <h3 className={manageClasses.guideSectionTitle}>품목 (주문 상세)</h3>
+      <p className={manageClasses.guideHint}>미전송 → 최적화 대기 → 계획확정 → 가공완료</p>
+      <ProgressGuideList items={LINE_PROGRESS_GUIDE} />
+    </div>
+    <div className={manageClasses.guideSection}>
+      <h3 className={manageClasses.guideSectionTitle}>주문 (주문 기본)</h3>
+      <p className={manageClasses.guideHint}>주문 상태는 품목 상태에 따라 자동으로 결정됩니다.</p>
+      <ProgressGuideList items={ORDER_PROGRESS_GUIDE} />
+    </div>
+  </Modal>;
+}
+
+function Modal({ title, subtitle, children, actions, onClose, className = '' }) {
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key !== 'Escape') return;
@@ -160,17 +217,14 @@ function Modal({ title, subtitle, icon, children, actions, onClose, wide = false
   }, [onClose]);
 
   // body 로 띄워서 화면 전체(사이드바·헤더 위) 기준 가운데에 오게 한다
-  return createPortal(<div className={classes.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className={`${classes.modal} ${wide ? classes.wideModal : ''}`} role="dialog" aria-modal="true" aria-label={title}>
-      <header className={classes.modalHeader}>
-        <div className={classes.modalTitleBlock}>
-          {icon && <span className={classes.modalIcon}>{icon}</span>}
-          <div className={classes.modalTitleText}><strong>{title}</strong>{subtitle && <small>{subtitle}</small>}</div>
-        </div>
-        <button type="button" className={classes.closeIcon} aria-label="닫기" onClick={onClose}><IconX size={18} /></button>
+  return createPortal(<div className={manageClasses.backdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className={`${manageClasses.modal} ${className}`} role="dialog" aria-modal="true" aria-label={title}>
+      <header className={manageClasses.modalHeader}>
+        <div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>
+        <button type="button" className={manageClasses.modalClose} aria-label="닫기" onClick={onClose}><IconX size={18} /></button>
       </header>
-      <div className={classes.modalBody}>{children}</div>
-      {actions && <footer className={classes.modalFooter}>{actions}</footer>}
+      <div className={manageClasses.modalBody}>{children}</div>
+      {actions && <footer className={manageClasses.modalFooter}>{actions}</footer>}
     </section>
   </div>, document.body);
 }
@@ -181,6 +235,17 @@ export default function AIOrderManage() {
   const initialOrderId = searchParams.get('orderid')?.trim() || '';
   const initialOrderDate = searchParams.get('orderdate')?.trim() || '';
   const [orders, setOrders] = useState([]);
+  const [itemPickerRowKey, setItemPickerRowKey] = useState('');
+  const [codeOptions, setCodeOptions] = useState({ steelgrade: [], surface: [] }); // 강종 · 표면 공통코드
+  const [codePicker, setCodePicker] = useState(null); // { rowKey, field }
+  useEffect(() => {
+    let alive = true;
+    Promise.all([loadCodeOptions(CODE_FIELDS.steelgrade.group), loadCodeOptions(CODE_FIELDS.surface.group)])
+      .then(([steel, surface]) => { if (alive) setCodeOptions({ steelgrade: steel, surface }); })
+      .catch(() => { /* 코드 목록을 못 받아도 직접 입력은 된다 */ });
+    return () => { alive = false; };
+  }, []);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [total, setTotal] = useState(0);
   const [selectedId, setSelectedId] = useState('');
   const [detail, setDetail] = useState(null);
@@ -475,7 +540,10 @@ export default function AIOrderManage() {
     if (!item.lineno) return notify('상세를 먼저 저장한 뒤 재고를 연결해 주세요.', '상세 저장 필요');
     // Selected sources are kept by key across pages (and include links saved earlier).
     const selectedSources = Object.fromEntries((item.stock_matches || []).map((match) => [stockKey(match), { ...match }]));
-    const initialFilters = { ...EMPTY_STOCK_FILTERS, name: String(item.itemname || '').trim() };
+    // 주문 품목 값으로 조회조건을 미리 채운다 (품명 · 두께 시작 · 폭 · 길이). 지우면 조건 없이 조회.
+    const filled = (value) => (value === null || value === undefined || value === '' || Number(value) === 0 ? '' : String(value));
+    const initialFilters = { ...EMPTY_STOCK_FILTERS, name: String(item.itemname || '').trim(),
+      thicknessFrom: filled(item.thickness), width: filled(item.width), length: filled(item.length) };
     setModal({
       type: 'stock-match', lineno: item.lineno, loading: true, saving: false, candidates: [],
       selectedKeys: Object.keys(selectedSources), selectedSources,
@@ -721,13 +789,25 @@ export default function AIOrderManage() {
     const rows = [];
     const activeDrafts = itemDrafts.filter((row) => row.lineno || ['itemname', 'steelgrade', 'surface', 'thickness', 'width', 'length', 'quantity', 'weight_kg', 'notes']
       .some((key) => String(row[key] ?? '').trim()));
-    // 필수값: 품명 · 수량 · 중량 (보낸 품목은 잠겨 있어 제외)
+    // 필수값: 품명 · 강종 · 수량 · 중량 (보낸 품목은 잠겨 있어 제외)
     const missingRows = activeDrafts.filter((row) => !isLocked(row)).map((row) => {
-      const missing = [['itemname', '품명'], ['quantity', '수량'], ['weight_kg', '중량']]
+      const missing = [['itemname', '품명'], ['steelgrade', '강종'], ['quantity', '수량'], ['weight_kg', '중량']]
         .filter(([key]) => !String(row[key] ?? '').trim()).map(([, label]) => label);
       return missing.length ? `${itemDrafts.indexOf(row) + 1}행 ${missing.join(', ')}` : null;
     }).filter(Boolean);
     if (missingRows.length) return notify(missingRows.slice(0, 5).join(' / '), '필수값을 입력해 주세요');
+    // 품명은 품목 마스터에 있는 이름만 저장 (매입등록과 같은 기준)
+    const editableNames = [...new Set(activeDrafts.filter((row) => !isLocked(row)).map((row) => String(row.itemname || '').trim()))];
+    let unknownNames;
+    try {
+      const found = await Promise.all(editableNames.map(findMasterItemName));
+      unknownNames = new Set(editableNames.filter((name, index) => !found[index]));
+    } catch (error) {
+      return notify(errorMessage(error, '품목 마스터를 확인하지 못했습니다.'), '품명 확인 실패', 'red');
+    }
+    const unknownRows = activeDrafts.filter((row) => !isLocked(row) && unknownNames.has(String(row.itemname || '').trim()))
+      .map((row) => `${itemDrafts.indexOf(row) + 1}행 ${String(row.itemname || '').trim()}`);
+    if (unknownRows.length) return notify(`${unknownRows.slice(0, 5).join(' / ')}${unknownRows.length > 5 ? ` 외 ${unknownRows.length - 5}건` : ''} · 품목 마스터에 등록된 품명을 선택해 주세요.`, '등록되지 않은 품명');
     for (const row of activeDrafts) {
       const converted = { ...row };
       for (const key of numericFields) {
@@ -818,6 +898,7 @@ export default function AIOrderManage() {
           });
         }
       }}
+      onBlur={key === 'thickness' ? () => { const next = thicknessText(item[key]); if (next !== String(item[key] ?? '')) changeItemDraft(item._rowKey, key, next); } : undefined}
       onKeyDown={handleDetailGridKeyDown}
       aria-label={`${displayIndex + 1}행 ${key}`}
     />
@@ -878,6 +959,15 @@ export default function AIOrderManage() {
         setModal((current) => current?.type === 'stock-match'
           ? { ...current, filters: { ...(current.filters || EMPTY_STOCK_FILTERS), [field]: value } } : current);
       };
+      // 한 품목에는 한 창고 재고만 연결 (가공 최적화는 계획 하나 = 창고 하나). 먼저 고른 재고의 창고가 기준
+      const selectedWarehouse = Object.values(modal.selectedSources || {})[0];
+      // 창고 코드로 비교하고, 코드가 없는 기존 연결 정보는 창고명으로 비교한다
+      const selectedWarehouseCode = selectedWarehouse ? String(selectedWarehouse.warehousecode || '') : null;
+      const selectedWarehouseLabel = selectedWarehouse ? String(selectedWarehouse.warehousecodename || selectedWarehouse.warehouse || '') : '';
+      const isOtherWarehouse = (candidate) => (selectedWarehouseCode
+        ? String(candidate.warehousecode || '') !== selectedWarehouseCode
+        : String(candidate.warehousecodename || '') !== selectedWarehouseLabel);
+      const selectedWarehouseName = selectedWarehouse ? (selectedWarehouse.warehousecodename || selectedWarehouse.warehouse || selectedWarehouse.warehousecode || '창고 없음') : '';
       const filterInput = (field, label, width, numericProps) => <TextInput size="sm" label={label} style={{ width }} {...numericProps}
         value={modal.filters?.[field] ?? ''} onChange={setFilter(field)} disabled={modal.saving} />;
       return <PickerModal opened onClose={() => setModal(null)} closeDisabled={modal.saving}
@@ -893,11 +983,14 @@ export default function AIOrderManage() {
           <Button type="submit" size="sm" color="red" leftSection={<IconSearch size={15} />} loading={modal.loading} disabled={modal.saving}>조회</Button>
         </form>}
         guide={<>
-          <p>현재고를 조회해 주문 상세에 연결할 재고를 선택하세요. 연결은 재고를 예약하거나 차감하지 않습니다.</p>
-          <div className={pickerClasses.criteria}>
-            <span><b>주문 품명</b>{targetItem?.itemname || '—'}</span>
-            <span><b>주문 규격</b>{targetItem?.size || '—'}</span>
-            <span><b>두께</b>{targetItem?.thickness || '—'}</span>
+          <p>현재고를 조회해 주문 상세에 연결할 재고를 선택하세요. 한 품목에는 같은 창고의 재고만 연결할 수 있습니다. 연결은 재고를 예약하거나 차감하지 않습니다.</p>
+          <div className={manageClasses.matchSpec}>
+            <span className={manageClasses.matchSpecTitle}>주문 품목</span>
+            {[['품명', targetItem?.itemname], ['두께', targetItem?.thickness ? `${dimension(targetItem.thickness)}mm` : ''],
+              ['폭', targetItem?.width ? `${dimension(targetItem.width)}mm` : ''], ['길이', Number(targetItem?.length) > 0 ? `${dimension(targetItem.length)}mm` : 'C (코일)'],
+              ['중량', targetItem?.weight_kg ? `${dimension(targetItem.weight_kg)}kg` : '']].map(([label, value]) => (
+              <span key={label} className={manageClasses.matchSpecItem}><em>{label}</em><b>{value || '—'}</b></span>))}
+            <span className={`${manageClasses.matchSpecItem} ${manageClasses.matchSpecWarehouse}`}><em>연결 창고</em><b>{selectedWarehouseName || '첫 재고를 고르면 정해집니다'}</b></span>
           </div>
         </>}
         listTitle="연결 가능 현재고" count={modal.total} loading={modal.loading}
@@ -923,12 +1016,17 @@ export default function AIOrderManage() {
           <tbody>{!modal.loading && modal.candidates.length ? modal.candidates.map((candidate) => {
             const key = stockKey({ sourcetype: candidate.stocksourcetype, sourceno: candidate.stocksourceno, sourceline: candidate.stocksourceline });
             const checked = modal.selectedKeys.includes(key);
-            const unavailable = Boolean(candidate.matched_elsewhere) && !checked;
+            // 다른 주문 품목에 연결된 재고도 함께 연결 가능 (재고량은 연결 품목들의 주문 중량 비율로 배분)
+            const sharedWith = Boolean(candidate.matched_elsewhere);
+            const otherWarehouse = !checked && selectedWarehouse != null && isOtherWarehouse(candidate);
+            const unavailable = otherWarehouse;
             const rowClass = checked ? pickerClasses.selectedRow : unavailable ? pickerClasses.disabledRow : undefined;
             const toggleCandidate = () => { if (!unavailable) toggleStockCandidate(candidate); };
-            return <tr key={key} className={rowClass} title={unavailable ? '다른 주문 품목에 이미 연결된 현재고입니다.' : undefined} onClick={toggleCandidate}>
+            const unavailableReason = otherWarehouse ? `다른 창고의 재고입니다. 이 품목은 ${selectedWarehouseName} 재고만 연결할 수 있습니다.`
+              : sharedWith ? '다른 주문 품목에도 연결된 재고입니다. 함께 연결하면 재고량을 주문 중량 비율로 나눠 씁니다.' : undefined;
+            return <tr key={key} className={rowClass} title={unavailableReason} onClick={toggleCandidate}>
               <td className={pickerClasses.center}><input className={pickerClasses.checkbox} type="checkbox" checked={checked} disabled={unavailable} onChange={toggleCandidate} onClick={(event) => event.stopPropagation()} aria-label={`${candidate.master_itemname || candidate.itemname || key} 선택`} /></td>
-              <td title={candidate.master_itemname || candidate.itemname || ''}>{candidate.master_itemname || candidate.itemname || ''}</td>
+              <td title={candidate.master_itemname || candidate.itemname || ''}>{sharedWith && <span className={`${manageClasses.status} ${manageClasses.status_blue}`} style={{ height: 18, marginRight: 4, padding: '0 5px', fontSize: 11 }}>공유</span>}{candidate.master_itemname || candidate.itemname || ''}</td>
               <td title={candidate.productname || ''}>{candidate.productname || ''}</td>
               <td title={candidate.materialname || candidate.materialcode || ''}>{candidate.materialname || candidate.materialcode || ''}</td>
               <td title={candidate.surfacename || candidate.surfacecode || ''}>{candidate.surfacename || candidate.surfacecode || ''}</td>
@@ -950,21 +1048,30 @@ export default function AIOrderManage() {
           </tbody></table>
       </PickerModal>;
     }
-    if (modal.type === 'edit') return <Modal title="주문 변경" subtitle="발주처 · 일자 · 납품장소를 고칩니다. 상세 품목은 그대로입니다." icon={<IconPencil size={18} stroke={1.9} />}
-      onClose={() => !saving && setModal(null)}
-      actions={<><button type="button" className={`${classes.actBtn} ${classes.actOutline} ${classes.modalAction}`} onClick={() => setModal(null)} disabled={saving}>닫기</button>
-        <button type="button" className={`${classes.actBtn} ${classes.actPrimary} ${classes.modalAction}`} onClick={() => void saveEdit()} disabled={saving}><IconCheck size={15} stroke={2.2} />{saving ? '저장 중…' : '저장'}</button></>}>
-      <div className={classes.editOrderNo}><span>주문번호</span><b>{selectedOrder.isDraft ? '저장할 때 자동 부여' : selectedOrder.orderid}</b></div>
-      <div className={`${classes.formGrid} ${classes.editForm}`}>
-        <div className={classes.formSection}>주문 정보</div>
-        <label>발주처<input value={modal.buyer} placeholder="발주처" onChange={(event) => setModal((current) => ({ ...current, buyer: event.target.value }))} /></label>
-        <label>수신처<input value={modal.recipient} placeholder="수신처" onChange={(event) => setModal((current) => ({ ...current, recipient: event.target.value }))} /></label>
-        <label>발주일자<input type="date" value={modal.orderDate} onChange={(event) => setModal((current) => ({ ...current, orderDate: event.target.value }))} /></label>
-        <label>납기일자<input type="date" value={modal.due} onChange={(event) => setModal((current) => ({ ...current, due: event.target.value }))} /></label>
-        <div className={classes.formSection}>납품</div>
-        <label className={classes.formGridFull}>납품장소<input value={modal.place} placeholder="주소 또는 현장명" onChange={(event) => setModal((current) => ({ ...current, place: event.target.value }))} /></label>
-      </div>
-    </Modal>;
+    if (modal.type === 'edit') {
+      const setField = (field) => (event) => { const { value } = event.target; setModal((current) => ({ ...current, [field]: value })); };
+      return <Modal title="주문 변경" subtitle="발주처 · 일자 · 납품장소를 고칩니다. 상세 품목은 바뀌지 않습니다."
+        onClose={() => !saving && setModal(null)}
+        actions={<><button type="button" className={`${manageClasses.btn} ${manageClasses.btnLine}`} onClick={() => setModal(null)} disabled={saving}>닫기</button>
+          <button type="button" className={`${manageClasses.btn} ${manageClasses.btnPrimary}`} onClick={() => void saveEdit()} disabled={saving}>{saving ? '저장 중…' : '저장'}</button></>}>
+        <div className={manageClasses.section}>
+          <h3 className={manageClasses.sectionTitle}>주문 정보</h3>
+          <div className={manageClasses.grid}>
+            <label className={`${manageClasses.field} ${manageClasses.full}`}>주문번호<input value={selectedOrder.isDraft ? '저장할 때 자동 부여' : selectedOrder.orderid} readOnly tabIndex={-1} /></label>
+            <label className={manageClasses.field}>발주처<input value={modal.buyer} placeholder="발주처" onChange={setField('buyer')} data-autofocus /></label>
+            <label className={manageClasses.field}>수신처<input value={modal.recipient} placeholder="수신처" onChange={setField('recipient')} /></label>
+            <label className={manageClasses.field}>발주일자<input type="date" value={modal.orderDate} onChange={setField('orderDate')} /></label>
+            <label className={manageClasses.field}>납기일자<input type="date" value={modal.due} onChange={setField('due')} /></label>
+          </div>
+        </div>
+        <div className={manageClasses.section}>
+          <h3 className={manageClasses.sectionTitle}>납품</h3>
+          <div className={manageClasses.grid}>
+            <label className={`${manageClasses.field} ${manageClasses.full}`}>납품장소<input value={modal.place} placeholder="주소 또는 현장명" onChange={setField('place')} /></label>
+          </div>
+        </div>
+      </Modal>;
+    }
     return null;
   };
 
@@ -985,12 +1092,12 @@ export default function AIOrderManage() {
       <Box className={`${inboundClasses.inboundWorkspace} ${classes.orderWorkspace}`}>
         <Box className={`${inboundClasses.inboundPrimaryColumn} ${classes.orderPrimaryColumn}`}>
       <section className={`${classes.panel} ${classes.ordersPanel}`}>
-        <header className={classes.panelHeader}><strong>주문 기본</strong><span className={classes.count}>{number(total)}건</span>{loading && <small>주문을 불러오는 중입니다.</small>}<button type="button" className={`${classes.actBtn} ${classes.actOutline} ${classes.orderHeaderEditButton}`} onClick={openEdit} disabled={!selectedOrder}><IconPencil size={14} stroke={1.9} />주문변경</button>
+        <header className={classes.panelHeader}><strong>주문 기본</strong><span className={classes.count}>{number(total)}건</span><button type="button" className={manageClasses.guideTrigger} onClick={() => setGuideOpen(true)}><IconHelpCircle size={15} stroke={2} />진행 상태 안내</button>{loading && <small>주문을 불러오는 중입니다.</small>}<button type="button" className={`${manageClasses.btn} ${manageClasses.btnDark} ${manageClasses.pushRight}`} onClick={openEdit} disabled={!selectedOrder}>주문변경</button>
           {/* 선택한 주문의 최적화 대기 품목을 가공 최적화에서 바로 연다 */}
-          <button type="button" className={`${classes.actBtn} ${classes.actBlue}`}
+          <button type="button" className={`${manageClasses.btn} ${manageClasses.btnBlue}`}
             disabled={!selectedOrder || selectedOrder.isDraft || !['PARTIAL', 'SENT'].includes(selectedOrder.progress)}
             title={selectedOrder && !['PARTIAL', 'SENT'].includes(selectedOrder.progress) ? '가공 최적화로 보낸 품목이 없습니다' : '선택한 주문의 대기 품목으로 가공 최적화를 엽니다'}
-            onClick={() => navigate(`/AIOrderOptimization?orderid=${encodeURIComponent(selectedOrder.orderid)}`)}><IconAdjustments size={14} stroke={1.9} />가공 최적화 이동<IconArrowRight size={13} stroke={2.2} /></button></header>
+            onClick={() => navigate(`/AIOrderOptimization?orderid=${encodeURIComponent(selectedOrder.orderid)}`)}>가공 최적화 이동</button></header>
         <div ref={ordersScrollRef} className={`${classes.tableScroll} ${classes.ordersScroll}`} onScroll={syncScrollbarFromOrders}><table className={classes.ordersTable} style={{ width: `max(100%, ${orderTableWidth}px)`, minWidth: `${orderTableWidth}px` }}><colgroup>{ORDER_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${orderColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{ORDER_COLUMNS.map((column) => <th key={column.key} className={classes.resizableHeader} style={{ width: orderColumnWidths[column.key] ?? column.width }}><span>{column.label}</span><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'orders', column)} role="separator" aria-label={`Resize ${column.label} column`} /></th>)}</tr></thead>
           <tbody>{displayOrders.length ? displayOrders.map((order) => <tr key={order.orderid} className={order.orderid === selectedId ? classes.selectedRow : ''} onClick={() => setSelectedId(order.orderid)}>
             <td>{dateText(order.orderdate)}</td><td>{order.isDraft ? <Badge value="저장 전" tone="orange" /> : order.orderid}</td><td>{order.buyer || ''}</td><td>{order.recipient || ''}</td><td>{dateText(order.duedate)}</td><td title={order.deliverylocation || ''}>{order.deliverylocation || ''}</td><td className={classes.center}>{number(order.item_count)}</td><td className={classes.numeric}>{number(order.total_weight)}</td><td><Badge value={(ORDER_PROGRESS[order.progress] || ORDER_PROGRESS.NONE).label} tone={(ORDER_PROGRESS[order.progress] || ORDER_PROGRESS.NONE).tone} /></td><td>{order.notes || ''}</td><td>{order.created_by || ''}</td><td>{order.updated_by || ''}</td></tr>
@@ -1010,21 +1117,51 @@ export default function AIOrderManage() {
       <section className={`${classes.panel} ${classes.detailPanel}`}>
         <header className={classes.panelHeader}><strong>주문 상세</strong><span className={`${classes.count} ${isDraftSelected ? classes.orange : classes.blue}`}>{isDraftSelected ? '저장 전 · 확인 후 [저장]' : selectedOrder?.orderid || '주문을 선택하세요'}</span>
           <Group gap={6} wrap="nowrap" className={classes.detailHeaderActions}>
-            <button type="button" className={`${classes.actBtn} ${classes.actGhost}`} onClick={() => void changeOptimizeStatus(false)}
+            <button type="button" className={`${manageClasses.btn} ${manageClasses.btnGray}`} onClick={() => void changeOptimizeStatus(false)}
               disabled={!selectedOrder || saving || detailLoading || !optimizeTargets.recall}
-              title="최적화 대기 품목을 주문서 관리로 되돌립니다 (선택 없으면 전체)"><IconArrowBackUp size={14} stroke={1.9} />보내기 취소</button>
-            <button type="button" className={`${classes.actBtn} ${classes.actPrimary}`} onClick={() => void changeOptimizeStatus(true)}
+              title="최적화 대기 품목을 주문서 관리로 되돌립니다 (선택 없으면 전체)">보내기 취소</button>
+            <button type="button" className={`${manageClasses.btn} ${manageClasses.btnPrimary}`} onClick={() => void changeOptimizeStatus(true)}
               disabled={!selectedOrder || saving || detailLoading || !optimizeTargets.send}
-              title="선택한 품목을 가공 최적화로 보냅니다 (선택 없으면 미전송 전체)"><IconSend size={14} stroke={2} />가공 최적화로 보내기</button>
+              title="선택한 품목을 가공 최적화로 보냅니다 (선택 없으면 미전송 전체)">가공 최적화로 보내기</button>
           </Group>
         </header>
         <div className={`${classes.tableScroll} ${classes.detailsScroll}`}><table className={classes.detailsTable} style={{ width: `max(100%, ${detailTableWidth}px)`, minWidth: `${detailTableWidth}px` }}><colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{DETAIL_COLUMNS.map((column) => column.key === 'select' ? <th key={column.key} className={`${classes.checkColumn} ${classes.resizableHeader}`} style={{ width: detailColumnWidths[column.key] ?? column.width }}><input type="checkbox" aria-label="Select all order details" checked={itemDrafts.length > 0 && selectedItemKeys.length === itemDrafts.length} onChange={toggleAllItemSelection} disabled={!itemDrafts.length || detailLoading} /><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'details', column)} role="separator" aria-label="Resize selection column" /></th> : <th key={column.key} className={classes.resizableHeader} style={{ width: detailColumnWidths[column.key] ?? column.width }}><span>{column.label}{column.required && <span className={classes.requiredMark}> *</span>}</span><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'details', column)} role="separator" aria-label={`Resize ${column.label} column`} /></th>)}</tr></thead>
           <tbody>{itemDrafts.length ? itemDrafts.map((item, index) => <tr key={item._rowKey} className={selectedItemKeys.includes(item._rowKey) ? classes.selectedDetailRow : ''}>
             <td className={classes.checkColumn}><input type="checkbox" aria-label={`${index + 1}행 선택`} checked={selectedItemKeys.includes(item._rowKey)} onChange={(event) => toggleItemSelection(item._rowKey, event.nativeEvent.shiftKey)} /></td>
             <td className={`${classes.center} ${classes.detailTextCell}`}>{index + 1}</td>
-            <td title={item.itemname || ''}>{detailInput(item, 'itemname', false, index)}</td>
-            <td title={item.steelgrade || ''}>{detailInput(item, 'steelgrade', false, index)}</td>
-            <td title={item.surface || ''}>{detailInput(item, 'surface', false, index)}</td>
+            <td title={item.itemname || ''}><ItemNameSuggestInput value={item.itemname} readOnly={isLocked(item)}
+              onValueChange={(value) => changeItemDraft(item._rowKey, 'itemname', value)}
+              onGridKeyDown={handleDetailGridKeyDown}
+              onOpenPicker={() => setItemPickerRowKey(item._rowKey)}
+              inputProps={{
+                className: isLocked(item) ? classes.editInput : `${classes.editInput} ${inboundClasses.itemNameSearchInput}`,
+                title: isLocked(item) ? '가공 최적화로 보낸 품목은 수정할 수 없습니다.' : undefined,
+                'data-detail-row': index,
+                'data-detail-column': DETAIL_NAV_FIELDS.indexOf('itemname'),
+                'aria-label': `${index + 1}행 itemname`,
+              }} /></td>
+            <td title={item.steelgrade || ''}><CodeSuggestInput value={item.steelgrade} options={codeOptions.steelgrade} readOnly={isLocked(item)}
+              onValueChange={(value) => changeItemDraft(item._rowKey, 'steelgrade', value)}
+              onGridKeyDown={handleDetailGridKeyDown}
+              onOpenPicker={() => setCodePicker({ rowKey: item._rowKey, field: 'steelgrade' })}
+              inputProps={{
+                className: isLocked(item) ? classes.editInput : `${classes.editInput} ${inboundClasses.itemNameSearchInput}`,
+                title: isLocked(item) ? '가공 최적화로 보낸 품목은 수정할 수 없습니다.' : '입력하면 강종 공통코드 추천 · 돋보기 클릭 또는 더블클릭(F2)으로 강종 선택',
+                'data-detail-row': index,
+                'data-detail-column': DETAIL_NAV_FIELDS.indexOf('steelgrade'),
+                'aria-label': `${index + 1}행 강종`,
+              }} /></td>
+            <td title={item.surface || ''}><CodeSuggestInput value={item.surface} options={codeOptions.surface} readOnly={isLocked(item)}
+              onValueChange={(value) => changeItemDraft(item._rowKey, 'surface', value)}
+              onGridKeyDown={handleDetailGridKeyDown}
+              onOpenPicker={() => setCodePicker({ rowKey: item._rowKey, field: 'surface' })}
+              inputProps={{
+                className: isLocked(item) ? classes.editInput : `${classes.editInput} ${inboundClasses.itemNameSearchInput}`,
+                title: isLocked(item) ? '가공 최적화로 보낸 품목은 수정할 수 없습니다.' : '입력하면 표면 공통코드 추천 · 돋보기 클릭 또는 더블클릭(F2)으로 표면 선택',
+                'data-detail-row': index,
+                'data-detail-column': DETAIL_NAV_FIELDS.indexOf('surface'),
+                'aria-label': `${index + 1}행 표면`,
+              }} /></td>
             <td className={classes.numeric}>{detailInput(item, 'thickness', true, index)}</td>
             <td className={classes.numeric}>{detailInput(item, 'width', true, index)}</td>
             <td className={classes.numeric}>{detailInput(item, 'length', true, index)}</td>
@@ -1043,8 +1180,10 @@ export default function AIOrderManage() {
                   {(item.stock_matches || []).map((match, matchIndex) => {
                     const itemLabel = match.itemname || match.productname || '현재고 품목';
                     const sizeLabel = stockSize(match);
+                    const shared = Number(match.share_count) > 1;
                     const meta = [
-                      match.weight_kg !== null && match.weight_kg !== undefined ? `${dimension(match.weight_kg)}kg` : null,
+                      shared ? `배분 ${dimension(match.share_weight)}kg / 재고 ${dimension(match.weight_kg)}kg`
+                        : match.weight_kg !== null && match.weight_kg !== undefined ? `${dimension(match.weight_kg)}kg` : null,
                       match.warehouse || null,
                       match.itemname || null,
                     ].filter(Boolean).join(' · ');
@@ -1061,8 +1200,8 @@ export default function AIOrderManage() {
             <td className={classes.detailTextCell}>{LINE_PROGRESS[item.optimize_status]
               ? <Badge value={LINE_PROGRESS[item.optimize_status].label} tone={LINE_PROGRESS[item.optimize_status].tone} />
               : <span className={classes.unmatchedStock}>미전송</span>}</td>
-            <td className={classes.center}><button type="button" className={classes.matchButton} onClick={() => void openStockMatcher(item)} disabled={!item.lineno || detailLoading || isLocked(item)}
-              title={isLocked(item) ? '가공 최적화로 보낸 품목은 재고매칭을 바꿀 수 없습니다.' : undefined}><IconLink size={12} stroke={2.2} />재고매칭</button></td>
+            <td className={classes.center}><button type="button" className={manageClasses.rowMatchButton} onClick={() => void openStockMatcher(item)} disabled={!item.lineno || detailLoading || isLocked(item)}
+              title={isLocked(item) ? '가공 최적화로 보낸 품목은 재고매칭을 바꿀 수 없습니다.' : undefined}>재고매칭</button></td>
             <td title={item.notes || ''}>{detailInput(item, 'notes', false, index)}</td>
           </tr>)
             : <tr><td colSpan={DETAIL_COLUMNS.length} className={classes.empty}>{selectedOrder ? (detailLoading ? '상세 품목을 불러오는 중입니다.' : '상세 품목이 없습니다. 행 추가로 품목을 등록하세요.') : '주문을 선택하세요.'}</td></tr>}</tbody></table></div>
@@ -1106,5 +1245,11 @@ export default function AIOrderManage() {
         </Paper>}
       </Box>
     {renderModal()}
+    {guideOpen && <ProgressGuideModal onClose={() => setGuideOpen(false)} />}
+    {codePicker && <CodePickerModal opened onClose={() => setCodePicker(null)} title={CODE_FIELDS[codePicker.field].title}
+      options={codeOptions[codePicker.field]}
+      onSelect={(picked) => { changeItemDraft(codePicker.rowKey, codePicker.field, picked.name || picked.code); setCodePicker(null); }} />}
+    <ItemPickerModal opened={Boolean(itemPickerRowKey)} onClose={() => setItemPickerRowKey('')}
+      onSelect={(picked) => { changeItemDraft(itemPickerRowKey, 'itemname', picked.itemname || ''); setItemPickerRowKey(''); }} />
   </Box>;
 }

@@ -120,8 +120,8 @@ function App() {
           <Route path="/AIOrderPage" element={menuPage('AI_ORDER_RECOGNITION', <AIOrderPage />)} />
           <Route path="/AIOrderOptimization" element={menuPage('AI_OPTIMIZATION', <AIOrderOptimization />)} />
           <Route path="/AIOrderManage" element={menuPage('AI_ORDER_MANAGEMENT', <AIOrderManage />)} />
-          <Route path="/CustomerSupport" element={<Board />} />
-          <Route path="/Board" element={<Board />} />
+          <Route path="/CustomerSupport" element={menuPage('CUSTOMER_SUPPORT', <Board />)} />
+          <Route path="/Board" element={menuPage('CUSTOMER_SUPPORT', <Board />)} />
           <Route path="/Workplace" element={menuPage('WORKPLACE_MANAGEMENT', <Workplace />)} />
           <Route path="/MonthClose" element={menuPage('MONTH_CLOSING', <MonthClose />)} />
           <Route path="/UserInfo" element={<RequireUserManagement><UserInfo /></RequireUserManagement>} />

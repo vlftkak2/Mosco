@@ -300,10 +300,8 @@ export default function ReceiptPaymentSearch() {
       <Box className={paymentClasses.summaryStrip} aria-label="수금/지급 현황 요약">
         <SummaryItem label="수금/지급 전표 수" value={Number(summary.receipt_count || 0).toLocaleString()} unit="건" />
         <SummaryItem label="상세 건수" value={Number(summary.detail_count || 0).toLocaleString()} unit="건" />
-        <SummaryItem label="총 수금액 (자금)" value={formatNumber(summary.receipt_total || 0)} unit="원" tone={paymentClasses.toneReceipt}
-          note={`상계·잡손실 ${formatNumber(summary.receipt_settle_total || 0)} · 전표 합계 ${formatNumber(Number(summary.receipt_total || 0) + Number(summary.receipt_settle_total || 0))}`} />
-        <SummaryItem label="총 지급액 (자금)" value={formatNumber(summary.payment_total || 0)} unit="원" tone={paymentClasses.tonePayment}
-          note={`상계·잡손실 ${formatNumber(summary.payment_settle_total || 0)} · 전표 합계 ${formatNumber(Number(summary.payment_total || 0) + Number(summary.payment_settle_total || 0))}`} />
+        <SummaryItem label="총 수금액 (자금)" value={formatNumber(summary.receipt_total || 0)} unit="원" tone={paymentClasses.toneReceipt} />
+        <SummaryItem label="총 지급액 (자금)" value={formatNumber(summary.payment_total || 0)} unit="원" tone={paymentClasses.tonePayment} />
       </Box>
 
       <Box className={classes.inboundWorkspace}>

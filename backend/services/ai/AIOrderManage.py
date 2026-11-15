@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 from psycopg2.extras import RealDictCursor
 
 import db as _shared_db
+from services.ai.stock_links import stock_shares
 
 OPTIMIZE_STATUSES = ("NONE", "WAITING", "PLANNED", "DONE")
 LOCKED_MESSAGE = "가공 최적화로 보낸 품목은 수정할 수 없습니다. 가공 최적화에서 돌려받은 뒤 수정해 주세요."
@@ -39,6 +40,25 @@ def connection():
         raise
     finally:
         conn.close()
+
+
+def _require_master_item_names(cur, companyid, rows):
+    """품명은 품목 마스터(사용 중) 품목명과 같아야 저장한다. rows: [(행 번호, 품명)]"""
+    names = {str(name or "").strip().lower() for _, name in rows if str(name or "").strip()}
+    if not names:
+        return
+    cur.execute(
+        """SELECT DISTINCT LOWER(BTRIM(itemname)) AS name FROM ItemCode01t
+           WHERE companyid = %s AND UPPER(BTRIM(use_yn)) = 'Y' AND LOWER(BTRIM(itemname)) = ANY(%s)""",
+        (companyid, list(names)),
+    )
+    known = {row["name"] for row in cur.fetchall()}
+    unknown = [f"{position}행 {str(name).strip()}" for position, name in rows
+               if str(name or "").strip() and str(name).strip().lower() not in known]
+    if unknown:
+        more = f" 외 {len(unknown) - 5}건" if len(unknown) > 5 else ""
+        raise ValueError("품목 마스터에 없는 품명입니다: " + " / ".join(unknown[:5]) + more
+                         + ". 품목 마스터에 등록된 품명을 선택해 주세요.")
 
 
 def as_dict(row):
@@ -69,11 +89,12 @@ def confirm_order(companyid, companyname, username, email, payload):
             if existing:
                 return {"orderid": existing["orderid"], "already_confirmed": True}
 
-            # 주문서 관리 저장과 같은 필수값: 품명 · 수량 · 중량 (숫자 또는 AI 원문 값)
+            # 주문서 관리 저장과 같은 필수값: 품명 · 강종 · 수량 · 중량 (숫자 또는 AI 원문 값)
             missing_rows = []
             for position, item in enumerate(payload.items, start=1):
                 missing = [label for label, present in (
                     ("품명", str(item.source_product_name or "").strip()),
+                    ("강종", str(item.steel_grade or "").strip()),
                     ("수량", item.quantity is not None or str(item.quantity_raw or "").strip()),
                     ("중량", item.weight_kg is not None or str(item.weight_raw or "").strip()),
                 ) if not present]
@@ -81,6 +102,9 @@ def confirm_order(companyid, companyname, username, email, payload):
                     missing_rows.append(f"{position}행 {', '.join(missing)}")
             if missing_rows:
                 raise ValueError("필수값을 입력해 주세요: " + " / ".join(missing_rows[:5]))
+            _require_master_item_names(cur, companyid, [
+                (position, item.source_product_name) for position, item in enumerate(payload.items, start=1)
+            ])
 
             prefix = datetime.now(ZoneInfo("Asia/Seoul")).strftime("AI%Y%m%d")
             # Advisory transaction lock serializes numbering only within this company.
@@ -186,7 +210,7 @@ def get_order(companyid, orderid):
                    s.itemname AS stock_itemname, s.productname AS stock_productname,
                    s.thickness AS stock_thickness, s.width AS stock_width, s.length AS stock_length,
                    s.qty AS stock_qty, s.qtyunit AS stock_qtyunit, s.weight AS stock_weight,
-                   s.warehousecodename AS stock_warehouse
+                   s.warehousecode AS stock_warehousecode, s.warehousecodename AS stock_warehouse
             FROM aiorder03t l
             LEFT JOIN currentstock01t s
               ON s.companyid=l.companyid
@@ -211,8 +235,19 @@ def get_order(companyid, orderid):
                 "quantity": match["stock_qty"],
                 "quantity_unit": match["stock_qtyunit"],
                 "weight_kg": match["stock_weight"],
+                "warehousecode": match["stock_warehousecode"],
                 "warehouse": match["stock_warehouse"],
             })
+        # 공유 재고: 연결된 품목들의 주문 중량 비율로 나눈 이 품목 몫
+        shares = stock_shares(cur, companyid, {(m["sourcetype"], m["sourceno"], m["sourceline"]) for rows in matches.values() for m in rows})
+        for lineno_key, rows in matches.items():
+            for m in rows:
+                share = shares.get((m["sourcetype"], m["sourceno"], int(m["sourceline"])))
+                mine = (share or {}).get("lines", {}).get((orderid, lineno_key))
+                m["share_count"] = (share or {}).get("count", 1)
+                m["share_weight"] = mine["weight"] if mine else m["weight_kg"]
+                m["share_qty"] = mine["qty"] if mine else m["quantity"]
+                m["share_ratio"] = mine["ratio"] if mine else 1
         for item in items:
             item["stock_matches"] = matches.get(item["lineno"], [])
         return {"header": as_dict(header), "items": items}
@@ -266,13 +301,14 @@ def update_order_items(companyid, orderid, items, actor=None):
                     (companyid, orderid, list(removed_lines)),
                 )
 
-            # 필수값: 품명 · 수량 · 중량 (숫자 또는 AI 원문 값). 보낸 품목은 잠겨 있어 검사하지 않는다
+            # 필수값: 품명 · 강종 · 수량 · 중량 (숫자 또는 AI 원문 값). 보낸 품목은 잠겨 있어 검사하지 않는다
             missing_rows = []
             for position, item in enumerate(items, start=1):
                 if item.lineno in locked_lines:
                     continue
                 missing = [label for label, present in (
                     ("품명", str(item.itemname or "").strip()),
+                    ("강종", str(item.steelgrade or "").strip()),
                     ("수량", item.quantity is not None or str(item.quantity_raw or "").strip()),
                     ("중량", item.weight_kg is not None or str(item.weight_raw or "").strip()),
                 ) if not present]
@@ -280,6 +316,10 @@ def update_order_items(companyid, orderid, items, actor=None):
                     missing_rows.append(f"{position}행 {', '.join(missing)}")
             if missing_rows:
                 raise ValueError("필수값을 입력해 주세요: " + " / ".join(missing_rows[:5]))
+            _require_master_item_names(cur, companyid, [
+                (position, item.itemname) for position, item in enumerate(items, start=1)
+                if item.lineno not in locked_lines
+            ])
 
             next_lineno = max(existing_lines, default=0)
 
@@ -370,27 +410,23 @@ def save_stock_matches(companyid, orderid, lineno, sources, actor=None):
             for source in normalized:
                 params.extend(source)
             cur.execute(f"""
-                SELECT sourcetype, sourceno, sourceline
+                SELECT sourcetype, sourceno, sourceline, warehousecode, warehousecodename
                 FROM currentstock01t
                 WHERE companyid=%s AND (qty > 0 OR weight > 0)
                   AND (sourcetype, sourceno, sourceline) IN ({tuples_sql})
                 ORDER BY sourcetype, sourceno, sourceline
                 FOR UPDATE
             """, params)
-            available = {(row["sourcetype"], row["sourceno"], int(row["sourceline"])) for row in cur.fetchall()}
+            stock_rows = cur.fetchall()
+            available = {(row["sourcetype"], row["sourceno"], int(row["sourceline"])) for row in stock_rows}
             if set(normalized) - available:
                 raise ValueError("현재고가 변경되었거나 사용할 수 없는 재고가 있습니다. 현재고를 다시 조회해 주세요.")
-
-            source_params = [value for source in normalized for value in source]
-            cur.execute(f"""
-                SELECT 1 FROM aiorder03t
-                WHERE companyid=%s
-                  AND NOT (orderid=%s AND lineno=%s)
-                  AND (stocksourcetype, stocksourceno, stocksourceline) IN ({tuples_sql})
-                LIMIT 1
-            """, [companyid, orderid, lineno, *source_params])
-            if cur.fetchone():
-                raise ValueError("선택한 현재고는 다른 주문 품목에 이미 연결되어 있습니다. 다른 현재고를 선택해 주세요.")
+            # 한 품목의 연결 재고는 한 창고에서만 (가공 최적화는 계획 하나 = 창고 하나)
+            warehouses = {(row["warehousecode"] or "", row["warehousecodename"] or "") for row in stock_rows}
+            if len(warehouses) > 1:
+                raise ValueError("한 품목에는 같은 창고의 재고만 연결할 수 있습니다. 선택한 창고: "
+                                 + ", ".join(sorted(name or code or "창고 없음" for code, name in warehouses)))
+            # 다른 주문 품목과 같은 현재고를 함께 연결할 수 있다 (재고량은 주문 중량 비율로 배분: stock_links.stock_shares)
 
         cur.execute("DELETE FROM aiorder03t WHERE companyid=%s AND orderid=%s AND lineno=%s", (companyid, orderid, lineno))
         for matchlineno, key in enumerate(normalized, start=1):

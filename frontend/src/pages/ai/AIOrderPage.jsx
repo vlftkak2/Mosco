@@ -19,6 +19,8 @@ import outboundTableClasses from '../../styles/pages/CodeMasterPage.module.css';
 import classes from '../../styles/pages/AIOrder.module.css';
 import { aiOrderPageSession } from './AIOrderPageSession';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
+import inboundClasses from '../../styles/pages/InboundRegister.module.css';
+import { CodePickerModal, CodeSuggestInput, ItemNameSuggestInput, ItemPickerModal, loadCodeOptions } from './AIItemNameLookup';
 
 const MAX_FILE_BYTES = 30 * 1024 * 1024;
 const MAX_PDF_PAGES = 10;
@@ -35,7 +37,7 @@ const NUMERIC_VALUE_PATTERN = /^(?:\d{1,12}(?:\.\d{0,3})?|\.\d{1,3})$/;
 const LINE_COLUMNS = [
   ['source_product_name', '품명', 180], ['steel_grade', '강종', 100], ['surface', '표면', 90], ['spec_raw', '규격 원문', 190],
   ['thickness', '두께', 90], ['width', '폭', 90], ['length', '길이', 90],
-  ['quantity', '수량', 110], ['quantity_unit', '단위', 90], ['weight_kg', '중량', 115], ['notes', '비고', 180],
+  ['quantity', '수량', 110], ['weight_kg', '중량', 115], ['quantity_unit', '단위', 90], ['notes', '비고', 180],
 ];
 
 function numberInputValue(value) {
@@ -159,7 +161,10 @@ function ExtractionFieldLabel({ label, source, showLabel = true }) {
   </Box>;
 }
 
-const OrderLineCells = memo(function OrderLineCells({ item, index, selected, onToggle, onChange, onPaste }) {
+// 강종 · 표면 칸 → 공통코드 그룹 (자동맞춤 + 돋보기 선택 창)
+const CODE_FIELDS = { steel_grade: { group: 'MATERIAL', title: '강종 선택' }, surface: { group: 'SURFACE', title: '표면 선택' } };
+
+const OrderLineCells = memo(function OrderLineCells({ item, index, selected, onToggle, onChange, onPaste, onOpenItemPicker, codeOptions, onOpenCodePicker }) {
   return <>
     <Table.Td ta="center" className={outboundTableClasses.checkCol}><input type="checkbox" aria-label={`${index + 1}행 선택`} checked={selected} onChange={(event) => onToggle(index, event.nativeEvent.shiftKey)} /></Table.Td>
     <Table.Td ta="center" className={outboundTableClasses.numberCol}>{index + 1}</Table.Td>
@@ -174,7 +179,27 @@ const OrderLineCells = memo(function OrderLineCells({ item, index, selected, onT
         }
       };
       return <Table.Td key={key} className={hasAiSource ? classes.aiExtractedCell : undefined} title={hasAiSource ? 'AI가 읽어 추출한 값입니다.' : undefined}>
-        <OrderLineInput item={item} index={index} field={key} label={label} onChange={onChange} onPaste={handlePaste} />
+        {key === 'source_product_name'
+          // 품명: 품목 마스터 자동완성 + 돋보기(클릭 · 더블클릭 · F2) → 품목 선택 창
+          ? <ItemNameSuggestInput value={item.__draft?.[key] ?? item[key] ?? ''}
+            onValueChange={(value) => onChange(index, key, value)}
+            onOpenPicker={() => onOpenItemPicker(index)}
+            inputProps={{
+              className: `${outboundTableClasses.cellInput} ${classes.cellInput} ${inboundClasses.itemNameSearchInput}`,
+              type: 'text', 'aria-label': `${index + 1}행 ${label}`, 'data-row-index': index, 'data-field': key, onPaste: handlePaste,
+              title: '입력하면 품목 마스터 추천 · 돋보기 클릭 또는 더블클릭(F2)으로 품목 선택',
+            }} />
+          : CODE_FIELDS[key]
+            // 강종 · 표면: 공통코드 자동맞춤 + 돋보기(클릭 · 더블클릭 · F2) → 코드 선택 창
+            ? <CodeSuggestInput value={item.__draft?.[key] ?? item[key] ?? ''} options={codeOptions[key]}
+              onValueChange={(value) => onChange(index, key, value)}
+              onOpenPicker={() => onOpenCodePicker(index, key)}
+              inputProps={{
+                className: `${outboundTableClasses.cellInput} ${classes.cellInput} ${inboundClasses.itemNameSearchInput}`,
+                type: 'text', 'aria-label': `${index + 1}행 ${label}`, 'data-row-index': index, 'data-field': key, onPaste: handlePaste,
+                title: `입력하면 ${label} 공통코드 추천 · 돋보기 클릭 또는 더블클릭(F2)으로 ${label} 선택`,
+              }} />
+            : <OrderLineInput item={item} index={index} field={key} label={label} onChange={onChange} onPaste={handlePaste} />}
       </Table.Td>;
     })}
   </>;
@@ -590,6 +615,17 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
   const [previewSource, setPreviewSource] = useState({ file: null, url: '' });
   const previewUrl = previewSource.file === previewFile ? previewSource.url : '';
   const [selectedRows, setSelectedRows] = useState([]);
+  const [itemPickerIndex, setItemPickerIndex] = useState(null); // 품목 선택 창을 연 행
+  const [codeOptions, setCodeOptions] = useState({ steel_grade: [], surface: [] }); // 강종 · 표면 공통코드
+  const [codePicker, setCodePicker] = useState(null); // { index, field } 코드 선택 창을 연 칸
+  useEffect(() => {
+    let alive = true;
+    Promise.all([loadCodeOptions(CODE_FIELDS.steel_grade.group), loadCodeOptions(CODE_FIELDS.surface.group)])
+      .then(([steel, surface]) => { if (alive) setCodeOptions({ steel_grade: steel, surface }); })
+      .catch(() => { /* 코드 목록을 못 받아도 직접 입력은 된다 */ });
+    return () => { alive = false; };
+  }, []);
+  const openCodePicker = useCallback((index, field) => setCodePicker({ index, field }), []);
   const [deleteRowsRequest, setDeleteRowsRequest] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(0);
@@ -832,7 +868,7 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
                   {column.key === '__select' ? <input type="checkbox" aria-label="상세 전체 선택" checked={extraction.items.length > 0 && selectedRows.length === extraction.items.length} onChange={(event) => { setSelectedRows(event.currentTarget.checked ? extraction.items.map((_, index) => index) : []); rowSelectionAnchor.current = null; }} /> : column.label}
                   <span className={outboundTableClasses.columnResizeHandle} role="separator" aria-label={`${column.label || '선택'} 열 너비 조절`} onPointerDown={(event) => startColumnResize(event, column)} />
                 </Table.Th>)}</Table.Tr>}
-                itemContent={(index, item) => <OrderLineCells item={item} index={index} selected={selectedRows.includes(index)} onToggle={toggleRowSelection} onChange={updateLine} onPaste={pasteLineRange} />}
+                itemContent={(index, item) => <OrderLineCells item={item} index={index} selected={selectedRows.includes(index)} onToggle={toggleRowSelection} onChange={updateLine} onPaste={pasteLineRange} onOpenItemPicker={setItemPickerIndex} codeOptions={codeOptions} onOpenCodePicker={openCodePicker} />}
               />
             </Box>}
           </Paper>
@@ -840,6 +876,11 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
       </Box>}
       </Paper>
     </SimpleGrid>
+    {codePicker && <CodePickerModal opened onClose={() => setCodePicker(null)} title={CODE_FIELDS[codePicker.field].title}
+      options={codeOptions[codePicker.field]}
+      onSelect={(picked) => { updateLine(codePicker.index, codePicker.field, picked.name || picked.code); setCodePicker(null); }} />}
+    <ItemPickerModal opened={itemPickerIndex !== null} onClose={() => setItemPickerIndex(null)} description="인식한 품목 행의 품명을 품목 마스터에서 고릅니다."
+      onSelect={(picked) => { updateLine(itemPickerIndex, 'source_product_name', picked.itemname || ''); setItemPickerIndex(null); }} />
     <ConfirmDeleteModal opened={Boolean(deleteRowsRequest)} onClose={() => setDeleteRowsRequest(null)} onConfirm={confirmDeleteSelectedRows}
       title="상세 품목을 삭제할까요?" target={`선택 ${deleteRowsRequest?.length || 0}개 품목`} message="선택한 품목 행이 삭제되며" note="삭제한 행은 복구할 수 없습니다." />
   </>;

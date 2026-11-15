@@ -11,7 +11,8 @@ from services.system import Board
 
 
 def user(company):
-    return dict(companyid=company, companyname='회사', username='사용자', email='user@example.com')
+    return dict(companyid=company, companyname='회사', username='사용자', email='user@example.com',
+                authority='USER', menuids=frozenset({'CUSTOMER_SUPPORT'}))
 
 
 class BoardTests(unittest.TestCase):
@@ -98,6 +99,9 @@ class BoardTests(unittest.TestCase):
         app.include_router(router)
         client = TestClient(app)
         self.assertIn(client.get('/api/board').status_code, (401, 503))
+        app.dependency_overrides[get_current_user] = lambda: self.tenant
+        app.dependency_overrides[get_current_user] = lambda: self.tenant | dict(menuids=frozenset())
+        self.assertEqual(client.get('/api/board').status_code, 403)  # 메뉴권한에서 상담게시판을 뺀 계정
         app.dependency_overrides[get_current_user] = lambda: self.tenant
         self.assertEqual(client.get('/api/board?page=0').status_code, 422)
         self.assertEqual(client.get('/api/board?category=invalid').status_code, 422)

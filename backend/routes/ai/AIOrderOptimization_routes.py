@@ -73,8 +73,15 @@ async def analyze(payload: AnalyzeRequest, user: dict = Depends(require_access))
                        fail="가공 최적화 계산에 실패했습니다.")
 
 
+@router.get("/history")
+async def history(kind: Literal["purchase", "sales", "processing"], material: Literal["COIL", "SHEET"] = "COIL",
+                  itemname: str = Query(default="", max_length=150), months: int = Query(default=0, ge=0, le=120),
+                  q: str = Query(default="", max_length=100), user: dict = Depends(require_access)):
+    return await _call(service.history, user["companyid"], kind, material, itemname, months, q, fail="이력을 불러오지 못했습니다.")
+
+
 @router.get("/plans")
-async def plans(status: Literal["OPEN", "DRAFT", "CONFIRMED", "ALL"] = "OPEN", user: dict = Depends(require_access)):
+async def plans(status: Literal["OPEN", "DRAFT", "CONFIRMED", "DONE", "ALL"] = "OPEN", user: dict = Depends(require_access)):
     return await _call(service.list_plans, user["companyid"], status, fail="가공 계획을 불러오지 못했습니다.")
 
 

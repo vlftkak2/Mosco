@@ -458,5 +458,5 @@
 .pwCancel:focus-visible, .pwSubmit:focus-visible { outline: 2px solid #f0a3a7; outline-offset: 2px; }
 
 /* 본문 스크롤바: 화면 전체 스크롤(대시보드 등)도 표 스크롤과 같은 얇은 굵기 */
-.appMain, .appMain * { scrollbar-width: thin; scrollbar-color: #b9c2cd transparent; }
+.appMain, .appMain * { scrollbar-width: thin; scrollbar-color: #c5ccd6 transparent; }
 
