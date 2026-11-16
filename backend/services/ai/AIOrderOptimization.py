@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from contextlib import contextmanager
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -37,6 +38,12 @@ MAX_MIX_WIDTHS = 6                 # 혼합에 쓰는 서로 다른 폭 수
 MAX_CUTS = 60                      # 코일 1개에서 낼 수 있는 칼 수 상한
 MAX_SHEETS = 500
 MAX_COMBOS = 3000                  # 혼합 조합 탐색 상한 (칼 수 많은 조합부터)
+MAX_COMBO_NODES = 300_000          # 혼합 조합 탐색 방문 노드 상한 (안전장치)
+MAX_SHEET_NODES = 300_000          # 시트 1줄 배치 탐색 방문 노드 상한 - 호출 1번 (안전장치)
+MAX_SHEET_TOTAL_NODES = 1_500_000  # 시트 원자재 후보 전체(분석 1번)의 배치 탐색 방문 노드 상한
+MAX_EXTRA_SIZES = 6                # 가공 후보 폭(코일) · 길이(시트) 입력 개수 상한
+MIN_EXTRA_WIDTH = 10.0             # 가공 후보 폭 최소값(mm) - 이보다 작은 값은 무시
+MIN_EXTRA_LENGTH = 50.0            # 가공 후보 길이 최소값(mm) - 이보다 작은 값은 무시
 COIL_RULES = {"tol_pct": 0.5}   # 주문중량 허용오차(%). 소코일 무게 범위 검사(200~3,000kg)는 사용하지 않음
 REMAINDER_WORDS = ("나머지", "전량", "잔량", "잔여", "전부")
 PLAN_STATUSES = ("DRAFT", "CONFIRMED", "DONE", "CANCELLED")
@@ -132,12 +139,35 @@ def _line_row(row: dict) -> dict:
     }
 
 
-def _load_lines(cur, companyid: str, keys=None, status=None) -> list[dict]:
+QUEUE_DONE_LIMIT = 500    # 대기 목록 '전체' 에 함께 보여 줄 가공완료(DONE) 품목 수 (최근 수정 순)
+QUEUE_MAX_ROWS = 2000     # 대기 목록 한 번 조회 상한 (안전장치)
+
+
+def _like(text: str) -> str:
+    return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+def _load_lines(cur, companyid: str, keys=None, status=None, buyer: str = "", itemname: str = "",
+                done_limit: int | None = None, max_rows: int | None = None) -> list[dict]:
     where = ["d.companyid = %s"]
     params: list = [companyid]
     if status:
         where.append("d.optimize_status = ANY(%s)")
         params.append(list(status))
+    if buyer:
+        where.append("h.buyer ILIKE %s ESCAPE '\\'")
+        params.append(_like(buyer))
+    if itemname:
+        where.append("d.itemname ILIKE %s ESCAPE '\\'")
+        params.append(_like(itemname))
+    if done_limit is not None:
+        # 가공완료는 계속 쌓이므로 최근 것만 (같은 조건 안에서)
+        where.append(f"""(d.optimize_status <> 'DONE' OR (d.orderid, d.lineno) IN (
+                            SELECT d.orderid, d.lineno FROM aiorder02t d
+                            JOIN aiorder01t h ON h.companyid = d.companyid AND h.orderid = d.orderid
+                            WHERE {' AND '.join(where)} AND d.optimize_status = 'DONE'
+                            ORDER BY d.updated_at DESC NULLS LAST, d.orderid DESC, d.lineno DESC LIMIT %s))""")
+        params.extend([*params, int(done_limit)])
     if keys is not None:
         if not keys:
             return []
@@ -151,7 +181,8 @@ def _load_lines(cur, companyid: str, keys=None, status=None) -> list[dict]:
         JOIN aiorder01t h ON h.companyid = d.companyid AND h.orderid = d.orderid
         WHERE {' AND '.join(where)}
         ORDER BY h.duedate NULLS LAST, d.orderid, d.lineno
-    """, params)
+        {"LIMIT %s" if max_rows else ""}
+    """, [*params, max_rows] if max_rows else params)
     return [_line_row(row) for row in cur.fetchall()]
 
 
@@ -220,11 +251,9 @@ def list_queue(companyid: str, status: str = "WAITING", buyer: str = "", itemnam
     # ALL 에 가공완료(DONE)도 넣는다: 가공완료 계획을 열었을 때 최적화 대상 표가 비지 않게
     statuses = {"WAITING": ["WAITING"], "PLANNED": ["PLANNED"], "ALL": ["WAITING", "PLANNED", "DONE"]}.get(status, ["WAITING"])
     with _connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
-        lines = _load_lines(cur, companyid, status=statuses)
-        if buyer.strip():
-            lines = [x for x in lines if buyer.strip().lower() in str(x["buyer"] or "").lower()]
-        if itemname.strip():
-            lines = [x for x in lines if itemname.strip().lower() in str(x["itemname"] or "").lower()]
+        # 검색어는 SQL 에서 거른다 (대소문자 무시 부분 일치). 가공완료는 최근 QUEUE_DONE_LIMIT 건만
+        lines = _load_lines(cur, companyid, status=statuses, buyer=(buyer or "").strip(), itemname=(itemname or "").strip(),
+                            done_limit=QUEUE_DONE_LIMIT if "DONE" in statuses else None, max_rows=QUEUE_MAX_ROWS)
         links = _linked_stock(cur, companyid, lines)
         plans = _plans_by_line(cur, companyid, lines)
     items = []
@@ -467,32 +496,55 @@ def _coil_eval(passes: list[dict], raw_width: float, demand: list[dict]) -> dict
 
 
 _COMBO_CACHE: dict = {}
+_COMBO_CACHE_LOCK = threading.Lock()
 
 
 def _mixed_combos(usable: float, widths: list[float], required: int) -> list[dict]:
-    """혼합 칼 조합 전부 (발주 폭은 1칼 이상, 가공 후보 폭은 0칼 이상). 칼 많은 조합부터, MAX_COMBOS 까지."""
-    key = (round(usable, 3), tuple(widths), required)
-    if key in _COMBO_CACHE:
-        return _COMBO_CACHE[key]
-    found, counts = [], [0] * len(widths)
+    """혼합 칼 조합 전부 (발주 폭은 1칼 이상, 가공 후보 폭은 0칼 이상). 칼 많은 조합부터, MAX_COMBOS 까지.
 
-    def walk(i, left):
-        if len(found) >= MAX_COMBOS:
+    결과(순서 포함)는 가지치기 없는 전체 탐색과 같다: 칼 수 합이 MAX_CUTS 를 넘거나 남은 발주 폭을
+    1칼씩도 넣을 수 없는 가지는 조합이 하나도 나오지 않으므로 미리 자른다. 안전장치로 방문 노드 수도 제한한다.
+    """
+    key = (round(usable, 3), tuple(widths), required)
+    with _COMBO_CACHE_LOCK:
+        cached = _COMBO_CACHE.get(key)
+    if cached is not None:
+        return cached
+    found, counts = [], [0] * len(widths)
+    # 위치 i 이후(i 제외)에 반드시 1칼 이상 넣어야 하는 발주 폭의 폭 합 · 개수
+    need_width = [sum(widths[j] for j in range(i + 1, len(widths)) if j < required) for i in range(len(widths))]
+    need_cuts = [sum(1 for j in range(i + 1, len(widths)) if j < required) for i in range(len(widths))]
+    visited = 0
+
+    def walk(i, left, cuts):
+        nonlocal visited
+        visited += 1
+        if len(found) >= MAX_COMBOS or visited > MAX_COMBO_NODES:
             return
         if i == len(widths):
-            if sum(counts) <= MAX_CUTS:
+            if cuts <= MAX_CUTS:
                 found.append({widths[k]: counts[k] for k in range(len(widths)) if counts[k]})
             return
         low = 1 if i < required else 0
-        for n in range(int(floor((left + 1e-7) / widths[i])), low - 1, -1):
+        top = int(floor((left + 1e-7) / widths[i]))
+        # 칼 수 상한: 뒤의 발주 폭에 1칼씩 남겨도 MAX_CUTS 이내여야 리프에서 채택될 수 있다 (정수 비교라 정확)
+        top = min(top, MAX_CUTS - cuts - need_cuts[i])
+        for n in range(top, low - 1, -1):
+            rest = left - n * widths[i]
+            # 남은 폭에 뒤의 발주 폭을 1칼씩도 못 넣으면 그 아래 조합은 없다 (부동소수 경계는 여유 1e-6 두고 탐색)
+            if rest + 1e-7 < need_width[i] - 1e-6:
+                continue
             counts[i] = n
-            walk(i + 1, left - n * widths[i])
+            walk(i + 1, rest, cuts + n)
+            if len(found) >= MAX_COMBOS or visited > MAX_COMBO_NODES:
+                break
         counts[i] = 0
 
-    walk(0, usable)
-    if len(_COMBO_CACHE) > 256:
-        _COMBO_CACHE.clear()
-    _COMBO_CACHE[key] = found
+    walk(0, usable, 0)
+    with _COMBO_CACHE_LOCK:
+        if len(_COMBO_CACHE) > 256:
+            _COMBO_CACHE.clear()
+        _COMBO_CACHE[key] = found
     return found
 
 
@@ -695,15 +747,42 @@ def _coil_candidate_metrics(raw_width, trim, combo, demand, extras, fixed_weight
             "loss_weight": _round(input_kg - produced_int, 1), "yield_rate": _round(output_kg / input_kg * 100, 2) if input_kg else None}
 
 
-def _analyze_coil(cur, companyid, lines, settings, planno=""):
-    trim = float(settings.get("trimloss") if settings.get("trimloss") is not None else TRIM_LOSS_DEFAULT)
+def _coil_trim(settings: dict) -> float:
+    return float(settings.get("trimloss") if settings.get("trimloss") is not None else TRIM_LOSS_DEFAULT)
+
+
+def _extra_sizes(values, minimum: float) -> list[float]:
+    """④ 가공 후보 폭·길이 (화면 입력). 중복 제거, 너무 작은 값은 무시, 최대 MAX_EXTRA_SIZES 개."""
+    if not isinstance(values, (list, tuple)):
+        return []
+    sizes = (to_number(x) for x in values[:50])
+    return list(dict.fromkeys(_w(v) for v in sizes if v is not None and v >= minimum))[:MAX_EXTRA_SIZES]
+
+
+def _linked_keys(lines: list[dict]) -> set:
+    return {(s["sourcetype"], s["sourceno"], int(s["sourceline"])) for x in lines for s in x["raw_links"]}
+
+
+def _load_stocks(cur, companyid, lines, settings, planno, material) -> list[dict]:
+    """계산 전에 원자재 후보(현재고)를 미리 읽는다 → 무거운 조합 계산은 DB 연결을 반납한 뒤에 한다."""
+    if material == "COIL":
+        # 원자재 후보 폭 기준 = 담은 품목 중 가장 넓은 폭 + 로스 (그보다 좁은 재고 · 신규 후보는 제외, 연결 원자재는 그대로 보여 줌)
+        min_w = max(d["width"] for d in _coil_demand(lines))
+        return _stock_candidates(cur, companyid, lines, "COIL", min_w + _coil_trim(settings), 0, _linked_keys(lines), planno,
+                                 settings.get("_warehouse"))
+    item_w = lines[0]["width"]
+    if any(not _same_size(x["width"], item_w) for x in lines):
+        return []
+    min_len = min(_w(x["length"]) for x in lines)
+    return _stock_candidates(cur, companyid, lines, "SHEET", item_w, min_len, _linked_keys(lines), planno, settings.get("_warehouse"))
+
+
+def _analyze_coil(stocks, lines, settings):
+    trim = _coil_trim(settings)
     demand = _coil_demand(lines)
-    # 원자재 후보 폭 기준 = 담은 품목 중 가장 넓은 폭 + 로스 (그보다 좁은 재고 · 신규 후보는 제외, 연결 원자재는 그대로 보여 줌)
     min_w = max(d["width"] for d in demand)
-    extras = [_w(v) for v in (to_number(x) for x in settings.get("extrawidths") or []) if (v or 0) > 0]
+    extras = _extra_sizes(settings.get("extrawidths"), MIN_EXTRA_WIDTH)
     hist = _history_list(settings)
-    linked_keys = {(s["sourcetype"], s["sourceno"], int(s["sourceline"])) for x in lines for s in x["raw_links"]}
-    stocks = _stock_candidates(cur, companyid, lines, "COIL", min_w + trim, 0, linked_keys, planno, settings.get("_warehouse"))
     # 과거 매입 규격 자동 후보는 당분간 쓰지 않는다 (② 후보 = 연결 원자재 · 현재고 · 사용자가 추가한 후보만)
     sizes = []
     cand_combo = "MIXED" if len(demand) + len(set(extras) - {d["width"] for d in demand}) >= 2 else "SINGLE"
@@ -814,9 +893,12 @@ def _analyze_coil(cur, companyid, lines, settings, planno=""):
 
 
 # ---------------------------------------------------------------- 시트 계산 (시안 v10 sheetSolve)
-def _sheet_pattern(cap, lengths, active, required, mode, style, need):
+def _sheet_pattern(cap, lengths, active, required, mode, style, need, budget=None):
     """원판 1줄(폭 방향 1스트립)에 놓을 길이별 개수.
-    혼합: 선택 품목은 모든 원판에 1개 이상, 한 줄 개수는 남은 발주수량을 넘지 않음. 가공 후보 길이는 0개 이상."""
+    혼합: 선택 품목은 모든 원판에 1개 이상, 한 줄 개수는 남은 발주수량을 넘지 않음. 가공 후보 길이는 0개 이상.
+
+    전체 탐색이 기본이다. 품목·후보 길이가 많아 방문 노드가 상한(MAX_SHEET_NODES, 요청 전체 budget)을 넘으면
+    탐색을 멈추고, 그때까지의 최선과 균형 채우기(greedy) 결과 중 점수가 높은 쪽을 쓴다."""
     if mode == "SINGLE":
         i = active[0]
         fit = int(floor((cap + 1e-7) / lengths[i]))
@@ -826,13 +908,21 @@ def _sheet_pattern(cap, lengths, active, required, mode, style, need):
     if sum(lengths[i] for i in required) > cap + 1e-8:
         return None
     best, counts = None, {}
+    limit = MAX_SHEET_NODES if budget is None else max(1, min(MAX_SHEET_NODES, budget[0]))
+    visited = 0
+
+    def score_of(cnt, used):
+        progress = min(cnt.get(i, 0) / max(1, need[i]) for i in required)
+        balance = sum((cnt.get(i, 0) / need[i] - progress) ** 2 for i in required)
+        return progress * 1e7 - balance * 1e5 + (used if style == "max" else cap - used) * 0.001
 
     def visit(pos, used):
-        nonlocal best
+        nonlocal best, visited
+        visited += 1
+        if visited > limit:
+            return
         if pos == len(active):
-            progress = min(counts.get(i, 0) / max(1, need[i]) for i in required)
-            balance = sum((counts.get(i, 0) / need[i] - progress) ** 2 for i in required)
-            score = progress * 1e7 - balance * 1e5 + (used if style == "max" else cap - used) * 0.001
+            score = score_of(counts, used)
             if best is None or score > best[0]:
                 best = (score, {k: v for k, v in counts.items() if v})
             return
@@ -843,25 +933,46 @@ def _sheet_pattern(cap, lengths, active, required, mode, style, need):
         for n in range(0 if extra else 1, top + 1):
             counts[i] = n
             visit(pos + 1, used + n * lengths[i])
+            if visited > limit:
+                break
         counts.pop(i, None)
 
     visit(0, 0.0)
+    if budget is not None:
+        budget[0] -= min(visited, limit)
+    if visited > limit:
+        # 탐색 중단 → 균형 채우기: 발주 대비 비율이 가장 낮은 품목부터 1개씩 (한 줄 최대 12개 · 발주수량 이내)
+        greedy = {i: 1 for i in required}
+        used = sum(lengths[i] for i in required)
+        while True:
+            fits = [i for i in required if greedy[i] < min(need[i], 12) and used + lengths[i] <= cap + 1e-8]
+            if not fits:
+                break
+            i = min(fits, key=lambda k: greedy[k] / need[k])
+            greedy[i] += 1
+            used += lengths[i]
+        if style == "max":   # 남는 길이는 가공 후보 길이로 (긴 것부터)
+            for i in sorted((k for k in active if k not in required), key=lambda k: -lengths[k]):
+                n = min(12, int(floor((cap - used + 1e-8) / lengths[i])))
+                if n > 0:
+                    greedy[i] = n
+                    used += n * lengths[i]
+        score = score_of(greedy, used)
+        if best is None or score > best[0]:
+            best = (score, greedy)
     return best[1] if best else None
 
 
-def _analyze_sheet(cur, companyid, lines, settings, planno=""):
+def _analyze_sheet(stocks, lines, settings):
     item_w = lines[0]["width"]
     if any(not _same_size(x["width"], item_w) for x in lines):
         return {"candidates": [], "raw": None, "plans": [], "message": "시트 혼합은 폭이 같은 품목끼리만 할 수 있습니다. 같은 폭 품목을 선택해 주세요."}
     order_lengths = [_w(x["length"]) for x in lines]
-    extra_lengths = [v for v in dict.fromkeys(_w(v) for v in (to_number(x) for x in settings.get("extralengths") or []) if (v or 0) > 0)
-                     if v not in order_lengths]
+    extra_lengths = [v for v in _extra_sizes(settings.get("extralengths"), MIN_EXTRA_LENGTH) if v not in order_lengths]
     lengths = order_lengths + extra_lengths
     need = [int(ceil(x["need_amount"])) for x in lines] + [0] * len(extra_lengths)
     thick = lines[0]["thickness"]
-    linked_keys = {(s["sourcetype"], s["sourceno"], int(s["sourceline"])) for x in lines for s in x["raw_links"]}
     min_len = min(order_lengths)
-    stocks = _stock_candidates(cur, companyid, lines, "SHEET", item_w, min_len, linked_keys, planno, settings.get("_warehouse"))
     sizes = []   # 과거 매입 규격 자동 후보는 당분간 쓰지 않는다
     mode = settings.get("combo") or ("MIXED" if len(lines) > 1 else "SINGLE")
     orientation = settings.get("orientation") or "NORMAL"
@@ -888,7 +999,10 @@ def _analyze_sheet(cur, companyid, lines, settings, planno=""):
             counts[index] = counts.get(index, 0) + int(per_sheet) // strips
         return counts or None
 
-    def evaluate(raw_w, raw_l, style="max"):
+    search_budget = [MAX_SHEET_TOTAL_NODES]   # 원자재 후보 전체가 함께 쓰는 탐색 노드 수
+    pattern_cache: dict = {}                   # 같은 원판 길이(cap)·방식이면 배치 결과가 같다
+
+    def evaluate(raw_w, raw_l, style="max", budget=search_budget):
         cap = raw_l if orientation == "NORMAL" else raw_w
         across = raw_w if orientation == "NORMAL" else raw_l
         strips = min(int(floor((across + 1e-7) / item_w)), 50)
@@ -899,7 +1013,10 @@ def _analyze_sheet(cur, companyid, lines, settings, planno=""):
             if not pattern or sum(n * lengths[i] for i, n in pattern.items()) > cap + 1e-7:
                 return None
         else:
-            pattern = _sheet_pattern(cap, lengths, active, required, mode, style, need)
+            key = (cap, style)
+            if key not in pattern_cache:
+                pattern_cache[key] = _sheet_pattern(cap, lengths, active, required, mode, style, need, budget)
+            pattern = dict(pattern_cache[key]) if pattern_cache[key] else None
         if not pattern:
             return None
         per_sheet = {i: pattern.get(i, 0) * strips for i in active}
@@ -964,7 +1081,7 @@ def _analyze_sheet(cur, companyid, lines, settings, planno=""):
     max_plans = min(3, max(2, 1 + len(hists)))
     for style, one in [*(("history", h) for h in hists), ("max", None), ("balanced", None)]:
         hist = one
-        m = evaluate(raw_w, raw_l, style)
+        m = evaluate(raw_w, raw_l, style, budget=None)   # 선택 원판의 추천안은 요청 budget 과 별도로 계산
         if not m:
             continue
         sig = tuple(sorted(m["pattern"].items()))
@@ -1034,12 +1151,14 @@ def analyze(companyid: str, keys: list, settings: dict | None = None, planno: st
                              + ", ".join(sorted(name or code for code, name in warehouses)))
         warehouse = next(iter(warehouses), None)
         settings = {**settings, "_warehouse": warehouse[0] if warehouse else None}
-        result = (_analyze_coil if material == "COIL" else _analyze_sheet)(cur, companyid, lines, settings, planno)
-        # 연결 재고가 없으면 고른 원자재(현재고)의 창고가 계획 창고
-        raw = result.get("raw")
-        if not warehouse and raw and raw.get("kind") == "STOCK":
-            warehouse = (raw.get("warehousecode"), raw.get("warehouse"))
-        result["warehouse"] = {"code": warehouse[0], "name": warehouse[1]} if warehouse else None
+        stocks = _load_stocks(cur, companyid, lines, settings, planno, material)
+    # 조합 계산은 CPU 작업 → 풀 연결을 반납한 뒤에 한다
+    result = (_analyze_coil if material == "COIL" else _analyze_sheet)(stocks, lines, settings)
+    # 연결 재고가 없으면 고른 원자재(현재고)의 창고가 계획 창고
+    raw = result.get("raw")
+    if not warehouse and raw and raw.get("kind") == "STOCK":
+        warehouse = (raw.get("warehousecode"), raw.get("warehouse"))
+    result["warehouse"] = {"code": warehouse[0], "name": warehouse[1]} if warehouse else None
     unit = "kg" if material == "COIL" else "매"
     result["lines"] = lines
     result["material"] = material

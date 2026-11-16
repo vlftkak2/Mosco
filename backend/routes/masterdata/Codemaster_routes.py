@@ -11,8 +11,14 @@ import security as security_module
 router = APIRouter(
     prefix="/api/code-master",
     tags=["common-codes"],
-    dependencies=[Depends(security_module.require_menu_access("DATA_CODE"))],
 )
+
+# 공통코드 수정은 공통코드관리(DATA_CODE) 권한만 할 수 있다.
+# 그룹 목록은 품목코드관리 화면이, 그룹별 코드 목록은 코드를 골라 쓰는 화면들이 조회한다.
+CODE_GROUPS_MENUS = ("DATA_CODE", "DATA_ITEM")
+CODE_ITEMS_MENUS = ("DATA_CODE", "INBOUND_REGISTER", "OUTBOUND_REGISTER", "STOCK_INITIAL",
+                    "RECEIPT_PAYMENT", "AI_ORDER_RECOGNITION", "AI_ORDER_MANAGEMENT")
+require_code_master = security_module.require_menu_access("DATA_CODE")
 
 
 class CodeItemInput(BaseModel):
@@ -120,7 +126,7 @@ def _require_fixed_group(groupcode: str) -> str:
 
 
 @router.get("/groups")
-def get_code_groups(user: dict = Depends(security_module.get_current_user)):
+def get_code_groups(user: dict = Depends(security_module.require_any_menu_access(*CODE_GROUPS_MENUS))):
     """로그인 사용자의 회사에 속한 코드 그룹과 항목 목록을 조회합니다."""
     # 토큰의 회사 코드로 범위를 제한해 다른 회사 데이터가 섞이지 않게 합니다.
     try:
@@ -131,7 +137,7 @@ def get_code_groups(user: dict = Depends(security_module.get_current_user)):
 
 
 @router.get("/groups/summary")
-def get_code_group_summaries(user: dict = Depends(security_module.get_current_user)):
+def get_code_group_summaries(user: dict = Depends(require_code_master)):
     """Return company-scoped group counts without loading their code rows."""
     try:
         groups = code_master_module.list_group_summaries(user["companyid"])
@@ -147,7 +153,7 @@ def get_code_group_items(
     page_size: int = Query(default=15, ge=1, le=200),
     q: str = Query(default="", max_length=100),
     include_total: bool = Query(default=True),
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(security_module.require_any_menu_access(*CODE_ITEMS_MENUS)),
 ):
     """Return one company-scoped page, optionally filtered by code/name."""
     groupcode = groupcode.strip()
@@ -163,7 +169,7 @@ def get_code_group_items(
 def save_code_group(
     data: CodeGroupSaveRequest,
     groupcode: str = Path(min_length=1, max_length=50),
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(require_code_master),
 ):
     """선택한 그룹의 행을 생성하거나 갱신하고 저장 후 그룹을 반환합니다."""
     groupcode = groupcode.strip()
@@ -190,7 +196,7 @@ def save_code_group(
 @router.post("/bulk")
 def save_bulk_codes(
     data: CodeBulkSaveRequest,
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(require_code_master),
 ):
     """Validate and insert every item in one database transaction."""
     try:
@@ -211,7 +217,7 @@ def save_bulk_codes(
 def delete_code(
     groupcode: str = Path(min_length=1, max_length=50),
     code: str = Path(min_length=1, max_length=50),
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(require_code_master),
 ):
     """인증 사용자의 회사와 지정 그룹 범위에서 코드 한 건을 삭제합니다."""
     groupcode = groupcode.strip()
@@ -232,7 +238,7 @@ def delete_code(
 def delete_selected_codes(
     data: CodeDeleteRequest,
     groupcode: str = Path(min_length=1, max_length=50),
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(require_code_master),
 ):
     """한 그룹에서 여러 코드를 삭제하고 실제 삭제 건수를 반환합니다."""
     # 일괄 삭제 역시 토큰 회사와 고정 그룹으로 범위를 제한합니다.

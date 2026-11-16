@@ -1,5 +1,7 @@
 import logging
 
+from psycopg2.extras import execute_values
+
 import db as _shared_db
 from services.masterdata import CodeUsage as code_usage_module
 
@@ -213,6 +215,33 @@ def list_group_items(
         raise CodeMasterDatabaseError from error
 
 
+def _insert_codes(cursor, rows: list[tuple], conflict_message) -> None:
+    """rows = (companyid, companyname, groupcode, groupname, code, code_name, property1..4, sort_order, use_yn,
+    description, created_by). 한 번에 INSERT 하고, 이미 있어서 들어가지 않은 첫 줄을 예전과 같은 충돌 오류로 알린다."""
+    if not rows:
+        return
+    inserted = execute_values(
+        cursor,
+        """
+        INSERT INTO CodeMaster01t (
+            companyid, companyname, groupcode, groupname, code, code_name,
+            property1, property2, property3, property4,
+            sort_order, use_yn, description, created_at, created_by
+        ) VALUES %s
+        ON CONFLICT (companyid, groupcode, code) DO NOTHING
+        RETURNING groupcode, code
+        """,
+        rows,
+        template="(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s)",
+        page_size=500,
+        fetch=True,
+    )
+    done = {(groupcode, code) for groupcode, code in inserted}
+    for row in rows:
+        if (row[2], row[4]) not in done:
+            raise CodeMasterConflictError(conflict_message(row))
+
+
 def save_group(companyid: str, companyname: str, groupcode: str, items: list[dict], actor: str | None = None) -> bool:
     groupname = GROUP_NAMES.get(groupcode)
     if groupname is None:
@@ -229,6 +258,9 @@ def save_group(companyid: str, companyname: str, groupcode: str, items: list[dic
             )
             existing_codes = {row[0] for row in cursor.fetchall()}
             property_column = f"property{_group_property_index(groupcode)}"
+            # 검증은 예전처럼 한 줄씩, 쓰기는 모아서 한 번에 (INSERT 전부 → UPDATE 전부: 같은 코드는 INSERT 가 먼저)
+            insert_rows: list[tuple] = []
+            update_rows: dict[str, tuple] = {}   # 같은 코드를 여러 번 수정하면 마지막 값 (예전 순차 UPDATE 결과와 같음)
             for item in items:
                 code = item["code"]
                 if item.get("is_new"):
@@ -236,38 +268,37 @@ def save_group(companyid: str, companyname: str, groupcode: str, items: list[dic
                         raise CodeMasterConflictError(f"코드 {code}가 이미 등록되어 있습니다. 다시 조회해 주세요.")
                     properties = [None, None, None, None]
                     properties[_group_property_index(groupcode) - 1] = item.get("property") or None
-                    cursor.execute(
-                        """
-                        INSERT INTO CodeMaster01t (
-                            companyid, companyname, groupcode, groupname, code, code_name,
-                            property1, property2, property3, property4,
-                            sort_order, use_yn, description, created_at, created_by
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                  CURRENT_TIMESTAMP, %s)
-                        ON CONFLICT (companyid, groupcode, code) DO NOTHING
-                        """,
+                    insert_rows.append(
                         (companyid, companyname, groupcode, groupname, code, item["codename"],
                          *properties, item["sortorder"], ACTIVE_VALUE if item.get("use", True) else INACTIVE_VALUE,
                          item.get("description") or None, actor or None),
                     )
-                    if cursor.rowcount == 0:
-                        raise CodeMasterConflictError(f"코드 {code}가 이미 등록되어 있습니다. 다시 조회해 주세요.")
                     existing_codes.add(code)
                     continue
 
                 if code not in existing_codes:
                     raise CodeMasterConflictError(f"코드 {code}가 변경되었거나 삭제되었습니다. 다시 조회해 주세요.")
+                update_rows.pop(code, None)
+                update_rows[code] = (
+                    code, item["codename"], item.get("property") or None, item["sortorder"],
+                    ACTIVE_VALUE if item.get("use", True) else INACTIVE_VALUE, item.get("description") or None,
+                )
+
+            _insert_codes(cursor, insert_rows,
+                          lambda row: f"코드 {row[4]}가 이미 등록되어 있습니다. 다시 조회해 주세요.")
+            if update_rows:
+                rows = list(update_rows.values())
                 cursor.execute(
                     f"""
-                    UPDATE CodeMaster01t
-                    SET code_name = %s, {property_column} = %s,
-                        sort_order = %s, use_yn = %s, description = %s,
+                    UPDATE CodeMaster01t AS t
+                    SET code_name = v.code_name, {property_column} = v.property,
+                        sort_order = v.sort_order, use_yn = v.use_yn, description = v.description,
                         updated_at = CURRENT_TIMESTAMP, updated_by = %s
-                    WHERE companyid = %s AND groupcode = %s AND code = %s
+                    FROM unnest(%s::varchar[], %s::varchar[], %s::varchar[], %s::integer[], %s::varchar[], %s::varchar[])
+                         AS v(code, code_name, property, sort_order, use_yn, description)
+                    WHERE t.companyid = %s AND t.groupcode = %s AND t.code = v.code
                     """,
-                    (item["codename"], item.get("property") or None, item["sortorder"],
-                     ACTIVE_VALUE if item.get("use", True) else INACTIVE_VALUE,
-                     item.get("description") or None, actor or None, companyid, groupcode, code),
+                    (actor or None, *([row[i] for row in rows] for i in range(6)), companyid, groupcode),
                 )
         return True
     except CodeMasterConflictError:
@@ -352,28 +383,17 @@ def save_bulk_items(companyid: str, companyname: str, items: list[dict], actor: 
                 if code in existing_by_group[groupcode]:
                     raise CodeMasterConflictError(f"이미 등록된 코드입니다: {groupcode} / {code}")
 
+            insert_rows = []
             for item in prepared_items:
                 groupcode = item["groupcode"]
                 properties = [None, None, None, None]
                 properties[_group_property_index(groupcode) - 1] = item.get("property") or None
-                cursor.execute(
-                    """
-                    INSERT INTO CodeMaster01t (
-                        companyid, companyname, groupcode, groupname, code, code_name,
-                        property1, property2, property3, property4,
-                        sort_order, use_yn, description, created_at, created_by
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                              CURRENT_TIMESTAMP, %s)
-                    ON CONFLICT (companyid, groupcode, code) DO NOTHING
-                    """,
-                    (
-                        companyid, companyname, groupcode, GROUP_NAMES[groupcode], item["code"], item["codename"],
-                        *properties, item["sortorder"], ACTIVE_VALUE if item.get("use", True) else INACTIVE_VALUE,
-                        item.get("description") or None, actor or None,
-                    ),
-                )
-                if cursor.rowcount == 0:
-                    raise CodeMasterConflictError(f"이미 등록된 코드입니다: {groupcode} / {item['code']}")
+                insert_rows.append((
+                    companyid, companyname, groupcode, GROUP_NAMES[groupcode], item["code"], item["codename"],
+                    *properties, item["sortorder"], ACTIVE_VALUE if item.get("use", True) else INACTIVE_VALUE,
+                    item.get("description") or None, actor or None,
+                ))
+            _insert_codes(cursor, insert_rows, lambda row: f"이미 등록된 코드입니다: {row[2]} / {row[4]}")
         return len(items)
     except CodeMasterConflictError:
         raise

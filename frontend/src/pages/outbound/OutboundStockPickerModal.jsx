@@ -64,7 +64,7 @@ const draftNumberText = (value, maximumFractionDigits = Infinity) => {
   return decimal.length ? `${grouped}.${decimal.join('')}` : grouped;
 };
 const dimensionValue = (value) => value === null || value === undefined || String(value).trim() === '' ? '' : numberText(value);
-const sourceName = (value) => value === 'OPENING' ? '기초' : value === 'INBOUND' ? '입고' : value;
+const sourceName = (value) => ({ OPENING: '기초', INBOUND: '입고', PROCESS: '가공', TRANSFER: '이동' })[value] || value;
 
 export default function OutboundStockPickerModal({ opened, receiptno = '', existingRows = [], onClose, onApply }) {
   const [filterInputs, setFilterInputs] = useState(createDefaultFilters);
@@ -271,7 +271,7 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
       <TextInput size="sm" label="품목" placeholder="품목코드·품명·제품번호" leftSection={<IconSearch size={14} />} value={filterInputs.item_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, item_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
       <TextInput size="sm" label="창고" placeholder="창고코드 또는 창고명" value={filterInputs.warehouse_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, warehouse_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
       <TextInput size="sm" label="매입처" placeholder="원천 거래처명" value={filterInputs.customname} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, customname: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
-      <Select size="sm" label="재고구분" data={[{ value: '', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }]} value={filterInputs.sourcetype} onChange={(value) => setFilterInputs((current) => ({ ...current, sourcetype: value || '' }))} />
+      <Select size="sm" label="재고구분" data={[{ value: '', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }, { value: 'TRANSFER', label: '이동' }]} value={filterInputs.sourcetype} onChange={(value) => setFilterInputs((current) => ({ ...current, sourcetype: value || '' }))} />
       <Button size="sm" color="red" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
       <Button size="sm" variant="default" onClick={() => setFilterInputs(createDefaultFilters())}>초기화</Button>
     </>}
@@ -301,7 +301,7 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
           const rowClass = picked ? pickerClasses.selectedRow : reason ? pickerClasses.disabledRow : '';
           return <tr key={key} className={rowClass} title={reason || undefined} onClick={() => { if (!reason && !loading) toggle(stock, !picked); }}>
             <td className={pickerClasses.center}><input className={pickerClasses.checkbox} type="checkbox" checked={picked} disabled={Boolean(reason) || loading} onClick={stopRowToggle} onChange={(event) => toggle(stock, event.currentTarget.checked)} aria-label={`${stock.itemname} 재고 선택`} /></td>
-            <td>{sourceName(stock.sourcetype)}<LinkedOrderBadge orders={stock.linked_orders} /></td>
+            <td>{sourceName(stock.stockkind || stock.sourcetype)}<LinkedOrderBadge orders={stock.linked_orders} /></td>
             <td>{String(stock.receiptdate || '').slice(0, 10)}</td>
             <td title={stock.customname || ''}>{stock.customname || '자체재고'}</td>
             <td title={stock.itemname || ''}>{stock.itemname}</td>

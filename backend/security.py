@@ -197,3 +197,17 @@ def require_menu_access(menuid: str):
         return user
 
     return dependency
+
+
+def require_any_menu_access(*menuids: str):
+    """조회용 API: 나열한 메뉴 중 하나라도 권한이 있으면 통과한다 (플랫폼 관리자는 항상 통과)."""
+    allowed = frozenset(menuids)
+
+    def dependency(user: dict = Depends(get_current_user)) -> dict:
+        if has_platform_admin_role(user):
+            return user
+        if not allowed & user["menuids"]:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="이 메뉴에 접근할 권한이 없습니다.")
+        return user
+
+    return dependency

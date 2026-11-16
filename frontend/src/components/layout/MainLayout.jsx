@@ -3,7 +3,7 @@ import { AppShell, Burger, Group, Text, Box, Modal, PasswordInput, Menu } from '
 import { useDisclosure } from '@mantine/hooks';
 import { SidebarNav } from './MainLayoutLink';
 import classes from '../../styles/layout/MainLayout.module.css';
-import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, useOutlet, UNSAFE_LocationContext as LocationContext } from 'react-router-dom';
 import { clearAIOrderPageSession } from '../../pages/ai/AIOrderPageSession';
 import { clearAIOrderDraft } from '../../pages/ai/AIOrderDraft';
@@ -39,7 +39,7 @@ const KeepAlivePage = memo(function KeepAlivePage({ path, active, activation, el
     <LocationContext.Provider value={active ? liveLocation : tabLocation}>
       <PageActiveContext.Provider value={active}>
         <PageActivationContext.Provider value={activation}>
-          <PageRibbonContext.Provider value={ribbonContext}>{element}</PageRibbonContext.Provider>
+          <PageRibbonContext.Provider value={ribbonContext}><Suspense fallback={null}>{element}</Suspense></PageRibbonContext.Provider>
         </PageActivationContext.Provider>
       </PageActiveContext.Provider>
     </LocationContext.Provider>

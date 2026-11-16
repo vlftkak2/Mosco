@@ -1,6 +1,7 @@
 import logging
 
 from psycopg2 import IntegrityError
+from psycopg2.extras import execute_values
 import db as _shared_db
 from services.masterdata import CodeUsage as code_usage_module
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -270,6 +271,9 @@ def save_items(companyid: str, companyname: str, items: list[dict], actor: str |
                     if is_active:
                         active_shape_codes.add(code)
 
+            # 검증은 예전처럼 한 줄씩, 쓰기는 모아서 한 번에 (INSERT 전부 → UPDATE 전부: 같은 코드는 INSERT 가 먼저)
+            insert_rows: list[tuple] = []
+            update_rows: dict[str, tuple] = {}   # 같은 코드를 여러 번 수정하면 마지막 값 (예전 순차 UPDATE 결과와 같음)
             for item in items:
                 code = item["itemcode"]
                 shape_code = str(item.get("itemtypecode") or "").strip()
@@ -289,26 +293,36 @@ def save_items(companyid: str, companyname: str, items: list[dict], actor: str |
                 if item.get("is_new"):
                     if code in existing_shapes:
                         raise ValueError(f"이미 등록된 품목코드입니다: {code}")
-                    cursor.execute(
-                        f"INSERT INTO ItemCode01t (companyid, companyname, {_SELECT_COLUMNS}, created_by) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                        (companyid, companyname, code, *values, actor or None),
-                    )
+                    insert_rows.append((companyid, companyname, code, *values, actor or None))
                     existing_shapes[code] = shape_code
                     existing_shape_names[code] = values[2] or ""
                 else:
                     if code not in existing_shapes:
                         raise ValueError(f"품목을 찾을 수 없거나 회사 정보가 변경되었습니다: {code}")
-                    cursor.execute(
-                        """
-                        UPDATE ItemCode01t SET
-                            itemname = %s, itemtypecode = %s, itemtypecodenm = %s,
-                            use_yn = %s, description = %s, updated_at = CURRENT_TIMESTAMP,
-                            updated_by = %s
-                        WHERE companyid = %s AND itemcode = %s
-                        """,
-                        (*values, actor or None, companyid, code),
-                    )
+                    update_rows.pop(code, None)
+                    update_rows[code] = (code, *values)
+
+            if insert_rows:
+                execute_values(
+                    cursor,
+                    f"INSERT INTO ItemCode01t (companyid, companyname, {_SELECT_COLUMNS}, created_by) VALUES %s",
+                    insert_rows,
+                    page_size=500,
+                )
+            if update_rows:
+                rows = list(update_rows.values())
+                cursor.execute(
+                    """
+                    UPDATE ItemCode01t AS t SET
+                        itemname = v.itemname, itemtypecode = v.itemtypecode, itemtypecodenm = v.itemtypecodenm,
+                        use_yn = v.use_yn, description = v.description, updated_at = CURRENT_TIMESTAMP,
+                        updated_by = %s
+                    FROM unnest(%s::varchar[], %s::varchar[], %s::varchar[], %s::varchar[], %s::varchar[], %s::varchar[])
+                         AS v(itemcode, itemname, itemtypecode, itemtypecodenm, use_yn, description)
+                    WHERE t.companyid = %s AND t.itemcode = v.itemcode
+                    """,
+                    (actor or None, *([row[i] for row in rows] for i in range(6)), companyid),
+                )
         return len(items)
     except (ValueError, IntegrityError):
         raise

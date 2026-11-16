@@ -27,7 +27,7 @@ const createDefaultFilters = () => {
 };
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
-const sourceName = (value) => value === 'OPENING' ? '기초' : value === 'INBOUND' ? '입고' : value === 'PROCESS' ? '가공' : '';
+const sourceName = (value) => ({ OPENING: '기초', INBOUND: '입고', PROCESS: '가공', TRANSFER: '이동' })[value] || '';
 const timestampText = (value) => {
   if (!value) return '';
   const date = new Date(value);
@@ -37,7 +37,7 @@ const timestampText = (value) => {
 const num = (value) => <span className={classes.cellNum}>{value}</span>;
 const center = (value) => <span className={classes.cellCenter}>{value}</span>;
 const text = (value) => (value === '' || value === null || value === undefined ? '' : <span className={classes.cellText} title={String(value)}>{value}</span>);
-const SOURCE_BADGE = { OPENING: classes.typeOpening, INBOUND: classes.typeInbound, PROCESS: classes.typeProcess };
+const SOURCE_BADGE = { OPENING: classes.typeOpening, INBOUND: classes.typeInbound, PROCESS: classes.typeProcess, TRANSFER: classes.typeMove };
 const sourceBadge = (value) => {
   const name = sourceName(value);
   return name ? center(<span className={`${classes.typeBadge} ${SOURCE_BADGE[value] || ''}`}>{name}</span>) : '';
@@ -46,7 +46,7 @@ const periodText = (from, to) => (from || to ? `${from || '처음'} ~ ${to || '�
 // 표 칸 정의는 화면 밖에 둔다 (매번 새로 만들면 표가 다시 그려진다)
 const STOCK_COLUMNS = [
     { key: 'no', label: 'No.', width: 48, minWidth: 45, render: (_item, index) => center(index + 1) },
-    { key: 'sourcetype', label: '재고구분', width: 70, minWidth: 60, render: (item) => sourceBadge(item.sourcetype) },
+    { key: 'sourcetype', label: '재고구분', width: 70, minWidth: 60, render: (item) => sourceBadge(item.stockkind || item.sourcetype) },
     { key: 'receiptdate', label: '입고일자', width: 100, minWidth: 90, render: (item) => center(item.receiptdate?.slice(0, 10) || '') },
     { key: 'customname', label: '거래처', width: 125, minWidth: 105, render: (item) => text(item.customname || '') },
     { key: 'sourceno', label: '원천전표', width: 160, minWidth: 140, render: (item) => text(item.sourceno || '') },
@@ -65,7 +65,10 @@ const STOCK_COLUMNS = [
     { key: 'qty', label: '현재수량', width: 80, minWidth: 68, render: (item) => num(numberText(item.qty)) },
     { key: 'originalweight', label: '최초중량(KG)', width: 100, minWidth: 88, render: (item) => num(numberText(item.originalweight)) },
     { key: 'weight', label: '현재중량', width: 90, minWidth: 78, render: (item) => num(numberText(item.weight)) },
-    { key: 'unitprice', label: '매입단가', width: 90, minWidth: 78, render: (item) => num(numberText(item.unitprice)) },
+    { key: 'unitprice', label: '단가', width: 90, minWidth: 78, render: (item) => num(numberText(item.unitprice)) },
+    // 원가단가 = kg당 원가 (매입 운반비 등 기타비용 배부, 가공품은 원재료 원가 + 가공비 포함). 재고금액 = 현재중량 × 원가단가
+    { key: 'costprice', label: '원가단가(kg)', width: 100, minWidth: 85, render: (item) => num(numberText(item.costprice)) },
+    { key: 'stockamt', label: '재고금액', width: 110, minWidth: 90, render: (item) => num(numberText(item.stockamt)) },
     { key: 'qtyunit', label: '수량단위', width: 75, minWidth: 65, render: (item) => center(item.qtyunit || '') },
     { key: 'unit', label: '단가기준', width: 75, minWidth: 65, render: (item) => center(item.unit || '') },
     { key: 'created_at', label: '등록일자', width: 145, minWidth: 130, render: (item) => center(timestampText(item.created_at)) },
@@ -130,7 +133,7 @@ export default function CurrentStockPage() {
         <ActionIcon variant="subtle" color="gray" size="sm" aria-label="조회조건 닫기" onClick={() => setFilterOpen(false)}><IconX size={15} /></ActionIcon>
       </Group>
       <Stack className={classes.filterFields} gap="sm">
-        <Select label="재고구분" data={[{ value: 'ALL', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }]} value={inputs.sourcetype || 'ALL'} onChange={(value) => setInputs((current) => ({ ...current, sourcetype: value === 'ALL' ? '' : value || '' }))} />
+        <Select label="재고구분" data={[{ value: 'ALL', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }, { value: 'TRANSFER', label: '이동' }]} value={inputs.sourcetype || 'ALL'} onChange={(value) => setInputs((current) => ({ ...current, sourcetype: value === 'ALL' ? '' : value || '' }))} />
         <Box>
           <Text className={classes.filterGroupLabel}>재고기간</Text>
           <Stack gap={6}>

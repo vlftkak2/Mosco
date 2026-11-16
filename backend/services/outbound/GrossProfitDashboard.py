@@ -66,34 +66,34 @@ def dashboard(companyid: str, date_from: date, date_to: date):
     trend_prev_from = _shift_month(trend_from, -12, False)
 
     with gross_profit._connect() as connection, connection.cursor() as cursor:
-        def cte(start, end):
-            return gross_profit._build_query({"companyid": companyid, "date_from": start, "date_to": end}, cursor)
+        # 네 기간(현재·전월·전년 동월·24개월 추이)을 모두 덮는 범위로 한 번만 계산해 임시 테이블에 담고,
+        # 기간별로 날짜만 걸러 묶는다. 출고 행의 금액은 그 전표(같은 출고일) 안에서만 정해지므로
+        # 기간을 따로 계산한 것과 숫자가 같다.
+        span_from = min(date_from, prev_from, yoy_from, trend_prev_from)
+        table = gross_profit.materialize(cursor, {"companyid": companyid, "date_from": span_from, "date_to": date_to})
 
-        def fetch(sql, params):
-            cursor.execute(sql, params)
+        def fetch(sql, start, end):
+            cursor.execute(sql, {"start": start, "end": end})
             columns = [column[0] for column in cursor.description]
             return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
+        period = "receptdate BETWEEN %(start)s AND %(end)s"
         # 현재 기간: 거래처 / 전체 (한 번에)
-        sql, params = cte(date_from, date_to)
-        current = fetch(f"""{sql}
+        current = fetch(f"""
             SELECT CASE WHEN GROUPING(customcode) = 0 THEN 'customer' ELSE 'total' END AS dim,
                    customcode, customname, COUNT(DISTINCT receiptno) AS doc_count, {_MEASURES}
-            FROM filtered GROUP BY GROUPING SETS ((customcode, customname), ())""", params)
+            FROM {table} WHERE {period} GROUP BY GROUPING SETS ((customcode, customname), ())""", date_from, date_to)
         # 전월: 거래처 / 전체
-        sql, params = cte(prev_from, prev_to)
-        previous = fetch(f"""{sql}
+        previous = fetch(f"""
             SELECT CASE WHEN GROUPING(customcode) = 0 THEN 'customer' ELSE 'total' END AS dim,
                    customcode, customname, {_MEASURES}
-            FROM filtered GROUP BY GROUPING SETS ((customcode, customname), ())""", params)
+            FROM {table} WHERE {period} GROUP BY GROUPING SETS ((customcode, customname), ())""", prev_from, prev_to)
         # 전년 동월: 전체만
-        sql, params = cte(yoy_from, yoy_to)
-        yoy = fetch(f"{sql} SELECT {_MEASURES} FROM filtered", params)
+        yoy = fetch(f"SELECT {_MEASURES} FROM {table} WHERE {period}", yoy_from, yoy_to)
         # 최근 12개월 + 그 전년 12개월 (월별)
-        sql, params = cte(trend_prev_from, date_to)
-        trend = fetch(f"""{sql}
+        trend = fetch(f"""
             SELECT TO_CHAR(DATE_TRUNC('month', receptdate), 'YYYY-MM') AS month, {_MEASURES}
-            FROM filtered GROUP BY 1 ORDER BY 1""", params)
+            FROM {table} WHERE {period} GROUP BY 1 ORDER BY 1""", trend_prev_from, date_to)
 
     def pick(rows, dim):
         return [_finish(row) for row in rows if row["dim"] == dim]

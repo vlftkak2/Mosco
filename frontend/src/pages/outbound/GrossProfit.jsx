@@ -50,6 +50,7 @@ const COLUMNS = [
   { key: 'weight', label: '중량', width: 82, type: 'decimal' },
   { key: 'sales_price', label: '매출단가', width: 86, type: 'decimal' },
   { key: 'purchase_price', label: '매입단가', width: 86, type: 'decimal' },
+  { key: 'costprice', label: '원가단가(kg)', width: 92, type: 'decimal' },
   { key: 'cost_unit', label: '원가기준', width: 70, align: 'center' },
   { key: 'cost_qty', label: '기준수량', width: 86, type: 'decimal' },
   { key: 'origin_kind', label: '원가구분', width: 74, align: 'center' },

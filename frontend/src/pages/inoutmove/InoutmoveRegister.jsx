@@ -38,11 +38,9 @@ const today = () => {
 };
 const number = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 3 });
 const sourceKey = (row) => `${row.stocksourcetype}\u001f${row.stocksourceno}\u001f${row.stocksourceline}`;
-const stockSourceTypeName = (type, receiptno) => {
-  if (type === 'OPENING') return '기초';
-  if (type === 'PROCESS' || (type === 'INBOUND' && String(receiptno || '').toUpperCase().startsWith('PR'))) return '가공';
-  return '입고';
-};
+// 재고구분: 서버가 주는 stockkind(기초/입고/가공/이동)를 쓰고, 없으면 원천 구분으로 표시
+const STOCK_KIND_NAMES = { OPENING: '기초', INBOUND: '입고', PROCESS: '가공', TRANSFER: '이동' };
+const stockSourceTypeName = (type, kind) => STOCK_KIND_NAMES[kind] || STOCK_KIND_NAMES[type] || '입고';
 const emptyFilters = () => ({ date_from: `${today().slice(0, 7)}-01`, date_to: today(), receiptno: '', warehouse: '' });
 const emptyStockFilters = () => ({ item_search: '', warehouse_search: '', sourcetype: '', date_from: `${today().slice(0, 7)}-01`, date_to: today(), thickness: '', width: '', length: '' });
 const PAGE_SIZE_OPTIONS = [
@@ -215,7 +213,7 @@ function StockPicker({ opened, fromWarehouse, toWarehouse, existingKeys, onClose
       <ErpDateInput label="기준일 시작" type="date" value={inputs.date_from} onChange={setInput('date_from')} />
       <ErpDateInput label="기준일 종료" type="date" value={inputs.date_to} onChange={setInput('date_to')} />
       <TextInput size="sm" label="품목" placeholder="품목코드·품명·제품명" leftSection={<IconSearch size={14} />} value={inputs.item_search} onChange={setInput('item_search')} onKeyDown={searchOnEnter} />
-      <Select size="sm" label="재고 구분" data={[{ value: '', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }]} value={inputs.sourcetype} onChange={(value) => setInputs((v) => ({ ...v, sourcetype: value || '' }))} />
+      <Select size="sm" label="재고 구분" data={[{ value: '', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }, { value: 'TRANSFER', label: '이동' }]} value={inputs.sourcetype} onChange={(value) => setInputs((v) => ({ ...v, sourcetype: value || '' }))} />
       <TextInput size="sm" label="두께" placeholder="예: 1.2" value={inputs.thickness} onChange={setInput('thickness')} onKeyDown={searchOnEnter} style={{ width: 100 }} />
       <TextInput size="sm" label="폭" placeholder="폭" value={inputs.width} onChange={setInput('width')} onKeyDown={searchOnEnter} style={{ width: 100 }} />
       <TextInput size="sm" label="길이" placeholder="길이" value={inputs.length} onChange={setInput('length')} onKeyDown={searchOnEnter} style={{ width: 100 }} />
@@ -245,7 +243,7 @@ function StockPicker({ opened, fromWarehouse, toWarehouse, existingKeys, onClose
         return <tr key={rowKey} className={picked ? pickerClasses.selectedRow : reason ? pickerClasses.disabledRow : ''} title={reason || undefined}
           aria-disabled={Boolean(reason) || undefined} onClick={() => { if (!reason && !loading) toggle(row, !picked); }}>
           <td className={pickerClasses.center}><input className={pickerClasses.checkbox} type="checkbox" checked={picked} disabled={loading || Boolean(reason)} onClick={(event) => event.stopPropagation()} onChange={(event) => toggle(row, event.currentTarget.checked)} aria-label={`${row.itemname} 재고 선택`} /></td>
-          <td>{stockSourceTypeName(row.stocksourcetype, row.stocksourceno)}<LinkedOrderBadge orders={row.linked_orders} /></td>
+          <td>{stockSourceTypeName(row.stocksourcetype, row.stockkind)}<LinkedOrderBadge orders={row.linked_orders} /></td>
           <td>{String(row.receiptdate || '').slice(0, 10)}</td>
           <td>{row.warehousecodename || row.warehousecode}</td>
           <td title={row.itemname || ''}>{row.itemname}</td>
@@ -504,7 +502,7 @@ export default function InoutmoveRegister() {
   const exportDocument = useCallback(() => {
     const exportRows = items.map((row, index) => ({
       순번: index + 1,
-      재고구분: row.stocksourcetype === 'OPENING' ? '기초' : row.stocksourcetype === 'PROCESS' ? '가공' : '입고',
+      재고구분: stockSourceTypeName(row.stocksourcetype, row.stockkind),
       원천전표번호: row.stocksourceno,
       원천순번: row.stocksourceline,
       품명: row.itemname,
@@ -588,7 +586,7 @@ export default function InoutmoveRegister() {
         <Table.Td>{row.qtyunit}</Table.Td><Table.Td ta="right">{number(row.weight)}</Table.Td>
         <Table.Td>{row.sourcecustomname || row.customname || ''}</Table.Td>
         <Table.Td>{String(row.sourcereceiptdate || row.receiptdate || '').slice(0, 10)}</Table.Td>
-        <Table.Td>{stockSourceTypeName(row.stocksourcetype, row.stocksourceno)}</Table.Td>
+        <Table.Td>{stockSourceTypeName(row.stocksourcetype, row.stockkind)}</Table.Td>
         <Table.Td>{row.stocksourceno}</Table.Td><Table.Td ta="right">{number(row.stocksourceline)}</Table.Td>
       </Table.Tr>)}</Table.Tbody>}
     </Table>

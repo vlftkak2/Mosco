@@ -410,10 +410,17 @@ def _claim_analysis_slot(request_hash: str) -> bool:
 
 async def _wait_for_analysis_slot(request_hash: str) -> None:
     deadline = asyncio.get_running_loop().time() + MAX_QUEUE_WAIT_SECONDS
+    # Each claim attempt takes a global advisory lock, so back off (0.5s → 3s)
+    # instead of hammering the database while waiting for a free slot.
+    delay = 0.5
     while asyncio.get_running_loop().time() < deadline:
         if await asyncio.to_thread(_claim_analysis_slot, request_hash):
             return
-        await asyncio.sleep(0.25)
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            break
+        await asyncio.sleep(min(delay, remaining))
+        delay = min(delay * 1.5, 3.0)
     raise AIOrderError(status.HTTP_429_TOO_MANY_REQUESTS, "AI 분석 대기열이 가득 찼습니다. 잠시 후 다시 요청해주세요.")
 
 
@@ -901,6 +908,26 @@ def _convert_to_png_pages(data: bytes) -> tuple[str, list[bytes]]:
         raise AIOrderError(status.HTTP_422_UNPROCESSABLE_ENTITY, "이미지를 PNG로 변환하지 못했습니다.") from exc
 
 
+PDF_RENDER_MAX_PIXELS = 40_000_000
+
+
+def _pdf_render_matrix(pymupdf: Any, page: Any, dpi: float) -> tuple[Any, float]:
+    """Matrix for rendering ``page`` at ``dpi``, scaled down so the pixmap stays under PDF_RENDER_MAX_PIXELS.
+
+    The size is computed from page.rect before any pixmap is allocated, so an
+    oversized page (e.g. a huge poster-size MediaBox) cannot exhaust memory.
+    Returns (matrix, effective_dpi).
+    """
+    rect = page.rect
+    width_px = max(float(rect.width), 1.0) * dpi / 72
+    height_px = max(float(rect.height), 1.0) * dpi / 72
+    area = width_px * height_px
+    if area > PDF_RENDER_MAX_PIXELS:
+        dpi = dpi * (PDF_RENDER_MAX_PIXELS / area) ** 0.5
+    zoom = dpi / 72
+    return pymupdf.Matrix(zoom, zoom), dpi
+
+
 def _create_order_detail_crops(extension: str, data: bytes) -> list[tuple[int, str, bytes]]:
     """Create first-page address and full-width table crops for better visual reading."""
     pages: list[Image.Image] = []
@@ -910,7 +937,8 @@ def _create_order_detail_crops(extension: str, data: bytes) -> list[tuple[int, s
 
             with pymupdf.open(stream=data, filetype="pdf") as document:
                 for page in document:
-                    pixmap = page.get_pixmap(dpi=200, colorspace=pymupdf.csRGB, alpha=False)
+                    matrix, _ = _pdf_render_matrix(pymupdf, page, 200)
+                    pixmap = page.get_pixmap(matrix=matrix, colorspace=pymupdf.csRGB, alpha=False)
                     with Image.open(BytesIO(pixmap.tobytes("png"))) as raster:
                         pages.append(raster.convert("RGB"))
         else:
@@ -994,9 +1022,10 @@ def _prepare_scanned_pdf_for_ai(data: bytes) -> tuple[bytes, list[dict[str, Any]
             total_pixels = 0
             dpi = 180
             for page_index, page in enumerate(source):
-                pixmap = page.get_pixmap(dpi=dpi, colorspace=pymupdf.csRGB, alpha=False)
+                matrix, page_dpi = _pdf_render_matrix(pymupdf, page, dpi)
+                pixmap = page.get_pixmap(matrix=matrix, colorspace=pymupdf.csRGB, alpha=False)
                 total_pixels += pixmap.width * pixmap.height
-                if pixmap.width * pixmap.height > 40_000_000 or total_pixels > 100_000_000:
+                if pixmap.width * pixmap.height > PDF_RENDER_MAX_PIXELS * 1.01 or total_pixels > 100_000_000:
                     raise AIOrderError(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "PDF 스캔 해상도가 너무 높아 방향 보정을 할 수 없습니다.")
                 image = Image.open(BytesIO(pixmap.tobytes("png"))).convert("RGB")
                 analysis = image.convert("L")
@@ -1045,7 +1074,7 @@ def _prepare_scanned_pdf_for_ai(data: bytes) -> tuple[bytes, list[dict[str, Any]
                         "rotation_degrees": cardinal,
                         "deskew_degrees": round(fine_angle, 1),
                     })
-                prepared_pages.append((image, dpi))
+                prepared_pages.append((image, page_dpi))
 
             if not changes:
                 return data, []

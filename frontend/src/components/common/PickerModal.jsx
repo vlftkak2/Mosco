@@ -143,7 +143,7 @@ export function SelectPickerModal({
 export default function PickerModal({
   opened, onClose, closeDisabled = false,
   title, description, icon = <IconListCheck size={22} stroke={1.7} />, badge,
-  filters, guide,
+  tabs, filters, guide,
   listTitle, count, listHint = '행 또는 체크박스를 눌러 선택하세요', loading = false,
   children,
   selectedCount = 0, selectionLabel = '선택', onClearSelection,
@@ -162,6 +162,7 @@ export default function PickerModal({
         {description && <p>{description}</p>}
       </div>
     </div>}>
+    {tabs && <div className={classes.tabs} role="tablist">{tabs}</div>}
     <div className={classes.workspace}>
       {filters && <div className={classes.filters}>{filters}</div>}
       {guide && <div className={classes.guide}>{!simple && <IconInfoCircle size={16} aria-hidden="true" />}<div>{guide}</div></div>}

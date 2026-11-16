@@ -547,14 +547,33 @@ def update_stand_prices(companyid: str, items: list[dict], actor: str | None = N
                 actor or None, companyid, item["lineno"],
             ) for item in items],
         )
+        # 가공·이동에 쓰인 기초재고는 그 원가가 가공품·이동재고로 이미 넘어갔으므로 단가를 바꿀 수 없다
+        cursor.execute(
+            """SELECT DISTINCT cs.sourceline FROM CurrentStock01t cs
+               WHERE cs.companyid = %s AND cs.sourcetype = 'OPENING' AND cs.sourceline = ANY(%s)
+                 AND (EXISTS (SELECT 1 FROM Process02t p WHERE p.companyid = cs.companyid
+                                 AND p.stocksourcetype = cs.sourcetype AND p.stocksourceno = cs.sourceno
+                                 AND p.stocksourceline = cs.sourceline)
+                      OR EXISTS (SELECT 1 FROM Inoutmove02t m WHERE m.companyid = cs.companyid
+                                 AND m.stocksourcetype = cs.sourcetype AND m.stocksourceno = cs.sourceno
+                                 AND m.stocksourceline = cs.sourceline))""",
+            (companyid, linenos),
+        )
+        used = sorted(row[0] for row in cursor.fetchall())
+        if used:
+            raise ValueError("가공 또는 창고이동에 쓰인 기초재고는 단가를 수정할 수 없습니다. 순번: "
+                             + ", ".join(str(lineno) for lineno in used[:10]))
         if current_stock_module._uses_source_lines(cursor):
             for item in items:
+                supplyamt = _calculate_amounts(*stock_values[item["lineno"]], item["unitprice"], item["unit"], active_price_units)[0] or 0
                 cursor.execute(
                     """UPDATE CurrentStock01t
-                       SET unit = NULLIF(%s, ''), unitprice = %s, updated_at = CURRENT_TIMESTAMP,
+                       SET unit = NULLIF(%s, ''), unitprice = %s,
+                           costprice = CASE WHEN originalweight > 0 THEN ROUND(%s / originalweight, 3) ELSE 0 END,
+                           updated_at = CURRENT_TIMESTAMP,
                            updated_by = COALESCE(%s, updated_by)
                        WHERE companyid = %s AND sourcetype = 'OPENING' AND sourceline = %s""",
-                    (active_price_units[item["unit"]], item["unitprice"], actor or None, companyid, item["lineno"]),
+                    (active_price_units[item["unit"]], item["unitprice"], supplyamt, actor or None, companyid, item["lineno"]),
                 )
                 if cursor.rowcount != 1:
                     raise ValueError(f"기초재고 현재고 원천 라인을 찾을 수 없습니다: {item['lineno']}")
