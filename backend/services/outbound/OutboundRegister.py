@@ -404,6 +404,16 @@ def _next_receiptno(cursor, companyid: str) -> str:
     return f"{prefix}{next_sequence:05d}"
 
 
+def _ensure_not_before_receipt(outbound_date, stock: dict):
+    """출고일이 그 재고의 입고일(이동·가공 재고는 이동·가공일)보다 앞서면 수불장 날짜 순서가 깨진다."""
+    receipt_date = stock.get("receiptdate")
+    if isinstance(outbound_date, str):
+        outbound_date = date.fromisoformat(outbound_date[:10])
+    if outbound_date and receipt_date and outbound_date < receipt_date:
+        name = stock.get("productname") or stock.get("itemname") or ""
+        raise ValueError(f"{name} 재고의 입고일({receipt_date:%Y-%m-%d})보다 앞선 날짜로 출고할 수 없습니다.")
+
+
 def list_available_stock(
     companyid: str,
     page: int = 1,
@@ -436,7 +446,8 @@ def list_available_stock(
         where.append("stock.receiptdate <= %s")
         params.append(date_to)
     if sourcetype.strip():
-        where.append("stock.sourcetype = %s")
+        # 재고구분(기초/입고/가공/이동)으로 거른다. 가공·이동 재고도 sourcetype 은 INBOUND 라서 stockkind 를 본다.
+        where.append("stock.stockkind = %s")
         params.append(sourcetype.strip().upper())
     where_sql = " AND ".join(where)
     own_receipt = receiptno.strip()
@@ -481,6 +492,7 @@ def list_available_stock(
                        stock.weight AS current_weight,
                        stock.weight + COALESCE(own.weight, 0) AS available_weight,
                        stock.unit, stock.warehousecode, stock.warehousecodename,
+                       stock.stockkind, stock.costprice,
                        {linked_orders_sql("stock")} AS linked_orders
                 FROM CurrentStock01t AS stock
                 LEFT JOIN own_allocation AS own
@@ -691,6 +703,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict, ac
                     source_data["qtyunit"] = quantity_unit_codes.get(source_qtyunit, source_qtyunit)
                     source_cache[source_key] = source_data
                 stock = source_cache[source_key]
+                _ensure_not_before_receipt(item.get("receptdate") or payload.get("receptdate"), stock)
                 demand = demands.setdefault(source_key, {"qty": Decimal("0"), "weight": Decimal("0"), "stock": stock})
                 demand["qty"] += Decimal(str(item["qty"]))
                 demand["weight"] += Decimal(str(item["weight"]))
@@ -956,6 +969,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
                     source_data["qtyunit"] = quantity_unit_codes.get(source_qtyunit, source_qtyunit)
                     source_cache[source_key] = source_data
                 stock = source_cache[source_key]
+                _ensure_not_before_receipt(payload.get("receptdate"), stock)
                 demand = demands.setdefault(source_key, {"qty": Decimal("0"), "weight": Decimal("0"), "stock": stock})
                 demand["qty"] += Decimal(str(item["qty"]))
                 demand["weight"] += Decimal(str(item["weight"]))

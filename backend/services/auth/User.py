@@ -23,6 +23,20 @@ PASSWORD_SCHEME = "pbkdf2_sha256"
 PASSWORD_ITERATIONS = 310_000
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 AUTHORITY_VALUES = {"USER", "MASTER", "SUBMASTER"}
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 128
+
+
+def validate_new_password(value) -> str:
+    """새로 정하는 비밀번호 규칙: 8자 이상, 영문과 숫자를 모두 포함. 기존 비밀번호 로그인에는 적용하지 않는다."""
+    value = str(value or "")
+    if not value.strip():
+        raise ValueError("비밀번호를 입력해 주세요.")
+    if len(value) < PASSWORD_MIN_LENGTH or len(value) > PASSWORD_MAX_LENGTH:
+        raise ValueError(f"비밀번호는 {PASSWORD_MIN_LENGTH}자 이상 {PASSWORD_MAX_LENGTH}자 이하로 입력해 주세요.")
+    if not re.search(r"[A-Za-z]", value) or not re.search(r"\d", value):
+        raise ValueError("비밀번호는 영문과 숫자를 모두 포함해야 합니다.")
+    return value
 
 
 class UserCreateInput(BaseModel):
@@ -37,6 +51,11 @@ class UserCreateInput(BaseModel):
     @classmethod
     def strip_text(cls, value):
         return str(value or "").strip()
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        return validate_new_password(value)
 
     @field_validator("email")
     @classmethod
@@ -102,7 +121,9 @@ class UserUpdateInput(BaseModel):
     @field_validator("password")
     @classmethod
     def validate_password(cls, value: str) -> str:
-        return str(value or "")
+        # 빈 값이면 비밀번호를 바꾸지 않는다. 값을 넣었으면 새 비밀번호 규칙을 따른다.
+        value = str(value or "")
+        return validate_new_password(value) if value else ""
 
 
 def _connect():
@@ -131,10 +152,11 @@ def is_password_hash(value: str) -> bool:
 
 
 def verify_password(password: str, stored_value: str) -> bool:
-    if not isinstance(password, str) or not isinstance(stored_value, str):
+    if not isinstance(password, str) or not isinstance(stored_value, str) or not password:
         return False
+    # 평문으로 저장된 비밀번호는 더 이상 받지 않는다. PBKDF2 해시만 로그인할 수 있다.
     if not is_password_hash(stored_value):
-        return hmac.compare_digest(password, stored_value)
+        return False
     try:
         scheme, iterations, salt, expected = stored_value.split("$", 3)
         if scheme != PASSWORD_SCHEME:

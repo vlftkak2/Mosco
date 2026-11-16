@@ -55,7 +55,7 @@ SELECT s.itemcode, s.itemname, s.productname, s.materialname, s.surfacename,
        s.thickness, s.width, s.length, s.warehousecodename, s.customname,
        COALESCE(s.origintype, s.sourcetype) AS kind,
        COALESCE(o.receiptdate, s.receiptdate) AS agedate,
-       s.weight, s.qty, COALESCE(s.weight, 0) * COALESCE(s.unitprice, 0) AS amount
+       s.weight, s.qty, COALESCE(s.weight, 0) * COALESCE(s.costprice, 0) AS amount  -- 원가단가(kg당, 운반비·가공원가 포함)
 FROM CurrentStock01t s
 LEFT JOIN CurrentStock01t o
   ON s.originno IS NOT NULL AND o.companyid = s.companyid

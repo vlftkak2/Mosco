@@ -1,5 +1,5 @@
 import db as _shared_db
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from config import DB_CONFIG
 from services.auth import User as user_module
 
@@ -17,6 +17,11 @@ conn_str = (
 class PasswordRequest(BaseModel):
     password: str
     changepassword: str
+
+    @field_validator("changepassword")
+    @classmethod
+    def validate_changepassword(cls, value: str) -> str:
+        return user_module.validate_new_password(value)
 
 def password_change(item: PasswordRequest, companyid: str, email: str):
     if not companyid.strip() or not email.strip():

@@ -154,6 +154,7 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
   const [checked, setChecked] = useState([]);   // 반영할 이력 (여러 건)
   const [picked, setPicked] = useState(null);   // 가공매출이력에서 고른 출고 규격
   const [manual, setManual] = useState('');     // 직접 입력한 가공 후보
+  const [salesQuery, setSalesQuery] = useState('');
   const [message, setMessage] = useState('');
   const isCoil = material === 'COIL';
   const historyColumnsDef = useMemo(() => HISTORY_COLUMNS(kind, isCoil), [kind, isCoil]);
@@ -162,6 +163,10 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
   const salesColumns = useResizableColumns(salesColumnsDef);
   const { rows, loading, error } = useHistory(opened && tab === 'history', kind, material, context.itemname, months, query.trim());
   const candidates = useCandidates(opened && kind === 'processing' && tab === 'sales', material, context);
+  const salesGroups = useMemo(() => {
+    const q = salesQuery.trim().toLowerCase();
+    return q ? candidates.groups.filter((group) => String(group.value).includes(q) || String(group.last.customer || '').toLowerCase().includes(q)) : candidates.groups;
+  }, [candidates.groups, salesQuery]);
   const grades = useMemo(() => [...new Set(rows.map((row) => row.steelgrade).filter(Boolean))], [rows]);
   // 적합한 이력이 먼저
   const shown = useMemo(() => rows.filter((row) => grade === 'ALL' || row.steelgrade === grade)
@@ -201,7 +206,7 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
     let value;
     let label;
     if (tab === 'sales') {
-      const group = candidates.groups.find((item) => String(item.value) === picked);
+      const group = salesGroups.find((item) => String(item.value) === picked);
       if (!group) { setMessage('목록에서 출고 규격을 선택해 주세요. 없으면 직접 입력을 사용해 주세요.'); return; }
       value = group.value;
       label = `매출이력 ${group.last.id}`;
@@ -218,37 +223,45 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
     onClose();
   };
 
-  const tabs = kind === 'processing' && <div className={`${classes.hxTabs} ${classes.hxPickerTabs}`} role="tablist" aria-label="이력 구분">
-    {PROCESS_TABS.map((item) => <button key={item.value} type="button" role="tab" aria-selected={tab === item.value}
-      className={tab === item.value ? classes.hxTabOn : ''} title={item.hint} onClick={() => { setTab(item.value); setMessage(''); }}>{item.label}</button>)}
-  </div>;
+  const changeTab = (value) => { setTab(value); setMessage(''); };
+  const tabs = kind === 'processing' && PROCESS_TABS.map((item) => <button key={item.value} type="button" role="tab" aria-selected={tab === item.value}
+    onClick={() => changeTab(item.value)}>{item.label}<small>{item.hint}</small></button>);
+  // 안내 첫 줄 (탭마다 한 줄로 · 높이 고정)
   const lead = tab === 'history' ? (kind === 'purchase' ? DESCRIPTIONS.purchase : DESCRIPTIONS.processing[material])
-    : `${tab === 'sales' ? `과거 출고(매출)한 제품 ${isCoil ? '폭' : '길이'}을 규격별로 모아 보여 줍니다. ` : ''}주문에는 없지만 같은 원자재에서 함께 생산할 제품 ${isCoil ? '폭' : '길이'}을 가공 후보로 추가합니다. 추가하면 혼합으로 바뀌고 ③ 추천조합이 다시 계산됩니다.`;
+    : tab === 'sales' ? `과거 출고(매출)한 제품 ${isCoil ? '폭' : '길이'}을 골라 가공 후보로 추가합니다. 추가하면 혼합으로 ③ 추천조합이 다시 계산됩니다.`
+      : `주문에 없는 제품 ${isCoil ? '폭' : '길이'}을 직접 넣어 가공 후보로 추가합니다. 추가하면 혼합으로 ③ 추천조합이 다시 계산됩니다.`;
   const frame = tab === 'history'
     ? { listTitle: '이력', count: shown.length, listHint: shown.length ? `적합 ${fmt(fitCount, 0)}건 · 적합한 이력이 위에 표시됩니다` : '', selectedCount: pickedRows.length,
       onClearSelection: () => setChecked([]), onApply: () => { onApply(pickedRows); onClose(); }, applyLabel: APPLY_LABEL[kind], applyDisabled: !pickedRows.length }
     : tab === 'sales'
-      ? { listTitle: '출고 규격', count: candidates.groups.length, listHint: '행을 눌러 규격을 고르세요', selectedCount: picked ? 1 : 0,
+      ? { listTitle: '출고 규격', count: salesGroups.length, listHint: '행을 눌러 규격을 고르세요', selectedCount: picked ? 1 : 0,
         onClearSelection: () => setPicked(null), onApply: addCandidate, applyLabel: '가공 후보 추가', applyDisabled: !picked }
-      : { listTitle: '직접 입력', count: undefined, listHint: '', selectedCount: manual ? 1 : 0, selectionLabel: '입력',
+      : { listTitle: '배치 미리보기', count: undefined, listHint: isCoil ? '현재 원자재 폭에 몇 칼 들어가는지 보여 줍니다' : '', selectedCount: manual ? 1 : 0, selectionLabel: '입력',
         onApply: addCandidate, applyLabel: '가공 후보 추가', applyDisabled: !manual };
+  // 검색 줄: 탭마다 같은 높이 (라벨 + 입력칸)
+  const filters = tab === 'history' ? <>
+    <TextInput size="sm" label="검색" placeholder="거래처 · 전표번호 · 강종" style={{ width: 240 }} value={query} onChange={(event) => setQuery(event.currentTarget.value)} />
+    <Select size="sm" label="기간" value={months} allowDeselect={false} style={{ width: 140 }} onChange={setMonths} data={PERIODS} />
+    <Select size="sm" label="강종" value={grade} allowDeselect={false} style={{ width: 150 }} onChange={setGrade} data={[{ value: 'ALL', label: '전체 강종' }, ...grades.map((g) => ({ value: g, label: g }))]} />
+    <Button size="sm" variant="default" onClick={() => { setQuery(''); setMonths('0'); setGrade('ALL'); }}>초기화</Button>
+  </> : tab === 'sales' ? <>
+    <TextInput size="sm" label="검색" placeholder={`제품 ${isCoil ? '폭' : '길이'} · 거래처`} style={{ width: 240 }} value={salesQuery} onChange={(event) => setSalesQuery(event.currentTarget.value)} />
+    <Button size="sm" variant="default" onClick={() => setSalesQuery('')}>초기화</Button>
+  </> : <>
+    <NumberInput size="sm" label={isCoil ? '제품 폭 (mm)' : '제품 길이 (mm)'} placeholder={isCoil ? '예: 165' : '예: 400'} value={manual} data-autofocus
+      onChange={(value) => { setManual(value); setMessage(''); }} hideControls min={0} style={{ width: 240 }} />
+    <span className={classes.hxFilterNote}>{isCoil ? `사용 가능 폭 ${fmt(candidates.usable)}mm 이하` : `제품 폭 ${fmt(context.itemWidth)}mm 기준 · 원판에 들어가는 길이`}</span>
+  </>;
 
   return <PickerModal opened={opened} onClose={onClose} title={TITLES[kind]} badge={isCoil ? '코일·스켈프' : '시트·판재'}
     description={kind === 'purchase' ? '과거에 매입한 원자재 규격을 골라 신규 원자재 후보로 추가합니다.' : '과거 가공 실적 · 출고 규격으로 추천조합을 보강합니다.'}
     icon={<IconHistory size={22} stroke={1.7} />}
-    filters={(tabs || tab === 'history') ? <>
-      {tabs}
-      {tab === 'history' && <>
-        <TextInput size="sm" label="검색" placeholder="거래처 · 전표번호 · 강종" style={{ width: 240 }} value={query} onChange={(event) => setQuery(event.currentTarget.value)} />
-        <Select size="sm" label="기간" value={months} allowDeselect={false} style={{ width: 140 }} onChange={setMonths} data={PERIODS} />
-        <Select size="sm" label="강종" value={grade} allowDeselect={false} style={{ width: 150 }} onChange={setGrade} data={[{ value: 'ALL', label: '전체 강종' }, ...grades.map((g) => ({ value: g, label: g }))]} />
-        <Button size="sm" variant="default" onClick={() => { setQuery(''); setMonths('0'); setGrade('ALL'); }}>초기화</Button>
-      </>}
-    </> : null}
-    guide={<>
-      <p>{lead}</p>
-      <div className={pickerClasses.criteria}>{basis.map(([key, value]) => <span key={key}><b>{key}</b>{value}</span>)}</div>
-    </>}
+    tabs={tabs || null}
+    filters={kind === 'processing' || tab === 'history' ? filters : null}
+    guide={<div className={classes.hxGuide}>
+      <p title={lead}>{lead}</p>
+      <div className={pickerClasses.criteria}>{basis.map(([key, value]) => <span key={key} title={value}><b>{key}</b>{value}</span>)}</div>
+    </div>}
     loading={tab === 'history' ? loading : tab === 'sales' ? candidates.loading : false} {...frame}>
     {tab === 'history' && <div className={classes.hxSplit}>
       <div className={classes.hxSplitList}>
@@ -257,7 +270,7 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
           <ResizableHead columns={historyColumnsDef} sizing={historyColumns}
             first={<input className={pickerClasses.checkbox} type="checkbox" aria-label="적합한 이력 모두 선택" checked={allChecked} disabled={!fitIds.length} onChange={() => setChecked(allChecked ? [] : fitIds)} />} />
           <tbody>{shown.map((item) => <tr key={item.row.id}
-            className={checked.includes(item.row.id) ? pickerClasses.selectedRow : !item.fit.ok ? pickerClasses.disabledRow : chosen?.row.id === item.row.id ? classes.hxFocusRow : ''}
+            className={`${checked.includes(item.row.id) ? pickerClasses.selectedRow : !item.fit.ok ? pickerClasses.disabledRow : ''} ${chosen?.row.id === item.row.id ? `${classes.hxFocusRow} ${checked.includes(item.row.id) ? '' : classes.hxFocusBg}` : ''}`}
             onClick={() => setChosenId(item.row.id)}>
             <td className={pickerClasses.center}><input className={pickerClasses.checkbox} type="checkbox" aria-label={`${item.row.id} 선택`} checked={checked.includes(item.row.id)} disabled={!item.fit.ok}
               onClick={(event) => event.stopPropagation()} onChange={() => toggle(item)} /></td>
@@ -265,7 +278,8 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
             <td title={item.row.customer || ''}>{item.row.customer || '–'}</td>
             <td title={item.row.steelgrade || ''}>{item.row.steelgrade || '–'}</td>
             <td><b>{fmt(item.row.thickness, 3)} × {rawText(material, item.row)}</b></td>
-            <td className={pickerClasses.right}>{kind === 'purchase' ? (isCoil ? `${fmt(item.row.weight)}kg` : `${fmt(item.row.qty, 0)}매`) : patternText(material, item.row)}</td>
+            <td className={pickerClasses.right} title={kind === 'processing' ? patternText(material, item.row) : undefined}>
+              {kind === 'purchase' ? (isCoil ? `${fmt(item.row.weight)}kg` : `${fmt(item.row.qty, 0)}매`) : patternText(material, item.row)}</td>
             <td><span className={item.fit.ok ? classes.hxFitOk : classes.hxFitNo} title={item.fit.reason || ''}>{item.fit.label}</span></td>
           </tr>)}
           {!shown.length && <tr><td colSpan={historyColumnsDef.length} className={pickerClasses.emptyCell}>
@@ -277,9 +291,12 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
       </div>
       <aside className={classes.hxSplitDetail}>
         {chosen ? <>
-          <div className={classes.hxDetailHead}><strong>{chosen.row.id}</strong><span className={chosen.fit.ok ? classes.hxFitOk : classes.hxFitNo}>{chosen.fit.label}</span></div>
-          {kind === 'processing' && isCoil && <PatternBar row={chosen.row} rawWidth={context.rawWidth} trim={context.trim} />}
-          <dl className={classes.hxKeyvals}>{detail(chosen.row).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>
+          <div className={classes.hxCard}>
+            <div className={classes.hxDetailHead}><strong>{chosen.row.id}</strong><span className={chosen.fit.ok ? classes.hxPillOk : classes.hxPillNo}>{chosen.fit.label}</span></div>
+            <span className={classes.hxDetailSub}>{String(chosen.row.date || '').slice(0, 10)} · {chosen.row.customer || '–'}</span>
+          </div>
+          {kind === 'processing' && isCoil && <PatternBar row={chosen.row} rawWidth={context.rawWidth} trim={context.trim} orderValues={context.orderValues} />}
+          <dl className={`${classes.hxCard} ${classes.hxKeyvals}`}>{detail(chosen.row).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>
           {chosen.fit.ok
             ? <p className={classes.hxApply}><b>적용하면</b>{applyText(chosen.row)}</p>
             : <p className={classes.hxReason}><b>적용할 수 없습니다</b>{chosen.fit.reason}</p>}
@@ -291,7 +308,7 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
       <table className={pickerClasses.table} style={{ width: `max(100%, ${salesColumns.tableWidth}px)` }} aria-label="출고 규격">
         <colgroup>{salesColumnsDef.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: salesColumns.widthOf(column) }} />)}</colgroup>
         <ResizableHead columns={salesColumnsDef} sizing={salesColumns} />
-        <tbody>{candidates.groups.map((group) => {
+        <tbody>{salesGroups.map((group) => {
           const isPicked = picked === String(group.value);
           return <tr key={group.value} className={isPicked ? pickerClasses.selectedRow : group.reason ? pickerClasses.disabledRow : ''}
             onClick={() => { if (!group.reason) { setPicked(String(group.value)); setMessage(''); } }}>
@@ -304,31 +321,83 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
             <td>{group.reason ? <span className={classes.hxFitNo}>{group.reason}</span> : <span className={classes.hxFitOk}>{group.sameThickness ? '추가 가능' : '추가 가능 · 두께 상이'}</span>}</td>
           </tr>;
         })}
-        {!candidates.groups.length && <tr><td colSpan={salesColumnsDef.length} className={pickerClasses.emptyCell}>
-          <PickerEmpty title={candidates.loading ? '출고 이력을 불러오는 중입니다' : `"${context.itemname}" 출고 이력이 없습니다`} description={candidates.loading ? '' : `[직접 입력]으로 제품 ${isCoil ? '폭' : '길이'}을 넣어 주세요.`} />
+        {!salesGroups.length && <tr><td colSpan={salesColumnsDef.length} className={pickerClasses.emptyCell}>
+          <PickerEmpty title={candidates.loading ? '출고 이력을 불러오는 중입니다' : salesQuery ? '검색 조건에 맞는 출고 규격이 없습니다' : `"${context.itemname}" 출고 이력이 없습니다`}
+            description={candidates.loading ? '' : `[직접 입력] 탭에서 제품 ${isCoil ? '폭' : '길이'}을 넣어 주세요.`} />
         </td></tr>}
         </tbody>
       </table>
     </>}
     {tab === 'manual' && <div className={classes.hxManualPane}>
-      <NumberInput size="sm" label={isCoil ? '제품 폭 (mm)' : `제품 길이 (mm) · 폭 ${fmt(context.itemWidth)}mm 기준`} placeholder={isCoil ? '예: 165' : '예: 400'} value={manual} onChange={(value) => { setManual(value); setMessage(''); }} hideControls min={0} style={{ width: 260 }} />
-      <span>{isCoil ? `사용 가능 폭 ${fmt(candidates.usable)}mm 이하로 입력합니다.` : '원판에 들어가는 길이로 입력합니다.'}</span>
       {message && <p className={classes.hxMessage}>{message}</p>}
+      {isCoil ? <ManualPreview value={Number(manual) || 0} rawWidth={context.rawWidth} trim={context.trim} orderValues={context.orderValues} extraValues={context.extraValues} />
+        : <div className={classes.hxChips}><b>담은 발주 길이</b>{context.orderValues.map((v) => <span key={v}>{fmt(v)}mm</span>)}
+          {context.extraValues.length > 0 && <><b>추가된 가공 후보</b>{context.extraValues.map((v) => <span key={v} className={classes.hxChipExtra}>{fmt(v)}mm</span>)}</>}</div>}
     </div>}
   </PickerModal>;
 }
 
-// 과거 가공이력 칼 배치를 현재 원자재 폭 위에 그려 본다 (사용폭 · 로스 · 남는 폭)
-function PatternBar({ row, rawWidth, trim }) {
-  const total = Math.max(rawWidth || 0, row.raw_width || 0, 1);
-  const pieces = (row.pattern || []).flatMap(([w, n]) => Array.from({ length: Math.min(n, 40) }, () => w));
+// 폭 색: 발주 폭은 ③ 칼 배치와 같은 순서 · 같은 색, 그 밖의 폭은 회색 (가공 후보)
+function toneOf(width, orderValues) {
+  const index = (orderValues || []).findIndex((v) => same(v, width));
+  return index < 0 ? classes.pieceExtra : classes[`piece${index % 4}`];
+}
+
+// 원코일 막대 (③ 칼 배치와 같은 색 · 로스 빗금)
+function CoilStrip({ pieces, rawWidth, trim, orderValues, limit }) {
   const used = pieces.reduce((sum, w) => sum + w, 0);
-  const remain = (rawWidth || 0) - used - (trim || 0);
-  return <div className={classes.hxBar}>
-    <div className={classes.hxBarTrack}>
-      {pieces.map((w, index) => <span key={index} className={classes.hxBarPiece} style={{ flexBasis: `${(w / total) * 100}%` }} title={`${fmt(w)}mm`}>{w / total > 0.08 ? fmt(w) : ''}</span>)}
-      {remain > 0 && <span className={classes.hxBarRest} style={{ flexBasis: `${(remain / total) * 100}%` }} />}
+  const loss = (rawWidth || 0) - used;   // 기본 로스 + 잔여폭
+  const cap = (limit ?? rawWidth) - (trim || 0);   // 이 폭을 넘는 칼은 빨갛게 (원자재 폭 초과)
+  const ends = pieces.reduce((list, w) => [...list, (list.at(-1) || 0) + w], []);
+  return <div className={`${classes.coilBar} ${classes.hxStrip}`} role="img" aria-label={`원자재 ${fmt(rawWidth)}mm 칼 배치`}>
+    {pieces.map((w, index) => {
+      const over = ends[index] > cap + 1e-6;
+      // 칼이 11개 이하면 칸마다 최소 폭을 줘서 숫자가 보이게 (좁아진 만큼 로스 빗금이 줄어든다). 많으면 비율 그대로
+      const roomy = pieces.length <= 11;
+      return <span key={index} className={`${classes.piece} ${roomy ? classes.hxPieceRoomy : classes.hxPiece} ${over ? classes.hxPieceOver : toneOf(w, orderValues)}`}
+        style={{ flex: `${w} 1 0` }} title={over ? `${fmt(w)}mm · 원자재 폭 초과` : `${fmt(w)}mm`}>{roomy || (rawWidth > 0 && w / rawWidth >= 0.09) ? fmt(w) : ''}</span>;
+    })}
+    {loss > 0.001 && <span className={`${classes.piece} ${classes.loss}`} style={{ flex: loss }} title={`기본 로스 ${fmt(trim)}mm + 잔여폭 ${fmt(Math.max(0, loss - (trim || 0)))}mm`} />}
+  </div>;
+}
+
+function Metric({ label, value, tone }) {
+  return <div className={classes.hxMetric}><span>{label}</span><strong className={tone || ''}>{value}</strong></div>;
+}
+
+// 과거 가공이력 칼 배치를 현재 원자재 폭 위에 그려 본다 (사용폭 · 기본 로스 · 잔여폭)
+function PatternBar({ row, rawWidth, trim, orderValues }) {
+  const pattern = (row.pattern || []).filter(([w, n]) => w > 0 && n > 0);
+  const pieces = pattern.flatMap(([w, n]) => Array.from({ length: Math.min(n, 60) }, () => w));
+  const used = pattern.reduce((sum, [w, n]) => sum + w * n, 0);
+  const spare = (rawWidth || 0) - used - (trim || 0);
+  const knives = pattern.reduce((sum, [, n]) => sum + n, 0);
+  const outside = pattern.filter(([w]) => !(orderValues || []).some((v) => same(v, w))).map(([w]) => `${fmt(w)}mm`);
+  // ③ 추천조합 칼 배치와 같은 모양: 제목 줄 · 48px 막대 · 사용폭 | 원코일 | 기본 로스 · 잔여폭
+  return <div className={classes.hxCard}>
+    <div className={classes.hxCardTitle}><b>칼 배치</b><span>원코일 {fmt(rawWidth)}mm</span></div>
+    <div className={classes.hxRunTitle}>{patternText('COIL', row)} · {knives}칼</div>
+    <CoilStrip pieces={pieces} rawWidth={Math.max(rawWidth || 0, used)} trim={trim} orderValues={orderValues} limit={rawWidth || 0} />
+    <div className={classes.subMetric}><span>사용폭 {fmt(used)}mm · {knives}칼</span>
+      {spare < 0 ? <span className={classes.hxOver}>{fmt(-spare)}mm 초과</span> : <span>기본 로스 {fmt(trim)}mm · 잔여폭 {fmt(spare)}mm</span>}</div>
+    {outside.length > 0 && <span className={classes.hxRunNote}>회색 칸은 이번 주문에 없는 폭 ({outside.join(', ')})</span>}
+  </div>;
+}
+
+// 직접 입력 미리보기: 입력한 폭만으로 현재 원자재에 몇 칼 들어가는지 + 담은 발주 폭 · 추가된 가공 후보
+function ManualPreview({ value, rawWidth, trim, orderValues, extraValues }) {
+  const usable = (rawWidth || 0) - (trim || 0);
+  const cuts = value > 0 && usable > 0 ? Math.min(60, Math.floor((usable + 1e-7) / value)) : 0;
+  return <div className={classes.hxPreview}>
+    <div className={classes.hxCardTitle}><b>{value > 0 ? `${fmt(value)}mm 단독 배치` : '제품 폭을 입력하세요'}</b><span>현재 원자재 {fmt(rawWidth)}mm · 기본 로스 {fmt(trim)}mm</span></div>
+    <CoilStrip pieces={Array.from({ length: cuts }, () => value)} rawWidth={rawWidth} trim={trim} orderValues={[]} />
+    <div className={classes.hxMetrics}>
+      <Metric label="최대 칼수" value={value > 0 ? `${fmt(cuts, 0)}칼` : '–'} tone={value > 0 && !cuts ? classes.hxOver : ''} />
+      <Metric label="사용폭" value={value > 0 ? `${fmt(cuts * value)}mm` : '–'} />
+      <Metric label="잔여폭" value={value > 0 ? `${fmt(Math.max(0, usable - cuts * value))}mm` : '–'} />
     </div>
-    <div className={classes.hxBarLegend}><span>사용 {fmt(used)}mm</span><span>로스 {fmt(trim)}mm</span><span className={remain < 0 ? classes.hxOver : ''}>{remain < 0 ? `${fmt(-remain)}mm 초과` : `남는 폭 ${fmt(remain)}mm`}</span><span>현재 원자재 {fmt(rawWidth)}mm</span></div>
+    <div className={classes.hxChips}><b>담은 발주 폭</b>{(orderValues || []).map((v) => <span key={v}><i className={toneOf(v, orderValues)} />{fmt(v)}mm</span>)}
+      {extraValues?.length > 0 && <><b>추가된 가공 후보</b>{extraValues.map((v) => <span key={v}><i className={classes.pieceExtra} />{fmt(v)}mm</span>)}</>}</div>
+    <p className={classes.hxPreviewNote}>실제 추천은 담은 발주 폭과 함께 섞어(혼합) 계산합니다. 이 막대는 입력한 폭만 넣었을 때의 참고용입니다.</p>
   </div>;
 }

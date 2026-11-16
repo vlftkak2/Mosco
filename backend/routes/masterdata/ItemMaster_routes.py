@@ -6,8 +6,16 @@ import security as security_module
 router = APIRouter(
     prefix="/api/item-master",
     tags=["item-master"],
-    dependencies=[Depends(security_module.require_menu_access("DATA_ITEM"))],
 )
+
+# 품목 마스터 수정은 품목코드관리(DATA_ITEM) 권한만 할 수 있다.
+# 품목 검색 · 자동완성 · 코드 조회는 품목을 골라 쓰는 화면(매입 · 매출 · 기초재고 · AI 주문)도 부른다.
+ITEM_PICKER_MENUS = ("DATA_ITEM", "INBOUND_REGISTER", "OUTBOUND_REGISTER", "STOCK_INITIAL",
+                     "AI_ORDER_RECOGNITION", "AI_ORDER_MANAGEMENT")
+ITEM_SUGGEST_MENUS = ("DATA_ITEM", "INBOUND_REGISTER", "STOCK_INITIAL",
+                      "AI_ORDER_RECOGNITION", "AI_ORDER_MANAGEMENT")
+ITEM_LOOKUP_MENUS = ("DATA_ITEM", "INBOUND_REGISTER", "OUTBOUND_REGISTER")
+require_item_master = security_module.require_menu_access("DATA_ITEM")
 
 
 @router.get("/items")
@@ -16,7 +24,7 @@ def get_items(
     page_size: int = Query(default=200, ge=1, le=500),
     q: str = Query(default="", max_length=150),
     include_total: bool = Query(default=True),
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(require_item_master),
 ):
     try:
         return {"success": True, **item_master_module.list_items(
@@ -32,7 +40,7 @@ def get_items(
 @router.get("/items/export")
 def export_items(
     q: str = Query(default="", max_length=150),
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(require_item_master),
 ):
     try:
         return {"success": True, "items": item_master_module.export_items(user["companyid"], q)}
@@ -46,7 +54,7 @@ def export_items(
 @router.post("/items/lookup")
 def lookup_items(
     data: item_master_module.ItemLookupRequest,
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(security_module.require_any_menu_access(*ITEM_LOOKUP_MENUS)),
 ):
     try:
         return {"success": True, "items": item_master_module.lookup_items(user["companyid"], data.itemcodes)}
@@ -63,7 +71,7 @@ def search_active_items(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     field: str = Query(default="all", pattern="^(all|name|code|material)$"),
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(security_module.require_any_menu_access(*ITEM_PICKER_MENUS)),
 ):
     try:
         return {"success": True, **item_master_module.search_active_items(user["companyid"], q, page, page_size, field)}
@@ -77,7 +85,7 @@ def search_active_items(
 @router.get("/items/suggest")
 def suggest_active_items(
     q: str = Query(default="", max_length=150),
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(security_module.require_any_menu_access(*ITEM_SUGGEST_MENUS)),
 ):
     try:
         return {"success": True, "items": item_master_module.suggest_active_items(user["companyid"], q)}
@@ -91,7 +99,7 @@ def suggest_active_items(
 @router.put("/items")
 def save_items(
     data: item_master_module.ItemSaveRequest,
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(require_item_master),
 ):
     try:
         saved_count = item_master_module.save_items(
@@ -113,7 +121,7 @@ def save_items(
 @router.post("/items/bulk")
 def bulk_insert_items(
     data: item_master_module.ItemSaveRequest,
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(require_item_master),
 ):
     try:
         items = [item.model_dump() | {"is_new": True} for item in data.items]
@@ -136,7 +144,7 @@ def bulk_insert_items(
 @router.delete("/items")
 def delete_items(
     data: item_master_module.ItemDeleteRequest,
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(require_item_master),
 ):
     try:
         deleted_count = item_master_module.delete_items(user["companyid"], data.itemcodes)

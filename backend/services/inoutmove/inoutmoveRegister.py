@@ -115,7 +115,8 @@ def list_available_stock(
         where.append("(stock.warehousecode ILIKE %s OR stock.warehousecodename ILIKE %s)")
         params.extend((pattern, pattern))
     if source_type.strip():
-        where.append("stock.sourcetype = %s")
+        # 재고구분(기초/입고/가공/이동). 가공·이동 재고도 sourcetype 은 INBOUND 이므로 stockkind 로 거른다.
+        where.append("stock.stockkind = %s")
         params.append(source_type.strip().upper())
     if receiptno.strip():
         where.append("stock.sourceno ILIKE %s")
@@ -144,7 +145,7 @@ def list_available_stock(
                        stock.thickness, stock.width, stock.length,
                        stock.qty, COALESCE(qty_code.code_name, stock.qtyunit) AS qtyunit,
                        stock.weight, stock.unit, stock.unitprice,
-                       stock.warehousecode, stock.warehousecodename,
+                       stock.warehousecode, stock.warehousecodename, stock.stockkind, stock.costprice,
                        {linked_orders_sql("stock")} AS linked_orders
                 FROM CurrentStock01t AS stock
                 LEFT JOIN CodeMaster01t AS qty_code
@@ -229,7 +230,7 @@ def get_transfer(companyid: str, receiptno: str):
                       detail.thickness, detail.width, detail.length,
                       detail.qty, detail.qtyunit, detail.weight,
                       stock.customname AS sourcecustomname,
-                      stock.receiptdate AS sourcereceiptdate,
+                      stock.receiptdate AS sourcereceiptdate, stock.stockkind,
                       detail.created_at, detail.updated_at,
                       {user_name_sql('detail.created_by')} AS created_by,
                       {user_name_sql('detail.updated_by')} AS updated_by
@@ -320,7 +321,7 @@ def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | 
                               itemcode, itemname, productname, materialcode, materialname,
                               surfacecode, surfacename, myrtle, thickness, width, length,
                               qty, qtyunit, weight, unit, unitprice, warehousecode, warehousecodename,
-                              originalqty, originalweight, origintype, originno, originline
+                              originalqty, originalweight, origintype, originno, originline, costprice
                        FROM CurrentStock01t
                        WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
                        FOR UPDATE""",
@@ -332,6 +333,8 @@ def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | 
                 stock = _row_dict(cursor, row)
                 if stock["warehousecode"] != from_code:
                     raise ValueError(f"{stock['itemname']} 재고의 현재 창고가 선택한 출발 창고와 다릅니다.")
+                if stock["receiptdate"] and payload["receptdate"] < stock["receiptdate"]:
+                    raise ValueError(f"{stock['itemname']} 재고의 입고일({stock['receiptdate']:%Y-%m-%d})보다 앞선 날짜로 이전할 수 없습니다.")
                 available_qty = Decimal(str(stock["qty"] or 0))
                 available_weight = Decimal(str(stock["weight"] or 0))
                 qty = Decimal(str(item["qty"]))
@@ -370,7 +373,7 @@ def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | 
                         stock["thickness"], stock["width"], stock["length"], qty,
                         stock["qtyunit"], weight, warehouse_code, warehouse_name,
                         stock["unit"], stock["unitprice"], supplyamt, vat, unitamt,
-                        actor or None,
+                        actor or None, f"MOVE_{movement_type}",
                     ))
 
             execute_values(
@@ -391,7 +394,7 @@ def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | 
                     customcode, customname, itemcode, itemname, productname,
                     materialcode, materialname, surfacecode, surfacename, myrtle, manager,
                     thickness, width, length, qty, qtyunit, weight, warehousecode, warehousecodename,
-                    unit, unitprice, supplyamt, vat, unitamt, created_by)
+                    unit, unitprice, supplyamt, vat, unitamt, created_by, iniokind)
                    VALUES %s""",
                 ledger_rows,
                 page_size=1000,
@@ -407,15 +410,17 @@ def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | 
                         receiptdate, itemcode, itemname, productname, materialcode, materialname,
                         surfacecode, surfacename, myrtle, manager, thickness, width, length,
                         originalqty, qty, qtyunit, originalweight, weight, unit, unitprice,
-                        warehousecode, warehousecodename, created_by, origintype, originno, originline)
+                        warehousecode, warehousecodename, created_by, origintype, originno, originline,
+                        costprice, stockkind)
                        VALUES (%s, %s, %s, %s, 'INBOUND', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                               %s, 'TRANSFER')""",
                     (companyid, companyname, stock["customcode"], stock["customname"], receiptno, movement_line,
                      payload["receptdate"], stock["itemcode"], stock["itemname"], stock["productname"],
                      stock["materialcode"], stock["materialname"], stock["surfacecode"], stock["surfacename"],
                      stock["myrtle"], payload.get("manager") or None, stock["thickness"], stock["width"], stock["length"],
                      moved_qty, moved_qty, stock["qtyunit"], moved_weight, moved_weight, stock["unit"], stock["unitprice"],
-                     to_code, warehouse_names[to_code], actor or None, *origin),
+                     to_code, warehouse_names[to_code], actor or None, *origin, stock["costprice"] or 0),
                 )
                 cursor.execute(
                     """UPDATE CurrentStock01t SET qty = qty - %s, weight = weight - %s,

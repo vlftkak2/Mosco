@@ -1,48 +1,52 @@
-import { useContext } from "react";
+import { lazy, useContext } from "react";
 import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { BrowserRouter, Navigate, Routes, Route,Outlet } from 'react-router-dom';
 
 import MainLayout, { MenuAccessContext } from "./components/layout/MainLayout";
 import LoginPage from "./components/auth/LoginPage";
-import HomePage from "./pages/dashboard/HomePage";
-
-import User from "./pages/system/User";
-import UserMenu from "./pages/system/UserMenu";
-import CustomerPage from "./pages/masterdata/CustomerPage";
-import CodeMasterPage from "./pages/masterdata/CodeMasterPage";
-import ItemMaster from "./pages/masterdata/ItemMasterPage";
-import ItemProcessMaster from "./pages/process/ItemProcessMaster";
-import ItemProcessRegister from "./pages/process/ItemProcessRegister";
-import ItemProcessSearch from "./pages/process/ItemProcessSearch";
-import InboundRegisterPage from "./pages/inbound/InboundRegisterPage";
-import InboundSearchPage from "./pages/inbound/InboundSearchPage";
-import OutboundRegisterPage from "./pages/outbound/OutboundRegisterPage";
-import OutboundSearchPage from "./pages/outbound/OutboundSearchPage";
-import StockStandPage from "./pages/inventory/StockStandPage";
-import CurrentStockPage from "./pages/inventory/CurrentStockPage";
-import IniopStockPage from "./pages/inventory/IniopStockPage";
-import AIOrderPage from "./pages/ai/AIOrderPage";
-import AIOrderOptimization from "./pages/ai/AIOrderOptimization";
-import AIOrderManage from "./pages/ai/AIOrderManage";
-import Board from "./pages/system/Board";
-import Company from "./pages/system/Company";
-import Workplace from "./pages/system/Workplace";
-import MonthClose from "./pages/system/MonthClose";
-import UserInfo from "./pages/system/UserInfo";
-import InoutmoveRegister from "./pages/inoutmove/InoutmoveRegister";
-import InoutmoveSearch from "./pages/inoutmove/inoutmoveSearch";
-import ReceiptPayment from "./pages/receiptpayment/ReceiptPayment";
-import ReceiptPaymentSearch from "./pages/receiptpayment/ReceiptPaymentSearch";
-import InstrumentStatus from "./pages/receiptpayment/InstrumentStatus";
-import CustomerLedger from "./pages/receiptpayment/CustomerLedger";
-import CustomerBalanceDashboard from "./pages/receiptpayment/CustomerBalanceDashboard";
-import GrossProfit from "./pages/outbound/GrossProfit";
-import GrossProfitDashboard from "./pages/outbound/GrossProfitDashboard";
-
+// 화면 CSS (Mantine 기본 스타일보다 먼저 — 순서 이유는 pageStyles.js 참고)
+import pageStyleModules from './pageStyles';
 
 // Mantine 기본 스타일 
 import '@mantine/core/styles.css';
+
+// 화면은 처음 열 때 내려받는다 (탭 보관 · Suspense 는 MainLayout 의 KeepAlivePage)
+const HomePage = lazy(() => import("./pages/dashboard/HomePage"));
+
+const User = lazy(() => import("./pages/system/User"));
+const UserMenu = lazy(() => import("./pages/system/UserMenu"));
+const CustomerPage = lazy(() => import("./pages/masterdata/CustomerPage"));
+const CodeMasterPage = lazy(() => import("./pages/masterdata/CodeMasterPage"));
+const ItemMaster = lazy(() => import("./pages/masterdata/ItemMasterPage"));
+const ItemProcessMaster = lazy(() => import("./pages/process/ItemProcessMaster"));
+const ItemProcessRegister = lazy(() => import("./pages/process/ItemProcessRegister"));
+const ItemProcessSearch = lazy(() => import("./pages/process/ItemProcessSearch"));
+const InboundRegisterPage = lazy(() => import("./pages/inbound/InboundRegisterPage"));
+const InboundSearchPage = lazy(() => import("./pages/inbound/InboundSearchPage"));
+const OutboundRegisterPage = lazy(() => import("./pages/outbound/OutboundRegisterPage"));
+const OutboundSearchPage = lazy(() => import("./pages/outbound/OutboundSearchPage"));
+const StockStandPage = lazy(() => import("./pages/inventory/StockStandPage"));
+const CurrentStockPage = lazy(() => import("./pages/inventory/CurrentStockPage"));
+const IniopStockPage = lazy(() => import("./pages/inventory/IniopStockPage"));
+const AIOrderPage = lazy(() => import("./pages/ai/AIOrderPage"));
+const AIOrderOptimization = lazy(() => import("./pages/ai/AIOrderOptimization"));
+const AIOrderManage = lazy(() => import("./pages/ai/AIOrderManage"));
+const Board = lazy(() => import("./pages/system/Board"));
+const Company = lazy(() => import("./pages/system/Company"));
+const Workplace = lazy(() => import("./pages/system/Workplace"));
+const MonthClose = lazy(() => import("./pages/system/MonthClose"));
+const UserInfo = lazy(() => import("./pages/system/UserInfo"));
+const InoutmoveRegister = lazy(() => import("./pages/inoutmove/InoutmoveRegister"));
+const InoutmoveSearch = lazy(() => import("./pages/inoutmove/inoutmoveSearch"));
+const ReceiptPayment = lazy(() => import("./pages/receiptpayment/ReceiptPayment"));
+const ReceiptPaymentSearch = lazy(() => import("./pages/receiptpayment/ReceiptPaymentSearch"));
+const InstrumentStatus = lazy(() => import("./pages/receiptpayment/InstrumentStatus"));
+const CustomerLedger = lazy(() => import("./pages/receiptpayment/CustomerLedger"));
+const CustomerBalanceDashboard = lazy(() => import("./pages/receiptpayment/CustomerBalanceDashboard"));
+const GrossProfit = lazy(() => import("./pages/outbound/GrossProfit"));
+const GrossProfitDashboard = lazy(() => import("./pages/outbound/GrossProfitDashboard"));
+
 
 const RequireAuthority = ({ allowed, children }) => {
   const access = useContext(MenuAccessContext);
@@ -134,5 +138,8 @@ function App() {
     </MantineProvider>
   );
 }
+
+// 화면 CSS 가 번들 앞쪽(Mantine 앞)에 남도록 붙잡아 둔다 (pageStyles.js 참고)
+App.pageStyleModules = pageStyleModules;
 
 export default App;

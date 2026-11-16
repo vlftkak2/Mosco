@@ -18,8 +18,9 @@ const monthFilters = () => {
   return { date_from: `${y}-${pad(m + 1)}-01`, date_to: `${y}-${pad(m + 1)}-${pad(new Date(y, m + 1, 0).getDate())}`, iniotype: "", customname: "", item_search: "", product_search: "", warehouse_search: "" };
 };
 const PAGE_OPTIONS = [{ value: '15', label: '15개씩' }, { value: '50', label: '50개씩' }, { value: '100', label: '100개씩' }, { value: '200', label: '200개씩' }];
-const TYPE_OPTIONS = [{ value: "ALL", label: "전체" }, { value: "ST", label: "기초" }, { value: "IN", label: "입고" }, { value: "OUT", label: "출고" }];
-const TYPE_NAMES = { ST: "기초", IN: "입고", OUT: "출고" };
+// 수불 상세구분: 가공·창고이동도 수불유형은 입고/출고라서 전표 종류로 나눠 보여준다
+const TYPE_NAMES = { ST: "기초", IN: "매입입고", OUT: "매출출고", PROCESS_OUT: "가공투입", PROCESS_IN: "가공입고", MOVE_OUT: "이동출고", MOVE_IN: "이동입고" };
+const TYPE_OPTIONS = [{ value: "ALL", label: "전체" }, ...Object.entries(TYPE_NAMES).map(([value, label]) => ({ value, label }))];
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
 const timestampText = (value) => { if (!value) return ''; const d = new Date(value); return Number.isNaN(d.getTime()) ? String(value) : cachedDateFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d); };
@@ -27,7 +28,7 @@ const timestampText = (value) => { if (!value) return ''; const d = new Date(val
 const num = (value) => <span className={classes.cellNum}>{value}</span>;
 const center = (value) => <span className={classes.cellCenter}>{value}</span>;
 const text = (value) => (value === '' || value === null || value === undefined ? '' : <span className={classes.cellText} title={String(value)}>{value}</span>);
-const TYPE_BADGE = { ST: classes.typeOpening, IN: classes.typeInbound, OUT: classes.typeOutbound };
+const TYPE_BADGE = { ST: classes.typeOpening, IN: classes.typeInbound, OUT: classes.typeOutbound, PROCESS_OUT: classes.typeProcess, PROCESS_IN: classes.typeProcess, MOVE_OUT: classes.typeMove, MOVE_IN: classes.typeMove };
 const typeBadge = (value) => {
   const name = TYPE_NAMES[value] || value;
   return name ? center(<span className={`${classes.typeBadge} ${TYPE_BADGE[value] || ''}`}>{name}</span>) : '';
@@ -84,7 +85,7 @@ export default function IniopStockPage() {
       </Group>
       <Box className={classes.tableWrap}>{loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}{items.length ? <ResizableVirtualTable data={items} computeItemKey={(_index, item) => `${item.iniotype}:${item.receiptno}:${item.lineno}`} rowOffset={(page - 1) * pageSize} minTableWidth={0} columns={[
           { key: 'no', label: 'No.', width: 48, minWidth: 45, render: (_item, index) => center(index + 1) },
-          { key: 'iniotype', label: '수불유형', width: 70, minWidth: 60, render: (item) => typeBadge(item.iniotype) },
+          { key: 'iniotype', label: '수불유형', width: 80, minWidth: 70, render: (item) => typeBadge(item.iniokind || item.iniotype) },
           { key: 'iniodate', label: '수불일자', width: 100, minWidth: 90, render: (item) => center(String(item.iniodate || '').slice(0, 10)) },
           { key: 'customname', label: '거래처명', width: 125, minWidth: 105, render: (item) => text(item.customname || '') },
           { key: 'receiptno', label: '수불전표', width: 160, minWidth: 140, render: (item) => text(item.receiptno || '') },

@@ -8,6 +8,7 @@ from services.ai.stock_links import _allocate, allocate_coil_run, ensure_not_lin
 import db as _shared_db
 from services.closing import MonthClose as month_close_module
 from services.inventory.CurrentStock import user_name_sql
+from services.inventory import stock_cost as stock_cost_module
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -245,7 +246,7 @@ def list_available_stock(
             f"""SELECT sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
                        itemcode, itemname, productname, materialcode, materialname, surfacecode,
                        surfacename, myrtle, manager, thickness, width, length, qty, qtyunit,
-                       weight, unit, unitprice, warehousecode, warehousecodename,
+                       weight, unit, unitprice, warehousecode, warehousecodename, costprice, stockkind,
                        {linked_orders_sql("stock")} AS linked_orders
                 FROM CurrentStock01t AS stock WHERE {' AND '.join(where)}
                 ORDER BY receiptdate, sourcetype, sourceno, sourceline
@@ -428,6 +429,12 @@ def get_document(companyid: str, processno: str):
                       productname,materialcode,materialname,surfacecode,surfacename,myrtle,thickness,width,
                       length,qty,qtyunit,weight,lossweight,processid,processcodename,unit,unitprice,supplyamt,vat,
                       unitamt,description,createdat,updatedat,
+                      (SELECT c.costprice FROM CurrentStock01t c
+                        WHERE c.companyid = Process02t.companyid
+                          AND ((Process02t.linetype = 'SOURCE' AND c.sourcetype = Process02t.stocksourcetype
+                                AND c.sourceno = Process02t.stocksourceno AND c.sourceline = Process02t.stocksourceline)
+                            OR (Process02t.linetype = 'PRODUCT' AND c.sourcetype = 'INBOUND'
+                                AND c.sourceno = Process02t.processno AND c.sourceline = Process02t.lineno))) AS costprice,
                       {user_name_sql('Process02t.created_by')} AS created_by,
                       {user_name_sql('Process02t.updated_by')} AS updated_by
                FROM Process02t WHERE companyid=%s AND processno=%s ORDER BY lineno""",
@@ -709,7 +716,7 @@ def plan_draft(companyid: str, planno: str):
             f"""SELECT sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
                        itemcode, itemname, productname, materialcode, materialname, surfacecode,
                        surfacename, myrtle, manager, thickness, width, length, qty, qtyunit,
-                       weight, unit, unitprice, warehousecode, warehousecodename,
+                       weight, unit, unitprice, warehousecode, warehousecodename, costprice, stockkind,
                        {plan_outstanding_sql("stock", "%s")} AS other_reserved
                   FROM CurrentStock01t AS stock
                  WHERE companyid=%s AND sourcetype=%s AND sourceno=%s AND sourceline=%s""",
@@ -892,6 +899,8 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
             weight = Decimal(str(source["weight"]))
             if qty > Decimal(str(stock["qty"])) or weight > Decimal(str(stock["weight"])):
                 raise ValueError(f"{stock['itemname']}의 가공 투입량이 현재고를 초과합니다.")
+            if stock.get("receiptdate") and payload["processdate"] < stock["receiptdate"]:
+                raise ValueError(f"{stock['itemname']} 원소재의 입고일({stock['receiptdate']:%Y-%m-%d})보다 앞선 날짜로 가공할 수 없습니다.")
             # 수량: 코일(길이 없음)은 중량으로 차감하고, 코일을 다 쓸 때만 수량을 뺀다 (일부가공 · 등분 중간 차수 = 수량 0)
             left = Decimal(str(stock["weight"])) - weight
             if not Decimal(str(stock.get("length") or 0)) > 0:
@@ -998,10 +1007,26 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
                          product["unit"], product["unitprice"], amount, vat, total, product.get("description") or None,
                          detail_created_by, detail_updated_by),
                     )
+                    product["_fee_amount"] = amount
                     pending.remove(product)
                     progressed = True
                 if not progressed:
                     raise ValueError("가공 단계의 부모·자식 순서를 구성할 수 없습니다.")
+
+            # 가공품 원가단가(kg당) = (원소재 원가 × 투입중량 + 가공비) / 가공품 재고중량 → 원재료 원가가 가공품으로 넘어온다
+            product_costs = stock_cost_module.process_product_costs(
+                Decimal(str(stock.get("costprice") or 0)) * weight,
+                [{
+                    "id": product["clientid"],
+                    "parent": product.get("parent_clientid") or None,
+                    "fee": product["_fee_amount"],
+                    "weight": Decimal(str(product["weight"])) + (
+                        Decimal(str(product.get("lossweight") or 0)) if product["clientid"] not in parent_ids else Decimal("0")),
+                } for product in products],
+            )
+            for product in products:
+                if product["clientid"] not in parent_ids:
+                    product["costprice"] = product_costs.get(product["clientid"], Decimal("0"))
 
             for product in products:
                 if product["clientid"] in parent_ids:
@@ -1016,8 +1041,8 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
                    (companyid,companyname,iniodate,iniotype,receiptno,lineno,customcode,customname,
                     itemcode,itemname,productname,materialcode,materialname,surfacecode,surfacename,myrtle,manager,
                     thickness,width,length,qty,qtyunit,weight,warehousecode,warehousecodename,unit,unitprice,supplyamt,vat,unitamt,
-                    created_by,updated_by)
-                   VALUES (%s,%s,%s,'OUT',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,0,0,0,%s,%s)""",
+                    created_by,updated_by,iniokind)
+                   VALUES (%s,%s,%s,'OUT',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,0,0,0,%s,%s,'PROCESS_OUT')""",
                 (companyid, companyname, payload["processdate"], processno, lineno, payload["customcode"], customname,
                  stock["itemcode"], stock["itemname"], stock.get("productname"), stock.get("materialcode"), stock.get("materialname"),
                  stock.get("surfacecode"), stock.get("surfacename"), stock.get("myrtle"), payload.get("manager") or None,
@@ -1035,8 +1060,8 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
                    (companyid,companyname,iniodate,iniotype,receiptno,lineno,customcode,customname,
                     itemcode,itemname,productname,materialcode,materialname,surfacecode,surfacename,myrtle,manager,
                     thickness,width,length,qty,qtyunit,weight,warehousecode,warehousecodename,unit,unitprice,supplyamt,vat,unitamt,
-                    created_by,updated_by)
-                   VALUES (%s,%s,%s,'IN',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    created_by,updated_by,iniokind)
+                   VALUES (%s,%s,%s,'IN',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PROCESS_IN')""",
                 (companyid, companyname, payload["processdate"], processno, lineno, payload["customcode"], customname,
                   stock["itemcode"], product["productname"], product["productno"], stock.get("materialcode"), stock.get("materialname"),
                  stock.get("surfacecode"), stock.get("surfacename"), stock.get("myrtle"), payload.get("manager") or None,
@@ -1049,14 +1074,15 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
                    (companyid,companyname,customcode,customname,sourcetype,sourceno,sourceline,receiptdate,
                     itemcode,itemname,productname,materialcode,materialname,surfacecode,surfacename,myrtle,manager,
                     thickness,width,length,originalqty,qty,qtyunit,originalweight,weight,unit,unitprice,
-                    warehousecode,warehousecodename,created_by,updated_by)
-                    VALUES (%s,%s,%s,%s,'INBOUND',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    warehousecode,warehousecodename,created_by,updated_by,costprice,stockkind)
+                    VALUES (%s,%s,%s,%s,'INBOUND',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PROCESS')""",
                 (companyid, companyname, payload["customcode"], customname, processno, lineno, payload["processdate"],
                   stock["itemcode"], product["productname"], product["productno"], stock.get("materialcode"), stock.get("materialname"),
                  stock.get("surfacecode"), stock.get("surfacename"), stock.get("myrtle"), payload.get("manager") or None,
                  *_stock_dimensions(product), product["qty"], product["qty"],
                  product["qtyunit"], stock_weight, stock_weight, product["unit"], product["unitprice"],
-                 payload["warehousecode"], warehouse_name, detail_created_by, detail_updated_by),
+                 payload["warehousecode"], warehouse_name, detail_created_by, detail_updated_by,
+                 product.get("costprice", Decimal("0"))),
             )
 
         cursor.execute("UPDATE Process01t SET subulyn='Y',updatedat=CURRENT_TIMESTAMP WHERE companyid=%s AND processno=%s", (companyid, processno))

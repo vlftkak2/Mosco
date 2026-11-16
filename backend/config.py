@@ -1,12 +1,3 @@
-# DB 접속 정보 따로 저장
-# DB_CONFIG = {
-#     "Driver": "{SQL Server}",  #SQL Server
-#     "Server": "43.203.185.92",
-#     "Database": "APR",
-#     "UID": "APR",
-#     "PWD": "Aa1234!!"
-# }
-
 # PostgreSQL DB 접속 정보 설정
 import os
 from pathlib import Path
@@ -41,7 +32,9 @@ ALLOWED_ORIGINS = [
 ]
 
 if APP_ENV in {"production", "prod"}:
-    if not ALLOWED_ORIGINS or "*" in ALLOWED_ORIGINS:
+    # 프론트와 API를 같은 도메인(nginx)으로 서비스하면 CORS 허용이 필요 없으므로 비워 둘 수 있다.
+    # 비어 있으면 다른 도메인의 브라우저 요청은 모두 거부된다. '*'는 허용하지 않는다.
+    if "*" in ALLOWED_ORIGINS:
         raise RuntimeError("Set CORS_ALLOWED_ORIGINS to explicit production site origins.")
     required_production_settings = {
         "DB_HOST": os.getenv("DB_HOST", "").strip(),

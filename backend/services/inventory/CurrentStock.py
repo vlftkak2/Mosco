@@ -4,6 +4,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from services.ai.stock_links import ensure_not_linked
+from services.inventory import stock_cost as stock_cost_module
 import db as _shared_db
 from psycopg2.extras import execute_values
 from pydantic import BaseModel, Field, field_validator
@@ -309,6 +310,7 @@ def record_document(
             price_unit_name or None,
             line.get("unitprice"), line.get("supplyamt"), line.get("vat"), line.get("unitamt"),
             created_by or None, updated_by or None,
+            iniotype,  # 수불 상세구분: ST 기초 / IN 매입입고 / OUT 매출출고
         ))
         if iniotype != "OUT":
             source_type = "OPENING" if iniotype == "ST" else "INBOUND"
@@ -328,6 +330,10 @@ def record_document(
                 movement["weight"], movement["weight"], price_unit_name or None,
                 line.get("unitprice"), movement["warehousecode"], movement["warehousecodename"],
                 created_by or None, updated_by or None,
+                # kg당 원가: 매입은 기타비용을 배부한 값을 넘겨받고, 기초재고는 공급가 / 중량
+                line["costprice"] if line.get("costprice") is not None
+                else stock_cost_module.per_kg(line.get("supplyamt"), movement["weight"]),
+                source_type,
             ))
 
     execute_values(
@@ -337,7 +343,7 @@ def record_document(
                 itemcode, itemname, productname, materialcode, materialname, surfacecode, surfacename,
                 myrtle, manager, thickness, width, length, qty, qtyunit, weight,
                 warehousecode, warehousecodename, unit, unitprice, supplyamt, vat, unitamt,
-                created_by, updated_by)
+                created_by, updated_by, iniokind)
            VALUES %s""",
         ledger_rows,
         page_size=1000,
@@ -353,7 +359,7 @@ def record_document(
                     receiptdate, itemcode, itemname, productname, materialcode, materialname,
                     surfacecode, surfacename, myrtle, manager, thickness, width, length, originalqty, qty, qtyunit,
                     originalweight, weight, unit, unitprice, warehousecode, warehousecodename,
-                    created_by, updated_by)
+                    created_by, updated_by, costprice, stockkind)
                VALUES %s
                ON CONFLICT (companyid, sourcetype, sourceno, sourceline) DO NOTHING
                RETURNING sourceline""",
@@ -613,7 +619,8 @@ def _current_stock_conditions(companyid, itemcode, itemname, thickness, width, l
         if not include_zero:
             where.append("(stock.qty > 0 OR stock.weight > 0)")
         if sourcetype.strip():
-            where.append("stock.sourcetype = %s")
+            # 재고구분(기초/입고/가공/이동). 가공·이동 재고도 sourcetype 은 INBOUND 이므로 stockkind 로 거른다.
+            where.append("stock.stockkind = %s")
             params.append(sourcetype.strip().upper())
         if customname.strip():
             where.append("stock.customname ILIKE %s")
@@ -666,6 +673,12 @@ def _current_stock_select(source_lines: bool):
         "stock.qty AS originalqty, stock.weight AS originalweight, "
         "NULL::text AS unit, NULL::numeric AS unitprice"
     )
+    # 원가 칸은 맨 뒤에 둔다 (엑셀 출력이 칸 위치로 값을 쓴다)
+    cost_fields = (
+        ", stock.stockkind, stock.costprice, ROUND(stock.weight * stock.costprice, 0) AS stockamt"
+        if source_lines else
+        ", NULL::text AS stockkind, NULL::numeric AS costprice, NULL::numeric AS stockamt"
+    )
     manager_field = (
         "COALESCE((SELECT NULLIF(BTRIM(header.manager), '') "
         "FROM Outbound02t AS outbound_detail "
@@ -690,6 +703,7 @@ def _current_stock_select(source_lines: bool):
         "stock.weight, stock.warehousecode, stock.warehousecodename, "
         "stock.created_at, stock.updated_at, "
         f"{user_name_sql('stock.created_by')} AS created_by, {user_name_sql('stock.updated_by')} AS updated_by"
+        f"{cost_fields}"
     )
 
 
@@ -738,7 +752,8 @@ def write_current_stock_excel(companyid: str, output_path: str, **filters):
     headers = ["No.", "재고구분", "원천전표", "원천순번", "입고일자", "거래처코드", "거래처명",
                "최초수량", "최초중량", "단가기준", "매입단가", "품목코드", "품목명", "Lot번호",
                "강판코드", "강판", "표면코드", "표면", "도금량(g/㎡)", "담당자", "두께", "폭", "길이",
-               "현재수량", "수량단위", "현재중량", "창고코드", "창고명", "등록일자", "수정일자", "등록자", "수정자"]
+               "현재수량", "수량단위", "현재중량", "창고코드", "창고명", "등록일자", "수정일자", "등록자", "수정자",
+               "재고구분(상세)", "원가단가(원/kg)", "재고금액"]
     workbook = xlsxwriter.Workbook(output_path, {"constant_memory": True})
     worksheet = workbook.add_worksheet("현재고현황")
     header_format = workbook.add_format({"bold": True, "font_color": "#B4232D", "bg_color": "#FFF3F3", "border": 1, "border_color": "#E5BFC2"})
@@ -755,6 +770,7 @@ def write_current_stock_excel(companyid: str, output_path: str, **filters):
     worksheet.set_column("L:M", 20)
     worksheet.set_column("V:W", 20, datetime_format)
     worksheet.set_column("AE:AF", 14)
+    worksheet.set_column("AG:AI", 14)
     row_no = 1
     try:
         with _connect() as connection, connection.cursor(name="current_stock_excel_cursor") as cursor:
@@ -766,7 +782,9 @@ def write_current_stock_excel(companyid: str, output_path: str, **filters):
                     for index, value in enumerate(row, start=1):
                         if value is None:
                             continue
-                        if index in (3, 7, 8, 10, 18, 20, 21, 22, 23, 25):
+                        if index == 32:
+                            value = stock_cost_module.stock_kind_label(value)
+                        if index in (3, 7, 8, 10, 18, 20, 21, 22, 23, 25, 33, 34):
                             numeric_value = float(value)
                             if numeric_value.is_integer():
                                 worksheet.write_number(row_no, index, int(numeric_value), integer_format)

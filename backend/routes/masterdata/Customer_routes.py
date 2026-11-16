@@ -10,8 +10,13 @@ import security as security_module
 router = APIRouter(
     prefix="/api",
     tags=["customer"],
-    dependencies=[Depends(security_module.require_menu_access("DATA_CUSTOMER"))],
 )
+
+# 거래처 등록 · 수정 · 일괄등록 · 기초잔액 반영은 거래처관리(DATA_CUSTOMER) 권한만 할 수 있다.
+# 거래처 목록(/api/list)은 거래처를 골라 쓰는 화면(매입 · 매출 · 기초재고 · 수금지급)도 조회한다.
+CUSTOMER_LIST_MENUS = ("DATA_CUSTOMER", "INBOUND_REGISTER", "OUTBOUND_REGISTER", "STOCK_INITIAL",
+                       "RECEIPT_PAYMENT")
+require_customer_master = security_module.require_menu_access("DATA_CUSTOMER")
 
 OPENING_BALANCE_AUTHORITIES = {"MASTER", "SUBMASTER"}
 
@@ -34,7 +39,7 @@ class CustomerBulkCreateRequest(BaseModel):
 
 
 @router.get("/next-code")
-def get_next_customer_code(user: dict = Depends(security_module.get_current_user)):
+def get_next_customer_code(user: dict = Depends(require_customer_master)):
     result = customer_module.CustomerNextCode(user["companyid"])
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result["message"])
@@ -42,7 +47,7 @@ def get_next_customer_code(user: dict = Depends(security_module.get_current_user
 
 
 @router.get("/banks")
-def get_banks(user: dict = Depends(security_module.get_current_user)):
+def get_banks(user: dict = Depends(require_customer_master)):
     result = customer_module.BankList(user["companyid"])
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result["error"])
@@ -50,7 +55,7 @@ def get_banks(user: dict = Depends(security_module.get_current_user)):
 
 
 @router.get("/managers")
-def get_customer_managers(user: dict = Depends(security_module.get_current_user)):
+def get_customer_managers(user: dict = Depends(require_customer_master)):
     result = customer_module.CustomerManagerList(user["companyid"])
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result["error"])
@@ -62,7 +67,7 @@ def get_customer_managers(user: dict = Depends(security_module.get_current_user)
 @router.post("/create")
 def create_customer(
     data: customer_module.CustomModifyRequest,
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(require_customer_master),
 ):
     data.companyid = user["companyid"]
     data.companyname = user.get("companyname") or user["companyid"]
@@ -80,7 +85,7 @@ def create_customer(
 @router.post("/bulk-create")
 def bulk_create_customers(
     data: CustomerBulkCreateRequest,
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(require_customer_master),
 ):
     companyname = user.get("companyname") or user["companyid"]
     can_edit_opening = _can_edit_opening_balances(user)
@@ -100,7 +105,7 @@ def bulk_create_customers(
 @router.post("/update")
 def update_customer(
     data: customer_module.CustomModifyRequest,
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(require_customer_master),
 ):
     data.companyid = user["companyid"]
     result = customer_module.CustomerModify(
@@ -119,7 +124,7 @@ def update_customer(
 # customer_module 안에 있는 CustomerList 함수를 사용합니다.
 @router.get("/list")
 def get_customers(
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(security_module.require_any_menu_access(*CUSTOMER_LIST_MENUS)),
     search_keyword: str = Query(None, max_length=200),
     status: str = Query(None),
     tradetype: str = Query(None),
@@ -145,7 +150,7 @@ def get_customers(
 
 @router.get("/export")
 def export_customers(
-    user: dict = Depends(security_module.get_current_user),
+    user: dict = Depends(require_customer_master),
     search_keyword: str = Query(None, max_length=200),
     status: str = Query(None),
     tradetype: str = Query(None),
@@ -170,7 +175,7 @@ class OpeningBalanceApplyRequest(BaseModel):
 
 
 @router.get("/opening-balances")
-def get_opening_balances(user: dict = Depends(security_module.get_current_user)):
+def get_opening_balances(user: dict = Depends(require_customer_master)):
     try:
         return {"success": True, "items": customer_module.OpeningBalanceList(user["companyid"])}
     except Exception as error:
@@ -178,7 +183,7 @@ def get_opening_balances(user: dict = Depends(security_module.get_current_user))
 
 
 @router.post("/opening-balances")
-def apply_opening_balances(data: OpeningBalanceApplyRequest, user: dict = Depends(security_module.get_current_user)):
+def apply_opening_balances(data: OpeningBalanceApplyRequest, user: dict = Depends(require_customer_master)):
     if not _can_edit_opening_balances(user):
         raise HTTPException(status_code=403, detail="기초잔액은 관리자(MASTER·SUBMASTER)만 반영할 수 있습니다.")
     try:

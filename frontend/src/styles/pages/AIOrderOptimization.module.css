@@ -487,10 +487,55 @@
 /* 과거 매입이력 · 가공이력 (공용 선택 창 틀 안): 목록 + 오른쪽 상세 */
 .hxSplit { display: grid; grid-template-columns: minmax(0, 1fr) 320px; height: 100%; min-height: 0; }
 .hxSplitList { min-width: 0; min-height: 0; overflow: auto; }
-.hxSplitDetail { display: flex; min-height: 0; flex-direction: column; gap: 12px; overflow: auto; padding: 14px 16px; border-left: 1px solid #e3e7ec; background: #fbfcfd; }
-.hxFocusRow td { background: #f5f8fc; }
-.hxPickerTabs { align-self: flex-end; margin: 0 6px 0 0; }
-.hxPickerTabs button { height: 36px; }
-.hxManualPane { display: flex; flex-direction: column; gap: 8px; padding: 22px 24px; }
-.hxManualPane > span { color: #8b95a3; font-size: 12px; }
+.hxSplitDetail { display: flex; min-height: 0; flex-direction: column; gap: 10px; overflow: auto; padding: 12px; border-left: 1px solid #dce2ea; background: #f2f4f7; }
+.hxFocusRow { outline: 2px solid #9fb6d3; outline-offset: -2px; }
+.hxFocusBg td { background: #f3f7fc; }
+.hxManualPane { display: flex; flex-direction: column; gap: 10px; min-height: 100%; padding: 16px; background: #f2f4f7; }
 .hxManualPane .hxMessage, .hxSplit + .hxMessage { margin: 0; }
+
+/* 안내 상자: 탭마다 같은 높이 (각 줄 한 줄 · 넘치면 말줄임) */
+.hxGuide { display: flex; min-width: 0; flex-direction: column; justify-content: center; height: 46px; }
+.hxGuide > p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hxGuide > div { flex-wrap: nowrap !important; overflow: hidden; white-space: nowrap; }
+.hxGuide > div > span { flex-wrap: nowrap !important; flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.hxFilterNote { align-self: center; margin-top: 22px; color: #8290a5; font-size: 12px; }
+
+/* 상세 패널 카드 */
+.hxCard { display: flex; flex: 0 0 auto; flex-direction: column; gap: 8px; margin: 0; padding: 12px; border: 1px solid #dce2ea; border-radius: 6px; background: #fff; }
+.hxCard .hxDetailHead { padding: 0; border: 0; }
+.hxDetailSub { color: #8290a5; font-size: 11.5px; }
+.hxPillOk, .hxPillNo { flex-shrink: 0; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.hxPillOk { background: #e3f4ea; color: #0d7349; }
+.hxPillNo { background: #f1f3f6; color: #7c8898; }
+.hxCardTitle { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 8px; }
+.hxCardTitle b { color: #1e2e45; font-size: 12.5px; font-weight: 700; }
+.hxCardTitle span { color: #8290a5; font-size: 11px; }
+.hxStrip { height: 38px; }
+.hxPieceOver { background: #fde2e4; color: #c72a36; }
+.hxPiece { min-width: 5px; }
+.hxPieceRoomy { min-width: 26px; }
+.hxSplit { grid-template-columns: minmax(0, 1fr) 360px; }
+.hxSplitDetail .hxStrip { height: 48px; }
+.hxRunTitle { margin-bottom: -2px; color: #8292a9; font-size: 11px; }
+.hxRunNote { color: #8292a9; font-size: 11px; }
+.hxCard .subMetric { flex-wrap: wrap; margin-top: -3px; }
+.hxLegend { display: flex; flex-wrap: wrap; gap: 4px 12px; color: #4b5b70; font-size: 11.5px; }
+.hxLegend span, .hxChips span { display: inline-flex; align-items: center; gap: 5px; }
+.hxLegend i, .hxChips i { display: inline-block; width: 11px; height: 11px; border: 1px solid #c5d1df; border-radius: 2px; }
+.hxMetrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.hxMetric { display: flex; flex-direction: column; gap: 2px; padding: 7px 9px; border-radius: 4px; background: #f4f6f9; }
+.hxMetric span { color: #8290a5; font-size: 10.5px; }
+.hxMetric strong { color: #1e2e45; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hxCard.hxKeyvals > div { grid-template-columns: 72px 1fr; padding: 3px 0; }
+.hxSplitDetail .hxApply, .hxSplitDetail .hxReason { flex: 0 0 auto; border-radius: 6px; }
+.hxSplitDetail .hxApply { border-color: #cfe0f2; background: #f3f8fd; }
+
+/* 직접 입력 미리보기 */
+.hxPreview { display: flex; flex-direction: column; gap: 12px; max-width: 760px; padding: 16px; border: 1px solid #dce2ea; border-radius: 6px; background: #fff; }
+.hxPreview .hxStrip { height: 44px; }
+.hxPreview .hxMetrics { max-width: 420px; }
+.hxChips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: #26364e; font-size: 12px; }
+.hxChips b { color: #8290a5; font-size: 11px; font-weight: 600; }
+.hxChips b + span { margin-left: -2px; }
+.hxChips span { padding: 2px 8px; border: 1px solid #e1e6ee; border-radius: 12px; background: #fafbfc; font-weight: 600; }
+.hxPreviewNote { margin: 0; color: #8290a5; font-size: 11.5px; }

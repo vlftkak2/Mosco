@@ -11,6 +11,10 @@ _USER_JOINS = """
 _CREATED_BY = "COALESCE(created_user.username, i.created_by) AS created_by"
 _UPDATED_BY = "COALESCE(updated_user.username, i.updated_by) AS updated_by"
 _ORDER_BY = "i.iniodate ASC, i.receiptno ASC, i.lineno ASC, i.iniotype ASC"
+# 수불 상세구분 (Iniop01t.iniokind, 저장할 때 기록): 가공·창고이동도 수불유형은 IN/OUT 이라 따로 둔다.
+#   ST 기초 / IN 매입입고 / OUT 매출출고 / PROCESS_OUT 가공투입 / PROCESS_IN 가공입고 / MOVE_OUT 이동출고 / MOVE_IN 이동입고
+KIND_NAMES = {"ST": "기초", "IN": "매입입고", "OUT": "매출출고", "PROCESS_OUT": "가공투입",
+              "PROCESS_IN": "가공입고", "MOVE_OUT": "이동출고", "MOVE_IN": "이동입고"}
 IN_MEMORY_EXCEL_ROWS = 30000  # 이 행 수까지는 엑셀을 메모리에서 만든다 (그 이상은 constant_memory)
 
 
@@ -42,8 +46,13 @@ def _conditions(
         where.append("i.iniodate <= %s")
         params.append(date_to)
     if iniotype.strip():
-        where.append("i.iniotype = %s")
-        params.append(iniotype.strip().upper())
+        kind = iniotype.strip().upper()
+        # 상세구분 값이면 iniokind 로(인덱스 companyid, iniokind, iniodate), 그 밖의 값은 기본 유형으로 거른다
+        if kind in KIND_NAMES:
+            where.append("i.iniokind = %s")
+        else:
+            where.append("i.iniotype = %s")
+        params.append(kind)
     for column, value in (
         ("receiptno", receiptno), ("customcode", customcode), ("customname", customname),
         ("itemcode", itemcode), ("itemname", itemname),
@@ -95,7 +104,7 @@ def list_iniop_stock(companyid: str, page: int, page_size: int, **filters):
                        COALESCE(price_code.code_name, i.unit) AS unit, i.unitprice, i.supplyamt, i.vat, i.unitamt,
                        i.warehousecode, i.warehousecodename,
                        i.created_at, i.updated_at,
-                       {_CREATED_BY}, {_UPDATED_BY}
+                       {_CREATED_BY}, {_UPDATED_BY}, i.iniokind
                 FROM page_keys AS k
                 JOIN Iniop01t AS i
                   ON i.companyid = k.companyid AND i.iniotype = k.iniotype
@@ -122,7 +131,7 @@ def write_iniop_stock_excel(companyid: str, output_path: str, **filters):
                        i.thickness, i.width, i.length,
                        i.qty, COALESCE(qty_code.code_name, i.qtyunit) AS qtyunit, i.weight, i.warehousecode, i.warehousecodename,
                        i.created_at, i.updated_at,
-                       {_CREATED_BY}, {_UPDATED_BY}
+                       {_CREATED_BY}, {_UPDATED_BY}, i.iniokind
                 FROM Iniop01t AS i
                 LEFT JOIN CodeMaster01t AS qty_code
                   ON qty_code.companyid = i.companyid
@@ -176,6 +185,8 @@ def write_iniop_stock_excel(companyid: str, output_path: str, **filters):
             while rows := cursor.fetchmany(2000):
                 for row in rows:
                     worksheet.write_number(row_no, 0, row_no)
+                    # 수불유형 칸에는 상세구분(매입입고·가공입고·이동출고 …)을 쓴다
+                    row = (*row[:1], KIND_NAMES.get(row[-1], row[1]), *row[2:-1])
                     for index, value in enumerate(row, start=1):
                         if value is None:
                             continue
