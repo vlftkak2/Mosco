@@ -4,6 +4,7 @@ import usePageReactivated from '../../components/common/usePageReactivated';
 import { LinkedOrderBadge } from '../../components/common/LinkedOrderNotice';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import PickerModal, { PickerEmpty, pickerClasses } from '../../components/common/PickerModal';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 import { ActionIcon, Box, Button, Group, Modal, Pagination, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconArrowsExchange, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
@@ -37,6 +38,19 @@ const today = () => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 const number = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 3 });
+const transferWeight = (row, qty) => {
+  const availableQty = Number(row.available_qty || 0);
+  const availableWeight = Number(row.available_weight || 0);
+  const value = Number(qty);
+  if (!Number.isFinite(value) || value <= 0 || availableQty <= 0) return 0;
+  if (value >= availableQty) return availableWeight;
+  return Math.round((availableWeight * value / availableQty) * 1000) / 1000;
+};
+const cleanQtyInput = (value) => {
+  const text = String(value ?? '').replace(/[^0-9.]/g, '');
+  const [whole, ...rest] = text.split('.');
+  return rest.length ? `${whole}.${rest.join('').slice(0, 3)}` : whole;
+};
 const sourceKey = (row) => `${row.stocksourcetype}\u001f${row.stocksourceno}\u001f${row.stocksourceline}`;
 // 재고구분: 서버가 주는 stockkind(기초/입고/가공/이동)를 쓰고, 없으면 원천 구분으로 표시
 const STOCK_KIND_NAMES = { OPENING: '기초', INBOUND: '입고', PROCESS: '가공', TRANSFER: '이동' };
@@ -71,7 +85,8 @@ const DETAIL_COLUMNS = [
   { key: 'thickness', label: '두께', width: 70, minWidth: 70 },
   { key: 'width', label: '폭', width: 70, minWidth: 70 },
   { key: 'length', label: '길이', width: 70, minWidth: 70 },
-  { key: 'qty', label: '이전 수량', width: 70, minWidth: 70 },
+  { key: 'qty', label: '이전 수량', width: 80, minWidth: 75, required: true },
+  { key: 'available_qty', label: '현재고수량', width: 80, minWidth: 70 },
   { key: 'qtyunit', label: '단위', width: 50, minWidth: 50 },
   { key: 'weight', label: '이전 중량(KG)', width: 100, minWidth: 80 },
   { key: 'customname', label: '매입처', width: 120, minWidth: 90 },
@@ -440,8 +455,10 @@ export default function InoutmoveRegister() {
     setHeader((current) => ({ ...current, fromwarehousecode: selectedSourceCode }));
     setItems((current) => [...current, ...additions.map((row) => ({
       ...row,
-      qty: Number(row.qty || 0),
-      weight: Number(row.weight || 0),
+      available_qty: Number(row.qty || 0),       // 고를 때의 현재고 수량·중량 (이전 수량 상한, 중량 비율 계산 기준)
+      available_weight: Number(row.weight || 0),
+      qty: '',                                   // 이전 수량은 직접 입력 (필수)
+      weight: 0,
     }))]);
     setStockOpen(false);
   };
@@ -453,7 +470,8 @@ export default function InoutmoveRegister() {
     if (header.fromwarehousecode === header.towarehousecode) {
       notifications.show({ title: '창고 확인', message: '출발 창고와 도착 창고는 달라야 합니다.', color: 'orange' }); return;
     }
-    const invalidItem = items.find((row) => !Number.isFinite(Number(row.qty)) || Number(row.qty) <= 0);
+    const invalidItem = items.find((row) => !Number.isFinite(Number(row.qty)) || Number(row.qty) <= 0
+      || (row.available_qty !== undefined && Number(row.qty) > Number(row.available_qty)));
     if (invalidItem) {
       notifications.show({ title: '이전 수량 확인', message: `${invalidItem.itemname}의 이전 수량을 현재고 이내로 입력해 주세요.`, color: 'orange' }); return;
     }
@@ -573,7 +591,7 @@ export default function InoutmoveRegister() {
       style={{ width: `max(100%, ${detailTableWidth}px)`, minWidth: `${detailTableWidth}px`, tableLayout: 'fixed' }}>
       <colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
       <Table.Thead><Table.Tr>{DETAIL_COLUMNS.map((column) => <Table.Th key={column.key} className={column.key === 'select' ? `${codeClasses.checkCol} ${classes.checkCell}` : codeClasses.resizableHeader} style={{ position: 'relative', width: detailColumnWidths[column.key] ?? column.width }}>
-        {column.key === 'select' ? <input type="checkbox" checked={items.length > 0 && selectedIds.length === items.length} onChange={(event) => setSelectedIds(event.currentTarget.checked ? items.map(sourceKey) : [])} disabled={readOnly || !items.length} /> : <span style={{ whiteSpace: 'nowrap' }}>{column.label}</span>}
+        {column.key === 'select' ? <input type="checkbox" checked={items.length > 0 && selectedIds.length === items.length} onChange={(event) => setSelectedIds(event.currentTarget.checked ? items.map(sourceKey) : [])} disabled={readOnly || !items.length} /> : <span style={{ whiteSpace: 'nowrap' }}>{column.label}{column.required && <span style={{ color: '#e03131' }}> *</span>}</span>}
         {column.key !== 'select' && <span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeGridColumn(event, column, detailColumnWidths, setDetailColumnWidths, DETAIL_COLUMNS)} role="separator" aria-label={`${column.label} 열 너비 조절`} />}
       </Table.Th>)}</Table.Tr></Table.Thead>
       {!!items.length && <Table.Tbody>{items.map((row, index) => <Table.Tr key={sourceKey(row)} className={readOnly ? classes.savedRow : selectedSet.has(sourceKey(row)) ? classes.selectedRow : ''}>
@@ -582,7 +600,17 @@ export default function InoutmoveRegister() {
         <Table.Td>{String(header.receptdate || '').slice(0, 10)}</Table.Td><Table.Td>{row.fromwarehousename || fromWarehouse}</Table.Td><Table.Td>{row.towarehousename || toWarehouse}</Table.Td>
         <Table.Td>{row.itemname}</Table.Td><Table.Td>{row.productname}</Table.Td><Table.Td>{row.materialname || row.myrtle || ''}</Table.Td>
         <Table.Td ta="right">{number(row.thickness)}</Table.Td><Table.Td ta="right">{number(row.width)}</Table.Td><Table.Td ta="right">{number(row.length)}</Table.Td>
-        <Table.Td ta="right">{number(row.qty)}</Table.Td>
+        <Table.Td ta="right" className={readOnly || row.available_qty === undefined ? undefined : classes.qtyInputCell}>{readOnly || row.available_qty === undefined ? number(row.qty) : (
+          <input className={codeClasses.cellInput} inputMode="decimal" aria-label={`${row.itemname} 이전 수량`}
+            title={`현재고 ${number(row.available_qty)} 이내`} value={row.qty}
+            onFocus={(event) => event.currentTarget.select()}
+            onChange={(event) => {
+              const qty = cleanQtyInput(event.currentTarget.value);
+              const key = sourceKey(row);
+              setItems((current) => current.map((item) => (sourceKey(item) === key ? { ...item, qty, weight: transferWeight(item, qty) } : item)));
+            }} />
+        )}</Table.Td>
+        <Table.Td ta="right">{row.available_qty === undefined ? '' : number(row.available_qty)}</Table.Td>
         <Table.Td>{row.qtyunit}</Table.Td><Table.Td ta="right">{number(row.weight)}</Table.Td>
         <Table.Td>{row.sourcecustomname || row.customname || ''}</Table.Td>
         <Table.Td>{String(row.sourcereceiptdate || row.receiptdate || '').slice(0, 10)}</Table.Td>
@@ -667,7 +695,11 @@ export default function InoutmoveRegister() {
         </Box>
       </Paper>}
     </Box>
-    <Modal opened={deleteOpen} onClose={() => !saving && setDeleteOpen(false)} title="재고이전 삭제" centered size="sm"><Stack gap="md"><Text size="sm" c="dimmed">{selectedReceiptno ? `${selectedReceiptno} 전표를 삭제하고 원래 창고로 되돌립니다.` : '선택한 상세 행을 삭제합니다.'}</Text><Group justify="flex-end"><Button variant="default" onClick={() => setDeleteOpen(false)} disabled={saving}>취소</Button><Button color="red" leftSection={<IconTrash size={15} />} onClick={() => void deleteDocument()} loading={saving}>삭제</Button></Group></Stack></Modal>
+    <ConfirmDeleteModal opened={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={() => void deleteDocument()} loading={saving}
+      title={selectedReceiptno ? '재고이전 전표를 삭제할까요?' : '선택한 상세를 삭제할까요?'}
+      target={selectedReceiptno || `선택 ${selectedIds.length}개 품목`}
+      message={selectedReceiptno ? '전표와 상세 내역이 모두 삭제되고 재고는 원래 창고로 되돌아가며' : '선택한 상세 행이 목록에서 빠지며'}
+      note={selectedReceiptno ? '삭제한 전표는 복구할 수 없습니다.' : '저장 전이라 다시 추가할 수 있습니다.'} />
     <StockPicker opened={stockOpen} fromWarehouse={fromWarehouse} toWarehouse={toWarehouse} existingKeys={new Set(items.map(sourceKey))} onClose={() => setStockOpen(false)} onApply={applyStocks} />
   </Box>;
 }

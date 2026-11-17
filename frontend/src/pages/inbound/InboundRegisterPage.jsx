@@ -18,7 +18,7 @@ import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
 import classes from '../../styles/pages/InboundRegister.module.css';
 import itemMasterClasses from '../../styles/pages/ItemMaster.module.css';
 import outboundClasses from '../../styles/pages/OutboundRegister.module.css';
-import { makeExpense, ExpenseCostAutocompleteCell, ExpenseCustomerAutocompleteCell, ExpenseNumericCell, ExpenseDescriptionCell, DetailSubtotalRow, DetailSubtotalFoot, DetailSubtotalTable, detailSubtotalValues, expenseSubtotalColumns, expenseSubtotalValues } from '../outbound/OutboundRegisterPage';
+import { makeExpense, handleExpenseGridKeyDown, ExpenseCostAutocompleteCell, ExpenseCustomerAutocompleteCell, ExpenseNumericCell, ExpenseDescriptionCell, DetailSubtotalRow, DetailSubtotalFoot, DetailSubtotalTable, detailSubtotalValues, expenseSubtotalColumns, expenseSubtotalValues } from '../outbound/OutboundRegisterPage';
 
 const INBOUND_EXPENSE_SUBTOTAL_COLUMNS = expenseSubtotalColumns(false);
 import { PageRibbonContext } from '../../components/layout/MainLayout';
@@ -73,6 +73,7 @@ const InboundExpenseRow = memo(function InboundExpenseRow({
 }) {
   const supply = Number(cleanNumericInput(expense.supplyamt)) || 0;
   const vat = Number(cleanNumericInput(expense.vat)) || 0;
+  const saved = disabled && !expense.is_new;  // 저장된 행(수정 불가)은 입고상세처럼 회색
   const handleCostSelect = useCallback((option) => onChange(expense.id, 'costcode', option?.code || ''), [expense.id, onChange]);
   const handleCustomerSelect = useCallback((id, customer) => onChange(expense.id, 'customcode', customer.customercode || ''), [expense.id, onChange]);
   const handleCustomerPicker = useCallback((id) => onOpenCustomerPicker(`expense::${expense.id}`), [expense.id, onOpenCustomerPicker]);
@@ -81,13 +82,13 @@ const InboundExpenseRow = memo(function InboundExpenseRow({
 
   return (
     <Table.Tr className={[expense.is_new && outboundClasses.newRow, selected && outboundClasses.selectedRow].filter(Boolean).join(' ')}>
-      <Table.Td className={codeClasses.checkCol} ta="center"><input type="checkbox" aria-label={`기타비용 ${index + 1}행 선택`} checked={selected} disabled={disabled} onChange={handleToggle} /></Table.Td>
-      <Table.Td ta="center">{index + 1}</Table.Td>
+      <Table.Td className={`${codeClasses.checkCol} ${saved ? classes.savedCell : ''}`} ta="center"><input type="checkbox" aria-label={`기타비용 ${index + 1}행 선택`} checked={selected} disabled={disabled} onChange={handleToggle} /></Table.Td>
+      <Table.Td className={`${codeClasses.rowNumber} ${saved ? classes.savedCell : ''}`} ta="center">{index + 1}</Table.Td>
       <Table.Td><ExpenseCostAutocompleteCell row={expense} options={options} disabled={disabled} inputRef={inputRef}
         onDoubleClick={handleCostPicker} onSelect={handleCostSelect} /></Table.Td>
       <Table.Td><ExpenseNumericCell expenseId={expense.id} field="supplyamt" value={expense.supplyamt} disabled={disabled} onCommit={onChange} /></Table.Td>
       <Table.Td><ExpenseNumericCell expenseId={expense.id} field="vat" value={expense.vat} disabled={disabled} onCommit={onChange} /></Table.Td>
-      <Table.Td><input className={`${codeClasses.cellInput} ${classes.amountInput}`} aria-label="합계금액" value={formatNumericInput(String(supply + vat))} readOnly /></Table.Td>
+      <Table.Td><input className={`${codeClasses.cellInput} ${classes.amountInput}`} aria-label="합계금액" value={formatNumericInput(String(supply + vat))} readOnly data-expense-skip /></Table.Td>
       <Table.Td><ExpenseCustomerAutocompleteCell expenseId={expense.id} value={expense.customname || ''} disabled={disabled}
         onSelect={handleCustomerSelect} onOpenPicker={handleCustomerPicker} /></Table.Td>
       <Table.Td><ExpenseDescriptionCell expenseId={expense.id} value={expense.description} disabled={disabled} onCommit={onChange} /></Table.Td>
@@ -2853,7 +2854,7 @@ export default function InboundRegisterPage() {
           <InboundDetailSummary rows={rows} unitOptions={unitOptions} />
           </>}
           {detailTab === 'expenses' && <Box className={outboundClasses.expenseTabPanel}>
-            <Box className={`${codeClasses.tableWrap} ${outboundClasses.expenseTableWrap} ${expenses.length <= 100 ? classes.savedDetailScroller : ''} ${!expenses.length ? classes.emptyDetailWrap : ''}`}>
+            <Box onKeyDownCapture={handleExpenseGridKeyDown} className={`${codeClasses.tableWrap} ${outboundClasses.expenseTableWrap} ${expenses.length <= 100 ? classes.savedDetailScroller : ''} ${!expenses.length ? classes.emptyDetailWrap : ''}`}>
               <Box className={classes.detailFillWrap}>
                 <ExpenseRowsContext.Provider value={expenseRowsValue}>{expenseTable}</ExpenseRowsContext.Provider>
                 {expenses.length > 0 && <DetailSubtotalTable columns={INBOUND_EXPENSE_SUBTOTAL_COLUMNS} values={expenseSubtotalValues(expenseTotals)} minWidth={1120} />}

@@ -200,7 +200,7 @@ def list_receipts(
                        h.description, h.subulyn, h.created_at
                 FROM Outbound01t AS h
                 WHERE {where}
-                ORDER BY h.receptdate DESC, h.receiptno DESC
+                ORDER BY h.receptdate ASC, h.receiptno ASC
                 LIMIT %s OFFSET %s
             )
             SELECT p.receiptno, p.receptdate, p.customcode, p.customname,
@@ -233,7 +233,7 @@ def list_receipts(
                 FROM Outbound03t AS e
                 WHERE e.companyid = p.companyid AND e.receiptno = p.receiptno
             ) AS e ON TRUE
-            ORDER BY p.receptdate DESC, p.receiptno DESC
+            ORDER BY p.receptdate ASC, p.receiptno ASC
             """,
             (*params, page_size, (page - 1) * page_size),
         )
@@ -492,7 +492,7 @@ def list_available_stock(
                        stock.weight AS current_weight,
                        stock.weight + COALESCE(own.weight, 0) AS available_weight,
                        stock.unit, stock.warehousecode, stock.warehousecodename,
-                       stock.stockkind, stock.costprice,
+                       stock.stockkind, CASE WHEN stock.weight > 0 THEN ROUND(stock.costamt / stock.weight, 2) END AS costprice,
                        {linked_orders_sql("stock")} AS linked_orders
                 FROM CurrentStock01t AS stock
                 LEFT JOIN own_allocation AS own

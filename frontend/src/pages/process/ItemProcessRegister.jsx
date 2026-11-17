@@ -31,8 +31,30 @@ const today = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+// 원소재에서 이번 가공으로 넘어오는 이전 단계 가공비 (저장할 때 서버 계산과 같음: 남은 가공금액 × 투입중량 ÷ 남은 중량,
+// 남은 중량을 다 쓰면 남은 가공금액 전부). 저장된 전표는 수불장 가공투입 행에 기록된 금액 그대로.
+const carriedProcessFee = (source) => {
+  if (source.stock.carriedfee != null) return num(source.stock.carriedfee) || null;
+  const fee = num(source.stock.feeamt);
+  const weight = num(source.weight);
+  if (fee <= 0 || weight <= 0) return null;
+  const stockWeight = num(source.stock.weight);
+  if (stockWeight <= 0 || weight >= stockWeight) return fee;
+  return Math.round(fee * weight / stockWeight);
+};
+// 가공금액: 수기 입력(amountManual)이면 입력값, 아니면 단가 × 중량(단가기준 KG) 또는 수량 — 서버와 같은 규칙 (소수 둘째 자리)
+const calcProductAmount = (product) => {
+  const basis = String(product.unit || 'KG').toUpperCase() === 'KG' ? num(product.weight) : num(product.qty);
+  return Math.round(basis * num(product.unitprice) * 100) / 100;
+};
+const productAmount = (product) => (product.amountManual ? num(product.supplyamt) : calcProductAmount(product));
 const num = (value) => Number(String(value ?? '').replace(/,/g, '')) || 0;
 const numberText = (value) => num(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
+const cleanSourceInput = (value) => {
+  const text = String(value ?? '').replace(/[^0-9.]/g, '');
+  const [whole, ...rest] = text.split('.');
+  return rest.length ? `${whole}.${rest.join('').slice(0, 3)}` : whole;
+};
 const DECIMAL_INPUT_PATTERN = /^\d*(?:\.\d{0,3})?$/;
 const rawNumericValue = (value) => String(value ?? '').replace(/,/g, '');
 const formatNumericInput = (value) => {
@@ -171,9 +193,9 @@ const DETAIL_COLUMNS = [
   { key: 'thickness', label: '두께', width: 82, minWidth: 60 },
   { key: 'width', label: '폭', width: 82, minWidth: 60 },
   { key: 'length', label: '길이', width: 82, minWidth: 60 },
-  { key: 'qty', label: '수량', width: 82, minWidth: 60 },
+  { key: 'qty', label: '수량', width: 82, minWidth: 60, required: true },
   { key: 'qtyunit', label: '단위', width: 70, minWidth: 55 },
-  { key: 'weight', label: '중량(KG)', width: 110, minWidth: 80 },
+  { key: 'weight', label: '중량(KG)', width: 110, minWidth: 80, required: true },
   { key: 'lossweight', label: '로스(KG)', width: 100, minWidth: 75 },
   { key: 'unitprice', label: '단가/KG', width: 100, minWidth: 75 },
   { key: 'amount', label: '가공금액', width: 115, minWidth: 85 },
@@ -339,32 +361,42 @@ function StockPicker({ opened, onClose, onApply, existingKeys, existingWarehouse
   const [thickness, setThickness] = useState('');
   const [width, setWidth] = useState('');
   const [length, setLength] = useState('');
+  const [dateFrom, setDateFrom] = useState(`${today().slice(0, 8)}01`);
+  const [dateTo, setDateTo] = useState(today());
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const pageSize = 30;
 
   const load = useCallback(async (nextPage = 1) => {
+    if (dateFrom && dateTo && dateFrom > dateTo) {
+      notifications.show({ title: '조회기간 확인', message: '시작일은 종료일보다 늦을 수 없습니다.', color: 'orange' });
+      return;
+    }
     setLoading(true);
     try {
       const { data } = await axios.get('/api/item-process-register/available-stock', {
         ...authConfig(), params: {
           page: nextPage, page_size: pageSize, q: query.trim() || undefined, warehouse: warehouse.trim() || undefined,
           thickness: thickness || undefined, width: width || undefined, length: length || undefined,
+          date_from: dateFrom || undefined, date_to: dateTo || undefined,
         },
       });
       setItems(data.items || []); setTotal(data.total || 0); setPage(nextPage);
     } catch (error) {
       notifications.show({ title: '현재고 조회 실패', message: error.response?.data?.detail || '현재고를 조회하지 못했습니다.', color: 'red' });
     } finally { setLoading(false); }
-  }, [query, warehouse, thickness, width, length]);
+  }, [query, warehouse, thickness, width, length, dateFrom, dateTo]);
 
   const resetAndLoadOnOpen = useEffectEvent(() => {
+    const monthStart = `${today().slice(0, 8)}01`;
+    const todayText = today();
     setSelected({}); setSelectionWarehouseCode(existingWarehouseCode); setQuery(''); setWarehouse(''); setThickness(''); setWidth(''); setLength('');
+    setDateFrom(monthStart); setDateTo(todayText);
     void (async () => {
       setLoading(true);
       try {
-        const { data } = await axios.get('/api/item-process-register/available-stock', { ...authConfig(), params: { page: 1, page_size: pageSize } });
+        const { data } = await axios.get('/api/item-process-register/available-stock', { ...authConfig(), params: { page: 1, page_size: pageSize, date_from: monthStart, date_to: todayText } });
         setItems(data.items || []); setTotal(data.total || 0); setPage(1);
       } catch (error) {
         notifications.show({ title: '현재고 조회 실패', message: error.response?.data?.detail || '현재고를 조회하지 못했습니다.', color: 'red' });
@@ -395,11 +427,13 @@ function StockPicker({ opened, onClose, onApply, existingKeys, existingWarehouse
   const pickedCount = items.filter((row) => selected[sourceKey(row)]).length;
   const pickerColumns = useResizableColumns(PICKER_COLUMNS);
   const searchOnEnter = (event) => { if (event.key === 'Enter') void load(1); };
-  const resetFilters = () => { setQuery(''); setWarehouse(''); setThickness(''); setWidth(''); setLength(''); };
+  const resetFilters = () => { setQuery(''); setWarehouse(''); setThickness(''); setWidth(''); setLength(''); setDateFrom(`${today().slice(0, 8)}01`); setDateTo(today()); };
 
   return <PickerModal opened={opened} onClose={onClose}
     title="가공 원소재 선택" description="가공에 투입할 현재고를 선택합니다. 같은 창고의 재고만 함께 담을 수 있습니다." icon={<IconBox size={22} stroke={1.7} />}
     filters={<>
+      <ErpDateInput label="기준일 시작" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.currentTarget.value)} />
+      <ErpDateInput label="기준일 종료" type="date" value={dateTo} onChange={(e) => setDateTo(e.currentTarget.value)} />
       <TextInput size="sm" label="창고" placeholder="창고코드 또는 창고명" value={warehouse} onChange={(e) => setWarehouse(e.currentTarget.value)} onKeyDown={searchOnEnter} />
       <TextInput size="sm" label="품목" placeholder="품목코드·품명·제품번호" leftSection={<IconSearch size={14} />} value={query} onChange={(e) => setQuery(e.currentTarget.value)} onKeyDown={searchOnEnter} />
       <TextInput size="sm" label="두께" type="number" min="0" step="0.001" placeholder="예: 1.2" style={{ width: 100 }} value={thickness} onChange={(e) => setThickness(e.currentTarget.value)} onKeyDown={searchOnEnter} />
@@ -597,8 +631,8 @@ export default function ItemProcessRegister() {
   };
   const [selectedProcessno, setSelectedProcessno] = useState('');
   const selectedProcessnoRef = useRef('');
-  const [selectedProcessEditable, setSelectedProcessEditable] = useState(false);
-  const readOnly = Boolean(selectedProcessno) && !selectedProcessEditable;
+  // 저장된 가공전표는 다른 등록 화면(매입·매출·재고이동)처럼 읽기 전용. 바꾸려면 삭제 후 다시 등록한다
+  const readOnly = Boolean(selectedProcessno);
   // 계획에서 불러온 전표는 계획 그대로: 행 추가 · 복사 · 선택삭제 불가 (다르게 하려면 계획을 다시 확정)
   const structureLocked = readOnly || Boolean(planLink);
   const [loading, setLoading] = useState(false);
@@ -619,7 +653,6 @@ export default function ItemProcessRegister() {
     lastAddTargetRef.current = null;
     selectedProcessnoRef.current = '';
     setSelectedProcessno('');
-    setSelectedProcessEditable(false);
     setPlanLink(null);
   }, []);
 
@@ -673,7 +706,6 @@ export default function ItemProcessRegister() {
     const requestId = ++detailRequestIdRef.current;
     selectedProcessnoRef.current = processno;
     setSelectedProcessno(processno);
-    setSelectedProcessEditable(false);
     setDetailLoading(true);
     setHeader(emptyHeader());
     setSources([]);
@@ -685,7 +717,6 @@ export default function ItemProcessRegister() {
       if (requestId !== detailRequestIdRef.current) return;
       setSelectedDetailIds([]);
       selectionAnchorRef.current = '';
-      setSelectedProcessEditable(Boolean(data.header.can_edit));
       setPlanLink(data.header.planno ? { planno: data.header.planno } : null);
       setHeader({
         processdate: String(data.header.processdate || '').slice(0, 10), customcode: data.header.customcode || '',
@@ -702,7 +733,7 @@ export default function ItemProcessRegister() {
             materialcode: source.materialcode, materialname: source.materialname, surfacecode: source.surfacecode,
             surfacename: source.surfacename, myrtle: source.myrtle, thickness: source.thickness, width: source.width,
             length: source.length, qtyunit: source.qtyunit, warehousecode: source.sourcewarehousecode,
-            warehousecodename: source.sourcewarehousecodename, costprice: source.costprice,
+            warehousecodename: source.sourcewarehousecodename, costprice: source.costprice, carriedfee: source.feeamt,
           },
           qty: String(source.qty), weight: String(source.weight),
           products: products.map((product) => ({
@@ -712,6 +743,8 @@ export default function ItemProcessRegister() {
             productno: parentLineNumbers.has(product.lineno) ? '' : product.productname || '', productname: product.itemname || '', thickness: product.thickness ?? '', width: product.width ?? '',
             length: product.length ?? '', qty: String(product.qty), qtyunit: product.qtyunit || '',
             weight: String(product.weight), lossweight: String(product.lossweight || 0), unit: product.unit || 'KG', unitprice: String(product.unitprice || 0),
+            supplyamt: String(product.supplyamt ?? ''),
+            amountManual: Math.abs(num(product.supplyamt) - calcProductAmount({ unit: product.unit, weight: product.weight, qty: product.qty, unitprice: product.unitprice })) > 0.004,
             description: product.description || '',
           })),
         };
@@ -731,7 +764,7 @@ export default function ItemProcessRegister() {
   const addStocks = (rows) => {
     const warehouseCode = rows[0]?.warehousecode || '';
     if (!warehouseCode || rows.some((row) => row.warehousecode !== warehouseCode)) return false;
-    const addedSources = rows.map((row) => ({ id: uid(), stock: row, qty: String(row.input_qty), weight: String(row.input_weight), products: [] }));
+    const addedSources = rows.map((row) => ({ id: uid(), stock: row, qty: '', weight: '', inputEditable: true, products: [] }));
     const selectedWarehouse = rows[0];
     setHeader((current) => ({ ...current, warehousecode: warehouseCode, warehousecodename: selectedWarehouse.warehousecodename || warehouseCode }));
     setSources((current) => [...current, ...addedSources]);
@@ -851,6 +884,27 @@ export default function ItemProcessRegister() {
     }
     setStockOpen(true);
   }, [readOnly, reset, selectedDetailIds, sources, addProduct, planLink]);
+  // 원소재 투입량: 판재·코일 모두 투입 수량을 입력하고, 중량은 현재고 비율로 계산 (다 쓰면 현재고 중량 그대로)
+  const updateSourceQty = (sourceId, value) => setSources((current) => current.map((source) => {
+    if (source.id !== sourceId) return source;
+    const text = cleanSourceInput(value);
+    const qty = num(text);
+    const stockQty = num(source.stock.qty);
+    const stockWeight = num(source.stock.weight);
+    const weight = !text || qty <= 0 || stockQty <= 0 ? '' : qty >= stockQty ? String(stockWeight) : String(Math.round(stockWeight * qty / stockQty * 1000) / 1000);
+    return { ...source, qty: text, weight };
+  }));
+  // 가공금액 수기 입력: 값을 넣으면 그 금액을 쓰고, 비우면 다시 단가 × 중량 자동 계산
+  const setProductAmount = (sourceId, productId, value) => setSources((current) => current.map((source) => source.id !== sourceId ? source : {
+    ...source,
+    products: source.products.map((product) => {
+      if (product.id !== productId) return product;
+      const text = String(value ?? '').trim();
+      if (!text) return { ...product, supplyamt: '', amountManual: false };
+      if (num(text) === calcProductAmount(product) && !product.amountManual) return product;
+      return { ...product, supplyamt: text, amountManual: true };
+    }),
+  }));
   const updateProduct = (sourceId, productId, field, value) => setSources((current) => current.map((source) => source.id === sourceId ? { ...source, products: source.products.map((product) => product.id === productId ? { ...product, [field]: value } : product) } : source));
   const updateProductWeight = (sourceId, productId, value) => {
     const source = sources.find((item) => item.id === sourceId);
@@ -976,8 +1030,7 @@ export default function ItemProcessRegister() {
   });
   const totalLeafQty = leafProducts.reduce((sum, product) => sum + num(product.qty), 0);
   const totalProcessCost = sources.reduce((sum, source) => sum + source.products.reduce((productSum, product) => {
-    const basis = String(product.unit || 'KG').toUpperCase() === 'KG' ? num(product.weight) : num(product.qty);
-    return productSum + basis * num(product.unitprice);
+    return productSum + productAmount(product);
   }, 0), 0);
   const totalLossWeight = sources.reduce((sum, source) => sum + source.products.reduce((s2, p) => s2 + num(p.lossweight), 0), 0);
   const weightDifference = totalSourceWeight - totalLeafWeight - totalLossWeight;
@@ -1082,6 +1135,11 @@ export default function ItemProcessRegister() {
     if (!header.customcode || !header.warehousecode || !sources.length) {
       notifications.show({ title: '입력 확인', message: '가공일자·가공처·창고와 현재고 원소재를 확인해 주세요.', color: 'orange' }); return;
     }
+    const badSource = sources.find((source) => num(source.weight) <= 0
+      || (source.inputEditable && (num(source.qty) <= 0 || num(source.qty) > num(source.stock.qty))));
+    if (badSource) {
+      notifications.show({ title: '투입 수량 확인', message: `${badSource.stock.itemname || '원소재'}의 투입 수량을 현재고 이내로 입력해 주세요.`, color: 'orange' }); return;
+    }
     if (sources.some((source) => !source.products.length || source.products.some((p) => !p.processid || !p.productname || num(p.qty) <= 0 || num(p.weight) <= 0))) {
       notifications.show({ title: '가공 상세 확인', message: '각 원소재의 가공공정·가공품명·수량·중량을 입력해 주세요.', color: 'orange' }); return;
     }
@@ -1094,7 +1152,7 @@ export default function ItemProcessRegister() {
     }
     setSaving(true);
     try {
-      const payload = { ...header, ...(selectedProcessno ? { processno: selectedProcessno } : {}), ...(planLink ? { planno: planLink.planno } : {}), sources: sources.map((source) => ({ stocksourcetype: source.stock.sourcetype, stocksourceno: source.stock.sourceno, stocksourceline: source.stock.sourceline, qty: num(source.qty), weight: num(source.weight), products: source.products.map((p) => ({ clientid: p.id, parent_clientid: p.parentId, processid: p.processid, processcodename: p.processcodename, productno: p.productno, productname: p.productname, thickness: p.thickness === '' ? null : num(p.thickness), width: p.width === '' ? null : num(p.width), length: p.length === '' ? null : num(p.length), qty: num(p.qty), qtyunit: source.stock.qtyunit || p.qtyunit, weight: num(p.weight), lossweight: num(p.lossweight), unit: p.unit, unitprice: num(p.unitprice), description: p.description })) })) };
+      const payload = { ...header, ...(selectedProcessno ? { processno: selectedProcessno } : {}), ...(planLink ? { planno: planLink.planno } : {}), sources: sources.map((source) => ({ stocksourcetype: source.stock.sourcetype, stocksourceno: source.stock.sourceno, stocksourceline: source.stock.sourceline, qty: num(source.qty), weight: num(source.weight), products: source.products.map((p) => ({ clientid: p.id, parent_clientid: p.parentId, processid: p.processid, processcodename: p.processcodename, productno: p.productno, productname: p.productname, thickness: p.thickness === '' ? null : num(p.thickness), width: p.width === '' ? null : num(p.width), length: p.length === '' ? null : num(p.length), qty: num(p.qty), qtyunit: source.stock.qtyunit || p.qtyunit, weight: num(p.weight), lossweight: num(p.lossweight), unit: p.unit, unitprice: num(p.unitprice), supplyamt: p.amountManual ? num(p.supplyamt) : null, description: p.description })) })) };
       const { data } = await axios.post('/api/item-process-register/documents', payload, authConfig());
       if (data.product_numbers) {
         setSources((current) => current.map((source) => ({ ...source, products: source.products.map((product) => ({ ...product, productno: data.product_numbers[product.id] || product.productno })) })));
@@ -1139,7 +1197,7 @@ export default function ItemProcessRegister() {
           source.stock.sourceno || '', source.stock.sourceline ?? '', product.processcodename || '',
           product.productname || '', product.productno || '', product.thickness ?? '', product.width ?? '',
           product.length ?? '', num(product.qty), product.qtyunit || source.stock.qtyunit || '',
-          num(product.weight), num(product.lossweight), num(product.unitprice), num(product.weight) * num(product.unitprice),
+          num(product.weight), num(product.lossweight), num(product.unitprice), productAmount(product),
           product.description || '', createdAt, updatedAt, createdBy, updatedBy,
         ]);
       });
@@ -1315,15 +1373,21 @@ export default function ItemProcessRegister() {
           <Group className={classes.sectionHeader} justify="space-between"><Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>가공 상세</Text><Badge color="gray" variant="light" className={classes.count}>{selectedProcessno || '신규'} · {sources.length}개 원소재</Badge>{planLink && <Badge color="red" variant="light" className={classes.count} title="가공 최적화 확정 계획에서 불러온 전표입니다. 저장하면 계획이 가공완료됩니다.">가공계획 {planLink.planno}</Badge>}</Group><Group gap="sm"><Text size="xs" c={Math.abs(totalSourceWeight - totalLeafWeight) <= 0.001 ? 'teal' : 'red'}>투입 {numberText(totalSourceWeight)} KG · 최종제품 {numberText(totalLeafWeight)} KG</Text></Group></Group>
           {headerFields}
           <Box className={classes.detailViewport}>
-            <table className={classes.detailTable} style={{ width: `${detailTableWidth}px`, minWidth: `${detailTableWidth}px` }}><colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{DETAIL_COLUMNS.map((column) => <th key={column.key} className={classes.resizableHeader} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }}>{column.key === 'select' ? detailRowIds.length > 0 && <input type="checkbox" aria-label="상세 전체 선택" checked={allDetailsSelected} disabled={structureLocked} onChange={(event) => { setSelectedDetailIds(event.currentTarget.checked ? detailRowIds : []); selectionAnchorRef.current = ''; }} /> : column.label}<span className={classes.columnResizeHandle} data-column-key={column.key} onPointerDown={(event) => startTableColumnResize(event, DETAIL_COLUMNS, detailColumnWidths, setDetailColumnWidths, 1320)} role="separator" aria-label={`${column.label || '선택'} 열 너비 조절`} /></th>)}</tr></thead>
+            <table className={classes.detailTable} style={{ width: `${detailTableWidth}px`, minWidth: `${detailTableWidth}px` }}><colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{DETAIL_COLUMNS.map((column) => <th key={column.key} className={classes.resizableHeader} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }}>{column.key === 'select' ? detailRowIds.length > 0 && <input type="checkbox" aria-label="상세 전체 선택" checked={allDetailsSelected} disabled={structureLocked} onChange={(event) => { setSelectedDetailIds(event.currentTarget.checked ? detailRowIds : []); selectionAnchorRef.current = ''; }} /> : <>{column.label}{column.required && <span style={{ color: '#e03131' }}> *</span>}</>}<span className={classes.columnResizeHandle} data-column-key={column.key} onPointerDown={(event) => startTableColumnResize(event, DETAIL_COLUMNS, detailColumnWidths, setDetailColumnWidths, 1320)} role="separator" aria-label={`${column.label || '선택'} 열 너비 조절`} /></th>)}</tr></thead>
               <tbody>{sources.flatMap((source, sourceIndex) => {
-                const sourceRow = <tr className={classes.sourceRow} key={source.id}><td className={classes.checkCell}><input type="checkbox" aria-label={`원소재 ${sourceIndex + 1} 선택`} checked={selectedDetailIds.includes(source.id)} disabled={structureLocked} onChange={(event) => toggleDetailSelection(source.id, event.nativeEvent.shiftKey)} /></td><td className={classes.noCell}><div className={classes.noCellContent}><span className={classes.sourceNoLabel}><span>{sourceIndex + 1}</span><Badge size="xs" variant="light">원소재</Badge></span><ActionIcon size="xs" variant="subtle" color="red" disabled={structureLocked} title="가공품 추가" onClick={() => addProduct(source.id)}><IconPlus size={13} /></ActionIcon></div></td><td>재고 연결</td><td></td><td>{source.stock.itemname}</td><td>{source.stock.productname || ''}</td><td>{numberText(source.stock.thickness)}</td><td>{numberText(source.stock.width)}</td><td>{numberText(source.stock.length)}</td><td>{numberText(source.qty)}</td><td>{source.stock.qtyunit}</td><td>{numberText(source.weight)}</td><td></td><td className={classes.readOnlyAmount} title="원재료 원가단가(원/kg): 매입 운반비 등 기타비용과 이전 가공비까지 포함. 가공품 원가 = 원재료 원가 + 가공금액">{source.stock.costprice != null ? numberText(source.stock.costprice) : '—'}</td><td className={classes.readOnlyAmount} title="원재료 원가 = 원가단가 × 투입중량">{source.stock.costprice != null ? numberText(Math.round(num(source.stock.costprice) * num(source.weight))) : '—'}</td><td>{source.stock.sourceno || ''}</td><td>{source.stock.sourceline ?? ''}</td></tr>;
+                const sourceRow = <tr className={classes.sourceRow} key={source.id}><td className={classes.checkCell}><input type="checkbox" aria-label={`원소재 ${sourceIndex + 1} 선택`} checked={selectedDetailIds.includes(source.id)} disabled={structureLocked} onChange={(event) => toggleDetailSelection(source.id, event.nativeEvent.shiftKey)} /></td><td className={classes.noCell}><div className={classes.noCellContent}><span className={classes.sourceNoLabel}><span>{sourceIndex + 1}</span><Badge size="xs" variant="light">원소재</Badge></span><ActionIcon size="xs" variant="subtle" color="red" disabled={structureLocked} title="가공품 추가" onClick={() => addProduct(source.id)}><IconPlus size={13} /></ActionIcon></div></td><td>재고 연결</td><td></td><td>{source.stock.itemname}</td><td>{source.stock.productname || ''}</td><td>{numberText(source.stock.thickness)}</td><td>{numberText(source.stock.width)}</td><td>{numberText(source.stock.length)}</td><td>{source.inputEditable && !structureLocked
+                  ? <input className={classes.sourceInput} inputMode="decimal" aria-label="투입 수량" placeholder={`현재고 ${numberText(source.stock.qty)}`} title={`현재고 수량 ${numberText(source.stock.qty)} 이내`}
+                      value={source.qty} onFocus={(e) => e.currentTarget.select()} onChange={(e) => updateSourceQty(source.id, e.currentTarget.value)} />
+                  : numberText(source.qty)}</td><td>{source.stock.qtyunit}</td><td>{source.inputEditable && !structureLocked && !num(source.weight) ? '' : numberText(source.weight)}</td><td></td><td className={classes.readOnlyAmount}>—</td><td className={classes.readOnlyAmount} title="이전 단계에서 넘어오는 가공비: 원소재 가공금액 × 투입중량 ÷ 남은 중량. 이번 가공비는 가공품 행의 가공금액">{carriedProcessFee(source) != null ? numberText(carriedProcessFee(source)) : '—'}</td><td>{source.stock.sourceno || ''}</td><td>{source.stock.sourceline ?? ''}</td></tr>;
                 const productRows = orderProducts(source.products).map(({ product, lineNo, isLast, ancestorContinues }) => {
                   const processOptions = options.processes || [];
                   const dimensionRule = options.rules.find((rule) => rule.itemcode === source.stock.itemcode && rule.processid === product.processid);
                   const canEditDimension = (field) => String(dimensionRule?.[`${field}yn`] || '').trim().toUpperCase() === 'Y';
                   const depth = lineNo.length;
-                return <tr key={product.id}><td className={classes.checkCell}><input type="checkbox" aria-label={`가공품 ${lineNo.join('.')} 선택`} checked={selectedDetailIds.includes(product.id)} disabled={structureLocked} onChange={(event) => toggleDetailSelection(product.id, event.nativeEvent.shiftKey)} /></td><td className={classes.noCell}><div className={classes.noCellContent}><span className={classes.treeNumber}>{ancestorContinues.map((continues, index) => <span key={`parent-${index}`} className={`${classes.treeGuide} ${continues ? classes.treeGuideContinue : ''}`} />)}<span className={`${classes.treeGuide} ${isLast ? classes.treeGuideLast : classes.treeGuideMiddle}`} /><span>{String(lineNo[depth - 1]).padStart(2, '0')}</span></span><ActionIcon size="xs" variant="subtle" color="red" disabled={structureLocked} title="하위 가공 추가" onClick={() => addProduct(source.id, product.id)}><IconPlus size={13} /></ActionIcon></div></td><td title={product.description || undefined}>{product.description || "가공품"}</td><td><ProcessMethodCell product={product} options={processOptions} disabled={readOnly} onSelect={(option) => chooseRule(source, product, option?.processid || null)} /></td><td><input data-detail-field="productname" onKeyDown={handleDetailGridKeyDown} disabled={readOnly} value={product.productname} onChange={(e) => updateProduct(source.id, product.id, 'productname', e.target.value)} /></td><td><input data-detail-field="productno" onKeyDown={handleDetailGridKeyDown} disabled={readOnly} maxLength={150} value={product.productno} onChange={(e) => updateProduct(source.id, product.id, 'productno', e.target.value)} /></td>{['thickness', 'width', 'length'].map((field) => <td key={field}><DetailNumericInput field={field} value={product[field]} disabled={readOnly || !canEditDimension(field)} onCommit={(value) => updateProduct(source.id, product.id, field, value)} /></td>)}<td><DetailNumericInput field="qty" value={product.qty} disabled={readOnly} onCommit={(value) => updateProduct(source.id, product.id, 'qty', value)} /></td><td><input data-detail-field="qtyunit" disabled value={source.stock.qtyunit || product.qtyunit || 'EA'} /></td><td><DetailNumericInput field="weight" value={product.weight} disabled={readOnly} onCommit={(value) => updateProductWeight(source.id, product.id, value)} /></td><td className={classes.readOnlyAmount} title={planLink ? '가공계획에서 배부한 로스 (중량을 고치면 [로스 배부]로 다시 나눕니다)' : '수기가공은 로스를 쓰지 않습니다'}>{planLink || num(product.lossweight) ? numberText(product.lossweight) : '—'}</td><td><DetailNumericInput field="unitprice" value={product.unitprice} disabled={readOnly} onCommit={(value) => updateProduct(source.id, product.id, 'unitprice', value)} /></td><td className={readOnly ? classes.readOnlyAmount : classes.computedAmount}>{numberText(num(product.weight) * num(product.unitprice))}</td><td></td><td></td></tr>;
+                return <tr key={product.id}><td className={classes.checkCell}><input type="checkbox" aria-label={`가공품 ${lineNo.join('.')} 선택`} checked={selectedDetailIds.includes(product.id)} disabled={structureLocked} onChange={(event) => toggleDetailSelection(product.id, event.nativeEvent.shiftKey)} /></td><td className={classes.noCell}><div className={classes.noCellContent}><span className={classes.treeNumber}>{ancestorContinues.map((continues, index) => <span key={`parent-${index}`} className={`${classes.treeGuide} ${continues ? classes.treeGuideContinue : ''}`} />)}<span className={`${classes.treeGuide} ${isLast ? classes.treeGuideLast : classes.treeGuideMiddle}`} /><span>{String(lineNo[depth - 1]).padStart(2, '0')}</span></span><ActionIcon size="xs" variant="subtle" color="red" disabled={structureLocked} title="하위 가공 추가" onClick={() => addProduct(source.id, product.id)}><IconPlus size={13} /></ActionIcon></div></td><td title={product.description || undefined}>{product.description || "가공품"}</td><td><ProcessMethodCell product={product} options={processOptions} disabled={readOnly} onSelect={(option) => chooseRule(source, product, option?.processid || null)} /></td><td><input data-detail-field="productname" onKeyDown={handleDetailGridKeyDown} disabled={readOnly} value={product.productname} onChange={(e) => updateProduct(source.id, product.id, 'productname', e.target.value)} /></td><td><input data-detail-field="productno" onKeyDown={handleDetailGridKeyDown} disabled={readOnly} maxLength={150} value={product.productno} onChange={(e) => updateProduct(source.id, product.id, 'productno', e.target.value)} /></td>{['thickness', 'width', 'length'].map((field) => <td key={field}><DetailNumericInput field={field} value={product[field]} disabled={readOnly || !canEditDimension(field)} onCommit={(value) => updateProduct(source.id, product.id, field, value)} /></td>)}<td><DetailNumericInput field="qty" value={product.qty} disabled={readOnly} onCommit={(value) => updateProduct(source.id, product.id, 'qty', value)} /></td><td><input data-detail-field="qtyunit" disabled value={source.stock.qtyunit || product.qtyunit || 'EA'} /></td><td><DetailNumericInput field="weight" value={product.weight} disabled={readOnly} onCommit={(value) => updateProductWeight(source.id, product.id, value)} /></td><td className={classes.readOnlyAmount} title={planLink ? '가공계획에서 배부한 로스 (중량을 고치면 [로스 배부]로 다시 나눕니다)' : '수기가공은 로스를 쓰지 않습니다'}>{planLink || num(product.lossweight) ? numberText(product.lossweight) : '—'}</td><td><DetailNumericInput field="unitprice" value={product.unitprice} disabled={readOnly} onCommit={(value) => updateProduct(source.id, product.id, 'unitprice', value)} /></td><td className={readOnly ? classes.readOnlyAmount : classes.computedAmount} title={product.amountManual ? '직접 입력한 가공금액 (지우면 단가 × 중량으로 다시 계산)' : '단가 × 중량 자동 계산 (직접 입력 가능)'}>{readOnly
+                  ? numberText(productAmount(product))
+                  : <DetailNumericInput field="supplyamt" value={String(productAmount(product))} disabled={readOnly}
+                      onCommit={(value) => setProductAmount(source.id, product.id, value)} />}</td><td></td><td></td></tr>;
                 });
                 return [sourceRow, ...productRows];
               })}</tbody>

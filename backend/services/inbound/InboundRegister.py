@@ -584,10 +584,10 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
                     "warehousecodename": warehouse_names[item["warehousecode"].strip()],
                     "manager": default_manager,
                 } for line_no, (item, amounts) in enumerate(zip(group_items, calculated_amounts), start=1)]
-                # 재고 원가단가(kg당) = (공급가 + 기타비용 배부액) / 중량. 기타비용(운반비 등)은 중량 비율로 배부.
+                # 재고 원가금액 = 공급가 + 기타비용 배부액. 기타비용(운반비 등, 공급가 합계)은 중량 비율로 원 단위 배부, 끝전은 마지막 라인.
                 expense_total = sum((Decimal(str(expense.get("supplyamt") or 0)) for expense in expenses), Decimal("0"))
-                for line, costprice in zip(stock_lines, stock_cost_module.inbound_cost_prices(stock_lines, expense_total)):
-                    line["costprice"] = costprice
+                for line, (costamt, expamt) in zip(stock_lines, stock_cost_module.inbound_cost_parts(stock_lines, expense_total)):
+                    line["costamt"], line["expamt"] = costamt, expamt
                 current_stock_module.record_document(
                     cursor, companyid, companyname, header_receptdate, "IN", receiptno, stock_lines,
                     customcode=customcode, customname=customer_name, created_by=actor,

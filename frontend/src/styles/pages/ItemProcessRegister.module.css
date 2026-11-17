@@ -177,3 +177,8 @@
 .processSuggestions { border-color: #e0e6ef; border-radius: 6px; box-shadow: 0 8px 24px #1421351f; }
 .processSuggestion { border-radius: 4px; }
 .processSuggestion:hover, .processSuggestion:focus-visible { background: #f5f9ff; }
+
+/* 원소재 투입 수량·중량 입력칸: 파란 원소재 행 안에서 입력칸임이 보이게 흰 바탕 */
+.detailTable td input.sourceInput:not([type="checkbox"]) { background: #fff; }
+.detailTable td input.sourceInput::placeholder { color: #a7b1be; }
+

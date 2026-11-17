@@ -23,6 +23,7 @@ const TYPE_NAMES = { ST: "기초", IN: "매입입고", OUT: "매출출고", PROC
 const TYPE_OPTIONS = [{ value: "ALL", label: "전체" }, ...Object.entries(TYPE_NAMES).map(([value, label]) => ({ value, label }))];
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
+const moneyText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const timestampText = (value) => { if (!value) return ''; const d = new Date(value); return Number.isNaN(d.getTime()) ? String(value) : cachedDateFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d); };
 // 칸 표시: 숫자 오른쪽 정렬, 글자는 넘치면 … + 마우스를 올리면 전체 표시
 const num = (value) => <span className={classes.cellNum}>{value}</span>;
@@ -102,12 +103,10 @@ export default function IniopStockPage() {
           { key: 'length', label: '길이', width: 75, minWidth: 65, render: (item) => num(numberText(item.length)) },
           { key: 'qty', label: '수량', width: 80, minWidth: 68, render: (item) => num(numberText(item.qty)) },
           { key: 'weight', label: '중량(KG)', width: 90, minWidth: 78, render: (item) => num(numberText(item.weight)) },
-          { key: 'unitprice', label: '단가', width: 95, minWidth: 82, render: (item) => num(numberText(item.unitprice)) },
-          { key: 'supplyamt', label: '공급가', width: 100, minWidth: 88, render: (item) => num(numberText(item.supplyamt)) },
-          { key: 'vat', label: '부가세', width: 90, minWidth: 78, render: (item) => num(numberText(item.vat)) },
-          { key: 'unitamt', label: '합계금액', width: 105, minWidth: 92, render: (item) => num(numberText(item.unitamt)) },
+          // 재고수불은 원가 기준으로만 본다 (거래 단가·공급가·부가세·합계는 매입·매출현황에서 확인, 데이터는 그대로 둠)
+          { key: 'costprice', label: '원가단가(kg)', width: 100, minWidth: 85, render: (item) => <span title='원가단가 = 원가금액 ÷ 중량을 소수 둘째 자리에서 반올림한 값입니다. 금액이 기준이라 단가 × 중량과 끝전이 다를 수 있습니다.'>{num(moneyText(item.costprice))}</span> },
+          { key: 'costamt', label: '원가금액', width: 110, minWidth: 92, render: (item) => num(moneyText(item.costamt)) },
           { key: 'qtyunit', label: '수량단위', width: 75, minWidth: 65, render: (item) => center(item.qtyunit || '') },
-          { key: 'unit', label: '단가기준', width: 75, minWidth: 65, render: (item) => center(item.unit || '') },
           { key: 'created_at', label: '등록일자', width: 145, minWidth: 130, render: (item) => center(timestampText(item.created_at)) },
           { key: 'updated_at', label: '수정일자', width: 145, minWidth: 130, render: (item) => center(timestampText(item.updated_at)) },
           { key: 'created_by', label: '등록자', width: 90, minWidth: 70, render: (item) => text(item.created_by || '') },
