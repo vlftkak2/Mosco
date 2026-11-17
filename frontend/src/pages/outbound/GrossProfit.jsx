@@ -13,6 +13,7 @@ import {
 } from '@tabler/icons-react';
 import { useLocation } from 'react-router-dom';
 import ErpDateInput from '../../components/common/ErpDateInput';
+import { ColumnResizeHandle, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
@@ -49,10 +50,8 @@ const COLUMNS = [
   { key: 'qty', label: '수량', width: 60, type: 'decimal' },
   { key: 'weight', label: '중량', width: 82, type: 'decimal' },
   { key: 'sales_price', label: '매출단가', width: 86, type: 'decimal' },
-  { key: 'purchase_price', label: '매입단가', width: 86, type: 'decimal' },
+  // 원가단가(kg) = 이 출고 줄 매입원가 ÷ 출고중량. 입력 단가(매입단가)·원가기준·기준수량은 원가 계산에 쓰지 않아 숨김
   { key: 'costprice', label: '원가단가(kg)', width: 92, type: 'decimal' },
-  { key: 'cost_unit', label: '원가기준', width: 70, align: 'center' },
-  { key: 'cost_qty', label: '기준수량', width: 86, type: 'decimal' },
   { key: 'origin_kind', label: '원가구분', width: 74, align: 'center' },
   { key: 'origin_no', label: '원천번호', width: 160 },
   { key: 'warehousecodename', label: '창고', width: 100 },
@@ -60,7 +59,6 @@ const COLUMNS = [
 ];
 // 행이 이보다 많으면 매출처별 소계만 먼저 보여 주고, 매출처를 눌러 펼친다 (수천 행을 한 번에 그리지 않도록)
 const AUTO_COLLAPSE_ROWS = 300;
-const TABLE_WIDTH = COLUMNS.reduce((sum, column) => sum + column.width, 0);
 const TD = 'm_4e7aa4ef mantine-Table-td';
 const TR = 'm_4e7aa4fd mantine-Table-tr';
 
@@ -170,6 +168,7 @@ export default function GrossProfit() {
   const [data, setData] = useState({ items: [], groups: [], total: null, truncated: false, max_rows: 0 });
   const [loading, setLoading] = useState(false);
   const [collapsed, setCollapsed] = useState(() => new Set());
+  const tableColumns = useResizableColumns(COLUMNS);  // 열 너비 조절 (화면에서만, 엑셀은 그대로)
   const [autoCollapsed, setAutoCollapsed] = useState(false);
   const requestId = useRef(0);
   const closeFilter = useCallback(() => setFilterOpen(false), []);
@@ -338,9 +337,11 @@ export default function GrossProfit() {
           <Box className={classes.tableWrap}>
             {loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}
             <Box className={classes.inboundSearchScroller} style={{ height: '100%', width: '100%' }}>
-              <Table className={`${classes.statusTable} ${pageClasses.profitTable}`} withTableBorder withColumnBorders style={{ width: TABLE_WIDTH, minWidth: TABLE_WIDTH, tableLayout: 'fixed' }}>
-                <colgroup>{COLUMNS.map((column) => <col key={column.key} style={{ width: `${column.width}px` }} />)}</colgroup>
-                <Table.Thead><Table.Tr>{COLUMNS.map((column) => <Table.Th key={column.key} style={{ position: 'sticky', top: 0, zIndex: 3 }}>{column.label}</Table.Th>)}</Table.Tr></Table.Thead>
+              {/* 열 너비: 헤더 오른쪽 경계를 끌어 조절, 두 번 누르면 원래대로 */}
+              <Table className={`${classes.statusTable} ${pageClasses.profitTable}`} withTableBorder withColumnBorders style={{ width: tableColumns.tableWidth, minWidth: tableColumns.tableWidth, tableLayout: 'fixed' }}>
+                <colgroup>{COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${tableColumns.widthOf(column)}px` }} />)}</colgroup>
+                <Table.Thead><Table.Tr>{COLUMNS.map((column) => <Table.Th key={column.key} className={pickerClasses.resizableHead} style={{ position: 'sticky', top: 0, zIndex: 3 }}>
+                  {column.label}<ColumnResizeHandle column={column} columns={tableColumns} /></Table.Th>)}</Table.Tr></Table.Thead>
                 <tbody>
                   {blocks.length ? blocks.map((block) => <GroupBlock key={groupKey(block.group)} group={block.group} rows={block.rows} startIndex={block.startIndex}
                     collapsed={collapsed.has(groupKey(block.group))} onToggle={toggleGroup} />)

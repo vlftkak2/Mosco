@@ -427,11 +427,58 @@ export const ExpenseDescriptionCell = memo(function ExpenseDescriptionCell({ exp
     }} />;
 });
 
+// 기타비용 표 방향키 이동 (매입·매출 공용).
+// 표를 감싼 요소의 onKeyDownCapture 하나로 처리하고, 상태를 바꾸지 않고 다음 칸 입력칸에 포커스만 옮긴다 (다시 그리기 없음).
+// - 자동완성·예/아니오 목록이 열려 있으면 위/아래는 기존처럼 목록 이동에 쓴다.
+// - 좌/우는 커서가 글자 맨 앞/맨 끝(또는 전체 선택)일 때만 옆 칸으로 넘어간다. 줄 끝에서는 다음/이전 행으로 이어진다.
+// - 비활성 칸과 합계(읽기 전용, data-expense-skip) 칸은 건너뛴다. 칸을 벗어날 때 값 확정은 Tab·클릭과 같다.
+const EXPENSE_CELL_INPUT = 'input:not([type="checkbox"]):not([disabled]):not([data-expense-skip])';
+const expenseCellInput = (cell) => cell?.querySelector(EXPENSE_CELL_INPUT) || null;
+
+export function handleExpenseGridKeyDown(event) {
+  const { key } = event;
+  const horizontal = key === 'ArrowLeft' || key === 'ArrowRight';
+  if (!horizontal && key !== 'ArrowUp' && key !== 'ArrowDown') return;
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) || target.type === 'checkbox') return;
+  if (target.getAttribute('aria-expanded') === 'true' || target.hasAttribute('data-expanded')) return;
+  const cell = target.closest('td');
+  const row = cell?.parentElement;
+  const body = row?.parentElement;
+  if (!cell || !row || !body) return;
+  if (horizontal && !target.readOnly && target.selectionStart !== null) {
+    const { selectionStart: start, selectionEnd: end, value } = target;
+    const allSelected = start === 0 && end === value.length;
+    if (!allSelected && (start !== end || (key === 'ArrowLeft' ? start !== 0 : end !== value.length))) return;
+  }
+  const rows = body.rows;
+  const column = cell.cellIndex;
+  let next = null;
+  if (horizontal) {
+    const step = key === 'ArrowRight' ? 1 : -1;
+    for (let r = row.sectionRowIndex; !next && r >= 0 && r < rows.length; r += step) {
+      const cells = rows[r].cells;
+      let c = r === row.sectionRowIndex ? column + step : step > 0 ? 0 : cells.length - 1;
+      for (; !next && c >= 0 && c < cells.length; c += step) next = expenseCellInput(cells[c]);
+    }
+  } else {
+    const step = key === 'ArrowDown' ? 1 : -1;
+    for (let r = row.sectionRowIndex + step; !next && r >= 0 && r < rows.length; r += step) next = expenseCellInput(rows[r].cells[column]);
+  }
+  if (!next) return;
+  event.preventDefault();
+  event.stopPropagation();
+  next.focus();
+  if (!next.readOnly) next.select();
+}
+
 const OutboundExpenseRow = memo(function OutboundExpenseRow({
   expense, index, selected, disabled, options, inputRef, salesCustomerName,
   onToggle, onChange, onOpenCustomerPicker, onSetCostPicker,
 }) {
   const isCost = expense.purchaseyn === 'Y';
+  const saved = disabled && !expense.is_new;  // 저장된 행(수정 불가)은 출고상세처럼 회색
   const supply = Number(cleanNumericInput(expense.supplyamt)) || 0;
   const vat = Number(cleanNumericInput(expense.vat)) || 0;
   const handleCostSelect = useCallback((option) => onChange(expense.id, 'costcode', option?.code || ''), [expense.id, onChange]);
@@ -442,13 +489,13 @@ const OutboundExpenseRow = memo(function OutboundExpenseRow({
 
   return (
     <Table.Tr className={[expense.is_new && classes.newRow, selected && classes.selectedRow].filter(Boolean).join(' ')}>
-      <Table.Td className={codeClasses.checkCol} ta="center"><input type="checkbox" aria-label={`기타비용 ${index + 1}행 선택`} checked={selected} disabled={disabled} onChange={handleToggle} /></Table.Td>
-      <Table.Td ta="center">{index + 1}</Table.Td>
+      <Table.Td className={`${codeClasses.checkCol} ${saved ? classes.savedCell : ''}`} ta="center"><input type="checkbox" aria-label={`기타비용 ${index + 1}행 선택`} checked={selected} disabled={disabled} onChange={handleToggle} /></Table.Td>
+      <Table.Td className={`${codeClasses.rowNumber} ${classes.rowNumberCell} ${saved ? classes.savedCell : ''}`} ta="center">{index + 1}</Table.Td>
       <Table.Td><ExpenseCostAutocompleteCell row={expense} options={options} disabled={disabled} inputRef={inputRef}
         onDoubleClick={handleCostPicker} onSelect={handleCostSelect} /></Table.Td>
       <Table.Td><ExpenseNumericCell expenseId={expense.id} field="supplyamt" value={expense.supplyamt} disabled={disabled} onCommit={onChange} /></Table.Td>
       <Table.Td><ExpenseNumericCell expenseId={expense.id} field="vat" value={expense.vat} disabled={disabled} onCommit={onChange} /></Table.Td>
-      <Table.Td><input className={`${codeClasses.cellInput} ${inboundClasses.amountInput}`} aria-label="합계금액" value={formatNumericInput(String(supply + vat))} readOnly /></Table.Td>
+      <Table.Td><input className={`${codeClasses.cellInput} ${inboundClasses.amountInput}`} aria-label="합계금액" value={formatNumericInput(String(supply + vat))} readOnly data-expense-skip /></Table.Td>
       {/* 거래처: 비용여부 '예'면 입력, '아니오'면 출고 헤더의 매출처를 따라감(비활성) */}
       <Table.Td><ExpenseCustomerAutocompleteCell expenseId={expense.id} value={isCost ? expense.customname || '' : salesCustomerName || ''} disabled={disabled || !isCost}
         onSelect={handleCustomerSelect} onOpenPicker={handleCustomerPicker} /></Table.Td>
@@ -2558,7 +2605,7 @@ export default function OutboundRegisterPage() {
           </Group>
             </>}
           {detailTab === 'expenses' && <Box className={classes.expenseTabPanel}>
-              <Box ref={expenseTableScrollerRef} className={`${codeClasses.tableWrap} ${classes.expenseTableWrap} ${expenses.length <= 100 ? classes.savedDetailScroller : ''} ${!expenses.length ? inboundClasses.emptyDetailWrap : ''}`}>
+              <Box ref={expenseTableScrollerRef} onKeyDownCapture={handleExpenseGridKeyDown} className={`${codeClasses.tableWrap} ${classes.expenseTableWrap} ${expenses.length <= 100 ? classes.savedDetailScroller : ''} ${!expenses.length ? inboundClasses.emptyDetailWrap : ''}`}>
                 <Box className={inboundClasses.detailFillWrap}>
                   <ExpenseRowsContext.Provider value={expenseRowsValue}>{expenseTable}</ExpenseRowsContext.Provider>
                   {expenses.length > 0 && <DetailSubtotalTable columns={OUTBOUND_EXPENSE_SUBTOTAL_COLUMNS} values={expenseSubtotalValues(expenseTotals)} minWidth={1120} />}

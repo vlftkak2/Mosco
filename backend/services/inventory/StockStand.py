@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from services.closing import MonthClose as month_close_module
 from services.inventory import CurrentStock as current_stock_module
+from services.inventory import stock_cost as stock_cost_module
 
 logger = logging.getLogger(__name__)
 
@@ -565,18 +566,29 @@ def update_stand_prices(companyid: str, items: list[dict], actor: str | None = N
                              + ", ".join(str(lineno) for lineno in used[:10]))
         if current_stock_module._uses_source_lines(cursor):
             for item in items:
-                supplyamt = _calculate_amounts(*stock_values[item["lineno"]], item["unitprice"], item["unit"], active_price_units)[0] or 0
+                supplyamt, vat, unitamt = _calculate_amounts(
+                    *stock_values[item["lineno"]], item["unitprice"], item["unit"], active_price_units)
                 cursor.execute(
                     """UPDATE CurrentStock01t
-                       SET unit = NULLIF(%s, ''), unitprice = %s,
-                           costprice = CASE WHEN originalweight > 0 THEN ROUND(%s / originalweight, 3) ELSE 0 END,
-                           updated_at = CURRENT_TIMESTAMP,
+                       SET unit = NULLIF(%s, ''), unitprice = %s, updated_at = CURRENT_TIMESTAMP,
                            updated_by = COALESCE(%s, updated_by)
                        WHERE companyid = %s AND sourcetype = 'OPENING' AND sourceline = %s""",
-                    (active_price_units[item["unit"]], item["unitprice"], supplyamt, actor or None, companyid, item["lineno"]),
+                    (active_price_units[item["unit"]], item["unitprice"], actor or None, companyid, item["lineno"]),
                 )
                 if cursor.rowcount != 1:
                     raise ValueError(f"기초재고 현재고 원천 라인을 찾을 수 없습니다: {item['lineno']}")
+                # 수불장 기초(ST) 행 단가·금액도 같이 고친다
+                cursor.execute(
+                    """UPDATE Iniop01t i SET unit = NULLIF(%s, ''), unitprice = %s, supplyamt = %s, vat = %s, unitamt = %s,
+                              costamt = %s, updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, i.updated_by)
+                       FROM CurrentStock01t cs
+                       WHERE cs.companyid = %s AND cs.sourcetype = 'OPENING' AND cs.sourceline = %s
+                         AND i.companyid = cs.companyid AND i.iniotype = 'ST' AND i.receiptno = cs.sourceno AND i.lineno = cs.sourceline""",
+                    (active_price_units[item["unit"]], item["unitprice"], supplyamt, vat, unitamt, supplyamt or 0,
+                     actor or None, companyid, item["lineno"]),
+                )
+                # 원가금액 = 공급가. 이미 출고된 줄이 있으면 새 원가로 출고 원가를 다시 나눈다 (끝전까지 맞게)
+                stock_cost_module.recost_opening_lot(cursor, companyid, item["lineno"], supplyamt or 0)
     return len(items)
 
 

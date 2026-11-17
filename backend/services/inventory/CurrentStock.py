@@ -5,6 +5,9 @@ from zoneinfo import ZoneInfo
 
 from services.ai.stock_links import ensure_not_linked
 from services.inventory import stock_cost as stock_cost_module
+
+# 원가단가(kg) = 남은 원가금액 ÷ 남은 중량 (화면 표시용, 다 쓴 재고는 빈 값)
+LOT_COST_PRICE_SQL = "CASE WHEN stock.weight > 0 THEN ROUND(stock.costamt / stock.weight, 2) END"
 import db as _shared_db
 from psycopg2.extras import execute_values
 from pydantic import BaseModel, Field, field_validator
@@ -275,6 +278,22 @@ def record_document(
                 raise ValueError("출고할 현재고 원천 구분·전표·순번이 필요합니다.")
             source_keys.append(source_key)
         source_metadata = _lock_source_rows(cursor, companyid, source_keys)
+        # 줄마다 빠지는 원가: 같은 재고를 여러 줄이 쓰면 앞 줄이 뺀 뒤의 남은 원가·중량으로 계산 (끝전은 다 쓰는 줄이 가져감)
+        remaining = {key: [meta["costamt"], meta["weight"], meta["expamt"], meta["feeamt"]] for key, meta in source_metadata.items()}
+        for key, movement in zip(source_keys, movements):
+            lot = remaining[key]
+            cost, exp, fee = stock_cost_module.consume_parts(lot[0], lot[2], lot[3], lot[1], movement["weight"])
+            lot[0] -= cost
+            lot[1] -= movement["weight"]
+            lot[2] -= exp
+            lot[3] -= fee
+            movement["costamt"], movement["expamt"], movement["feeamt"] = cost, exp, fee
+    else:
+        # 생긴 원가: 매입은 기타비용을 배부한 금액(그중 기타비용 몫 expamt)을 넘겨받고, 기초재고는 공급가
+        for line, movement in zip(lines, movements):
+            movement["costamt"] = Decimal(str(line["costamt"] if line.get("costamt") is not None else (line.get("supplyamt") or 0)))
+            movement["expamt"] = Decimal(str(line.get("expamt") or 0))
+            movement["feeamt"] = Decimal("0")
 
     ledger_rows = []
     stock_rows = []
@@ -311,6 +330,7 @@ def record_document(
             line.get("unitprice"), line.get("supplyamt"), line.get("vat"), line.get("unitamt"),
             created_by or None, updated_by or None,
             iniotype,  # 수불 상세구분: ST 기초 / IN 매입입고 / OUT 매출출고
+            movement["costamt"], movement["expamt"], movement["feeamt"],
         ))
         if iniotype != "OUT":
             source_type = "OPENING" if iniotype == "ST" else "INBOUND"
@@ -330,10 +350,7 @@ def record_document(
                 movement["weight"], movement["weight"], price_unit_name or None,
                 line.get("unitprice"), movement["warehousecode"], movement["warehousecodename"],
                 created_by or None, updated_by or None,
-                # kg당 원가: 매입은 기타비용을 배부한 값을 넘겨받고, 기초재고는 공급가 / 중량
-                line["costprice"] if line.get("costprice") is not None
-                else stock_cost_module.per_kg(line.get("supplyamt"), movement["weight"]),
-                source_type,
+                source_type, movement["costamt"], movement["expamt"], movement["feeamt"],
             ))
 
     execute_values(
@@ -343,7 +360,7 @@ def record_document(
                 itemcode, itemname, productname, materialcode, materialname, surfacecode, surfacename,
                 myrtle, manager, thickness, width, length, qty, qtyunit, weight,
                 warehousecode, warehousecodename, unit, unitprice, supplyamt, vat, unitamt,
-                created_by, updated_by, iniokind)
+                created_by, updated_by, iniokind, costamt, expamt, feeamt)
            VALUES %s""",
         ledger_rows,
         page_size=1000,
@@ -359,7 +376,7 @@ def record_document(
                     receiptdate, itemcode, itemname, productname, materialcode, materialname,
                     surfacecode, surfacename, myrtle, manager, thickness, width, length, originalqty, qty, qtyunit,
                     originalweight, weight, unit, unitprice, warehousecode, warehousecodename,
-                    created_by, updated_by, costprice, stockkind)
+                    created_by, updated_by, stockkind, costamt, expamt, feeamt)
                VALUES %s
                ON CONFLICT (companyid, sourcetype, sourceno, sourceline) DO NOTHING
                RETURNING sourceline""",
@@ -395,7 +412,7 @@ def _lock_source_rows(cursor, companyid: str, source_keys: list[tuple]) -> dict:
     unique_keys = sorted(set(source_keys))
     cursor.execute(
         """SELECT sourcetype, sourceno, sourceline,
-                  productname, materialcode, materialname, surfacecode, surfacename, myrtle, manager
+                  productname, materialcode, materialname, surfacecode, surfacename, myrtle, manager, costamt, expamt, feeamt, weight
            FROM CurrentStock01t
            WHERE companyid = %s
              AND (sourcetype, sourceno, sourceline) IN (
@@ -446,17 +463,22 @@ def _apply_source_stock_changes(cursor, companyid: str, source_keys: list[tuple]
     """
     totals: dict[tuple, list[Decimal]] = {}
     for key, movement in zip(source_keys, movements):
-        amount = totals.setdefault(key, [Decimal("0"), Decimal("0")])
+        amount = totals.setdefault(key, [Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0")])
         amount[0] += Decimal(str(movement["qty"]))
         amount[1] += Decimal(str(movement["weight"]))
-    values = [(key[0], key[1], key[2], qty, weight) for key, (qty, weight) in totals.items()]
+        # 빠진(복원할) 원가금액과 그중 기타비용·가공금액 몫 — 수불장에 적힌 값
+        amount[2] += Decimal(str(movement.get("costamt") or 0))
+        amount[3] += Decimal(str(movement.get("expamt") or 0))
+        amount[4] += Decimal(str(movement.get("feeamt") or 0))
+    values = [(key[0], key[1], key[2], *amounts) for key, amounts in totals.items()]
     # Lock the target rows in a fixed (sorted) order first so concurrent saves never deadlock.
     _lock_rows_sorted(cursor, companyid, list(totals))
     if reverse:
         sql = """UPDATE CurrentStock01t AS stock
-                 SET qty = stock.qty + v.qty, weight = stock.weight + v.weight,
+                 SET qty = stock.qty + v.qty, weight = stock.weight + v.weight, costamt = stock.costamt + v.cost,
+                     expamt = stock.expamt + v.exp, feeamt = stock.feeamt + v.fee,
                      updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE({actor}, stock.updated_by)
-                 FROM (VALUES %s) AS v(sourcetype, sourceno, sourceline, qty, weight)
+                 FROM (VALUES %s) AS v(sourcetype, sourceno, sourceline, qty, weight, cost, exp, fee)
                  WHERE stock.companyid = {companyid} AND stock.sourcetype = v.sourcetype
                    AND stock.sourceno = v.sourceno AND stock.sourceline = v.sourceline
                    AND stock.qty + v.qty <= stock.originalqty
@@ -466,6 +488,8 @@ def _apply_source_stock_changes(cursor, companyid: str, source_keys: list[tuple]
         sql = """UPDATE CurrentStock01t AS stock
                  SET qty = stock.qty - v.qty,
                      weight = stock.weight - v.weight,
+                     costamt = stock.costamt - v.cost,
+                     expamt = stock.expamt - v.exp, feeamt = stock.feeamt - v.fee,
                      qtyunit = COALESCE((
                          SELECT code_name FROM CodeMaster01t
                          WHERE companyid = stock.companyid AND groupcode = 'QTY'
@@ -479,7 +503,7 @@ def _apply_source_stock_changes(cursor, companyid: str, source_keys: list[tuple]
                          LIMIT 1
                      ), stock.unit),
                      updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE({actor}, stock.updated_by)
-                 FROM (VALUES %s) AS v(sourcetype, sourceno, sourceline, qty, weight)
+                 FROM (VALUES %s) AS v(sourcetype, sourceno, sourceline, qty, weight, cost, exp, fee)
                  WHERE stock.companyid = {companyid} AND stock.sourcetype = v.sourcetype
                    AND stock.sourceno = v.sourceno AND stock.sourceline = v.sourceline
                    AND stock.qty >= v.qty AND stock.weight >= v.weight
@@ -488,7 +512,7 @@ def _apply_source_stock_changes(cursor, companyid: str, source_keys: list[tuple]
     sql = sql.replace("{actor}", cursor.mogrify("%s::varchar", (actor or None,)).decode().replace("%", "%%"))
     changed = execute_values(
         cursor, sql, values,
-        template="(%s::varchar, %s::varchar, %s::integer, %s::numeric, %s::numeric)",
+        template="(%s::varchar, %s::varchar, %s::integer, %s::numeric, %s::numeric, %s::numeric, %s::numeric, %s::numeric)",
         page_size=1000, fetch=True,
     )
     if len(changed) != len(values):
@@ -498,7 +522,7 @@ def _apply_source_stock_changes(cursor, companyid: str, source_keys: list[tuple]
 def reverse_document(cursor, companyid: str, iniotype: str, receiptno: str, actor: str | None = None):
     cursor.execute(
         """SELECT companyname, lineno, itemcode, itemname, thickness, width, length, qty, qtyunit, weight,
-                  warehousecode, warehousecodename
+                  warehousecode, warehousecodename, costamt, expamt, feeamt
            FROM Iniop01t
            WHERE companyid = %s AND iniotype = %s AND receiptno = %s
            ORDER BY lineno
@@ -675,9 +699,11 @@ def _current_stock_select(source_lines: bool):
     )
     # 원가 칸은 맨 뒤에 둔다 (엑셀 출력이 칸 위치로 값을 쓴다)
     cost_fields = (
-        ", stock.stockkind, stock.costprice, ROUND(stock.weight * stock.costprice, 0) AS stockamt"
+        ", stock.stockkind, " + LOT_COST_PRICE_SQL + " AS costprice, stock.costamt AS stockamt, "
+        "stock.costamt - stock.expamt - stock.feeamt AS realamt, stock.expamt, stock.feeamt"
         if source_lines else
-        ", NULL::text AS stockkind, NULL::numeric AS costprice, NULL::numeric AS stockamt"
+        ", NULL::text AS stockkind, NULL::numeric AS costprice, NULL::numeric AS stockamt, "
+        "NULL::numeric AS realamt, NULL::numeric AS expamt, NULL::numeric AS feeamt"
     )
     manager_field = (
         "COALESCE((SELECT NULLIF(BTRIM(header.manager), '') "
@@ -733,6 +759,9 @@ def list_current_stock(companyid: str, page: int, page_size: int, **filters):
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
+UNIT_PRICE_INDEX = 10  # _current_stock_select 의 stock.unitprice 위치 (엑셀에서 제외)
+
+
 def write_current_stock_excel(companyid: str, output_path: str, **filters):
     with _connect() as connection, connection.cursor() as cursor:
         source_lines = _uses_source_lines(cursor)
@@ -750,10 +779,10 @@ def write_current_stock_excel(companyid: str, output_path: str, **filters):
                 WHERE {where}
                 ORDER BY {('stock.receiptdate ASC, stock.sourcetype, stock.sourceno, stock.sourceline' if source_lines else 'stock.itemcode, stock.thickness, stock.width, stock.length, stock.warehousecode, stock.qtyunit')}"""
     headers = ["No.", "재고구분", "원천전표", "원천순번", "입고일자", "거래처코드", "거래처명",
-               "최초수량", "최초중량", "단가기준", "매입단가", "품목코드", "품목명", "Lot번호",
+               "최초수량", "최초중량", "단가기준", "품목코드", "품목명", "Lot번호",
                "강판코드", "강판", "표면코드", "표면", "도금량(g/㎡)", "담당자", "두께", "폭", "길이",
                "현재수량", "수량단위", "현재중량", "창고코드", "창고명", "등록일자", "수정일자", "등록자", "수정자",
-               "재고구분(상세)", "원가단가(원/kg)", "재고금액"]
+               "재고구분(상세)", "원가단가(원/kg)", "재고금액", "원자재원가", "기타비용", "가공금액"]
     workbook = xlsxwriter.Workbook(output_path, {"constant_memory": True})
     worksheet = workbook.add_worksheet("현재고현황")
     header_format = workbook.add_format({"bold": True, "font_color": "#B4232D", "bg_color": "#FFF3F3", "border": 1, "border_color": "#E5BFC2"})
@@ -770,7 +799,7 @@ def write_current_stock_excel(companyid: str, output_path: str, **filters):
     worksheet.set_column("L:M", 20)
     worksheet.set_column("V:W", 20, datetime_format)
     worksheet.set_column("AE:AF", 14)
-    worksheet.set_column("AG:AI", 14)
+    worksheet.set_column("AG:AL", 14)
     row_no = 1
     try:
         with _connect() as connection, connection.cursor(name="current_stock_excel_cursor") as cursor:
@@ -780,22 +809,24 @@ def write_current_stock_excel(companyid: str, output_path: str, **filters):
                 for row in rows:
                     worksheet.write_number(row_no, 0, row_no)
                     for index, value in enumerate(row, start=1):
-                        if value is None:
+                        # 10번째 칸(입력 단가)은 엑셀에서 뺀다 (재고 가치는 원가단가·재고금액). 뒤 칸은 한 칸씩 당겨 쓴다
+                        if value is None or index == UNIT_PRICE_INDEX:
                             continue
+                        col = index - 1 if index > UNIT_PRICE_INDEX else index
                         if index == 32:
                             value = stock_cost_module.stock_kind_label(value)
-                        if index in (3, 7, 8, 10, 18, 20, 21, 22, 23, 25, 33, 34):
+                        if index in (3, 7, 8, 18, 20, 21, 22, 23, 25, 33, 34, 35, 36, 37):
                             numeric_value = float(value)
                             if numeric_value.is_integer():
-                                worksheet.write_number(row_no, index, int(numeric_value), integer_format)
+                                worksheet.write_number(row_no, col, int(numeric_value), integer_format)
                             else:
-                                worksheet.write_number(row_no, index, numeric_value, number_format)
+                                worksheet.write_number(row_no, col, numeric_value, number_format)
                         elif index in (28, 29):
-                            worksheet.write_datetime(row_no, index, value.replace(tzinfo=None), datetime_format)
+                            worksheet.write_datetime(row_no, col, value.replace(tzinfo=None), datetime_format)
                         elif index == 4:
-                            worksheet.write_datetime(row_no, index, value, date_format)
+                            worksheet.write_datetime(row_no, col, value, date_format)
                         else:
-                            worksheet.write(row_no, index, value)
+                            worksheet.write(row_no, col, value)
                     row_no += 1
     finally:
         workbook.close()

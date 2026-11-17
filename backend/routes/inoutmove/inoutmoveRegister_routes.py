@@ -26,7 +26,7 @@ def get_available_stock(
     page_size: int = Query(default=50, ge=1, le=500),
     item_search: str = Query(default="", max_length=150),
     warehouse_search: str = Query(default="", max_length=100),
-    sourcetype: str = Query(default="", pattern="^(|OPENING|INBOUND|PROCESS)$"),
+    sourcetype: str = Query(default="", pattern="^(|OPENING|INBOUND|PROCESS|TRANSFER)$"),
     receiptno: str = Query(default="", max_length=100),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),

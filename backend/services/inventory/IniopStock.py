@@ -102,6 +102,7 @@ def list_iniop_stock(companyid: str, page: int, page_size: int, **filters):
                        i.thickness, i.width, i.length,
                        i.qty, COALESCE(qty_code.code_name, i.qtyunit) AS qtyunit, i.weight,
                        COALESCE(price_code.code_name, i.unit) AS unit, i.unitprice, i.supplyamt, i.vat, i.unitamt,
+                       CASE WHEN i.weight > 0 THEN ROUND(i.costamt / i.weight, 2) END AS costprice, i.costamt,
                        i.warehousecode, i.warehousecodename,
                        i.created_at, i.updated_at,
                        {_CREATED_BY}, {_UPDATED_BY}, i.iniokind
@@ -131,7 +132,7 @@ def write_iniop_stock_excel(companyid: str, output_path: str, **filters):
                        i.thickness, i.width, i.length,
                        i.qty, COALESCE(qty_code.code_name, i.qtyunit) AS qtyunit, i.weight, i.warehousecode, i.warehousecodename,
                        i.created_at, i.updated_at,
-                       {_CREATED_BY}, {_UPDATED_BY}, i.iniokind
+                       {_CREATED_BY}, {_UPDATED_BY}, CASE WHEN i.weight > 0 THEN ROUND(i.costamt / i.weight, 2) END AS costprice, i.costamt, i.iniokind
                 FROM Iniop01t AS i
                 LEFT JOIN CodeMaster01t AS qty_code
                   ON qty_code.companyid = i.companyid
@@ -143,7 +144,7 @@ def write_iniop_stock_excel(companyid: str, output_path: str, **filters):
         "No.", "수불일자", "수불유형", "수불전표", "거래처코드", "거래처명", "라인", "품목코드", "품목명",
         "제품번호", "강판코드", "강판", "표면코드", "표면", "도금량(g/㎡)", "담당자",
         "두께", "폭", "길이", "수량", "수량단위", "중량", "창고코드", "창고명", "등록일자", "수정일자",
-        "등록자", "수정자",
+        "등록자", "수정자", "원가단가(원/kg)", "원가금액",
     ]
     # 작은 파일(약 한 달치)은 메모리에서 바로 써서 2~3배 빠르게, 큰 파일은 행마다 임시파일로 흘려 메모리를 아낀다.
     with current_stock_module._connect() as connection, connection.cursor() as cursor:
@@ -177,6 +178,7 @@ def write_iniop_stock_excel(companyid: str, output_path: str, **filters):
     worksheet.set_column("W:X", 18)
     worksheet.set_column("Y:Z", 22, datetime_format)
     worksheet.set_column("AA:AB", 14)
+    worksheet.set_column("AC:AD", 15, number_format)
     row_no = 1
     try:
         with current_stock_module._connect() as connection, connection.cursor(name="iniop_stock_excel_cursor") as cursor:
@@ -198,6 +200,8 @@ def write_iniop_stock_excel(companyid: str, output_path: str, **filters):
                                 worksheet.write_number(row_no, index, int(numeric_value), integer_format)
                             else:
                                 worksheet.write_number(row_no, index, numeric_value, number_format)
+                        elif index in (28, 29):
+                            worksheet.write_number(row_no, index, float(value), number_format)
                         elif index in (24, 25):
                             worksheet.write_datetime(row_no, index, value.replace(tzinfo=None), datetime_format)
                         else:

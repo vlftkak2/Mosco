@@ -2,16 +2,17 @@
 
 출고(매출) 상세 행마다 원가를 붙여 이익과 마진율을 계산한다. 모든 금액은 공급가액(부가세 제외) 기준.
 
-  매입원가(합계) = 출고 중량 × 출처 재고의 원가단가(CurrentStock01t.costprice, kg당)
-      원가단가는 재고가 생길 때 정해진다 (services/inventory/stock_cost.py):
-        입고 = (공급가 + 입고 기타비용 배부액) / 중량,  기초 = 공급가 / 중량,  이동 = 원래 재고 그대로,
-        가공 = (원재료 원가 × 투입중량 + 모든 단계 가공비) / 가공품 재고중량(로스 포함)
-      → 현재고 재고금액과 매출원가가 같은 기준이고, 로스·여러 단계 가공도 원가가 정확히 보존된다.
+  매입원가(합계) = 출고할 때 재고에서 빠진 원가금액 (Iniop01t.costamt, 출고 수불 행)
+      재고 원가는 금액 잔액 방식으로 관리한다 (services/inventory/stock_cost.py):
+        입고 = 공급가 + 입고 기타비용 배부액,  기초 = 공급가,  이동 = 원래 재고에서 빠진 원가,
+        가공 = 원소재에서 빠진 원가 + 모든 단계 가공비 (로스 포함 중량으로 배부)
+        출고 = 남은 원가 × 출고중량 ÷ 남은 중량 (다 쓰면 남은 원가 전부)
+      → 매출원가 합계 + 현재고 재고금액 = 들어온 원가 합계 (끝전까지 일치).
 
-  매입원가를 아래 네 칸으로 나눠 보여준다 (네 칸 합계 = 매입원가):
-      입고 : 매입비용 = 원래 입고 전표의 kg당 기타비용 × 출고 중량,  매입금액 = 매입원가 − 매입비용
-      기초 : 매입금액 = 매입원가
-      가공 : 가공비 = 그 가공의 kg당 가공비(모든 단계) × 출고 중량,  원자재원가 = 매입원가 − 가공비
+  매입원가를 아래 네 칸으로 나눠 보여준다 (네 칸 합계 = 매입원가). 출고 수불 행에 함께 기록된 구성 금액을 그대로 쓴다:
+      매입비용 = 빠진 원가 중 매입 기타비용(운반비 등) 몫 (Iniop01t.expamt)
+      가공비   = 빠진 원가 중 누적 가공비 몫 — 여러 번 가공했으면 모든 단계 (Iniop01t.feeamt)
+      매입금액 / 원자재원가 = 나머지 실제원가. 원가구분이 가공이면 원자재원가, 입고·기초면 매입금액 칸에 둔다.
       재고이전으로 생긴 재고는 원래 출처(originno/originline)의 구분을 따른다.
 
   원가기준 / 기준수량 / 매입단가 칸은 참고용 표시다 (입고 금액 계산과 같은 단가기준 규칙).
@@ -24,7 +25,6 @@ from datetime import date
 from decimal import Decimal
 
 import db as _shared_db
-from services.inventory import stock_cost
 
 _connect = _shared_db.connect
 
@@ -55,7 +55,7 @@ def _kind_sql(token_sql: str) -> str:
 def _build_query(filters: dict, cursor):
     """Returns (cte_sql, params). The CTE ends with a `filtered` relation holding one row per outbound line.
 
-    cursor: 가공품 원자재원가를 먼저 계산(파이썬)해 쿼리에 넘기기 위해 쓴다.
+    cursor: 호출 형식 유지용 (원가 구성은 출고 수불 행에 기록돼 있어 미리 계산할 것이 없다).
     """
     params = {
         "companyid": filters["companyid"],
@@ -66,23 +66,6 @@ def _build_query(filters: dict, cursor):
     if filters.get("customer"):
         head_where.append("(h.customcode ILIKE %(customer)s OR h.customname ILIKE %(customer)s)")
         params["customer"] = f"%{filters['customer']}%"
-
-    # 이 기간 출고에 쓰인 가공품의 가공번호 → kg당 가공비 (원가단가 중 가공비 몫, 화면 칸 구분용)
-    cursor.execute(
-        f"""SELECT DISTINCT COALESCE(s.originno, d.stocksourceno)
-            FROM Outbound01t h
-            JOIN Outbound02t d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
-            LEFT JOIN CurrentStock01t s ON s.companyid = d.companyid AND s.sourcetype = d.stocksourcetype
-                                       AND s.sourceno = d.stocksourceno AND s.sourceline = d.stocksourceline
-            JOIN Process01t p ON p.companyid = h.companyid AND p.processno = COALESCE(s.originno, d.stocksourceno)
-            WHERE {" AND ".join(head_where)}""",
-        params,
-    )
-    fees = stock_cost.process_fee_rates(cursor, filters["companyid"], [row[0] for row in cursor.fetchall()])
-    fee_keys = sorted(fees)
-    params["fee_no"] = [key[0] for key in fee_keys]
-    params["fee_line"] = [key[1] for key in fee_keys]
-    params["fee_rate"] = [fees[key] for key in fee_keys]
 
     # 줄 단위 조건은 비용 배분이 끝난 뒤 적용한다 (배분은 출고 전표의 모든 행 기준)
     line_where = ["TRUE"]
@@ -130,14 +113,18 @@ price_units AS MATERIALIZED (
 ),
 origin AS MATERIALIZED (
     -- 출고 행의 출처 재고 → 단가·단가기준·원래 출처 (조인 한 번)
-    SELECT l.receiptno, l.lineno, s.unitprice, s.costprice, s.length AS stock_length, s.originalqty AS stock_originalqty,
+    SELECT l.receiptno, l.lineno, s.unitprice, s.length AS stock_length, s.originalqty AS stock_originalqty,
            COALESCE(os.stockkind, s.stockkind) AS origin_stockkind,
+           io.costamt AS ledger_cost, io.expamt AS ledger_exp, io.feeamt AS ledger_fee,
            {_kind_sql("COALESCE(pu.token, UPPER(BTRIM(COALESCE(s.unit, l.unit, ''))))")} AS cost_unit,
            COALESCE(s.originno, l.stocksourceno) AS sn,
            COALESCE(s.originline, l.stocksourceline) AS sl
     FROM lines l
     LEFT JOIN CurrentStock01t s ON s.companyid = %(companyid)s AND s.sourcetype = l.stocksourcetype
                                 AND s.sourceno = l.stocksourceno AND s.sourceline = l.stocksourceline
+    -- 출고 수불 행에 적힌 원가금액 = 이 출고 줄의 매입원가
+    LEFT JOIN Iniop01t io ON io.companyid = %(companyid)s AND io.iniotype = 'OUT'
+                         AND io.receiptno = l.receiptno AND io.lineno = l.lineno
     -- 재고이전으로 생긴 재고면 원래 출처 재고의 구분(입고/기초/가공)을 따른다
     LEFT JOIN CurrentStock01t os ON s.originno IS NOT NULL AND os.companyid = s.companyid
                                 AND os.sourcetype = s.origintype AND os.sourceno = s.originno AND os.sourceline = s.originline
@@ -149,11 +136,6 @@ origin AS MATERIALIZED (
     ) pu ON TRUE
 ),
 doc_list AS MATERIALIZED (SELECT DISTINCT receiptno FROM lines),
-origin_list AS MATERIALIZED (SELECT DISTINCT sn FROM origin),
-fee_rate AS MATERIALIZED (
-    SELECT * FROM unnest(%(fee_no)s::varchar[], %(fee_line)s::integer[], %(fee_rate)s::numeric[])
-        AS r(processno, lineno, fee_per_kg)
-),
 sales_cost AS MATERIALIZED (
     -- 출고 기타비용: 비용여부 예 = 매출비용(−), 아니오 = 매출비용(+)
     SELECT receiptno,
@@ -163,23 +145,13 @@ sales_cost AS MATERIALIZED (
     WHERE companyid = %(companyid)s AND receiptno IN (SELECT receiptno FROM doc_list)
     GROUP BY receiptno
 ),
-purchase_rate AS MATERIALIZED (
-    -- 입고 기타비용(매입비용) ÷ 입고 전표 총중량 = kg당 매입비용
-    SELECT d.receiptno, COALESCE(MAX(c.cost), 0) / NULLIF(SUM(COALESCE(d.weight, 0)), 0) AS per_kg
-    FROM Inbound02t d
-    LEFT JOIN (SELECT receiptno, SUM(supplyamt) AS cost FROM Inbound03t
-               WHERE companyid = %(companyid)s AND receiptno IN (SELECT sn FROM origin_list)
-               GROUP BY receiptno) c ON c.receiptno = d.receiptno
-    WHERE d.companyid = %(companyid)s AND d.receiptno IN (SELECT sn FROM origin_list)
-    GROUP BY d.receiptno
-),
 calc AS MATERIALIZED (
     SELECT l.*, o.sn AS origin_no, o.cost_unit,
            CASE WHEN o.origin_stockkind IN ('OPENING', 'INBOUND', 'PROCESS') THEN o.origin_stockkind
                 ELSE 'UNKNOWN' END AS origin_kind,
            COALESCE(o.unitprice, 0) AS purchase_price,
-           COALESCE(o.costprice, 0) AS costprice,
-           ROUND(COALESCE(o.costprice, 0) * COALESCE(l.weight, 0)) AS cost_total,
+           CASE WHEN COALESCE(l.weight, 0) > 0 THEN ROUND(COALESCE(o.ledger_cost, 0) / l.weight, 2) END AS costprice,
+           COALESCE(o.ledger_cost, 0) AS cost_total,
            CASE o.cost_unit
                 WHEN 'TON' THEN COALESCE(l.weight, 0) / 1000
                 WHEN 'QTY' THEN COALESCE(l.qty, 0)
@@ -187,25 +159,22 @@ calc AS MATERIALIZED (
                                    * CASE WHEN COALESCE(o.stock_originalqty, 0) > 0
                                           THEN COALESCE(l.qty, 0) / o.stock_originalqty ELSE 1 END
                 ELSE COALESCE(l.weight, 0) END AS cost_qty,
-           COALESCE(pr.per_kg, 0) AS purchase_cost_per_kg,
-           COALESCE(rt.fee_per_kg, 0) AS fee_per_kg,
+           COALESCE(o.ledger_exp, 0) AS cost_exp,
+           COALESCE(o.ledger_fee, 0) AS cost_fee,
            COALESCE(sc.cost_minus, 0) AS doc_cost_minus, COALESCE(sc.cost_plus, 0) AS doc_cost_plus,
            CASE WHEN l.doc_w > 0 THEN l.cum_w / l.doc_w WHEN l.doc_a > 0 THEN l.cum_a / l.doc_a ELSE l.rn::numeric / l.doc_n END AS frac_cum,
            CASE WHEN l.doc_w > 0 THEN (l.cum_w - l.w) / l.doc_w WHEN l.doc_a > 0 THEN (l.cum_a - l.a) / l.doc_a ELSE (l.rn - 1)::numeric / l.doc_n END AS frac_prev
     FROM lines l
     JOIN origin o ON o.receiptno = l.receiptno AND o.lineno = l.lineno
-    LEFT JOIN purchase_rate pr ON pr.receiptno = o.sn
-    LEFT JOIN fee_rate rt ON rt.processno = o.sn AND rt.lineno = o.sl
     LEFT JOIN sales_cost sc ON sc.receiptno = l.receiptno
 ),
 amounts AS (
     SELECT c.*,
-           -- 네 칸 합계 = 매입원가(출고 중량 × 원가단가). 비용·가공비 몫을 먼저 떼고 나머지를 매입금액·원자재원가로 둔다
-           CASE WHEN c.origin_kind = 'INBOUND' THEN c.cost_total - LEAST(c.cost_total, ROUND(c.purchase_cost_per_kg * COALESCE(c.weight, 0)))
-                WHEN c.origin_kind = 'OPENING' THEN c.cost_total ELSE 0 END AS purchase_amt,
-           CASE WHEN c.origin_kind = 'PROCESS' THEN LEAST(c.cost_total, ROUND(c.fee_per_kg * COALESCE(c.weight, 0))) ELSE 0 END AS process_amt,
-           CASE WHEN c.origin_kind = 'PROCESS' THEN c.cost_total - LEAST(c.cost_total, ROUND(c.fee_per_kg * COALESCE(c.weight, 0))) ELSE 0 END AS material_amt,
-           CASE WHEN c.origin_kind = 'INBOUND' THEN LEAST(c.cost_total, ROUND(c.purchase_cost_per_kg * COALESCE(c.weight, 0))) ELSE 0 END AS purchase_cost,
+           -- 네 칸 합계 = 매입원가. 기타비용·가공비 몫은 출고 수불 행 기록 그대로, 나머지 실제원가는 원가구분에 따라 한 칸에
+           CASE WHEN c.origin_kind = 'PROCESS' THEN 0 ELSE c.cost_total - c.cost_exp - c.cost_fee END AS purchase_amt,
+           c.cost_fee AS process_amt,
+           CASE WHEN c.origin_kind = 'PROCESS' THEN c.cost_total - c.cost_exp - c.cost_fee ELSE 0 END AS material_amt,
+           c.cost_exp AS purchase_cost,
            ROUND(c.doc_cost_minus * c.frac_cum) - ROUND(c.doc_cost_minus * c.frac_prev) AS sales_minus,
            ROUND(c.doc_cost_plus * c.frac_cum) - ROUND(c.doc_cost_plus * c.frac_prev) AS sales_plus
     FROM calc c

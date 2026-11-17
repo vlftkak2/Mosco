@@ -27,6 +27,8 @@ const createDefaultFilters = () => {
 };
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
+// 금액·원가단가는 소수 둘째 자리까지
+const moneyText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const sourceName = (value) => ({ OPENING: '기초', INBOUND: '입고', PROCESS: '가공', TRANSFER: '이동' })[value] || '';
 const timestampText = (value) => {
   if (!value) return '';
@@ -65,10 +67,14 @@ const STOCK_COLUMNS = [
     { key: 'qty', label: '현재수량', width: 80, minWidth: 68, render: (item) => num(numberText(item.qty)) },
     { key: 'originalweight', label: '최초중량(KG)', width: 100, minWidth: 88, render: (item) => num(numberText(item.originalweight)) },
     { key: 'weight', label: '현재중량', width: 90, minWidth: 78, render: (item) => num(numberText(item.weight)) },
-    { key: 'unitprice', label: '단가', width: 90, minWidth: 78, render: (item) => num(numberText(item.unitprice)) },
+    // 입력 단가(매입단가·가공비 단가)는 숨김: 재고 가치는 원가단가(kg)·재고금액 기준 (데이터는 그대로)
     // 원가단가 = kg당 원가 (매입 운반비 등 기타비용 배부, 가공품은 원재료 원가 + 가공비 포함). 재고금액 = 현재중량 × 원가단가
-    { key: 'costprice', label: '원가단가(kg)', width: 100, minWidth: 85, render: (item) => num(numberText(item.costprice)) },
-    { key: 'stockamt', label: '재고금액', width: 110, minWidth: 90, render: (item) => num(numberText(item.stockamt)) },
+    { key: 'costprice', label: '원가단가(kg)', width: 100, minWidth: 85, render: (item) => <span title='원가단가 = 재고금액 ÷ 중량을 소수 둘째 자리에서 반올림한 값입니다. 금액이 기준이라 단가 × 중량과 끝전이 다를 수 있습니다.'>{num(moneyText(item.costprice))}</span> },
+    // 재고금액 = 원자재원가(매입·기초 공급가) + 기타비용(매입 운반비 등 배부) + 가공금액(누적 가공비)
+    { key: 'realamt', label: '원자재원가', width: 110, minWidth: 90, render: (item) => num(moneyText(item.realamt)) },
+    { key: 'expamt', label: '기타비용', width: 95, minWidth: 80, render: (item) => num(moneyText(item.expamt)) },
+    { key: 'feeamt', label: '가공금액', width: 100, minWidth: 85, render: (item) => num(moneyText(item.feeamt)) },
+    { key: 'stockamt', label: '재고금액', width: 110, minWidth: 90, render: (item) => num(moneyText(item.stockamt)) },
     { key: 'qtyunit', label: '수량단위', width: 75, minWidth: 65, render: (item) => center(item.qtyunit || '') },
     { key: 'unit', label: '단가기준', width: 75, minWidth: 65, render: (item) => center(item.unit || '') },
     { key: 'created_at', label: '등록일자', width: 145, minWidth: 130, render: (item) => center(timestampText(item.created_at)) },

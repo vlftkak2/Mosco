@@ -223,16 +223,23 @@
 .expenseTableWrap :global(.mantine-Input-input:focus) { outline: 2px solid #4c83d3 !important; outline-offset: -2px; background-color: #fff !important; }
 .expenseTableWrap .newRow :global(input) { background-color: transparent !important; }
 .expenseTableWrap .newRow :global(input:focus) { background-color: #fff !important; }
+/* 선택란·No. 칸 = 입고상세와 같게: 새 행은 크림색(codeTable .newRow 와 같은 #fffbf4) */
+.expenseTableWrap .newRow:not(.selectedRow) > td:nth-child(-n+2) { background: #fffbf4 !important; }
 .expenseTableWrap .expenseCostInput {
   height: 33px !important;
   padding-right: 27px !important;
   padding-left: 7px !important;
   border: 0 !important;
   border-radius: 0 !important;
-  background-color: transparent !important;
   box-shadow: none !important;
 }
-.expenseTableWrap .expenseCostInput:focus { outline: 2px solid #4c83d3 !important; outline-offset: -2px; background-color: #fff !important; }
+/* 돋보기 칸(비용구분·거래처) 바탕색 = 입고상세 돋보기 칸(.itemCodePickerInput)과 같게. 새 행·포커스에서도 유지 */
+.expenseTableWrap .expenseCostInput,
+.expenseTableWrap .newRow input.expenseCostInput,
+.expenseTableWrap .newRow input.expenseCostInput:focus { background-color: #fff9f8 !important; }
+.expenseTableWrap .expenseCostInput:hover,
+.expenseTableWrap .newRow input.expenseCostInput:hover { background-color: #fff2f1 !important; }
+.expenseTableWrap .expenseCostInput:focus { outline: 2px solid #4c83d3 !important; outline-offset: -2px; background-color: #fff9f8 !important; }
 /* Disabled lookup cells (e.g. 거래처 when 비용여부 = 아니오) use the normal disabled look; the transparent
    rules above would otherwise hide it. */
 .expenseTableWrap .expenseCostInput:disabled,

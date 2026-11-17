@@ -47,10 +47,14 @@ def available_stock(page: int = Query(default=1, ge=1), page_size: int = Query(d
                     thickness: Decimal | None = Query(default=None, ge=0),
                     width: Decimal | None = Query(default=None, ge=0),
                     length: Decimal | None = Query(default=None, ge=0),
+                    date_from: date | None = Query(default=None),
+                    date_to: date | None = Query(default=None),
                     user: dict = Depends(security_module.get_current_user)):
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="기준일 시작은 종료보다 늦을 수 없습니다.")
     try:
         return {"success": True, **process_module.list_available_stock(
-            user["companyid"], page, page_size, q, warehouse, thickness, width, length,
+            user["companyid"], page, page_size, q, warehouse, thickness, width, length, date_from, date_to,
         )}
     except Exception as error:
         raise HTTPException(status_code=500, detail="가공 가능한 현재고를 조회하지 못했습니다.") from error

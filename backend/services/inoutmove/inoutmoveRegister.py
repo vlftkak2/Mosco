@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from psycopg2 import IntegrityError
 import db as _shared_db
+from services.inventory import stock_cost as stock_cost_module
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from services.closing import MonthClose as month_close_module
@@ -145,7 +146,8 @@ def list_available_stock(
                        stock.thickness, stock.width, stock.length,
                        stock.qty, COALESCE(qty_code.code_name, stock.qtyunit) AS qtyunit,
                        stock.weight, stock.unit, stock.unitprice,
-                       stock.warehousecode, stock.warehousecodename, stock.stockkind, stock.costprice,
+                       stock.warehousecode, stock.warehousecodename, stock.stockkind,
+                       CASE WHEN stock.weight > 0 THEN ROUND(stock.costamt / stock.weight, 2) END AS costprice,
                        {linked_orders_sql("stock")} AS linked_orders
                 FROM CurrentStock01t AS stock
                 LEFT JOIN CodeMaster01t AS qty_code
@@ -321,7 +323,7 @@ def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | 
                               itemcode, itemname, productname, materialcode, materialname,
                               surfacecode, surfacename, myrtle, thickness, width, length,
                               qty, qtyunit, weight, unit, unitprice, warehousecode, warehousecodename,
-                              originalqty, originalweight, origintype, originno, originline, costprice
+                              originalqty, originalweight, origintype, originno, originline, costamt, expamt, feeamt
                        FROM CurrentStock01t
                        WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
                        FOR UPDATE""",
@@ -359,7 +361,10 @@ def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | 
                     stock["thickness"], stock["width"], stock["length"], qty, stock["qtyunit"], weight,
                     actor or None,
                 ))
-                stock_transfers.append((lineno, item, stock, qty, weight))
+                moved_cost, moved_exp, moved_fee = stock_cost_module.consume_parts(
+                    stock["costamt"] or 0, stock["expamt"] or 0, stock["feeamt"] or 0, available_weight,
+                    available_weight if qty == available_qty else weight)
+                stock_transfers.append((lineno, item, stock, qty, weight, moved_cost, moved_exp, moved_fee))
                 for movement_type, movement_line, warehouse_code, warehouse_name in (
                     ("OUT", lineno * 2 - 1, from_code, warehouse_names[from_code]),
                     ("IN", lineno * 2, to_code, warehouse_names[to_code]),
@@ -373,7 +378,7 @@ def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | 
                         stock["thickness"], stock["width"], stock["length"], qty,
                         stock["qtyunit"], weight, warehouse_code, warehouse_name,
                         stock["unit"], stock["unitprice"], supplyamt, vat, unitamt,
-                        actor or None, f"MOVE_{movement_type}",
+                        actor or None, f"MOVE_{movement_type}", moved_cost, moved_exp, moved_fee,
                     ))
 
             execute_values(
@@ -394,12 +399,12 @@ def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | 
                     customcode, customname, itemcode, itemname, productname,
                     materialcode, materialname, surfacecode, surfacename, myrtle, manager,
                     thickness, width, length, qty, qtyunit, weight, warehousecode, warehousecodename,
-                    unit, unitprice, supplyamt, vat, unitamt, created_by, iniokind)
+                    unit, unitprice, supplyamt, vat, unitamt, created_by, iniokind, costamt, expamt, feeamt)
                    VALUES %s""",
                 ledger_rows,
                 page_size=1000,
             )
-            for lineno, item, stock, moved_qty, moved_weight in stock_transfers:
+            for lineno, item, stock, moved_qty, moved_weight, moved_cost, moved_exp, moved_fee in stock_transfers:
                 movement_line = lineno * 2
                 # 원래 출처: 이전 전 재고에 적혀 있으면 그대로, 비어 있으면 이전 전 재고 자신 (여러 번 옮겨도 처음 입고·기초재고·가공을 가리킴)
                 origin = ((stock["origintype"], stock["originno"], stock["originline"]) if stock.get("originno")
@@ -411,23 +416,24 @@ def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | 
                         surfacecode, surfacename, myrtle, manager, thickness, width, length,
                         originalqty, qty, qtyunit, originalweight, weight, unit, unitprice,
                         warehousecode, warehousecodename, created_by, origintype, originno, originline,
-                        costprice, stockkind)
+                        stockkind, costamt, expamt, feeamt)
                        VALUES (%s, %s, %s, %s, 'INBOUND', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                               %s, 'TRANSFER')""",
+                               'TRANSFER', %s, %s, %s)""",
                     (companyid, companyname, stock["customcode"], stock["customname"], receiptno, movement_line,
                      payload["receptdate"], stock["itemcode"], stock["itemname"], stock["productname"],
                      stock["materialcode"], stock["materialname"], stock["surfacecode"], stock["surfacename"],
                      stock["myrtle"], payload.get("manager") or None, stock["thickness"], stock["width"], stock["length"],
                      moved_qty, moved_qty, stock["qtyunit"], moved_weight, moved_weight, stock["unit"], stock["unitprice"],
-                     to_code, warehouse_names[to_code], actor or None, *origin, stock["costprice"] or 0),
+                     to_code, warehouse_names[to_code], actor or None, *origin, moved_cost, moved_exp, moved_fee),
                 )
                 cursor.execute(
-                    """UPDATE CurrentStock01t SET qty = qty - %s, weight = weight - %s,
+                    """UPDATE CurrentStock01t SET qty = qty - %s, weight = weight - %s, costamt = costamt - %s,
+                              expamt = expamt - %s, feeamt = feeamt - %s,
                               updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, updated_by)
                        WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
                          AND warehousecode = %s AND qty >= %s AND weight >= %s""",
-                    (moved_qty, moved_weight, actor or None, companyid, item["stocksourcetype"],
+                    (moved_qty, moved_weight, moved_cost, moved_exp, moved_fee, actor or None, companyid, item["stocksourcetype"],
                      item["stocksourceno"], item["stocksourceline"], from_code, moved_qty, moved_weight),
                 )
                 if cursor.rowcount != 1:
@@ -493,7 +499,7 @@ def delete_transfer(companyid: str, receiptno: str, actor: str | None = None):
 
             moved_stock_line = lineno * 2
             cursor.execute(
-                """SELECT qty, weight, warehousecode FROM CurrentStock01t
+                """SELECT qty, weight, warehousecode, costamt, expamt, feeamt FROM CurrentStock01t
                    WHERE companyid = %s AND sourcetype = 'INBOUND' AND sourceno = %s AND sourceline = %s
                    FOR UPDATE""",
                 (companyid, receiptno, moved_stock_line),
@@ -514,7 +520,7 @@ def delete_transfer(companyid: str, receiptno: str, actor: str | None = None):
                         raise ValueError("현재고를 원래 창고로 되돌리지 못했습니다.")
                     continue
                 raise ValueError("이전된 입고 현재고가 없어 전표를 안전하게 되돌릴 수 없습니다.")
-            moved_qty, moved_weight, moved_warehouse = moved_stock
+            moved_qty, moved_weight, moved_warehouse, moved_cost, moved_exp, moved_fee = moved_stock
             if (moved_warehouse != to_code or Decimal(str(moved_qty or 0)) != Decimal(str(qty))
                     or Decimal(str(moved_weight or 0)) != Decimal(str(weight))):
                 raise ValueError("이전된 재고가 출고·가공·추가 이동되어 전표를 삭제할 수 없습니다.")
@@ -524,11 +530,12 @@ def delete_transfer(companyid: str, receiptno: str, actor: str | None = None):
                 raise ValueError("원천 재고가 변경되어 이전 전 상태로 되돌릴 수 없습니다.")
 
             cursor.execute(
-                """UPDATE CurrentStock01t SET qty = qty + %s, weight = weight + %s,
+                """UPDATE CurrentStock01t SET qty = qty + %s, weight = weight + %s, costamt = costamt + %s,
+                          expamt = expamt + %s, feeamt = feeamt + %s,
                           updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, updated_by)
                    WHERE companyid = %s AND sourcetype = %s AND sourceno = %s AND sourceline = %s
                      AND warehousecode = %s""",
-                (qty, weight, actor or None, companyid, source_type, source_no, source_line, from_code),
+                (qty, weight, moved_cost or 0, moved_exp or 0, moved_fee or 0, actor or None, companyid, source_type, source_no, source_line, from_code),
             )
             if cursor.rowcount != 1:
                 raise ValueError("현재고를 원래 창고로 되돌리지 못했습니다.")

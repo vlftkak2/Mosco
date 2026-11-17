@@ -3,7 +3,7 @@
 - 기초재고 원본(StandStock01t)은 그대로 두고, 거기서 만든 ST 수불 행과 OPENING 현재고 행만 지웠다가 다시 넣는다.
 - 원래 기초 전표번호(ST…)와 행번호를 그대로 쓰므로 다른 전표가 참조하는 키는 바뀌지 않는다.
 - 출고·가공·이동에 이미 쓰인 기초재고가 있으면 아무것도 하지 않고 멈춘다.
-- 마지막에 모든 재고의 원가단가(costprice)를 다시 계산한다.
+- 마지막에 모든 재고·수불의 원가금액(costamt)을 전표 순서대로 다시 계산한다.
 
 실행 (backend 폴더에서):
     python scripts/rebuild_opening_stock.py 001            # 점검만 (변경 없음)
@@ -96,7 +96,7 @@ def rebuild(companyid: str, apply: bool) -> None:
                 cursor, companyid, companyname, rows[0]["standdate"], "ST", receiptno, lines,
                 created_by=rows[0]["created_by"],
             )
-        costs = stock_cost.rebuild_cost_prices(cursor, companyid)
+        costs = stock_cost.rebuild_stock_costs(cursor, companyid)
 
         cursor.execute("SELECT COUNT(*), COALESCE(SUM(weight), 0) FROM Iniop01t WHERE companyid = %s AND iniotype = 'ST'", (companyid,))
         after_ledger = cursor.fetchone()
@@ -104,7 +104,7 @@ def rebuild(companyid: str, apply: bool) -> None:
         after_stock = cursor.fetchone()
         print(f"  삭제: 수불장 ST {deleted_ledger}행, 현재고 OPENING {deleted_stock}행")
         print(f"  생성: 수불장 ST {after_ledger[0]}행 / {after_ledger[1]},  현재고 OPENING {after_stock[0]}행 / {after_stock[1]}")
-        print(f"  원가단가 재계산: {costs}")
+        print(f"  원가 재계산: {costs}")
         if after_ledger[0] != len(stand_rows) or after_stock[0] != len(stand_rows):
             raise SystemExit("생성 행 수가 기초재고 행 수와 다릅니다. 반영하지 않습니다.")
         if not apply:

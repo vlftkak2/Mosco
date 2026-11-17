@@ -33,6 +33,8 @@ class ProductInput(BaseModel):
     weight: Decimal = Field(gt=0, max_digits=18, decimal_places=3)
     unit: str = Field(default="KG", max_length=20)
     unitprice: Decimal = Field(default=0, ge=0, max_digits=18, decimal_places=3)
+    # 가공금액 수기 입력 (없으면 단가 × 중량(KG) 또는 수량으로 계산). 금액이 기준이고 단가는 참고가 된다
+    supplyamt: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=2)
     # 로스 배부 중량: 재고에는 들어가지 않고 이 줄의 투입 몫으로만 기록 (상위 중량 = Σ(하위 중량 + 로스))
     lossweight: Decimal = Field(default=0, ge=0, max_digits=18, decimal_places=3)
     description: str = Field(default="", max_length=500)
@@ -224,6 +226,7 @@ def _validate_weight_tree(source: dict):
 def list_available_stock(
     companyid: str, page: int, page_size: int, q: str = "", warehouse: str = "",
     thickness: Decimal | None = None, width: Decimal | None = None, length: Decimal | None = None,
+    date_from: date | None = None, date_to: date | None = None,
 ):
     where = ["companyid = %s", "qty > 0", "weight > 0"]
     params: list = [companyid]
@@ -235,6 +238,12 @@ def list_available_stock(
         pattern = f"%{warehouse.strip()}%"
         where.append("(warehousecode ILIKE %s OR warehousecodename ILIKE %s)")
         params.extend((pattern, pattern))
+    if date_from:  # 기준일 = 재고 입고일 (재고이전 선택창과 같은 기준)
+        where.append("receiptdate >= %s")
+        params.append(date_from)
+    if date_to:
+        where.append("receiptdate <= %s")
+        params.append(date_to)
     for column, value in (("thickness", thickness), ("width", width), ("length", length)):
         if value is not None:
             where.append(f"{column} = %s")
@@ -246,7 +255,9 @@ def list_available_stock(
             f"""SELECT sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
                        itemcode, itemname, productname, materialcode, materialname, surfacecode,
                        surfacename, myrtle, manager, thickness, width, length, qty, qtyunit,
-                       weight, unit, unitprice, warehousecode, warehousecodename, costprice, stockkind,
+                       weight, unit, unitprice, warehousecode, warehousecodename, stockkind,
+                       CASE WHEN weight > 0 THEN ROUND(costamt / weight, 2) END AS costprice,
+                       costamt, feeamt,
                        {linked_orders_sql("stock")} AS linked_orders
                 FROM CurrentStock01t AS stock WHERE {' AND '.join(where)}
                 ORDER BY receiptdate, sourcetype, sourceno, sourceline
@@ -429,12 +440,18 @@ def get_document(companyid: str, processno: str):
                       productname,materialcode,materialname,surfacecode,surfacename,myrtle,thickness,width,
                       length,qty,qtyunit,weight,lossweight,processid,processcodename,unit,unitprice,supplyamt,vat,
                       unitamt,description,createdat,updatedat,
-                      (SELECT c.costprice FROM CurrentStock01t c
-                        WHERE c.companyid = Process02t.companyid
-                          AND ((Process02t.linetype = 'SOURCE' AND c.sourcetype = Process02t.stocksourcetype
-                                AND c.sourceno = Process02t.stocksourceno AND c.sourceline = Process02t.stocksourceline)
-                            OR (Process02t.linetype = 'PRODUCT' AND c.sourcetype = 'INBOUND'
-                                AND c.sourceno = Process02t.processno AND c.sourceline = Process02t.lineno))) AS costprice,
+                      (SELECT CASE WHEN i.weight > 0 THEN ROUND(i.costamt / i.weight, 2) END FROM Iniop01t i
+                        WHERE i.companyid = Process02t.companyid AND i.receiptno = Process02t.processno
+                          AND i.lineno = Process02t.lineno
+                          AND i.iniotype = CASE WHEN Process02t.linetype = 'SOURCE' THEN 'OUT' ELSE 'IN' END) AS costprice,
+                      (SELECT i.costamt FROM Iniop01t i
+                        WHERE i.companyid = Process02t.companyid AND i.receiptno = Process02t.processno
+                          AND i.lineno = Process02t.lineno
+                          AND i.iniotype = CASE WHEN Process02t.linetype = 'SOURCE' THEN 'OUT' ELSE 'IN' END) AS costamt,
+                      (SELECT i.feeamt FROM Iniop01t i
+                        WHERE i.companyid = Process02t.companyid AND i.receiptno = Process02t.processno
+                          AND i.lineno = Process02t.lineno
+                          AND i.iniotype = CASE WHEN Process02t.linetype = 'SOURCE' THEN 'OUT' ELSE 'IN' END) AS feeamt,
                       {user_name_sql('Process02t.created_by')} AS created_by,
                       {user_name_sql('Process02t.updated_by')} AS updated_by
                FROM Process02t WHERE companyid=%s AND processno=%s ORDER BY lineno""",
@@ -522,10 +539,14 @@ def _restore_document_for_edit(cursor, companyid: str, processno: str, actor: st
     for _line_no, source_type, source_no, source_line, qty, weight in source_rows:
         cursor.execute(
             """UPDATE CurrentStock01t
-               SET qty=qty+%s,weight=weight+%s,updated_at=CURRENT_TIMESTAMP,updated_by=COALESCE(%s,updated_by)
+               SET qty=qty+%s,weight=weight+%s,updated_at=CURRENT_TIMESTAMP,updated_by=COALESCE(%s,updated_by),
+                   (costamt,expamt,feeamt)=(SELECT CurrentStock01t.costamt+COALESCE(i.costamt,0), CurrentStock01t.expamt+COALESCE(i.expamt,0),
+                                             CurrentStock01t.feeamt+COALESCE(i.feeamt,0) FROM (SELECT 1) one LEFT JOIN Iniop01t i
+                                             ON i.companyid=%s AND i.iniotype='OUT' AND i.receiptno=%s AND i.lineno=%s)
                WHERE companyid=%s AND sourcetype=%s AND sourceno=%s AND sourceline=%s
                  AND qty+%s<=originalqty AND weight+%s<=originalweight""",
-            (qty, weight, actor or None, companyid, source_type, source_no, source_line, qty, weight),
+            (qty, weight, actor or None, companyid, processno, _line_no,
+             companyid, source_type, source_no, source_line, qty, weight),
         )
         if cursor.rowcount != 1:
             raise ValueError("기존 원소재 재고를 복구할 수 없어 가공전표를 수정하지 못했습니다.")
@@ -716,7 +737,9 @@ def plan_draft(companyid: str, planno: str):
             f"""SELECT sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
                        itemcode, itemname, productname, materialcode, materialname, surfacecode,
                        surfacename, myrtle, manager, thickness, width, length, qty, qtyunit,
-                       weight, unit, unitprice, warehousecode, warehousecodename, costprice, stockkind,
+                       weight, unit, unitprice, warehousecode, warehousecodename, stockkind,
+                       CASE WHEN weight > 0 THEN ROUND(costamt / weight, 2) END AS costprice,
+                       costamt, feeamt,
                        {plan_outstanding_sql("stock", "%s")} AS other_reserved
                   FROM CurrentStock01t AS stock
                  WHERE companyid=%s AND sourcetype=%s AND sourceno=%s AND sourceline=%s""",
@@ -779,6 +802,13 @@ def plan_draft(companyid: str, planno: str):
         "stock": stock, "source": {"qty": source_qty, "weight": source_weight, "left_weight": stock_weight - source_weight},
         "products": products, "loss": loss_total, "keep": keep,
     }
+
+
+def _product_fee_amount(product: dict) -> Decimal:
+    """가공금액: 수기 입력값이 있으면 그대로, 없으면 단가 × 중량(단가기준 KG) 또는 수량. 소수 둘째 자리."""
+    if product.get("supplyamt") is not None:
+        return Decimal(str(product["supplyamt"])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return (Decimal(str(product["unitprice"])) * (Decimal(str(product["weight"])) if product["unit"].upper() == "KG" else Decimal(str(product["qty"])))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def save_document(companyid: str, companyname: str, payload: dict, actor: str | None = None):
@@ -962,16 +992,19 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
                  stock.get("thickness"), stock.get("width"), stock.get("length"), qty, stock.get("qtyunit"), weight,
                  stock.get("unit"), detail_created_by, detail_updated_by),
             )
+            # 원소재에서 빠지는 원가금액 (남은 중량을 다 쓰면 남은 원가 전부 → 끝전까지 맞음)
+            consumed_cost, consumed_exp, consumed_fee = stock_cost_module.consume_parts(
+                stock.get("costamt") or 0, stock.get("expamt") or 0, stock.get("feeamt") or 0, stock["weight"], weight)
             cursor.execute(
-                """UPDATE CurrentStock01t SET qty=qty-%s,weight=weight-%s,updated_at=CURRENT_TIMESTAMP,
-                          updated_by=COALESCE(%s,updated_by)
+                """UPDATE CurrentStock01t SET qty=qty-%s,weight=weight-%s,costamt=costamt-%s,expamt=expamt-%s,feeamt=feeamt-%s,
+                          updated_at=CURRENT_TIMESTAMP,updated_by=COALESCE(%s,updated_by)
                    WHERE companyid=%s AND sourcetype=%s AND sourceno=%s AND sourceline=%s
                      AND qty>=%s AND weight>=%s""",
-                (qty, weight, actor or None, companyid, *key, qty, weight),
+                (qty, weight, consumed_cost, consumed_exp, consumed_fee, actor or None, companyid, *key, qty, weight),
             )
             if cursor.rowcount != 1:
                 raise ValueError("원천 재고가 다른 작업에서 변경되었습니다. 현재고를 다시 조회해 주세요.")
-            iniop_out.append((source_line, stock, qty, weight))
+            iniop_out.append((source_line, stock, qty, weight, consumed_cost, consumed_exp, consumed_fee))
 
             products = source["products"]
             line_by_id = {}
@@ -988,7 +1021,7 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
                     level = level_by_id.get(parent_id, 0) + 1
                     line_by_id[product["clientid"]] = line_no
                     level_by_id[product["clientid"]] = level
-                    amount = (Decimal(str(product["unitprice"])) * (Decimal(str(product["weight"])) if product["unit"].upper() == "KG" else Decimal(str(product["qty"])))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    amount = _product_fee_amount(product)
                     vat = (amount * Decimal("0.10")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
                     total = amount + vat
                     cursor.execute(
@@ -1013,9 +1046,9 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
                 if not progressed:
                     raise ValueError("가공 단계의 부모·자식 순서를 구성할 수 없습니다.")
 
-            # 가공품 원가단가(kg당) = (원소재 원가 × 투입중량 + 가공비) / 가공품 재고중량 → 원재료 원가가 가공품으로 넘어온다
-            product_costs = stock_cost_module.process_product_costs(
-                Decimal(str(stock.get("costprice") or 0)) * weight,
+            # 가공품 원가금액 = 원소재에서 빠진 원가 + 모든 단계 가공비를 최종 가공품에 재고중량 비율로 원 단위 배부 (끝전은 마지막)
+            product_costs = stock_cost_module.process_product_parts(
+                consumed_cost, consumed_exp, consumed_fee,
                 [{
                     "id": product["clientid"],
                     "parent": product.get("parent_clientid") or None,
@@ -1026,7 +1059,8 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
             )
             for product in products:
                 if product["clientid"] not in parent_ids:
-                    product["costprice"] = product_costs.get(product["clientid"], Decimal("0"))
+                    product["costamt"], product["expamt"], product["feeamt"] = product_costs.get(
+                        product["clientid"], (Decimal("0"), Decimal("0"), Decimal("0")))
 
             for product in products:
                 if product["clientid"] in parent_ids:
@@ -1035,54 +1069,56 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
                 product_stock.append((output_line, stock, product))
                 iniop_in.append((output_line, stock, product))
 
-        for lineno, stock, qty, weight in iniop_out:
+        for lineno, stock, qty, weight, consumed_cost, consumed_exp, consumed_fee in iniop_out:
             cursor.execute(
                 """INSERT INTO Iniop01t
                    (companyid,companyname,iniodate,iniotype,receiptno,lineno,customcode,customname,
                     itemcode,itemname,productname,materialcode,materialname,surfacecode,surfacename,myrtle,manager,
                     thickness,width,length,qty,qtyunit,weight,warehousecode,warehousecodename,unit,unitprice,supplyamt,vat,unitamt,
-                    created_by,updated_by,iniokind)
-                   VALUES (%s,%s,%s,'OUT',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,0,0,0,%s,%s,'PROCESS_OUT')""",
+                    created_by,updated_by,iniokind,costamt,expamt,feeamt)
+                   VALUES (%s,%s,%s,'OUT',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,0,0,0,%s,%s,'PROCESS_OUT',%s,%s,%s)""",
                 (companyid, companyname, payload["processdate"], processno, lineno, payload["customcode"], customname,
                  stock["itemcode"], stock["itemname"], stock.get("productname"), stock.get("materialcode"), stock.get("materialname"),
                  stock.get("surfacecode"), stock.get("surfacename"), stock.get("myrtle"), payload.get("manager") or None,
                  stock.get("thickness"), stock.get("width"), stock.get("length"), qty, stock.get("qtyunit"), weight,
-                 stock["warehousecode"], stock["warehousecodename"], stock.get("unit"), detail_created_by, detail_updated_by),
+                 stock["warehousecode"], stock["warehousecodename"], stock.get("unit"), detail_created_by, detail_updated_by,
+                 consumed_cost, consumed_exp, consumed_fee),
             )
 
         for lineno, stock, product in iniop_in:
             # 가공입고 중량 = 제품(이론) 중량 + 배부 로스 → 원소재 투입중량이 그대로 가공품 재고로 넘어간다 (실중량은 매출에서 조정)
             stock_weight = Decimal(str(product["weight"])) + Decimal(str(product.get("lossweight") or 0))
-            amount = (Decimal(str(product["unitprice"])) * (Decimal(str(product["weight"])) if product["unit"].upper() == "KG" else Decimal(str(product["qty"])))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            amount = product["_fee_amount"]  # 가공상세에 저장한 가공금액과 같게
             vat = (amount * Decimal("0.10")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             cursor.execute(
                 """INSERT INTO Iniop01t
                    (companyid,companyname,iniodate,iniotype,receiptno,lineno,customcode,customname,
                     itemcode,itemname,productname,materialcode,materialname,surfacecode,surfacename,myrtle,manager,
                     thickness,width,length,qty,qtyunit,weight,warehousecode,warehousecodename,unit,unitprice,supplyamt,vat,unitamt,
-                    created_by,updated_by,iniokind)
-                   VALUES (%s,%s,%s,'IN',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PROCESS_IN')""",
+                    created_by,updated_by,iniokind,costamt,expamt,feeamt)
+                   VALUES (%s,%s,%s,'IN',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PROCESS_IN',%s,%s,%s)""",
                 (companyid, companyname, payload["processdate"], processno, lineno, payload["customcode"], customname,
                   stock["itemcode"], product["productname"], product["productno"], stock.get("materialcode"), stock.get("materialname"),
                  stock.get("surfacecode"), stock.get("surfacename"), stock.get("myrtle"), payload.get("manager") or None,
                  *_stock_dimensions(product), product["qty"], product["qtyunit"],
                  stock_weight, payload["warehousecode"], warehouse_name, product["unit"], product["unitprice"], amount, vat, amount + vat,
-                 detail_created_by, detail_updated_by),
+                 detail_created_by, detail_updated_by, product.get("costamt", Decimal("0")),
+                 product.get("expamt", Decimal("0")), product.get("feeamt", Decimal("0"))),
             )
             cursor.execute(
                 """INSERT INTO CurrentStock01t
                    (companyid,companyname,customcode,customname,sourcetype,sourceno,sourceline,receiptdate,
                     itemcode,itemname,productname,materialcode,materialname,surfacecode,surfacename,myrtle,manager,
                     thickness,width,length,originalqty,qty,qtyunit,originalweight,weight,unit,unitprice,
-                    warehousecode,warehousecodename,created_by,updated_by,costprice,stockkind)
-                    VALUES (%s,%s,%s,%s,'INBOUND',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PROCESS')""",
+                    warehousecode,warehousecodename,created_by,updated_by,stockkind,costamt,expamt,feeamt)
+                    VALUES (%s,%s,%s,%s,'INBOUND',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PROCESS',%s,%s,%s)""",
                 (companyid, companyname, payload["customcode"], customname, processno, lineno, payload["processdate"],
                   stock["itemcode"], product["productname"], product["productno"], stock.get("materialcode"), stock.get("materialname"),
                  stock.get("surfacecode"), stock.get("surfacename"), stock.get("myrtle"), payload.get("manager") or None,
                  *_stock_dimensions(product), product["qty"], product["qty"],
                  product["qtyunit"], stock_weight, stock_weight, product["unit"], product["unitprice"],
                  payload["warehousecode"], warehouse_name, detail_created_by, detail_updated_by,
-                 product.get("costprice", Decimal("0"))),
+                 product.get("costamt", Decimal("0")), product.get("expamt", Decimal("0")), product.get("feeamt", Decimal("0"))),
             )
 
         cursor.execute("UPDATE Process01t SET subulyn='Y',updatedat=CURRENT_TIMESTAMP WHERE companyid=%s AND processno=%s", (companyid, processno))
@@ -1184,10 +1220,14 @@ def delete_documents(companyid: str, processnos: list[str], actor: str | None = 
                 cursor.execute(
                     """UPDATE CurrentStock01t
                        SET qty=qty+%s, weight=weight+%s, updated_at=CURRENT_TIMESTAMP,
-                           updated_by=COALESCE(%s, updated_by)
+                           updated_by=COALESCE(%s, updated_by),
+                           (costamt,expamt,feeamt)=(SELECT CurrentStock01t.costamt+COALESCE(i.costamt,0), CurrentStock01t.expamt+COALESCE(i.expamt,0),
+                                                     CurrentStock01t.feeamt+COALESCE(i.feeamt,0) FROM (SELECT 1) one LEFT JOIN Iniop01t i
+                                                     ON i.companyid=%s AND i.iniotype='OUT' AND i.receiptno=%s AND i.lineno=%s)
                        WHERE companyid=%s AND sourcetype=%s AND sourceno=%s AND sourceline=%s
                          AND qty+%s<=originalqty AND weight+%s<=originalweight""",
-                    (qty, weight, actor or None, companyid, source_type, source_no, source_line, qty, weight),
+                    (qty, weight, actor or None, companyid, processno, _line_no,
+                     companyid, source_type, source_no, source_line, qty, weight),
                 )
                 if cursor.rowcount != 1:
                     raise ValueError(
