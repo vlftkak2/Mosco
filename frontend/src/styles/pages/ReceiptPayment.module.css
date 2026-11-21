@@ -276,3 +276,15 @@
 .processTable td[data-align='right'] { text-align: right; font-variant-numeric: tabular-nums; }
 .processTable tfoot td { border-top: 1px solid #ccd6e3; background: #eef2f7; color: #1e2e45; font-weight: 700; font-variant-numeric: tabular-nums; }
 .processTable :global(.mantine-NumberInput-input) { text-align: right; }
+
+/* 상세 탭: 기본(한 줄 입력폼) / 어음·수표(표) */
+.tabCount { display: inline-grid; min-width: 18px; height: 18px; margin-left: 5px; padding: 0 5px; place-items: center; border-radius: 9px; background: #e7f0ff; color: #1f5fd1; font-size: 11px; font-weight: 700; line-height: 18px; }
+.cashPanel { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; }
+.cashPanel > .lockHint { margin: 10px 13px 0; }
+.cashForm { display: grid; grid-template-columns: repeat(4, minmax(110px, 1fr)) minmax(180px, 1.6fr); gap: 10px 12px; align-items: end; }
+.cashField { display: block; min-width: 0; }
+.cashField :global(.mantine-Input-input) { min-height: 34px; height: 34px; }
+.cashDescription { min-width: 0; }
+.lockHint { margin-bottom: 10px; color: #c9373d; font-size: 12px; }
+.toolbarHint { color: #6b7686 !important; font-size: 12px !important; font-weight: 400 !important; }
+@media (max-width: 900px) { .cashForm { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cashDescription { grid-column: 1 / -1; } }

@@ -23,7 +23,8 @@
 .yearSelect :global(.mantine-Input-input:focus) { border-color: #e0434b; box-shadow: 0 0 0 2px #e0434b26; }
 
 /* 현황 표 */
-.tableBox.tableBox { min-height: 0; flex: 1 1 0; overflow: auto; border-top: 2px solid #333; }
+/* 머리글 위 선: 매입등록 목록과 같은 연한 회청색 1px (진한 2px 검정 대신) */
+.tableBox.tableBox { min-height: 0; flex: 1 1 0; overflow: auto; border-top: 1px solid #d4dde7; }
 .bottom { flex: 0 0 auto; overflow-x: auto; }
 
 .closed { color: #e0434b; font-weight: 700; }

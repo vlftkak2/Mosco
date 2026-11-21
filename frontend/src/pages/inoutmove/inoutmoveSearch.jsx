@@ -187,8 +187,8 @@ export default function InoutmoveSearch() {
               { key: 'manager', label: '담당자', width: 95, minWidth: 80, render: (item) => text(item.manager || '') },
               { key: 'description', label: '비고', width: 150, minWidth: 110, render: (item) => text(item.description || '') },
               { key: 'created_at', label: '등록일자', width: 145, minWidth: 130, render: (item) => center(timestampText(item.created_at)) },
-              { key: 'updated_at', label: '수정일자', width: 145, minWidth: 130, render: (item) => center(timestampText(item.updated_at)) },
               { key: 'created_by', label: '등록자', width: 90, minWidth: 70, render: (item) => text(item.created_by || '') },
+              { key: 'updated_at', label: '수정일자', width: 145, minWidth: 130, render: (item) => center(timestampText(item.updated_at)) },
               { key: 'updated_by', label: '수정자', width: 90, minWidth: 70, render: (item) => text(item.updated_by || '') },
             ]}
           /> : <Box className={classes.emptyState}>

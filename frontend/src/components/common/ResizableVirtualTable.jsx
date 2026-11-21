@@ -3,7 +3,8 @@ import { Table } from '@mantine/core';
 import classes from '../../styles/pages/InboundSearch.module.css';
 
 // memo: 받은 값(data · columns 등)이 같으면 다시 그리지 않는다 (탭을 옮겨 화면만 다시 보일 때 행 전체를 다시 그리지 않게)
-export default memo(function ResizableVirtualTable({ data, columns, computeItemKey, rowOffset = 0, minTableWidth }) {
+// onRowDoubleClick(item): 선택. 넘기지 않으면 지금과 같다
+export default memo(function ResizableVirtualTable({ data, columns, computeItemKey, rowOffset = 0, minTableWidth, onRowDoubleClick, rowTitle }) {
   const [widths, setWidths] = useState({});
   const resizing = useRef(null);
   const tableWidth = Math.max(columns.reduce((total, column) => total + (widths[column.key] || column.width), 0), minTableWidth || 0);
@@ -63,7 +64,7 @@ export default memo(function ResizableVirtualTable({ data, columns, computeItemK
     <Table className={classes.statusTable} withTableBorder withColumnBorders highlightOnHover style={{ width: '100%', minWidth: tableWidth, tableLayout: 'fixed' }}>
       <colgroup>{columns.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${widths[column.key] || column.width}px` }} />)}</colgroup>
       <Table.Thead><Table.Tr>{columns.map((column) => <Table.Th key={column.key} style={{ width: widths[column.key] || column.width, position: 'sticky', top: 0, zIndex: 3 }}>{column.label}<span className={classes.columnResizeHandle} role="separator" aria-label={`${column.label} column width`} onPointerDown={(event) => startResize(event, column)} onPointerMove={moveResize} onPointerUp={stopResize} onPointerCancel={stopResize} /></Table.Th>)}</Table.Tr></Table.Thead>
-      <Table.Tbody>{data.map((item, index) => <Table.Tr key={computeItemKey ? computeItemKey(index, item) : index}>{columns.map((column) => <Table.Td key={column.key}>{column.render(item, rowOffset + index)}</Table.Td>)}</Table.Tr>)}</Table.Tbody>
+      <Table.Tbody>{data.map((item, index) => <Table.Tr key={computeItemKey ? computeItemKey(index, item) : index} onDoubleClick={onRowDoubleClick ? () => onRowDoubleClick(item) : undefined} title={rowTitle ? rowTitle(item) : undefined} style={onRowDoubleClick ? { cursor: 'pointer' } : undefined}>{columns.map((column) => <Table.Td key={column.key}>{column.render(item, rowOffset + index)}</Table.Td>)}</Table.Tr>)}</Table.Tbody>
     </Table>
   </div>;
 });

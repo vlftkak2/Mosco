@@ -76,13 +76,13 @@ def list_manageable_users(companyid: str, is_master: bool):
         # 플랫폼 관리자 · 고객사 관리자 모두 고객사 계정(USER · SUBMASTER, 자기 포함)의 메뉴를 정한다. 회사 범위는 라우트에서 제한한다.
         allowed_roles = ("USER", "SUBMASTER")
         cursor.execute(
-            """SELECT companyid, username, email, team,
+            """SELECT companyid, usercode, username, email, team,
                       UPPER(COALESCE(authority, 'USER')) AS authority,
                       UPPER(COALESCE(useyn, 'N')) AS useyn
                FROM user01t
                WHERE companyid = %s
                  AND UPPER(COALESCE(authority, 'USER')) = ANY(%s)
-               ORDER BY LOWER(username), LOWER(email)""",
+               ORDER BY length(usercode), usercode, LOWER(username), LOWER(email)""",
             (companyid, list(allowed_roles)),
         )
         return {"company": dict(company), "items": [dict(row) for row in cursor.fetchall()]}
@@ -116,6 +116,7 @@ def get_user_menu_permissions(companyid: str, useremail: str, is_master: bool):
                           WHEN UPPER(COALESCE(p.useyn, 'N')) = 'Y'
                           THEN TRUE ELSE FALSE
                       END AS granted,
+                      p.createdat AS created_at, p.updatedat AS updated_at,
                       COALESCE((SELECT u.username FROM user01t u WHERE u.email = p.createdby LIMIT 1), p.createdby) AS created_by,
                       COALESCE((SELECT u.username FROM user01t u WHERE u.email = p.updatedby LIMIT 1), p.updatedby) AS updated_by
                FROM menucatalog01t m
@@ -166,6 +167,7 @@ def save_user_menu_permissions(data: UserMenuPermissionInput, manager_email: str
         if invalid_menuids:
             raise ValueError(f"부여할 수 없는 메뉴가 포함되어 있습니다: {', '.join(invalid_menuids)}")
 
+        # 바뀐 메뉴만 수정일자 · 수정자를 남긴다: 해제는 '이번에 빠진 메뉴'만, 부여는 '새로 켜진 메뉴'만.
         cursor.execute(
             """UPDATE usermenupermission01t
                SET useyn = 'N', updatedby = %s, updatedat = CURRENT_TIMESTAMP
@@ -175,8 +177,9 @@ def save_user_menu_permissions(data: UserMenuPermissionInput, manager_email: str
                      SELECT menuid FROM menucatalog01t
                      WHERE assignable = TRUE AND access_scope = 'COMPANY'
                  )
+                 AND NOT (menuid = ANY(%s))
                  AND UPPER(COALESCE(useyn, 'N')) <> 'N'""",
-            (manager_email, data.companyid, target["email"]),
+            (manager_email, data.companyid, target["email"], sorted(requested_menuids)),
         )
 
         rows = [
@@ -194,7 +197,9 @@ def save_user_menu_permissions(data: UserMenuPermissionInput, manager_email: str
                        useyn = 'Y',
                        -- the new-row template leaves updatedby NULL; an existing row is updated BY the manager
                        updatedby = EXCLUDED.createdby,
-                       updatedat = CURRENT_TIMESTAMP""",
+                       updatedat = CURRENT_TIMESTAMP
+                   -- 이미 켜져 있던 메뉴는 건드리지 않는다 (수정일자 · 수정자 그대로)
+                   WHERE UPPER(COALESCE(usermenupermission01t.useyn, 'N')) <> 'Y'""",
                 rows,
                 template="(%s, %s, %s, 'Y', %s, NULL, NULL)",
             )

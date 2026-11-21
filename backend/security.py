@@ -1,3 +1,4 @@
+import secrets
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from threading import RLock
@@ -17,6 +18,8 @@ AUDIENCE = "mosco-client"
 ACCESS_TOKEN_MINUTES = 480
 AUTH_CACHE_TTL_SECONDS = 20
 AUTH_CACHE_MAX_ENTRIES = 5000
+# 같은 계정으로 다른 곳에서 로그인하면 먼저 접속한 쪽 토큰은 이 문구로 거절된다 (프론트가 이 문구로 구분한다).
+SESSION_REPLACED_MESSAGE = "다른 곳에서 같은 계정으로 로그인하여 접속이 종료되었습니다."
 bearer_scheme = HTTPBearer(auto_error=False)
 
 _auth_cache: OrderedDict[tuple[str, str], tuple[float, dict]] = OrderedDict()
@@ -37,6 +40,7 @@ def _load_auth_snapshot(companyid: str, email: str) -> dict | None:
                       UPPER(COALESCE(u.authority, 'USER')) AS authority,
                       UPPER(COALESCE(u.useyn, 'N')) AS user_useyn,
                       UPPER(COALESCE(c.company_status, '')) AS company_status,
+                      u.session_id,
                       COALESCE(ARRAY_AGG(DISTINCT m.menuid) FILTER (WHERE m.menuid IS NOT NULL), ARRAY[]::varchar[]) AS menuids
                FROM user01t u
                JOIN company01t c ON c.companyid = u.companyid
@@ -52,14 +56,14 @@ def _load_auth_snapshot(companyid: str, email: str) -> dict | None:
                WHERE u.companyid = %s
                  AND u.email = %s
                GROUP BY u.companyid, c.companyname, u.username, u.email,
-                        u.authority, u.useyn, c.company_status
+                        u.authority, u.useyn, c.company_status, u.session_id
                LIMIT 1""",
             (companyid, email),
         )
         row = cursor.fetchone()
     if not row:
         return None
-    companyid_value, companyname, username, db_email, authority, user_useyn, company_status, menuids = row
+    companyid_value, companyname, username, db_email, authority, user_useyn, company_status, session_id, menuids = row
     if str(user_useyn).upper() != "Y" or str(company_status).upper() != "ACTIVE":
         return None
     return {
@@ -69,6 +73,7 @@ def _load_auth_snapshot(companyid: str, email: str) -> dict | None:
         "email": db_email,
         "authority": str(authority or "USER").upper(),
         "menuids": frozenset(menuids or ()),
+        "session_id": session_id or "",
     }
 
 
@@ -123,6 +128,7 @@ def create_access_token(user: dict) -> str:
         "companyid": str(user["user_company"]),
         "companyname": user.get("user_companyname", ""),
         "username": user.get("user_name", ""),
+        "sid": user["session_id"],
         "iat": now,
         "nbf": now,
         "exp": now + timedelta(minutes=ACCESS_TOKEN_MINUTES),
@@ -130,6 +136,10 @@ def create_access_token(user: dict) -> str:
         "aud": AUDIENCE,
     }
     return jwt.encode(payload, JWT_SECRET_KEY, algorithm=ALGORITHM)
+
+
+def _session_matches(sid: str, snapshot: dict) -> bool:
+    return bool(snapshot["session_id"]) and secrets.compare_digest(sid, snapshot["session_id"])
 
 
 def get_current_user(
@@ -151,7 +161,7 @@ def get_current_user(
             algorithms=[ALGORITHM],
             issuer=ISSUER,
             audience=AUDIENCE,
-            options={"require": ["exp", "iat", "sub", "companyid"]},
+            options={"require": ["exp", "iat", "sub", "companyid", "sid"]},
         )
     except jwt.PyJWTError as error:
         raise HTTPException(
@@ -166,6 +176,23 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="계정 권한 확인에 실패했습니다.") from error
     if snapshot is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="계정 또는 회사 이용 상태를 확인해 주세요.")
+    # 계정당 활성 세션 1개: 마지막 로그인에서 발급한 세션 ID 와 다르면 다른 곳에서 다시 로그인한 것이다.
+    sid = str(claims["sid"])
+    if not _session_matches(sid, snapshot):
+        # 캐시에 이전 세션 ID 가 남아 있을 수 있다 (로그인은 다른 워커가 처리). DB 를 다시 읽어 확인한다.
+        invalidate_user_access_cache(str(claims["companyid"]), str(claims["sub"]))
+        try:
+            snapshot = _get_auth_snapshot(str(claims["companyid"]), str(claims["sub"]))
+        except psycopg2.Error as error:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="계정 권한 확인에 실패했습니다.") from error
+        if snapshot is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="계정 또는 회사 이용 상태를 확인해 주세요.")
+    if not _session_matches(sid, snapshot):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=SESSION_REPLACED_MESSAGE,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return snapshot
 
 

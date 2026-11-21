@@ -8,17 +8,21 @@ import bar from '../../styles/pages/OutboundPrintDocument.module.css';
 // 매출등록 > 거래명세서 / 송장 출력.
 // - 출력할 때마다 서버에서 저장된 전표를 다시 읽는다 (화면에서 고치고 저장하지 않은 값은 출력되지 않는다).
 // - 거래명세서: 금액 포함. 송장: 납품 수량·중량과 인수 확인 중심, 금액 없음.
+// - 송장은 출하증(공급자 보관) · 인수증(받는 곳 보관). 품목이 적으면 A4 한 장에 위아래로(절취선), 많으면 각 한 장씩 새 쪽.
 // - 매입단가와 기타비용은 어느 서류에도 표시하지 않는다.
 // - 미리보기와 인쇄가 같은 CSS(DOC_CSS)를 쓴다. 인쇄는 서류만 담은 숨은 iframe 으로 해서 화면의 다른 요소가 섞이지 않는다.
 
 export const DOCUMENT_KINDS = { statement: '거래명세서', delivery: '송장' };
 const MIN_ROWS = { statement: 12, delivery: 12 };
+// 송장: 품목이 이 개수 이하이면 A4 한 장에 출하증(위) + 인수증(아래), 넘으면 출하증 · 인수증 각 한 장
+const DELIVERY_COMPACT_MAX_ITEMS = 8;
 
 const DOC_CSS = `
 .s119doc{width:794px;min-height:1080px;margin:0 auto;padding:40px 36px 34px;background:#fff;color:#1c2b3f;font-family:'Malgun Gothic','맑은 고딕',Pretendard,Arial,sans-serif;font-size:11px;line-height:1.45;box-sizing:border-box}
 .s119doc *{box-sizing:border-box}
 .s119doc-top{position:relative;display:flex;align-items:flex-start;justify-content:center;min-height:52px;margin-bottom:16px}
 .s119doc-title{margin:4px 0 0;color:#1f5fd1;font-size:25px;font-weight:800;letter-spacing:12px;text-indent:12px}
+.s119doc-kind{position:absolute;top:0;left:0;color:#4a5a70;font-size:10.5px;font-weight:700;letter-spacing:1px}
 .s119doc-no{position:absolute;top:0;right:0;text-align:right;color:#4a5a70;font-size:10.5px;line-height:1.8}
 .s119doc-no b{color:#1c2b3f;font-weight:700}
 .s119doc-parties{width:100%;border-collapse:collapse;table-layout:fixed;border:1px solid #8eaadf;margin-bottom:12px}
@@ -55,6 +59,24 @@ const DOC_CSS = `
 .s119doc-receive-body div{display:flex;align-items:flex-end;gap:8px}
 .s119doc-receive-body i{display:inline-block;min-width:120px;border-bottom:1px solid #8a9ab0;height:18px}
 .s119doc-note{margin-top:14px;color:#7a889b;font-size:9.5px}
+/* 송장 한 장 양식: 출하증 · 인수증을 반쪽씩 */
+.s119doc-compact .s119doc-top{min-height:34px;margin-bottom:8px}
+.s119doc-compact .s119doc-title{margin-top:0;font-size:20px;letter-spacing:10px;text-indent:10px}
+.s119doc-compact .s119doc-no{font-size:9.5px;line-height:1.6}
+.s119doc-compact .s119doc-parties{margin-bottom:8px}
+.s119doc-compact .s119doc-parties th.head{height:21px;padding:2px 8px}
+.s119doc-compact .s119doc-parties th.label,.s119doc-compact .s119doc-parties td{height:20px;padding:2px 8px;font-size:10px}
+.s119doc-compact .s119doc-table th{height:21px;padding:2px 3px}
+.s119doc-compact .s119doc-table td{height:20px;padding:2px 4px;white-space:nowrap;text-overflow:ellipsis}
+.s119doc-compact .s119doc-table tfoot td{height:21px}
+.s119doc-compact .s119doc-receive{margin-top:8px}
+.s119doc-compact .s119doc-receive-head{padding:3px 10px}
+.s119doc-compact .s119doc-receive-body{padding:4px 12px;line-height:1.85}
+.s119doc-compact .s119doc-receive-body i{height:15px}
+.s119doc-compact .s119doc-sign{margin-top:6px;padding-top:6px}
+.s119doc-compact .s119doc-sign i{height:15px}
+.s119doc-cut{display:flex;align-items:center;gap:10px;margin:10px 0;color:#9aa6b6;font-size:9.5px;letter-spacing:2px}
+.s119doc-cut::before,.s119doc-cut::after{content:'';flex:1;border-top:1px dashed #b7c3d4}
 `;
 
 const PRINT_CSS = `
@@ -64,6 +86,7 @@ html,body{margin:0;padding:0;background:#fff;-webkit-print-color-adjust:exact;pr
 .s119doc{width:100%;min-height:0;padding:10mm 9mm;-webkit-box-decoration-break:clone;box-decoration-break:clone}
 .s119doc-table thead{display:table-header-group}
 .s119doc-table tr{page-break-inside:avoid;break-inside:avoid}
+.s119doc+.s119doc{break-before:page;page-break-before:always}
 `;
 
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
@@ -107,8 +130,19 @@ function PartyTable({ left, right, edits }) {
   </table>;
 }
 
-function DocumentTop({ title, header }) {
+// 상세 표 칸: 수정 모드이면 바로 고칠 수 있다 (이번 출력에만 사용, DB 저장 안 함).
+// field 키(`item.<순번>.<칸>`, 합계는 `total.<칸>`)로 보관해 거래명세서·송장 전환 후에도 유지된다. 금액·합계는 다시 계산하지 않는다.
+function EditCell({ edits, field, value, className }) {
+  const shown = edits.values[field] ?? value;
+  const classNames = [className, edits.enabled && 's119doc-editable'].filter(Boolean).join(' ') || undefined;
+  return <td key={`${field}:${edits.enabled}:${shown}`} className={classNames} contentEditable={edits.enabled || undefined} suppressContentEditableWarning
+    onBlur={edits.enabled ? (event) => edits.change(field, event.currentTarget.textContent.trim()) : undefined}
+    onKeyDown={edits.enabled ? (event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } } : undefined}>{shown}</td>;
+}
+
+function DocumentTop({ title, header, kindLabel }) {
   return <div className="s119doc-top">
+    {kindLabel && <div className="s119doc-kind">{kindLabel}</div>}
     <h1 className="s119doc-title">{title}</h1>
     <div className="s119doc-no"><div><b>No. {header.receiptno}</b></div><div>출고일자 {text(header.receptdate).slice(0, 10)}</div></div>
   </div>;
@@ -154,33 +188,36 @@ function StatementPaper({ document, edits }) {
       </colgroup>
       <thead><tr><th>No</th><th>품명</th><th>강종</th><th>표면</th><th>두께</th><th>폭</th><th>길이</th><th>단위</th><th>수량</th><th>중량(kg)</th><th>단가</th><th>공급가액</th><th>세액</th><th>합계</th><th>비고</th></tr></thead>
       <tbody>
-        {items.map((item, index) => <tr key={item.lineno ?? index}>
-          <td className="c">{index + 1}</td>
-          <td>{text(item.itemname)}</td>
-          <td>{text(item.materialname)}</td>
-          <td>{text(item.surfacename)}</td>
-          <td className="r">{dimension(item.thickness)}</td>
-          <td className="r">{dimension(item.width)}</td>
-          <td className="r">{dimension(item.length)}</td>
-          <td className="c">{text(item.qtyunitname)}</td>
-          <td className="r">{quantity(item.qty)}</td>
-          <td className="r">{quantity(item.weight)}</td>
-          <td className="r">{amount(item.unitprice)}</td>
-          <td className="r">{amount(item.supplyamt)}</td>
-          <td className="r">{amount(item.vat)}</td>
-          <td className="r">{amount(item.totalamt)}</td>
-          <td>{text(item.description)}</td>
-        </tr>)}
+        {items.map((item, index) => {
+          const cell = (name, value, className) => <EditCell edits={edits} field={`item.${item.lineno ?? index}.${name}`} value={value} className={className} />;
+          return <tr key={item.lineno ?? index}>
+            <td className="c">{index + 1}</td>
+            {cell('itemname', text(item.itemname))}
+            {cell('materialname', text(item.materialname))}
+            {cell('surfacename', text(item.surfacename))}
+            {cell('thickness', dimension(item.thickness), 'r')}
+            {cell('width', dimension(item.width), 'r')}
+            {cell('length', dimension(item.length), 'r')}
+            {cell('qtyunitname', text(item.qtyunitname), 'c')}
+            {cell('qty', quantity(item.qty), 'r')}
+            {cell('weight', quantity(item.weight), 'r')}
+            {cell('unitprice', amount(item.unitprice), 'r')}
+            {cell('supplyamt', amount(item.supplyamt), 'r')}
+            {cell('vat', amount(item.vat), 'r')}
+            {cell('totalamt', amount(item.totalamt), 'r')}
+            {cell('description', text(item.description))}
+          </tr>;
+        })}
         {blankRows(Math.max(0, MIN_ROWS.statement - items.length), 15)}
       </tbody>
       <tfoot><tr>
         <td className="c" colSpan={8}>합 계</td>
-        <td className="r">{quantity(totals.qty)}</td>
-        <td className="r">{quantity(totals.weight)}</td>
+        <EditCell edits={edits} field="total.qty" value={quantity(totals.qty)} className="r" />
+        <EditCell edits={edits} field="total.weight" value={quantity(totals.weight)} className="r" />
         <td />
-        <td className="r">{amount(totals.supplyamt)}</td>
-        <td className="r">{amount(totals.vat)}</td>
-        <td className="r">{amount(totals.totalamt)}</td>
+        <EditCell edits={edits} field="total.supplyamt" value={amount(totals.supplyamt)} className="r" />
+        <EditCell edits={edits} field="total.vat" value={amount(totals.vat)} className="r" />
+        <EditCell edits={edits} field="total.totalamt" value={amount(totals.totalamt)} className="r" />
         <td />
       </tr></tfoot>
     </table>
@@ -191,74 +228,98 @@ function StatementPaper({ document, edits }) {
   </div>;
 }
 
-function DeliveryPaper({ document, edits }) {
+// 송장 두 장: 같은 내용 · 같은 수정값(edits)을 쓰고 제목만 다르다.
+const DELIVERY_COPIES = ['출하증', '인수증'];
+
+function DeliveryPaper({ document, edits, copy, compact = false }) {
   const { header, supplier, buyer, items, totals } = document;
-  return <div className="s119doc">
-    <DocumentTop title="납품송장" header={header} />
+  return <div className={compact ? 's119doc-copy s119doc-compact' : 's119doc'}>
+    <DocumentTop title={copy} kindLabel="납품송장" header={header} />
     <PartyTable edits={edits}
       left={{ title: '공급자', side: 'supplier', rows: [
         ['상호(법인명)', 'companyname', supplier.companyname], ['사업자번호', 'businessno', supplier.businessno], ['주소', 'address', supplier.address],
         ['연락처', 'phone', supplier.phone], ['출고창고', 'warehouses', (header.warehouses || []).join(', ')],
       ] }}
       right={{ title: '받는 곳', side: 'buyer', rows: [
-        ['상호(법인명)', 'customername', buyer.customername], ['담당자', 'manager', buyer.manager], ['주소', 'address', buyer.address],
+        ['상호(법인명)', 'customername', buyer.customername], ['담당자', 'manager', header.manager], ['주소', 'address', buyer.delivery_address ?? buyer.address],
         ['연락처', 'phone', buyer.phone], ['출고일자', 'receptdate', text(header.receptdate).slice(0, 10)],
       ] }} />
-    <AmountSummary totals={totals} />
     <table className="s119doc-table">
       <colgroup>
         <col style={{ width: 24 }} /><col /><col style={{ width: 60 }} /><col style={{ width: 46 }} /><col style={{ width: 40 }} /><col style={{ width: 50 }} />
-        <col style={{ width: 50 }} /><col style={{ width: 32 }} /><col style={{ width: 46 }} /><col style={{ width: 60 }} /><col style={{ width: 90 }} /><col style={{ width: 60 }} />
+        <col style={{ width: 50 }} /><col style={{ width: 32 }} /><col style={{ width: 46 }} /><col style={{ width: 60 }} /><col style={{ width: compact ? 140 : 90 }} /><col style={{ width: 60 }} />
       </colgroup>
       <thead><tr><th>No</th><th>품명</th><th>강종</th><th>표면</th><th>두께</th><th>폭</th><th>길이</th><th>단위</th><th>수량</th><th>중량(kg)</th><th>제품번호</th><th>비고</th></tr></thead>
       <tbody>
-        {items.map((item, index) => <tr key={item.lineno ?? index}>
-          <td className="c">{index + 1}</td>
-          <td>{text(item.itemname)}</td>
-          <td>{text(item.materialname)}</td>
-          <td>{text(item.surfacename)}</td>
-          <td className="r">{dimension(item.thickness)}</td>
-          <td className="r">{dimension(item.width)}</td>
-          <td className="r">{dimension(item.length)}</td>
-          <td className="c">{text(item.qtyunitname)}</td>
-          <td className="r">{quantity(item.qty)}</td>
-          <td className="r">{quantity(item.weight)}</td>
-          <td>{text(item.productname)}</td>
-          <td>{text(item.description)}</td>
-        </tr>)}
-        {blankRows(Math.max(0, MIN_ROWS.delivery - items.length), 12)}
+        {items.map((item, index) => {
+          const cell = (name, value, className) => <EditCell edits={edits} field={`item.${item.lineno ?? index}.${name}`} value={value} className={className} />;
+          return <tr key={item.lineno ?? index}>
+            <td className="c">{index + 1}</td>
+            {cell('itemname', text(item.itemname))}
+            {cell('materialname', text(item.materialname))}
+            {cell('surfacename', text(item.surfacename))}
+            {cell('thickness', dimension(item.thickness), 'r')}
+            {cell('width', dimension(item.width), 'r')}
+            {cell('length', dimension(item.length), 'r')}
+            {cell('qtyunitname', text(item.qtyunitname), 'c')}
+            {cell('qty', quantity(item.qty), 'r')}
+            {cell('weight', quantity(item.weight), 'r')}
+            {cell('productname', text(item.productname))}
+            {cell('description', text(item.description))}
+          </tr>;
+        })}
+        {blankRows(Math.max(0, (compact ? DELIVERY_COMPACT_MAX_ITEMS : MIN_ROWS.delivery) - items.length), 12)}
       </tbody>
       <tfoot><tr>
         <td className="c" colSpan={8}>합 계</td>
-        <td className="r">{quantity(totals.qty)}</td>
-        <td className="r">{quantity(totals.weight)}</td>
+        <EditCell edits={edits} field="total.qty" value={quantity(totals.qty)} className="r" />
+        <EditCell edits={edits} field="total.weight" value={quantity(totals.weight)} className="r" />
         <td colSpan={2} />
       </tr></tfoot>
     </table>
-    <div className="s119doc-receive">
-      <div className="s119doc-receive-head">인수 확인</div>
-      <div className="s119doc-receive-body">
-        <div>위 품목의 납품 수량과 제품 상태를 확인하고 인수합니다.</div>
-        <div>인수 일시 : <i style={{ minWidth: 60 }} />년 <i style={{ minWidth: 36 }} />월 <i style={{ minWidth: 36 }} />일 <i style={{ minWidth: 36 }} />시</div>
-        <div>인수자 성명 : <i style={{ minWidth: 160 }} /> 서명 : <i style={{ minWidth: 140 }} /></div>
-      </div>
-    </div>
+    {/* 출하증 = 출고자 확인, 인수증 = 인수자 확인 */}
+    {(() => {
+      const shipping = copy === '출하증';
+      const verb = shipping ? '출고' : '인수';
+      const when = <>{verb} 일시 : <i style={{ minWidth: 56 }} />년 <i style={{ minWidth: 32 }} />월 <i style={{ minWidth: 32 }} />일 <i style={{ minWidth: 32 }} />시</>;
+      const who = <>{verb}자 : <i style={{ minWidth: compact ? 150 : 200 }} /> (인)</>;
+      return <div className="s119doc-receive">
+        <div className="s119doc-receive-head">{verb} 확인</div>
+        <div className="s119doc-receive-body">
+          <div>{shipping ? '위 품목을 위와 같이 출고합니다.' : '위 품목의 납품 수량과 제품 상태를 확인하고 인수합니다.'}</div>
+          {/* 한 장 양식은 일시와 서명을 한 줄에 */}
+          {compact ? <div>{when}<span style={{ marginLeft: 24 }} />{who}</div> : <><div>{when}</div><div>{who}</div></>}
+        </div>
+      </div>;
+    })()}
     <div className="s119doc-sign">
       <div>차량번호<i /></div>
-      <div>출고담당{text(header.manager) ? ` (${text(header.manager)})` : ''}<i /></div>
+      <div>{copy === '인수증' ? '인수담당' : '출고담당'}<i /></div>
     </div>
   </div>;
 }
 
+// 송장: 품목이 적으면 한 장(출하증 / 절취선 / 인수증), 많으면 출하증 · 인수증 각 한 장
+function DeliveryPapers({ document, edits }) {
+  if (document.items.length <= DELIVERY_COMPACT_MAX_ITEMS) {
+    return <div className="s119doc">
+      <DeliveryPaper compact copy="출하증" document={document} edits={edits} />
+      <div className="s119doc-cut">절 취 선</div>
+      <DeliveryPaper compact copy="인수증" document={document} edits={edits} />
+    </div>;
+  }
+  return DELIVERY_COPIES.map((copy) => <DeliveryPaper key={copy} copy={copy} document={document} edits={edits} />);
+}
+
 // 서류만 담은 숨은 iframe 에서 인쇄한다 (브라우저 인쇄 창에서 'PDF로 저장'도 가능).
-function printPaper(paper, title) {
+function printPaper(papers, title) {
   const iframe = window.document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');
   Object.assign(iframe.style, { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' });
   window.document.body.appendChild(iframe);
   const frameDocument = iframe.contentDocument;
   frameDocument.open();
-  frameDocument.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${DOC_CSS}${PRINT_CSS}</style></head><body>${paper.outerHTML}</body></html>`);
+  frameDocument.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${DOC_CSS}${PRINT_CSS}</style></head><body>${papers.innerHTML}</body></html>`);
   frameDocument.close();
   const frameWindow = iframe.contentWindow;
   let removed = false;
@@ -307,7 +368,7 @@ export default function OutboundPrintDocument({ opened, receiptno, initialKind =
     // 수정 중인 칸이 있으면 먼저 확정한다 (입력한 글자는 이미 화면에 있으므로 그대로 인쇄된다).
     if (window.document.activeElement instanceof HTMLElement) window.document.activeElement.blur();
     const title = `${DOCUMENT_KINDS[kind]}_${fileSafe(document.buyer?.customername || document.header.customname)}_${document.header.receiptno}`;
-    printPaper(paperRef.current.firstElementChild, title);
+    printPaper(paperRef.current, title);
   }, [document, kind]);
 
   return <Modal opened={opened} onClose={onClose} centered size="min(900px, calc(100vw - 32px))" padding={0} withCloseButton={false}
@@ -343,13 +404,15 @@ export default function OutboundPrintDocument({ opened, receiptno, initialKind =
       </div>
     </div>
     <div style={{ flex: '1 1 0', minHeight: 0, overflow: 'auto', padding: 20, background: '#eef1f5' }}>
-      <style>{DOC_CSS}{'.s119doc{box-shadow:0 3px 14px #8c9db333}.s119doc-editable{outline:1px dashed #6f93d6;outline-offset:-3px;background:#fffbe6;cursor:text;min-height:21px}.s119doc-editable:focus{outline:2px solid #1f5fd1;background:#fff}'}</style>
+      <style>{DOC_CSS}{'.s119doc{box-shadow:0 3px 14px #8c9db333}.s119doc+.s119doc{margin-top:20px}.s119doc-editable{outline:1px dashed #6f93d6;outline-offset:-3px;background:#fffbe6;cursor:text;min-height:21px}.s119doc-editable:focus{outline:2px solid #1f5fd1;background:#fff}'}</style>
       {editing && <Text size="xs" ta="center" mb={10} c="#8a6d1f" style={{ background: '#fff8e1', border: '1px solid #f1dfa8', borderRadius: 6, padding: '7px 10px', maxWidth: 794, margin: '0 auto 10px' }}>
-        노란 칸을 눌러 공급자·공급받는자 정보를 고칠 수 있습니다. 고친 값은 이번 출력에만 쓰이고 저장되지 않습니다. 계속 쓰려면 고객사등록·거래처관리에서 수정해 주세요.
+        노란 칸을 눌러 공급자·공급받는자 정보와 상세 표 내용을 고칠 수 있습니다. 고친 값은 이번 출력에만 쓰이고 저장되지 않으며, 합계는 자동으로 다시 계산되지 않습니다.
       </Text>}
       {loading || !document
         ? <Group justify="center" mt={80}><Loader color="red" size="sm" /><Text size="sm" c="dimmed">저장된 전표를 불러오고 있습니다.</Text></Group>
-        : <div ref={paperRef}>{kind === 'delivery' ? <DeliveryPaper document={document} edits={edits} /> : <StatementPaper document={document} edits={edits} />}</div>}
+        : <div ref={paperRef}>{kind === 'delivery'
+          ? <DeliveryPapers document={document} edits={edits} />
+          : <StatementPaper document={document} edits={edits} />}</div>}
     </div>
   </Modal>;
 }

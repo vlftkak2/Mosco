@@ -121,6 +121,10 @@
 .listTable thead th,
 .detailTable thead th { border-color: #e3e8ef !important; border-bottom-color: #d6dee8 !important; background: #f4f6f9 !important; color: #4b5b70 !important; font-weight: 650 !important; }
 .listTable tbody td { border-color: #edf0f4 !important; color: #26364e; font-variant-numeric: tabular-nums; }
+/* 목록 맨 위 선은 제목줄 아랫선 하나만 (매입·매출·가공 등록 목록과 같게): 표 윗테두리·헤더 윗선·Mantine stickyHeader 윗선 제거 */
+.listTable { border-top: 0 !important; }
+.listTable thead th { border-top: 0 !important; }
+.listTable thead::before { display: none !important; }
 .detailTable tbody td { border-color: #e1e6ed !important; font-variant-numeric: tabular-nums; }
 .listViewport :global(table),
 .detailViewport :global(table) { --table-border-color: #e3e8ef; }

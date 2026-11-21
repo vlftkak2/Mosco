@@ -144,7 +144,7 @@
 .emptyCell { text-align: center; }
 .empty { display: flex; min-height: 220px; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 24px; color: #8290a5; font-size: 12px; line-height: 1.6; }
 .emptyIcon { display: grid; width: 46px; height: 46px; margin-bottom: 4px; place-items: center; border-radius: 50%; background: #f1f4f8; color: #8b9aad; }
-.empty strong { max-width: 360px; color: #4b5b70; font-size: 13px; font-weight: 600; }
+.empty strong { max-width: 100%; color: #4b5b70; font-size: 13px; font-weight: 600; word-break: keep-all; }
 
 /* 하단: 총 건수 · 표시 건수 · 페이지 */
 .paginationBar { min-height: 44px; flex: 0 0 auto; padding: 6px 12px; border-top: 1px solid #e5e9ef; background: #fff; }

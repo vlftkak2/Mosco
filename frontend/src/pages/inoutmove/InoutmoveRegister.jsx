@@ -51,6 +51,15 @@ const cleanQtyInput = (value) => {
   const [whole, ...rest] = text.split('.');
   return rest.length ? `${whole}.${rest.join('').slice(0, 3)}` : whole;
 };
+// 이전 수량 칸: 위/아래 화살표로 위아래 행, Enter 로 아래 행 이동 (이동한 칸은 값 전체 선택)
+const moveQtyFocus = (event) => {
+  const step = event.key === 'ArrowUp' ? -1 : (event.key === 'ArrowDown' || event.key === 'Enter') ? 1 : 0;
+  if (!step || event.nativeEvent.isComposing) return;
+  event.preventDefault();
+  const inputs = [...document.querySelectorAll('input[data-move-qty]')];
+  const next = inputs[inputs.indexOf(event.currentTarget) + step];
+  if (next) { next.focus(); next.select(); }
+};
 const sourceKey = (row) => `${row.stocksourcetype}\u001f${row.stocksourceno}\u001f${row.stocksourceline}`;
 // 재고구분: 서버가 주는 stockkind(기초/입고/가공/이동)를 쓰고, 없으면 원천 구분으로 표시
 const STOCK_KIND_NAMES = { OPENING: '기초', INBOUND: '입고', PROCESS: '가공', TRANSFER: '이동' };
@@ -71,6 +80,8 @@ const LIST_COLUMNS = [
   { key: 'manager', label: '담당자', width: 80, minWidth: 75 },
   { key: 'receiptno', label: '재고이전전표', width: 160, minWidth: 140 },
   { key: 'description', label: '비고', width: 110, minWidth: 90 },
+  { key: 'created_at', label: '등록일자', width: 130, minWidth: 120 },
+  { key: 'created_by', label: '등록자', width: 80, minWidth: 70 },
 ];
 const DETAIL_COLUMNS = [
   { key: 'select', label: '', width: 38, minWidth: 38 },
@@ -139,7 +150,11 @@ const HeaderTextInput = memo(function HeaderTextInput({ value, disabled, inputRe
   />;
 });
 
-function StockPicker({ opened, fromWarehouse, toWarehouse, existingKeys, onClose, onApply }) {
+// fromWarehouseCode: 헤더에서 먼저 고른 출고 창고 (그 창고 재고만), initialFilters: 기본 조회조건 (기준일 종료 = 이전일자)
+function StockPicker({ opened, fromWarehouse, fromWarehouseCode, toWarehouse, existingKeys, initialFilters, onClose, onApply }) {
+  const initialFiltersRef = useRef(initialFilters);
+  initialFiltersRef.current = initialFilters;
+  const openingFilters = () => ({ ...emptyStockFilters(), ...(initialFiltersRef.current || {}) });
   const [inputs, setInputs] = useState(emptyStockFilters);
   const [filters, setFilters] = useState(emptyStockFilters);
   const [items, setItems] = useState([]);
@@ -181,7 +196,7 @@ function StockPicker({ opened, fromWarehouse, toWarehouse, existingKeys, onClose
       const params = Object.fromEntries(Object.entries(nextFilters).filter(([, value]) => String(value || '').trim()));
       params.page = nextPage;
       params.page_size = nextPageSize;
-      if (fromWarehouse) params.warehouse_search = fromWarehouse;
+      if (fromWarehouseCode) params.warehousecode = fromWarehouseCode;
       const { data } = await axios.get('/api/inoutmove-register/available-stock', { ...auth(), params });
       setItems(data.items || []);
       setTotal(data.total || 0);
@@ -191,15 +206,16 @@ function StockPicker({ opened, fromWarehouse, toWarehouse, existingKeys, onClose
       setTotal(0);
       notifications.show({ title: '현재고 조회 실패', message: error.response?.data?.detail || '이전 가능한 현재고를 조회하지 못했습니다.', color: 'red' });
     } finally { setLoading(false); }
-  }, [fromWarehouse]);
+  }, [fromWarehouseCode]);
 
   useEffect(() => {
     if (!opened) return;
-    setInputs(emptyStockFilters());
-    setFilters(emptyStockFilters());
+    const defaults = openingFilters();
+    setInputs(defaults);
+    setFilters(defaults);
     setSelected({});
     setPageSize(50);
-    void load(1, emptyStockFilters());
+    void load(1, defaults);
   }, [opened, load]);
 
   const runSearch = () => {
@@ -222,7 +238,7 @@ function StockPicker({ opened, fromWarehouse, toWarehouse, existingKeys, onClose
   const searchOnEnter = (event) => { if (event.key === 'Enter') runSearch(); };
 
   return <PickerModal opened={opened} onClose={onClose}
-    title="재고 선택" description="이동할 현재고를 선택합니다. 선택한 재고의 출고 창고는 자동으로 지정됩니다." icon={<IconArrowsExchange size={22} stroke={1.7} />}
+    title="재고 선택" description="이동할 현재고를 선택합니다. 선택한 재고의 창고가 출고 창고가 됩니다." icon={<IconArrowsExchange size={22} stroke={1.7} />}
     badge={fromWarehouse ? `출고창고 ${fromWarehouse}` : undefined}
     filters={<>
       <ErpDateInput label="기준일 시작" type="date" value={inputs.date_from} onChange={setInput('date_from')} />
@@ -233,9 +249,9 @@ function StockPicker({ opened, fromWarehouse, toWarehouse, existingKeys, onClose
       <TextInput size="sm" label="폭" placeholder="폭" value={inputs.width} onChange={setInput('width')} onKeyDown={searchOnEnter} style={{ width: 100 }} />
       <TextInput size="sm" label="길이" placeholder="길이" value={inputs.length} onChange={setInput('length')} onKeyDown={searchOnEnter} style={{ width: 100 }} />
       <Button size="sm" color="red" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
-      <Button size="sm" variant="default" onClick={() => setInputs(emptyStockFilters())}>초기화</Button>
+      <Button size="sm" variant="default" onClick={() => setInputs(openingFilters())}>초기화</Button>
     </>}
-    guide={<p>이동할 재고를 체크한 뒤 [선택 반영]을 누르세요. 입고 창고는 재고이동 상세에서 입력합니다{toWarehouse ? ` (현재 입고 창고: ${toWarehouse})` : ''}.</p>}
+    guide={<p>이동할 재고를 체크한 뒤 [선택 반영]을 누르세요{toWarehouse ? ` (입고 창고: ${toWarehouse})` : ''}. 이전 수량은 반영 후 상세에서 입력합니다.</p>}
     listTitle="이동 가능 재고" count={total} loading={loading}
     selectedCount={selectedItems.length} onClearSelection={() => setSelected({})}
     pagination={<>
@@ -308,6 +324,17 @@ export default function InoutmoveRegister() {
   const managerInputRef = useRef(null);
   const descriptionInputRef = useRef(null);
   const readOnly = Boolean(selectedReceiptno);
+  // 입고 창고: [추가] 뒤 포커스만 두고 목록은 펼치지 않는다 (클릭·입력하면 펼침)
+  const toWarehouseRef = useRef(null);
+  const [toDropdownOpen, setToDropdownOpen] = useState(false);
+  const suppressToDropdownRef = useRef(false);
+  const [focusTick, setFocusTick] = useState(0);
+  const focusToWarehouse = useCallback(() => {
+    suppressToDropdownRef.current = true;
+    toWarehouseRef.current?.focus();
+    suppressToDropdownRef.current = false;
+  }, []);
+  useEffect(() => { if (focusTick) focusToWarehouse(); }, [focusTick, focusToWarehouse]);
   const warehouseData = useMemo(() => warehouses.map((row) => ({ value: row.warehousecode, label: row.warehousecodename })), [warehouses]);
   const fromWarehouse = warehouses.find((row) => row.warehousecode === header.fromwarehousecode)?.warehousecodename || '';
   const toWarehouse = warehouses.find((row) => row.warehousecode === header.towarehousecode)?.warehousecodename || '';
@@ -395,8 +422,9 @@ export default function InoutmoveRegister() {
     setFilters(next); void loadDocuments(1, next);
   }, [filterInputs, loadDocuments]);
 
-  // 추가 (ribbon) = same as 출고등록: leave a saved document for a new one, then pick current stock.
-  const openStockPicker = useCallback(() => {
+  // 추가 (리본): 언제 누르든 새 전표로 초기화하고 입고 창고에 포커스. 재고조회 창은 바로 띄우지 않고,
+  // 이전일자 / 입고 창고를 먼저 채운 뒤 [현재고 조회]로 재고를 담는다 (출고 창고는 담은 재고의 창고로 자동 지정).
+  const addDraft = useCallback(() => {
     if (saving) return;
     // Cancel a document still loading so its late response cannot replace the new draft.
     if (openRequestRef.current.controller) {
@@ -405,9 +433,34 @@ export default function InoutmoveRegister() {
       setOpeningReceiptno('');
       setLoading(false);
     }
-    if (selectedReceiptno) resetDraft();
+    resetDraft();
+    setFocusTick((tick) => tick + 1);   // 그린 뒤(입력 가능해진 뒤) 입고 창고에 포커스
+  }, [saving, resetDraft]);
+
+  // [현재고 조회]: 이전일자·입고 창고를 먼저 입력해야 열린다. 이미 담은 재고가 있으면 그 출고 창고의 재고만 조회
+  const openStockLookup = useCallback(() => {
+    if (saving) return;
+    if (readOnly) {
+      notifications.show({ title: '새 재고이전을 시작해 주세요', message: '저장된 전표에는 재고를 추가할 수 없습니다. [추가]를 누른 뒤 이전일자·입고 창고를 입력하고 현재고 조회를 눌러 주세요.', color: 'orange' });
+      return;
+    }
+    const missing = [];
+    if (!String(header.receptdate || '').trim()) missing.push('이전일자');
+    if (!header.towarehousecode) missing.push('입고 창고');
+    if (missing.length) {
+      notifications.show({ title: '재고이전 기본을 먼저 입력해 주세요', message: `${missing.join(', ')}을(를) 입력한 뒤 현재고 조회를 눌러 주세요.`, color: 'orange' });
+      if (!header.towarehousecode) focusToWarehouse();
+      return;
+    }
     setStockOpen(true);
-  }, [saving, selectedReceiptno, resetDraft]);
+  }, [saving, readOnly, header.receptdate, header.towarehousecode, focusToWarehouse]);
+  // 재고조회 기본 조건: 기준일 종료 = 이전일자 (그 뒤에 들어온 재고는 이 날짜로 옮길 수 없음)
+  const stockPickerFilters = useMemo(() => {
+    const moveDate = String(header.receptdate || '').slice(0, 10);
+    if (!moveDate) return {};
+    const thisMonthStart = `${today().slice(0, 8)}01`;
+    return { date_to: moveDate, date_from: thisMonthStart <= moveDate ? thisMonthStart : `${moveDate.slice(0, 8)}01` };
+  }, [header.receptdate]);
 
   const selectDocument = useCallback(async (receiptno) => {
     openRequestRef.current.controller?.abort();
@@ -444,6 +497,10 @@ export default function InoutmoveRegister() {
       return;
     }
     const selectedSourceCode = sourceWarehouseCodes[0];
+    if (selectedSourceCode === header.towarehousecode) {
+      notifications.show({ title: '창고 확인', message: '입고 창고와 같은 창고의 재고는 이전할 수 없습니다. 다른 창고의 재고를 선택해 주세요.', color: 'orange' });
+      return;
+    }
     const existingSourceCode = header.fromwarehousecode || items[0]?.warehousecode;
     if (existingSourceCode && existingSourceCode !== selectedSourceCode) {
       notifications.show({ title: '출고 창고 확인', message: '이미 추가한 재고와 같은 출고 창고의 재고를 선택해 주세요.', color: 'orange' });
@@ -509,7 +566,7 @@ export default function InoutmoveRegister() {
       setItems((current) => current.filter((row) => !selectedSet.has(sourceKey(row))));
       setSelectedIds([]);
       if (!items.some((row) => !selectedSet.has(sourceKey(row)))) {
-        setHeader((current) => ({ ...current, fromwarehousecode: '' }));
+        setHeader((current) => ({ ...current, fromwarehousecode: '' }));   // 다시 담는 재고의 창고로 정해짐
       }
       notifications.show({ title: '선택 삭제 완료', message: `선택한 ${deleteCount}개 재고 행을 삭제했습니다.`, color: 'teal' });
       return;
@@ -536,8 +593,8 @@ export default function InoutmoveRegister() {
       출발창고: row.fromwarehousename || fromWarehouse,
       도착창고: row.towarehousename || toWarehouse,
       등록일자: formatExcelDateTime(row.created_at),
-      수정일자: formatExcelDateTime(row.updated_at),
       등록자: row.created_by || '',
+      수정일자: formatExcelDateTime(row.updated_at),
       수정자: row.updated_by || '',
     }));
     if (!exportRows.length) {
@@ -557,7 +614,7 @@ export default function InoutmoveRegister() {
     pageLayout.registerPageRibbon(<Group className={inboundClasses.commandRibbon} justify="flex-start" wrap="nowrap" gap={2}>
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
       <span className={inboundClasses.ribbonSeparator} />
-      <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={openStockPicker} disabled={saving}>추가</Button>
+      <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={addDraft} disabled={saving}>추가</Button>
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} disabled>복사</Button>
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={saveDocument} loading={saving} disabled={readOnly || !items.length}>저장</Button>
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={requestDelete} disabled={saving || (!selectedReceiptno && !selectedIds.length)}>삭제</Button>
@@ -566,7 +623,7 @@ export default function InoutmoveRegister() {
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={pageLayout.closeActivePage}>닫기</Button>
     </Group>);
     return () => pageLayout.registerPageRibbon(null);
-  }, [pageLayout, runSearch, loading, openStockPicker, saving, readOnly, items.length, requestDelete, selectedReceiptno, selectedIds.length, exportDocument, saveDocument]);
+  }, [pageLayout, runSearch, loading, addDraft, saving, readOnly, items.length, requestDelete, selectedReceiptno, selectedIds.length, exportDocument, saveDocument]);
 
   // Both tables are memoized: Mantine <Table> hands every Table.Td a fresh context value on
   // each render, so otherwise every loading/highlight toggle while opening a document
@@ -583,6 +640,7 @@ export default function InoutmoveRegister() {
         <Table.Td>{String(row.receptdate).slice(0, 10)}</Table.Td><Table.Td>{row.fromwarehousename}</Table.Td><Table.Td>{row.towarehousename}</Table.Td>
         <Table.Td ta="right">{number(row.line_count)}</Table.Td><Table.Td ta="right">{number(row.total_qty)}</Table.Td><Table.Td ta="right">{number(row.total_weight)}</Table.Td>
         <Table.Td>{row.manager}</Table.Td><Table.Td>{row.receiptno}</Table.Td><Table.Td className={classes.ellipsis}>{row.description}</Table.Td>
+        <Table.Td>{formatExcelDateTime(row.created_at).slice(0, 16)}</Table.Td><Table.Td className={classes.ellipsis} title={row.created_by || ''}>{row.created_by || ''}</Table.Td>
       </Table.Tr>)}</Table.Tbody>}
     </Table>
   ), [documents, highlightedReceiptno, listColumnWidths, listTableWidth, resizeGridColumn, selectDocument]);
@@ -601,7 +659,7 @@ export default function InoutmoveRegister() {
         <Table.Td>{row.itemname}</Table.Td><Table.Td>{row.productname}</Table.Td><Table.Td>{row.materialname || row.myrtle || ''}</Table.Td>
         <Table.Td ta="right">{number(row.thickness)}</Table.Td><Table.Td ta="right">{number(row.width)}</Table.Td><Table.Td ta="right">{number(row.length)}</Table.Td>
         <Table.Td ta="right" className={readOnly || row.available_qty === undefined ? undefined : classes.qtyInputCell}>{readOnly || row.available_qty === undefined ? number(row.qty) : (
-          <input className={codeClasses.cellInput} inputMode="decimal" aria-label={`${row.itemname} 이전 수량`}
+          <input className={codeClasses.cellInput} inputMode="decimal" aria-label={`${row.itemname} 이전 수량`} data-move-qty onKeyDown={moveQtyFocus}
             title={`현재고 ${number(row.available_qty)} 이내`} value={row.qty}
             onFocus={(event) => event.currentTarget.select()}
             onChange={(event) => {
@@ -666,14 +724,16 @@ export default function InoutmoveRegister() {
             </Group>
             <Box className={inboundClasses.sharedReceiptFields}>
               <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>이전일자 *</Text><ErpDateInput type="date" value={header.receptdate} disabled={readOnly} onChange={(event) => updateHeader('receptdate', event.currentTarget.value)} /></Box>
-              <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>출고 창고 *</Text><Select data={warehouseData} value={header.fromwarehousecode || null} disabled searchable /></Box>
-              <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>입고 창고 *</Text><Select data={warehouseData} value={header.towarehousecode || null} disabled={readOnly || !items.length} searchable onChange={(value) => updateHeader('towarehousecode', value)} /></Box>
+              <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>출고 창고 *</Text><Select data={warehouseData} value={header.fromwarehousecode || null} disabled placeholder={readOnly ? '' : '재고 선택 시 자동'} /></Box>
+              <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>입고 창고 *</Text><Select ref={toWarehouseRef} data={warehouseData} value={header.towarehousecode || null} disabled={readOnly} searchable
+                dropdownOpened={toDropdownOpen} onDropdownOpen={() => { if (!suppressToDropdownRef.current) setToDropdownOpen(true); }} onDropdownClose={() => setToDropdownOpen(false)}
+                onChange={(value) => updateHeader('towarehousecode', value)} /></Box>
               <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>담당자</Text><HeaderTextInput value={header.manager} disabled={readOnly} inputRef={managerInputRef} onCommit={(value) => updateHeader('manager', value)} /></Box>
               <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>비고</Text><HeaderTextInput value={header.description} disabled={readOnly} inputRef={descriptionInputRef} onCommit={(value) => updateHeader('description', value)} /></Box>
             </Box>
             <Box className={`${codeClasses.tableWrap} ${classes.detailViewport}`}>
               {detailTable}
-              {!items.length && <Box className={inboundClasses.emptyDetailMessage}>{readOnly ? '상세 재고가 없습니다.' : '조회조건의 현재고 조회에서 이전할 재고를 선택하세요.'}</Box>}
+              {!items.length && <Box className={inboundClasses.emptyDetailMessage}>{readOnly ? '상세 재고가 없습니다.' : '이전일자·입고 창고를 입력한 뒤 [현재고 조회]로 이전할 재고를 선택하세요. 출고 창고는 고른 재고의 창고로 정해집니다.'}</Box>}
             </Box>
             <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="flex-end" wrap="wrap"><Text size="xs" fw={700}>총 수량 {items.length ? `${number(totals.qty)} ${[...new Set(items.map((row) => row.qtyunit).filter(Boolean))].join(', ')}` : '0'} · 총 중량 {items.length ? `${number(totals.weight)} KG` : '0'}</Text></Group>
           </Paper>
@@ -688,8 +748,8 @@ export default function InoutmoveRegister() {
         </Stack>
         <Box className={outboundClasses.outboundStockLookup}>
           <Text fw={700} size="sm">재고 조회</Text>
-          <Text size="xs" c="dimmed">재고를 선택한 뒤 상세에서 입고 창고를 지정합니다.</Text>
-          <Button fullWidth color="red" leftSection={<IconSearch size={15} />} onClick={openStockPicker} disabled={saving}>
+          <Text size="xs" c="dimmed">이전일자·입고 창고를 입력한 뒤 이전할 재고를 선택합니다.</Text>
+          <Button fullWidth color="red" leftSection={<IconSearch size={15} />} onClick={openStockLookup} disabled={saving || readOnly}>
             현재고 조회
           </Button>
         </Box>
@@ -700,6 +760,7 @@ export default function InoutmoveRegister() {
       target={selectedReceiptno || `선택 ${selectedIds.length}개 품목`}
       message={selectedReceiptno ? '전표와 상세 내역이 모두 삭제되고 재고는 원래 창고로 되돌아가며' : '선택한 상세 행이 목록에서 빠지며'}
       note={selectedReceiptno ? '삭제한 전표는 복구할 수 없습니다.' : '저장 전이라 다시 추가할 수 있습니다.'} />
-    <StockPicker opened={stockOpen} fromWarehouse={fromWarehouse} toWarehouse={toWarehouse} existingKeys={new Set(items.map(sourceKey))} onClose={() => setStockOpen(false)} onApply={applyStocks} />
+    <StockPicker opened={stockOpen} fromWarehouse={fromWarehouse} fromWarehouseCode={header.fromwarehousecode} toWarehouse={toWarehouse} existingKeys={new Set(items.map(sourceKey))}
+      initialFilters={stockPickerFilters} onClose={() => setStockOpen(false)} onApply={applyStocks} />
   </Box>;
 }

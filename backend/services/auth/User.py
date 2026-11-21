@@ -189,13 +189,13 @@ def list_company_users(companyid: str):
         )
         counts = cursor.fetchone()
         cursor.execute(
-            """SELECT u.companyid, u.username, u.email, u.team, u.authority, u.useyn,
+            """SELECT u.companyid, u.usercode, u.username, u.email, u.team, u.authority, u.useyn,
                       u.createdat, u.updatedat,
                       COALESCE((SELECT x.username FROM user01t x WHERE x.email = u.created_by LIMIT 1), u.created_by) AS created_by,
                       COALESCE((SELECT x.username FROM user01t x WHERE x.email = u.updated_by LIMIT 1), u.updated_by) AS updated_by
                FROM user01t u
                WHERE u.companyid = %s
-               ORDER BY LOWER(u.username), LOWER(u.email)""",
+               ORDER BY length(u.usercode), u.usercode""",   # 사용자 코드 순 (001 … 999, 1000 …)
             (companyid,),
         )
         return {
@@ -250,34 +250,24 @@ def create_user(
         if active_users >= licensed_seats:
             raise ValueError(f"허용 계정 수({licensed_seats}명)를 모두 사용 중입니다.")
 
+        # 사용자 코드: 회사별 001, 002, … (회사 행을 위에서 FOR UPDATE 로 잠가 같은 회사 등록이 겹치지 않는다)
+        cursor.execute(
+            """SELECT lpad((COALESCE(MAX(usercode::integer), 0) + 1)::text, 3, '0') AS next_code
+               FROM user01t WHERE companyid = %s AND usercode ~ '^[0-9]+$'""",
+            (data.companyid,),
+        )
+        usercode = cursor.fetchone()["next_code"]
         cursor.execute(
             """INSERT INTO user01t
-               (companyid, username, email, password, authority, useyn, created_by)
-               VALUES (%s, %s, %s, %s, %s, 'Y', %s)
-               RETURNING companyid, username, email, team, authority, useyn""",
-            (data.companyid, data.username, data.email, hash_password(data.password), data.authority,
+               (companyid, usercode, username, email, password, authority, useyn, created_by)
+               VALUES (%s, %s, %s, %s, %s, %s, 'Y', %s)
+               RETURNING companyid, usercode, username, email, team, authority, useyn""",
+            (data.companyid, usercode, data.username, data.email, hash_password(data.password), data.authority,
              created_by or None),
         )
         created_user = dict(cursor.fetchone())
-
-        if data.authority != "MASTER":
-            cursor.execute(
-                """INSERT INTO usermenupermission01t
-                       (companyid, useremail, menuid, useyn, createdby, updatedby, updatedat)
-                   SELECT %s, %s, m.menuid, 'Y', %s, NULL, NULL
-                   FROM menucatalog01t m
-                   WHERE UPPER(COALESCE(m.useyn, 'N')) = 'Y'
-                     AND m.assignable = TRUE
-                     AND m.access_scope = 'COMPANY'
-                     AND m.menuid <> 'USER_MANAGEMENT'  -- 사용자관리는 관리자가 따로 부여한다
-                   ON CONFLICT (companyid, useremail, menuid)
-                   DO UPDATE SET
-                       useyn = 'Y',
-                       updatedby = EXCLUDED.createdby,
-                       updatedat = CURRENT_TIMESTAMP""",
-                (data.companyid, created_user["email"], created_by or None),
-            )
-
+        # 새 계정은 업무 메뉴 권한 없이 시작한다 (최소 권한). 관리자가 메뉴권한관리에서 필요한 메뉴만 부여한다.
+        # 계정을 지우면 메뉴 권한도 FK(ON DELETE CASCADE)로 함께 지워져, 같은 이메일로 다시 만들어도 예전 권한이 살아나지 않는다.
         return created_user
 
 
@@ -364,7 +354,7 @@ def update_user(data: UserUpdateInput, *, actor: dict | None = None, actor_email
                    SET username = %s, email = %s, authority = %s, useyn = %s, password = %s,
                        updatedat = CURRENT_TIMESTAMP, updated_by = %s
                    WHERE companyid = %s AND LOWER(email) = LOWER(%s)
-                   RETURNING companyid, username, email, team, authority, useyn""",
+                   RETURNING companyid, usercode, username, email, team, authority, useyn""",
                 (data.username, data.email, data.authority, next_useyn, hash_password(data.password),
                  actor_email or None, data.companyid, data.original_email),
             )
@@ -374,7 +364,7 @@ def update_user(data: UserUpdateInput, *, actor: dict | None = None, actor_email
                    SET username = %s, email = %s, authority = %s, useyn = %s,
                        updatedat = CURRENT_TIMESTAMP, updated_by = %s
                    WHERE companyid = %s AND LOWER(email) = LOWER(%s)
-                   RETURNING companyid, username, email, team, authority, useyn""",
+                   RETURNING companyid, usercode, username, email, team, authority, useyn""",
                 (data.username, data.email, data.authority, next_useyn, actor_email or None,
                  data.companyid, data.original_email),
             )

@@ -43,7 +43,7 @@ def list_transfer_documents(
                   ON d.companyid = h.companyid AND d.receiptno = h.receiptno
                 WHERE {where_sql}
                 GROUP BY h.companyid, h.receiptno
-                ORDER BY h.receptdate DESC, h.receiptno DESC
+                ORDER BY h.receptdate ASC, h.receiptno ASC
                 LIMIT %s OFFSET %s""",
             (*params, page_size, (page - 1) * page_size),
         )
@@ -158,7 +158,7 @@ def list_transfer_details(
         cursor.execute(
             f"""{_DETAIL_SELECT}
                 WHERE {where_sql}
-                ORDER BY h.receptdate DESC, h.receiptno DESC, d.lineno
+                ORDER BY h.receptdate ASC, h.receiptno ASC, d.lineno
                 LIMIT %s OFFSET %s""",
             (*params, page_size, (page - 1) * page_size),
         )
@@ -198,11 +198,11 @@ def write_transfer_details_excel(
         "품목코드", "품명", "제품번호", "강종", "표면", "도금량(g/㎡)",
         "두께", "폭", "길이", "이전수량", "수량단위", "이전중량(KG)",
         "매입처", "재고입고일자", "재고구분", "원천전표", "원천순번",
-        "담당자", "비고", "상세 등록일자", "상세 수정일자", "등록자", "수정자",
+        "담당자", "비고", "상세 등록일자", "등록자", "상세 수정일자", "수정자",
     ]
     query = f"""{_DETAIL_SELECT}
         WHERE {where_sql}
-        ORDER BY h.receptdate DESC, h.receiptno DESC, d.lineno"""
+        ORDER BY h.receptdate ASC, h.receiptno ASC, d.lineno"""
 
     workbook = xlsxwriter.Workbook(output_path, {"constant_memory": True})
     worksheet = workbook.add_worksheet("재고이동현황")
@@ -227,9 +227,11 @@ def write_transfer_details_excel(
     worksheet.set_column("T:T", 16, date_format)
     worksheet.set_column("U:W", 18)
     worksheet.set_column("X:Y", 22)
-    worksheet.set_column("Z:AA", 22, datetime_format)
-    worksheet.set_column("AB:AC", 14)
-    # columns: A No. … Z/AA 상세 등록/수정일자, AB/AC 등록자/수정자
+    worksheet.set_column("Z:Z", 22, datetime_format)
+    worksheet.set_column("AA:AA", 14)
+    worksheet.set_column("AB:AB", 22, datetime_format)
+    worksheet.set_column("AC:AC", 14)
+    # columns: A No. … Z 상세 등록일자, AA 등록자, AB 상세 수정일자, AC 수정자
 
     row_number = 1
     try:
@@ -249,7 +251,7 @@ def write_transfer_details_excel(
                             values[10], values[11], values[12], values[13], values[14], values[15],
                             values[16], values[17], values[18], values[19], values[20], values[21],
                             values[22], values[23], source_type_name, values[8], values[9],
-                            values[24], values[25], values[26], values[27], values[28], values[29],
+                            values[24], values[25], values[26], values[28], values[27], values[29],
                         ]
                         worksheet.write_number(row_number, 0, row_number)
                         for column_index, value in enumerate(ordered, start=1):
@@ -257,7 +259,7 @@ def write_transfer_details_excel(
                                 continue
                             if column_index in (1, 19) and isinstance(value, date):
                                 worksheet.write_datetime(row_number, column_index, value, date_format)
-                            elif column_index in (25, 26) and hasattr(value, "tzinfo"):
+                            elif column_index in (25, 27) and hasattr(value, "tzinfo"):
                                 worksheet.write_datetime(row_number, column_index, value.replace(tzinfo=None), datetime_format)
                             elif column_index in (11, 12, 13, 14, 15, 17):
                                 worksheet.write_number(row_number, column_index, float(value), number_format)

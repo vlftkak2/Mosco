@@ -47,7 +47,7 @@ const localDate = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
-const EMPTY_HEADER = { receiptno: '', receptdate: localDate(), customcode: '', customname: '', warehousecode: '', warehousecodename: '', manager: '', description: '', manager_dirty: false, other_dirty: false };
+const EMPTY_HEADER = { receiptno: '', receptdate: localDate(), customcode: '', customname: '', warehousecode: '', warehousecodename: '', manager: '', destination: '', description: '', manager_dirty: false, destination_dirty: false, other_dirty: false };
 const DETAIL_FIELDS = [
   { key: 'productname', label: '제품번호', width: 100 },
   { key: 'itemname', label: '품명', width: 100 },
@@ -57,48 +57,66 @@ const DETAIL_FIELDS = [
   { key: 'thickness', label: '두께', width: 70 },
   { key: 'width', label: '폭', width: 70 },
   { key: 'length', label: '길이', width: 70 },
-  { key: 'qty', label: '출고수량', width: 70, required: true },
-  { key: 'weight', label: '출고중량(kg)', width: 90, required: true },
+  { key: 'qty', label: '수량', width: 70, required: true },
+  { key: 'weight', label: '중량', width: 90, required: true },
+  // 조정(kg): 중량에 더하거나 뺄 중량(+/-). 총중량 = 중량 + 조정 → 현재고·수불장·매출금액 기준
+  { key: 'adjweight', label: '조정(kg)', width: 80 },
+  { key: 'totalweight', label: '총중량', width: 95 },
   { key: 'unitprice', label: '판매단가', width: 110, required: true },
   { key: 'supplyamt', label: '공급가', width: 110 },
   { key: 'vat', label: '부가세', width: 110 },
-  { key: 'unitamt', label: '출고금액', width: 110 },
-  { key: 'qtyunit', label: '수량단위', width: 70 },
-  { key: 'unit', label: '단가기준', width: 70, required: true },
+  { key: 'unitamt', label: '합계금액', width: 110 },
+  // 창고: 담은 재고의 창고 (보기 전용, 저장·재고 처리는 서버가 원천 재고 창고로 함)
+  { key: 'warehousecodename', label: '창고', width: 100 },
+  { key: 'sourcecustomname', label: '매입처', width: 100 },
   { key: 'current_qty', label: '현재고수량', width: 80 },
   { key: 'current_weight', label: '현재고중량(kg)', width: 100 },
+  { key: 'qtyunit', label: '수량단위', width: 70 },
+  { key: 'unit', label: '단가기준', width: 70, required: true },
   { key: 'itemcode', label: '품목코드', width: 70 },
-  { key: 'sourcecustomname', label: '매입처', width: 100 },
   { key: 'receiptdate', label: '재고입고일자', width: 100 },
   { key: 'sourcetype', label: '재고구분', width: 90 },
   { key: 'stocksourceno', label: '원천전표', width: 160 },
   { key: 'stocksourceline', label: '원천순번', width: 90 },
+  { key: 'description', label: '비고', width: 180 },
 ];
 const RECEIPT_COLUMNS = [
-  { key: 'receptdate', label: '출고일자', width: 100, minWidth: 100 },
+  { key: 'receptdate', label: '매출일자', width: 100, minWidth: 100 },
   { key: 'customname', label: '매출처', width: 100, minWidth: 100 },
-  { key: 'warehousecodename', label: '창고', width: 70, minWidth: 70 },
-  { key: 'line_count', label: '상세건수', width: 70, minWidth: 70, align: 'right' },
+  { key: 'manager', label: '담당자', width: 80, minWidth: 70 },
+  { key: 'destination', label: '착지', width: 120, minWidth: 80 },
   { key: 'total_qty', label: '수량', width: 70, minWidth: 70, align: 'right' },
-  { key: 'total_weight', label: '중량', width: 70, minWidth: 70, align: 'right' },
+  { key: 'total_weight', label: '총중량', width: 70, minWidth: 70, align: 'right' },
   { key: 'supply_amount', label: '공급가', width: 110, minWidth: 110, align: 'right' },
   { key: 'vat_amount', label: '부가세', width: 110, minWidth: 110, align: 'right' },
   { key: 'total_amount', label: '합계금액', width: 110, minWidth: 110, align: 'right' },
+  { key: 'warehousecodename', label: '창고', width: 70, minWidth: 70 },
   { key: 'other_cost_amount', label: '기타비용', width: 110, minWidth: 110, align: 'right' },
   { key: 'qtyunit', label: '수량단위', width: 80, minWidth: 80 },
   { key: 'unit', label: '단가기준', width: 80, minWidth: 80 },
-  { key: 'receiptno', label: '출고전표', width: 160, minWidth: 140 },
+  { key: 'receiptno', label: '매출전표', width: 160, minWidth: 140 },
+  { key: 'created_at', label: '등록일자', width: 120, minWidth: 110 },
+  { key: 'created_by', label: '등록자', width: 80, minWidth: 70 },
   { key: 'description', label: '비고', width: 175, minWidth: 175 },
 ];
+// 등록일자: YYYY-MM-DD HH:mm (한국 시간)
+const registeredAtText = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const parts = Object.fromEntries(cachedDateFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(date).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+};
 const fitReceiptColumnWidth = (label, values, baseWidth, minWidth, maxWidth = 420) => {
   const measure = (value) => Array.from(String(value ?? '')).reduce((width, character) => width + (character.charCodeAt(0) > 255 ? 11 : 6.5), 0) + 20;
   const contentWidth = Math.max(measure(label), ...values.map(measure));
   return Math.max(minWidth, Math.min(maxWidth, Math.max(baseWidth, contentWidth)));
 };
-const READ_ONLY_DETAIL_FIELDS = new Set(['sourcetype', 'receiptdate', 'stocksourceno', 'stocksourceline', 'sourcecustomname', 'itemcode', 'itemname', 'productname', 'materialname', 'surfacename', 'myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'warehousecodename', 'current_qty', 'qtyunit', 'current_weight', 'unit', 'unitprice', 'supplyamt', 'vat', 'unitamt', 'manager']);
+const READ_ONLY_DETAIL_FIELDS = new Set(['sourcetype', 'receiptdate', 'stocksourceno', 'stocksourceline', 'sourcecustomname', 'itemcode', 'itemname', 'productname', 'materialname', 'surfacename', 'myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'totalweight', 'warehousecodename', 'current_qty', 'qtyunit', 'current_weight', 'unit', 'unitprice', 'supplyamt', 'vat', 'unitamt', 'manager']);
 const NAVIGABLE_FIELDS = DETAIL_FIELDS.map(({ key }) => key).filter((key) => !READ_ONLY_DETAIL_FIELDS.has(key));
 const EDITABLE_FIELDS = NAVIGABLE_FIELDS;
-const EMPTY_DETAIL = { sourcetype: '', receiptdate: '', receptdate: localDate(), stocksourceno: '', stocksourcetype: '', stocksourceline: '', sourcecustomname: '', customcode: '', customname: '', itemcode: '', itemname: '', productname: '', materialcode: '', materialname: '', surfacecode: '', surfacename: '', myrtle: '', thickness: '', width: '', length: '', qty: '', qtyunit: '', warehousecode: '', warehousecodename: '', current_qty: '0', current_weight: '0', weight: '', unit: '', unitprice: '', supplyamt: '', vat: '', unitamt: '', manager: '', description: '' };
+const EMPTY_DETAIL = { sourcetype: '', receiptdate: '', receptdate: localDate(), stocksourceno: '', stocksourcetype: '', stocksourceline: '', sourcecustomname: '', customcode: '', customname: '', itemcode: '', itemname: '', productname: '', materialcode: '', materialname: '', surfacecode: '', surfacename: '', myrtle: '', thickness: '', width: '', length: '', qty: '', qtyunit: '', warehousecode: '', warehousecodename: '', current_qty: '0', current_weight: '0', weight: '', adjweight: '', unit: '', unitprice: '', supplyamt: '', vat: '', unitamt: '', manager: '', description: '' };
 const masterPasteErrorKey = (rowId, field) => `${rowId}:${field}`;
 
 const errorMessage = (error) => {
@@ -107,8 +125,8 @@ const errorMessage = (error) => {
     const location = Array.isArray(item.loc) ? item.loc : [];
     const itemIndex = location.indexOf('items');
     const field = location.at(-1);
-    const headerFields = { receptdate: '\uCD9C\uACE0\uC77C\uC790', customcode: '\uB9E4\uCD9C\uCC98', customname: '\uB9E4\uCD9C\uCC98', warehousecode: '\uCC3D\uACE0', warehousecodename: '\uCC3D\uACE0', manager: '\uB2F4\uB2F9\uC790', description: '\uBE44\uACE0', receiptno: '\uCD9C\uACE0\uC804\uD45C\uBC88\uD638' };
-    const detailFields = { receptdate: '\uCD9C\uACE0\uC77C\uC790', customcode: '\uB9E4\uCD9C\uCC98', customname: '\uB9E4\uCD9C\uCC98', warehousecode: '\uCC3D\uACE0', warehousecodename: '\uCC3D\uACE0', itemcode: '\uD488\uBAA9\uCF54\uB4DC', itemname: '\uD488\uBA85', productname: '\uC81C\uD488\uBC88\uD638', qty: '\uCD9C\uACE0\uC218\uB7C9', qtyunit: '\uC218\uB7C9\uB2E8\uC704', weight: '\uCD9C\uACE0\uC911\uB7C9', unit: '\uB2E8\uAC00\uAE30\uC900', unitprice: '\uD310\uB9E4\uB2E8\uAC00', stocksourcetype: '\uC6D0\uCC9C \uC7AC\uACE0 \uAD6C\uBD84', stocksourceno: '\uC6D0\uCC9C \uC804\uD45C\uBC88\uD638', stocksourceline: '\uC6D0\uCC9C \uC21C\uBC88' };
+    const headerFields = { receptdate: '\uB9E4\uCD9C\uC77C\uC790', customcode: '\uB9E4\uCD9C\uCC98', customname: '\uB9E4\uCD9C\uCC98', warehousecode: '\uCC3D\uACE0', warehousecodename: '\uCC3D\uACE0', manager: '\uB2F4\uB2F9\uC790', destination: '\uCC29\uC9C0', description: '\uBE44\uACE0', receiptno: '\uB9E4\uCD9C\uC804\uD45C\uBC88\uD638' };
+    const detailFields = { receptdate: '\uB9E4\uCD9C\uC77C\uC790', customcode: '\uB9E4\uCD9C\uCC98', customname: '\uB9E4\uCD9C\uCC98', warehousecode: '\uCC3D\uACE0', warehousecodename: '\uCC3D\uACE0', itemcode: '\uD488\uBAA9\uCF54\uB4DC', itemname: '\uD488\uBA85', productname: '\uC81C\uD488\uBC88\uD638', qty: '\uB9E4\uCD9C\uC218\uB7C9', qtyunit: '\uC218\uB7C9\uB2E8\uC704', weight: '\uCD1D\uC911\uB7C9', adjweight: '\uC870\uC815(kg)', unit: '\uB2E8\uAC00\uAE30\uC900', unitprice: '\uD310\uB9E4\uB2E8\uAC00', stocksourcetype: '\uC6D0\uCC9C \uC7AC\uACE0 \uAD6C\uBD84', stocksourceno: '\uC6D0\uCC9C \uC804\uD45C\uBC88\uD638', stocksourceline: '\uC6D0\uCC9C \uC21C\uBC88' };
     const rowNumber = itemIndex >= 0 && Number.isInteger(Number(location[itemIndex + 1]))
       ? Number(location[itemIndex + 1]) + 1 : null;
     const label = itemIndex >= 0 ? detailFields[field] : headerFields[field];
@@ -118,8 +136,8 @@ const errorMessage = (error) => {
   if (typeof detail === 'string') return detail
     .replaceAll('customcode', '\uB9E4\uCD9C\uCC98')
     .replaceAll('warehousecode', '\uCC3D\uACE0')
-    .replaceAll('receptdate', '\uCD9C\uACE0\uC77C\uC790');
-  return detail || error.response?.data?.message || error.message || '\uCD9C\uACE0 \uC694\uCCAD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.';
+    .replaceAll('receptdate', '\uB9E4\uCD9C\uC77C\uC790');
+  return detail || error.response?.data?.message || error.message || '\uB9E4\uCD9C \uC694\uCCAD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.';
 };
 const makeDetail = (source = EMPTY_DETAIL, lineNo = null) => ({
   ...EMPTY_DETAIL,
@@ -129,9 +147,23 @@ const makeDetail = (source = EMPTY_DETAIL, lineNo = null) => ({
   is_new: lineNo == null,
   is_dirty: false,
 });
+// 조정(kg)은 부호(+/-)가 있는 숫자
+const cleanSignedInput = (value) => {
+  const text = String(value ?? '').replace(/,/g, '').trim();
+  const negative = text.startsWith('-');
+  const digits = text.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
+  return negative ? `-${digits}` : digits;
+};
+const signedNumber = (value) => Number(cleanSignedInput(value)) || 0;
+// 총중량 = 중량 + 조정 (소수 3자리)
+const totalWeightOf = (row) => {
+  const weight = Number(String(row.weight ?? '').replace(/,/g, ''));
+  if (!String(row.weight ?? '').trim() || !Number.isFinite(weight)) return NaN;
+  return Math.round((weight + signedNumber(row.adjweight)) * 1000) / 1000;
+};
 const amountOf = (row, priceUnits = []) => {
   if (!String(row.unitprice ?? '').trim()) return '';
-  const weight = Number(row.weight);
+  const weight = totalWeightOf(row);
   const price = Number(row.unitprice);
   const qty = Number(row.qty);
   const length = Number(row.length);
@@ -166,7 +198,9 @@ const formatAmount = (value) => {
   });
 };
 const formatWon = (value) => `${formatAmount(value)}원`;
-const NUMERIC_FIELDS = new Set(['thickness', 'width', 'length', 'qty', 'weight', 'unitprice']);
+// 매출등록 엑셀에서 숫자로 넣는 칸
+const EXCEL_NUMBER_KEYS = new Set(['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'adjweight', 'totalweight', 'unitprice', 'supplyamt', 'vat', 'unitamt', 'stocksourceline']);
+const NUMERIC_FIELDS = new Set(['thickness', 'width', 'length', 'qty', 'weight', 'adjweight', 'unitprice']);
 const cleanNumericInput = (value) => String(value ?? '').replace(/,/g, '').replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
 const formatNumericInput = (value) => {
   const raw = cleanNumericInput(value);
@@ -175,10 +209,16 @@ const formatNumericInput = (value) => {
   const groupedInteger = (integer || '0').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return decimalParts.length ? `${groupedInteger}.${decimalParts.join('')}` : groupedInteger;
 };
+const trimAmount = (value) => {
+  const text = String(value ?? '').replace(/,/g, '').trim();
+  const amount = Number(text);
+  return text !== '' && Number.isFinite(amount) ? String(amount) : text;
+};
 export const makeExpense = (expense = {}) => ({
   id: expense.id || `expense-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   costcode: expense.costcode || '', costname: expense.costname || '',
-  supplyamt: String(expense.supplyamt ?? ''), vat: String(expense.vat ?? ''),
+  // 서버 금액(예: "100.00")은 끝의 0 을 떼어 보여 준다
+  supplyamt: trimAmount(expense.supplyamt), vat: trimAmount(expense.vat),
   vat_manual: expense.vat_manual ?? false,
   customcode: expense.customcode || '', customname: expense.customname || '',
   purchaseyn: expense.purchaseyn || 'N', description: expense.description || '',
@@ -388,7 +428,15 @@ export const ExpenseCustomerAutocompleteCell = memo(function ExpenseCustomerAuto
   </Popover>;
 });
 
-export const ExpenseNumericCell = memo(function ExpenseNumericCell({ expenseId, field, value, disabled, onCommit }) {
+// 기타비용 부가세 = 공급가 × 10% (소수 둘째 자리 반올림). 공급가를 입력하는 동안 미리보기와 저장 값이 같은 규칙을 쓴다.
+const expenseVatOf = (supplyText) => {
+  const supply = Number(cleanNumericInput(supplyText)) || 0;
+  // 끝의 .00 은 붙이지 않는다 (100 → "100", 12.5 → "12.5"). 매입등록 기타비용과 같은 표시
+  return String(Math.round((supply * 0.1 + Number.EPSILON) * 100) / 100);
+};
+
+// onDraftChange: 입력 중인 값을 알려 준다 (칸을 벗어나면 null). 공급가 입력 중 부가세·합계 미리보기용.
+export const ExpenseNumericCell = memo(function ExpenseNumericCell({ expenseId, field, value, disabled, onCommit, onDraftChange }) {
   const [draft, setDraft] = useState(formatNumericInput(value));
   const [editing, setEditing] = useState(false);
   // Same as the former effect on [value]: follow outside changes unless the user is typing.
@@ -400,9 +448,15 @@ export const ExpenseNumericCell = memo(function ExpenseNumericCell({ expenseId, 
   return <input className={`${codeClasses.cellInput} ${inboundClasses.amountInput}`} aria-label={field === 'supplyamt' ? '공급가' : '부가세'}
     inputMode="decimal" value={draft} disabled={disabled}
     onFocus={() => { setEditing(true); }}
-    onChange={(event) => setDraft(formatNumericInput(event.currentTarget.value))}
+    onChange={(event) => {
+      // 공급가·부가세는 소수 둘째 자리까지만 입력된다 (셋째 자리부터는 받지 않는다)
+      const next = formatNumericInput(event.currentTarget.value).replace(/(\.\d{2})\d+$/, '$1');
+      setDraft(next);
+      onDraftChange?.(cleanNumericInput(next));
+    }}
     onBlur={() => {
       setEditing(false);
+      onDraftChange?.(null);
       const normalized = cleanNumericInput(draft);
       setDraft(formatNumericInput(normalized));
       if (normalized !== cleanNumericInput(value)) onCommit(expenseId, field, normalized);
@@ -478,9 +532,14 @@ const OutboundExpenseRow = memo(function OutboundExpenseRow({
   onToggle, onChange, onOpenCustomerPicker, onSetCostPicker,
 }) {
   const isCost = expense.purchaseyn === 'Y';
-  const saved = disabled && !expense.is_new;  // 저장된 행(수정 불가)은 출고상세처럼 회색
-  const supply = Number(cleanNumericInput(expense.supplyamt)) || 0;
-  const vat = Number(cleanNumericInput(expense.vat)) || 0;
+  const saved = disabled && !expense.is_new;  // 저장된 행(수정 불가)은 매출상세처럼 회색
+  // 공급가를 입력하는 동안 부가세(직접 고치지 않은 경우)와 합계금액을 바로 계산해 보여 준다. 칸을 벗어나면 저장 값으로 확정.
+  const [supplyDraft, setSupplyDraft] = useState(null);
+  const supplyText = supplyDraft ?? expense.supplyamt;
+  const vatText = supplyDraft !== null && !expense.vat_manual ? expenseVatOf(supplyDraft) : expense.vat;
+  const supply = Number(cleanNumericInput(supplyText)) || 0;
+  const vat = Number(cleanNumericInput(vatText)) || 0;
+  const total = (Math.round((supply + vat + Number.EPSILON) * 100) / 100).toString();
   const handleCostSelect = useCallback((option) => onChange(expense.id, 'costcode', option?.code || ''), [expense.id, onChange]);
   const handleCustomerSelect = useCallback((id, customer) => onChange(expense.id, 'customcode', customer.customercode || ''), [expense.id, onChange]);
   const handleCustomerPicker = useCallback(() => onOpenCustomerPicker(`expense::${expense.id}`), [expense.id, onOpenCustomerPicker]);
@@ -493,10 +552,10 @@ const OutboundExpenseRow = memo(function OutboundExpenseRow({
       <Table.Td className={`${codeClasses.rowNumber} ${classes.rowNumberCell} ${saved ? classes.savedCell : ''}`} ta="center">{index + 1}</Table.Td>
       <Table.Td><ExpenseCostAutocompleteCell row={expense} options={options} disabled={disabled} inputRef={inputRef}
         onDoubleClick={handleCostPicker} onSelect={handleCostSelect} /></Table.Td>
-      <Table.Td><ExpenseNumericCell expenseId={expense.id} field="supplyamt" value={expense.supplyamt} disabled={disabled} onCommit={onChange} /></Table.Td>
-      <Table.Td><ExpenseNumericCell expenseId={expense.id} field="vat" value={expense.vat} disabled={disabled} onCommit={onChange} /></Table.Td>
-      <Table.Td><input className={`${codeClasses.cellInput} ${inboundClasses.amountInput}`} aria-label="합계금액" value={formatNumericInput(String(supply + vat))} readOnly data-expense-skip /></Table.Td>
-      {/* 거래처: 비용여부 '예'면 입력, '아니오'면 출고 헤더의 매출처를 따라감(비활성) */}
+      <Table.Td><ExpenseNumericCell expenseId={expense.id} field="supplyamt" value={expense.supplyamt} disabled={disabled} onCommit={onChange} onDraftChange={setSupplyDraft} /></Table.Td>
+      <Table.Td><ExpenseNumericCell expenseId={expense.id} field="vat" value={vatText} disabled={disabled} onCommit={onChange} /></Table.Td>
+      <Table.Td><input className={`${codeClasses.cellInput} ${inboundClasses.amountInput}`} aria-label="합계금액" value={formatNumericInput(total)} readOnly data-expense-skip /></Table.Td>
+      {/* 거래처: 비용여부 '예'면 입력, '아니오'면 매출 헤더의 매출처를 따라감(비활성) */}
       <Table.Td><ExpenseCustomerAutocompleteCell expenseId={expense.id} value={isCost ? expense.customname || '' : salesCustomerName || ''} disabled={disabled || !isCost}
         onSelect={handleCustomerSelect} onOpenPicker={handleCustomerPicker} /></Table.Td>
       <Table.Td><Select size="xs" data={[{ value: 'N', label: '아니오' }, { value: 'Y', label: '예' }]} value={expense.purchaseyn || 'N'} disabled={disabled}
@@ -577,7 +636,7 @@ const CustomerPickerModal = memo(function CustomerPickerModal({ opened, onClose,
   const invalidatePending = useCallback(() => { requestIdRef.current += 1; onClose(); }, [onClose]);
 
   return <SelectPickerModal opened={opened} onClose={invalidatePending} size="lg"
-    title="매출처 선택" description="출고 전표에 넣을 매출처를 고릅니다." icon={<IconBuildingStore size={21} stroke={1.8} />}
+    title="매출처 선택" description="매출 전표에 넣을 매출처를 고릅니다." icon={<IconBuildingStore size={21} stroke={1.8} />}
     searchValue={searchInput} onSearchChange={setSearchInput} onSearch={searchCustomers} searchPlaceholder="매출처코드 또는 매출처명 검색"
     listTitle="매출처" columns={CUSTOMER_PICKER_COLUMNS} rows={customers} rowKey={(customer) => customer.customercode} onSelect={onSelect}
     loading={loading} total={total} page={page} pageCount={Math.max(1, Math.ceil(total / 20))} onPageChange={changePage}
@@ -625,7 +684,7 @@ const ItemPickerModal = memo(function ItemPickerModal({ opened, onClose, onSelec
   const invalidatePending = useCallback(() => { requestIdRef.current += 1; onClose(); }, [onClose]);
 
   return <SelectPickerModal opened={opened} onClose={invalidatePending} size="md"
-    title="품목 선택" description="출고 상세에 넣을 품목을 고릅니다." icon={<IconBox size={21} stroke={1.8} />}
+    title="품목 선택" description="매출 상세에 넣을 품목을 고릅니다." icon={<IconBox size={21} stroke={1.8} />}
     searchValue={searchInput} onSearchChange={setSearchInput} onSearch={searchItems} searchPlaceholder="품목코드, 품목명 또는 형태구분 검색"
     listTitle="품목" columns={ITEM_PICKER_COLUMNS} rows={items} rowKey={(item) => item.itemcode} onSelect={onSelect}
     loading={loading} total={total} page={page} pageCount={Math.max(1, Math.ceil(total / 20))} onPageChange={changePage}
@@ -680,6 +739,29 @@ const ManagerInput = memo(function ManagerInput({ row, editable, label, onChange
     onPaste={onPaste}
     onBlur={() => {
       if (editable && value !== String(row.manager || '')) onChange(row.id, 'manager', value);
+    }}
+  />;
+});
+
+// 저장된 매출상세의 판매단가: 칸을 벗어나거나 Enter 로 확정 (소수 둘째 자리까지). 재고·원가와 무관해 따로 저장된다
+const SavedPriceInput = memo(function SavedPriceInput({ row, label, onChange, registerCellInput, onFocusCell }) {
+  const [value, setValue] = useState(formatNumericInput(row.unitprice ?? ''));
+  return <input
+    ref={(element) => registerCellInput(row.id, 'unitprice', element)}
+    className={`${codeClasses.cellInput} ${classes.amountInput}`}
+    aria-label={label}
+    title="판매단가 수정: 공급가·부가세·합계를 다시 계산합니다 (재고·원가는 그대로)"
+    data-row-id={row.id}
+    data-field="unitprice"
+    type="text"
+    inputMode="decimal"
+    value={value}
+    onFocus={() => onFocusCell(row.id, 'unitprice')}
+    onChange={(event) => setValue(formatNumericInput(event.currentTarget.value).replace(/(\.\d{2})\d+$/, '$1'))}
+    onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+    onBlur={() => {
+      const next = cleanNumericInput(value);
+      if (next !== cleanNumericInput(row.unitprice)) onChange(row.id, 'unitprice', next);
     }}
   />;
 });
@@ -748,7 +830,7 @@ const OutboundDateSegments = memo(function OutboundDateSegments({ row, disabled,
     <input
       ref={(element) => { inputRef.current = element; registerCellInput(row.id, 'receptdate', element); }}
       className={`${codeClasses.cellInput} ${disabled ? classes.autoFilledInput : ''}`}
-      aria-label="출고일자 (연도-월-일)"
+      aria-label="매출일자 (연도-월-일)"
       data-row-id={row.id}
       data-field="receptdate"
       type="text"
@@ -926,7 +1008,7 @@ const CustomerAutocompleteInput = memo(function CustomerAutocompleteInput({ row,
   </Popover>;
 });
 
-const DetailCells = memo(function DetailCells({ row, index, selected, disabled, managerEditable, saved, unitOptions, onSelect, onChange, onPaste, registerCodeInput, registerCellInput, onFindItem, onFindMaster, onFindCustomer, onFocusCell }) {
+const DetailCells = memo(function DetailCells({ row, index, selected, disabled, managerEditable, priceEditable, saved, unitOptions, onSelect, onChange, onPaste, registerCodeInput, registerCellInput, onFindItem, onFindMaster, onFindCustomer, onFocusCell }) {
   const displayValue = (key) => {
     if (key === 'sourcetype') return row.sourcetype === 'OPENING' || row.stocksourcetype === 'OPENING' ? '기초' : row.sourcetype === 'INBOUND' || row.stocksourcetype === 'INBOUND' ? '입고' : row.sourcetype === 'PROCESS' || row.stocksourcetype === 'PROCESS' ? '가공' : '';
     if (key === 'stocksourceno') return row.stocksourceno || row.sourceno || '';
@@ -935,6 +1017,16 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
     if (key === 'receiptdate') return String(row.receiptdate || '').slice(0, 10);
     if (key === 'qtyunit') return unitOptions.quantity.find((option) => option.code === row.qtyunit)?.name || row.qtyunit || '';
     if (key === 'unit') return unitOptions.price.find((option) => option.code === row.unit)?.name || row.unit || '';
+    if (key === 'adjweight') {
+      const raw = cleanSignedInput(row.adjweight);
+      if (!raw || raw === '-' || raw.endsWith('.')) return raw;
+      const value = Number(raw);
+      return Number.isFinite(value) ? `${value > 0 ? '+' : ''}${value.toLocaleString(undefined, { maximumFractionDigits: 3 })}` : '';
+    }
+    if (key === 'totalweight') {
+      const total = totalWeightOf(row);
+      return Number.isFinite(total) ? total.toLocaleString(undefined, { maximumFractionDigits: 3 }) : '';
+    }
     if (key === 'weight') {
       const rawWeight = cleanNumericInput(row.weight);
       const weight = Number(rawWeight);
@@ -960,12 +1052,14 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
   };
   return <>
     <Table.Td className={`${codeClasses.checkCol} ${saved ? classes.savedCell : ''}`}>
-      <input type="checkbox" aria-label={`${row.itemcode || '출고 상세'} 선택`} checked={selected} disabled={disabled} onChange={(event) => onSelect(row.id, event.nativeEvent.shiftKey)} />
+      <input type="checkbox" aria-label={`${row.itemcode || '매출 상세'} 선택`} checked={selected} disabled={disabled} onChange={(event) => onSelect(row.id, event.nativeEvent.shiftKey)} />
     </Table.Td>
     <Table.Td className={`${codeClasses.rowNumber} ${classes.rowNumberCell} ${saved ? classes.savedCell : ''}`}>{index + 1}</Table.Td>
     {DETAIL_FIELDS.map(({ key, label }) => (
-      <Table.Td key={key} className={[saved && !(key === 'manager' && managerEditable) && classes.savedCell, key === 'manager' && managerEditable && inboundClasses.managerEditableCell].filter(Boolean).join(' ')}>
-        {saved && key !== 'manager' ? (
+      <Table.Td key={key} className={[saved && !(key === 'manager' && managerEditable) && !(key === 'unitprice' && priceEditable) && classes.savedCell, ((key === 'manager' && managerEditable) || (key === 'unitprice' && saved && priceEditable)) && inboundClasses.managerEditableCell].filter(Boolean).join(' ')}>
+        {saved && key === 'unitprice' && priceEditable ? (
+          <SavedPriceInput key={`${row.id}:${row.unitprice ?? ''}`} row={row} label={label} onChange={onChange} registerCellInput={registerCellInput} onFocusCell={onFocusCell} />
+        ) : saved && key !== 'manager' ? (
           <span className={classes.savedCellText} title={String(displayValue(key))}>
             {key === 'supplyamt' ? formatAmount(amountOf(row, unitOptions.price))
               : key === 'vat' ? formatAmount(vatAmountOf(row, unitOptions.price))
@@ -987,20 +1081,21 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
               if (key === 'itemcode') registerCodeInput(row.id, element);
               registerCellInput(row.id, key, element);
             }}
-            className={`${codeClasses.cellInput} ${(key === 'manager' && managerEditable) || (key === 'receptdate' && !disabled) ? '' : classes.autoFilledInput} ${key === 'current_qty' || key === 'current_weight' || key === 'unit' ? classes.currentStockInput : ''} ${key === 'unit' ? classes.itemCodePickerInput : ''}`}
+            className={`${codeClasses.cellInput} ${(key === 'manager' && managerEditable) || (['receptdate', 'adjweight', 'description'].includes(key) && !disabled) ? '' : classes.autoFilledInput} ${key === 'adjweight' ? classes.amountInput : ''} ${key === 'current_qty' || key === 'current_weight' || key === 'unit' ? classes.currentStockInput : ''} ${key === 'unit' ? classes.itemCodePickerInput : ''}`}
             aria-label={label}
-            title={key === 'unit' ? `${label} - 더블클릭하여 마스터에서 선택` : undefined}
+            title={key === 'unit' ? `${label} - 더블클릭하여 마스터에서 선택` : key === 'adjweight' ? '중량에서 더하거나(+) 뺄(-) 중량. 총중량 = 중량 + 조정' : undefined}
             data-row-id={row.id}
             data-field={key}
             type={key === 'receptdate' ? 'date' : 'text'}
             inputMode={NUMERIC_FIELDS.has(key) ? 'decimal' : undefined}
             value={displayValue(key)}
-            placeholder={row.is_new && key !== 'description' && !READ_ONLY_DETAIL_FIELDS.has(key) ? label : ''}
+            placeholder={row.is_new && key !== 'description' && key !== 'adjweight' && !READ_ONLY_DETAIL_FIELDS.has(key) ? label : ''}
+            maxLength={key === 'description' ? 500 : undefined}
             disabled={key === 'manager' ? !managerEditable : disabled || READ_ONLY_DETAIL_FIELDS.has(key) || key === 'unitprice' || key === 'unit'}
             onFocus={() => onFocusCell(row.id, key)}
             onDoubleClick={key === 'unit' ? () => onFindMaster(row.id, key) : undefined}
             onPaste={pasteHandler(key)}
-            onChange={(event) => onChange(row.id, key, NUMERIC_FIELDS.has(key) ? cleanNumericInput(event.currentTarget.value) : event.currentTarget.value)}
+            onChange={(event) => onChange(row.id, key, key === 'adjweight' ? cleanSignedInput(event.currentTarget.value) : NUMERIC_FIELDS.has(key) ? cleanNumericInput(event.currentTarget.value) : event.currentTarget.value)}
           />
         )}
       </Table.Td>
@@ -1019,7 +1114,7 @@ export const DetailSubtotalRow = ({ columns, values }) => <Table.Tr>
   {columns.slice(2).map((column) => <Table.Td key={column.key} className={`${inboundClasses.detailSubtotalCell} ${values[column.key] != null ? inboundClasses.detailSubtotalNumber : ''}`}>{values[column.key] ?? ''}</Table.Td>)}
 </Table.Tr>;
 export const DetailSubtotalFoot = (props) => <Table.Tfoot {...props} className={inboundClasses.detailSubtotalFoot} />;
-// 행이 적어도 상세 영역 맨 아래에 붙는 소계 표 (출고 기본 소계 줄과 같은 위치). 본 표와 같은 스크롤 영역 안에 두어 가로 스크롤이 함께 움직인다.
+// 행이 적어도 상세 영역 맨 아래에 붙는 소계 표 (매출 기본 소계 줄과 같은 위치). 본 표와 같은 스크롤 영역 안에 두어 가로 스크롤이 함께 움직인다.
 export const DetailSubtotalTable = ({ columns, widths = {}, values, minWidth = 'var(--code-table-min-width)' }) => <Table className={inboundClasses.detailSubtotalTable} withTableBorder withColumnBorders horizontalSpacing={0}
   style={{ width: '100%', minWidth, tableLayout: 'fixed' }}>
   <colgroup>{columns.map((column) => <col key={column.key} style={{ width: widths[column.key] ?? column.width }} />)}</colgroup>
@@ -1123,6 +1218,17 @@ export default function OutboundRegisterPage() {
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
   const [customerPickerTargetId, setCustomerPickerTargetId] = useState('');
   const [stockPickerOpen, setStockPickerOpen] = useState(false);
+  const headerCustomerRef = useRef(null);
+  // 매출처 목록 펼침 상태: 재고조회 안내로 포커스만 옮길 때는 목록을 펼치지 않는다 (클릭·입력하면 펼침)
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+  const suppressCustomerDropdownRef = useRef(false);
+  const focusHeaderCustomer = useCallback(() => {
+    suppressCustomerDropdownRef.current = true;
+    headerCustomerRef.current?.focus();
+    suppressCustomerDropdownRef.current = false;
+  }, []);
+  const [customerFocusTick, setCustomerFocusTick] = useState(0);
+  useEffect(() => { if (customerFocusTick) focusHeaderCustomer(); }, [customerFocusTick, focusHeaderCustomer]);
   const [itemPickerTargetId, setItemPickerTargetId] = useState('');
   const [masterPickerTarget, setMasterPickerTarget] = useState(null);
   const [unitOptions, setUnitOptions] = useState({ price: [], quantity: [], warehouse: [] });
@@ -1188,12 +1294,18 @@ export default function OutboundRegisterPage() {
     const vat = Number(vatAmountOf(row, unitOptions.price)) || 0;
     totals.qty += Number(cleanNumericInput(row.qty)) || 0;
     totals.weight += Number(cleanNumericInput(row.weight)) || 0;
+    totals.adjweight += signedNumber(row.adjweight);
+    totals.totalweight += Number.isFinite(totalWeightOf(row)) ? totalWeightOf(row) : 0;
     totals.amount += amount;
     totals.vat += vat;
     totals.total += amount + vat;
     return totals;
-  }, { qty: 0, weight: 0, amount: 0, vat: 0, total: 0 }), [rows, unitOptions.price]);
-  const detailSubtotals = useMemo(() => detailSubtotalValues(detailTotals), [detailTotals]);
+  }, { qty: 0, weight: 0, adjweight: 0, totalweight: 0, amount: 0, vat: 0, total: 0 }), [rows, unitOptions.price]);
+  const detailSubtotals = useMemo(() => ({
+    ...detailSubtotalValues(detailTotals),
+    adjweight: detailTotals.adjweight.toLocaleString(undefined, { maximumFractionDigits: 3 }),
+    totalweight: detailTotals.totalweight.toLocaleString(undefined, { maximumFractionDigits: 3 }),
+  }), [detailTotals]);
   const quantitySummary = useMemo(() => {
     if (!rows.length) return '0';
     const totals = new Map();
@@ -1279,7 +1391,8 @@ export default function OutboundRegisterPage() {
     window.addEventListener('pointercancel', finish);
   }, [receiptColumnWidths, receiptAutoWidths]);
 
-  const loadReceipts = useCallback(async (nextPage = page, nextFilters = filters, nextPageSize = pageSize) => {
+  // focusReceiptno: 저장한 전표가 들어 있는 쪽으로 바로 연다 (서버가 쪽 번호를 계산)
+  const loadReceipts = useCallback(async (nextPage = page, nextFilters = filters, nextPageSize = pageSize, focusReceiptno = '') => {
     setLoading(true);
     try {
       const { data } = await axios.get('/api/outbound-register/receipts', {
@@ -1293,13 +1406,14 @@ export default function OutboundRegisterPage() {
           warehouse: nextFilters.warehouse || undefined,
           date_from: nextFilters.date_from || undefined,
           date_to: nextFilters.date_to || undefined,
+          focus_receiptno: focusReceiptno || undefined,
         },
       });
       setReceipts(data.receipts || []);
       setTotal(data.total || 0);
-      setPage(nextPage);
+      setPage(data.page || nextPage);
     } catch (error) {
-      notifications.show({ title: '출고 목록 조회 실패', message: errorMessage(error), color: 'red' });
+      notifications.show({ title: '매출 목록 조회 실패', message: errorMessage(error), color: 'red' });
     } finally {
       setLoading(false);
     }
@@ -1323,7 +1437,7 @@ export default function OutboundRegisterPage() {
       totalCount = data.total || 0;
       pageNumber += 1;
     } while (items.length < totalCount && pageNumber <= 100);
-    return items.filter((item) => item.use).map((item) => ({ code: item.code, name: item.name }));
+    return items.filter((item) => item.use).map((item) => ({ code: item.code, name: item.name, property: item.properties?.[0] || '' }));
   }, []);
 
   useEffect(() => {
@@ -1355,10 +1469,7 @@ export default function OutboundRegisterPage() {
     setExpenses((current) => current.map((expense) => {
       if (expense.id !== id) return expense;
       const next = { ...expense, [key]: value, is_dirty: !expense.is_new };
-      if (key === 'supplyamt' && !expense.vat_manual) {
-        const supply = Number(cleanNumericInput(value)) || 0;
-        next.vat = (Math.round((supply * 0.1 + Number.EPSILON) * 100) / 100).toFixed(2);
-      }
+      if (key === 'supplyamt' && !expense.vat_manual) next.vat = expenseVatOf(value);
       if (key === 'vat') next.vat_manual = true;
       if (key === 'costcode') {
         const option = expenseOptions.find((item) => item.code === value);
@@ -1448,7 +1559,7 @@ export default function OutboundRegisterPage() {
       setHeader((current) => ({
         ...current,
         [key]: value,
-        ...(key === 'manager' ? { manager_dirty: true } : { other_dirty: true }),
+        ...(key === 'manager' ? { manager_dirty: true } : key === 'destination' ? { destination_dirty: true } : { other_dirty: true }),
       }));
     }
     setDocumentDirty(true);
@@ -1456,7 +1567,7 @@ export default function OutboundRegisterPage() {
   const markReceiptHeaderEdited = useCallback((key) => {
     setHeader((current) => ({
       ...current,
-      ...(key === 'manager' ? { manager_dirty: true } : { other_dirty: true }),
+      ...(key === 'manager' ? { manager_dirty: true } : key === 'destination' ? { destination_dirty: true } : { other_dirty: true }),
     }));
     setDocumentDirty(true);
   }, []);
@@ -1478,7 +1589,7 @@ export default function OutboundRegisterPage() {
 
   const openReceipt = useCallback(async (receiptno, allowDiscard = false) => {
     if (hasPendingChanges && !allowDiscard) {
-      notifications.show({ title: '저장되지 않은 변경사항', message: '현재 출고 내용을 먼저 저장해 주세요.', color: 'orange' });
+      notifications.show({ title: '저장되지 않은 변경사항', message: '현재 매출 내용을 먼저 저장해 주세요.', color: 'orange' });
       return false;
     }
     openRequestRef.current.controller?.abort();
@@ -1495,6 +1606,8 @@ export default function OutboundRegisterPage() {
       const receipt = data.receipt;
       const loadedRows = (receipt.items || []).map((item) => makeDetail({
         ...item,
+        weight: String(Math.round((Number(item.weight || 0) - Number(item.adjweight || 0)) * 1000) / 1000),
+        adjweight: Number(item.adjweight || 0) ? String(Number(item.adjweight)) : '',
         sourcetype: item.stocksourcetype || '',
       }, item.lineno));
       const warehouseKeys = [...new Set(loadedRows.map((row) => row.warehousecode).filter(Boolean))];
@@ -1508,14 +1621,17 @@ export default function OutboundRegisterPage() {
           ? (loadedRows.find((row) => row.warehousecode === warehouseKeys[0])?.warehousecodename || '')
           : warehouseKeys.length > 1 ? `복수 창고 (${warehouseKeys.length})` : '',
         manager: receipt.manager || receipt.items?.[0]?.manager || '',
+        destination: receipt.destination || '',
         description: receipt.description || '',
         manager_dirty: false,
+        destination_dirty: false,
         other_dirty: false,
       });
       setReceiptMetadata({
         companyid: receipt.companyid || '',
         companyname: receipt.companyname || '',
         created_at: receipt.created_at || '',
+        created_by: receipt.created_by || '',
         updated_at: receipt.updated_at || '',
       });
       setRows(loadedRows);
@@ -1531,7 +1647,7 @@ export default function OutboundRegisterPage() {
       return true;
     } catch (error) {
       if (!isLatest()) return false;
-      notifications.show({ title: '출고 상세 조회 실패', message: errorMessage(error), color: 'red' });
+      notifications.show({ title: '매출 상세 조회 실패', message: errorMessage(error), color: 'red' });
       return false;
     } finally {
       if (isLatest()) {
@@ -1593,6 +1709,13 @@ export default function OutboundRegisterPage() {
   }, []);
 
   const changeDetail = useCallback((id, key, value) => {
+    if (key === 'unitprice' && selectedReceiptno) {
+      setRows((current) => current.map((row) => row.id === id && !row.is_new
+        ? { ...row, unitprice: value, price_dirty: true }
+        : row));
+      setDocumentDirty(true);
+      return;
+    }
     if (key === 'manager' && selectedReceiptno) {
       setRows((current) => current.map((row) => row.id === id
         ? { ...row, manager: value, manager_dirty: true }
@@ -1775,11 +1898,12 @@ export default function OutboundRegisterPage() {
   const addDetail = useCallback(() => {
     if (saving) return;
     if (selectedReceiptno && hasPendingChanges) {
-      notifications.show({ title: '저장되지 않은 변경사항', message: '기존 전표의 변경사항을 먼저 저장하거나 취소한 뒤 새 출고를 시작해 주세요.', color: 'orange' });
+      notifications.show({ title: '저장되지 않은 변경사항', message: '기존 전표의 변경사항을 먼저 저장하거나 취소한 뒤 새 매출를 시작해 주세요.', color: 'orange' });
       return;
     }
     cancelPendingOpen();
-    if (selectedReceiptno) {
+    // [추가]: 저장 전표를 보든, 현재고에서 담던 새 전표든 언제나 빈 새 전표로 초기화하고 매출처에 포커스 (목록은 펼치지 않음)
+    {
       setHeader({ ...EMPTY_HEADER, receptdate: localDate() });
       setReceiptMetadata({ companyid: '', companyname: '', created_at: '', updated_at: '' });
       setRows([]);
@@ -1793,8 +1917,40 @@ export default function OutboundRegisterPage() {
       setSelectedIds([]);
       selectionAnchorRef.current = '';
     }
-    setStockPickerOpen(true);
+    // 재고조회를 바로 띄우지 않는다: 매출일자 / 매출처 / 창고를 먼저 입력한 뒤 [현재고 조회]로 재고를 담는다.
+    setDetailTab('details');
+    setCustomerFocusTick((tick) => tick + 1);   // 그린 뒤(입력 가능해진 뒤) 매출처에 포커스
   }, [saving, selectedReceiptno, hasPendingChanges, cancelPendingOpen]);
+
+  // [재고조회]: 매출일자·매출처를 먼저 입력해야 열린다. 창고를 고르면 그 창고 재고로 먼저 조회한다.
+  const openStockLookup = useCallback(() => {
+    if (saving) return;
+    if (readOnly) {
+      notifications.show({ title: '새 매출을 시작해 주세요', message: '저장된 전표에는 재고를 추가할 수 없습니다. [추가]를 누른 뒤 매출일자·매출처·창고를 입력하고 [현재고 조회]를 눌러 주세요.', color: 'orange' });
+      return;
+    }
+    const missing = [];
+    if (!String(header.receptdate || '').trim()) missing.push('매출일자');
+    if (!String(header.customcode || '').trim()) missing.push('매출처');
+    if (missing.length) {
+      notifications.show({ title: '매출 기본을 먼저 입력해 주세요', message: `${missing.join(', ')}을(를) 입력한 뒤 [현재고 조회]를 눌러 주세요.`, color: 'orange' });
+      if (!String(header.customcode || '').trim()) focusHeaderCustomer();
+      return;
+    }
+    setStockPickerOpen(true);
+  }, [saving, readOnly, header.receptdate, header.customcode, focusHeaderCustomer]);
+  // 재고조회 기본 조건: 기준일 종료 = 매출일자 (그 뒤에 들어온 재고는 이 날짜로 매출할 수 없음), 창고 = 헤더 창고
+  const stockPickerFilters = useMemo(() => {
+    const saleDate = String(header.receptdate || '').slice(0, 10);
+    const filters = {};
+    if (saleDate) {
+      filters.date_to = saleDate;
+      const thisMonthStart = `${localDate().slice(0, 8)}01`;
+      filters.date_from = thisMonthStart <= saleDate ? thisMonthStart : `${saleDate.slice(0, 8)}01`;
+    }
+    if (header.warehousecode && !rows.length) filters.warehouse_search = header.warehousecodename || header.warehousecode;
+    return filters;
+  }, [header.receptdate, header.warehousecode, header.warehousecodename, rows.length]);
 
   const handleAddAction = useCallback(() => {
     if (selectedReceiptno) {
@@ -1822,6 +1978,7 @@ export default function OutboundRegisterPage() {
       warehousecodename: stock.warehousecodename || '',
       unit: stock.unit || unitOptions.price[0]?.code || '',
       unitprice: String(stock.unitprice ?? ''),
+      adjweight: '',
     }));
     if (!addedRows.length) return;
     const nextRows = [...rows, ...addedRows];
@@ -1866,7 +2023,7 @@ export default function OutboundRegisterPage() {
     const fieldIndex = EDITABLE_FIELDS.indexOf(startField);
     if (startIndex < 0 || fieldIndex < 0 || readOnly) return;
     if (startIndex + matrix.length > rows.length) {
-      notifications.show({ title: '출고 재고 행 확인', message: '엑셀 붙여넣기는 재고조회에서 추가한 행에만 적용할 수 있습니다.', color: 'orange' });
+      notifications.show({ title: '매출 재고 행 확인', message: '엑셀 붙여넣기는 현재고 조회에서 추가한 행에만 적용할 수 있습니다.', color: 'orange' });
       return;
     }
     if (startIndex + matrix.length > 10000) {
@@ -1934,9 +2091,9 @@ export default function OutboundRegisterPage() {
 
   const validateDocument = useCallback(() => {
     const missing = [];
-    if (!String(header.receptdate || '').trim()) missing.push('출고일자');
+    if (!String(header.receptdate || '').trim()) missing.push('매출일자');
     if (!String(header.customcode || '').trim()) missing.push('매출처');
-    if (selectedReceiptno && !header.receiptno.trim()) missing.push('출고전표번호');
+    if (selectedReceiptno && !header.receiptno.trim()) missing.push('매출전표번호');
     if (!rows.length) missing.push('상세 품목');
     const invalidExpense = expenses
       .map((expense, index) => ({
@@ -1992,7 +2149,13 @@ export default function OutboundRegisterPage() {
       const qty = Number(qtyText);
       if (!qtyText || !Number.isFinite(qty) || qty <= 0) errors.push('수량(0 초과)');
       const weight = Number(row.weight);
-      if (!String(row.weight || '').trim() || !Number.isFinite(weight) || weight <= 0) errors.push('출고중량(0 초과)');
+      if (!String(row.weight || '').trim() || !Number.isFinite(weight) || weight <= 0) errors.push('중량(0 초과)');
+      else {
+        const total = totalWeightOf(row);
+        const stockWeight = Number(cleanNumericInput(row.current_weight));
+        if (!Number.isFinite(total) || total <= 0) errors.push('총중량(0 초과)');
+        else if (row.is_new && total > stockWeight + 1e-9) errors.push(`총중량이 현재고중량(${stockWeight.toLocaleString(undefined, { maximumFractionDigits: 3 })}kg) 초과`);
+      }
       const unitprice = Number(row.unitprice);
       if (!String(row.unitprice || '').trim() || !Number.isFinite(unitprice) || unitprice < 0) errors.push('판매단가(0 이상)');
       return errors.length ? [`${index + 1}행 ${errors.join(', ')}`] : [];
@@ -2033,34 +2196,50 @@ export default function OutboundRegisterPage() {
   }, [unitOptions]);
 
   const saveDocument = useCallback(async () => {
-    if (selectedReceiptno && hasManagerChanges && !header.other_dirty && !hasNewDetails && !rows.some((row) => row.is_dirty) && !hasPendingExpenses && !locked) {
+    const priceRows = selectedReceiptno ? rows.filter((row) => row.price_dirty && !row.is_new) : [];
+    const hasLightChanges = hasManagerChanges || Boolean(header.destination_dirty) || priceRows.length > 0;
+    if (selectedReceiptno && hasLightChanges && !header.other_dirty && !hasNewDetails && !rows.some((row) => row.is_dirty) && !hasPendingExpenses && !locked) {
+      const badPrice = priceRows.find((row) => {
+        const text = cleanNumericInput(row.unitprice);
+        return !text || !Number.isFinite(Number(text)) || Number(text) < 0;
+      });
+      if (badPrice) {
+        notifications.show({ title: '판매단가 확인', message: `${badPrice.lineno}행 판매단가를 0 이상으로 입력해 주세요.`, color: 'orange' });
+        return false;
+      }
       setSaving(true);
       try {
         const { data } = await axios.patch(
-          `/api/outbound-register/receipts/${encodeURIComponent(selectedReceiptno)}/manager`,
-          { manager: String(header.manager || '').trim() },
+          `/api/outbound-register/receipts/${encodeURIComponent(selectedReceiptno)}/sales-fields`,
+          {
+            ...(hasManagerChanges ? { manager: String(header.manager || '').trim() } : {}),
+            ...(header.destination_dirty ? { destination: String(header.destination || '').trim() } : {}),
+            prices: priceRows.map((row) => ({ lineno: Number(row.lineno), unitprice: String(Number(Number(cleanNumericInput(row.unitprice)).toFixed(2))) })),
+          },
           authConfig(),
         );
-        await openReceipt(selectedReceiptno, true);
+        // 전표 다시 열기 + 목록 금액 갱신을 함께
+        await Promise.all([openReceipt(selectedReceiptno, true), loadReceipts(page, filters)]);
+        const changed = [hasManagerChanges && '담당자', header.destination_dirty && '착지', data.price_count > 0 && `판매단가 ${data.price_count}행`].filter(Boolean);
         notifications.show({
-          title: '담당자 수정 완료',
-          message: `${data.updated_count}행 담당자를 출고상세와 재고수불현황에 반영했습니다.`,
+          title: '매출전표 수정 완료',
+          message: `${changed.join(' · ') || '변경 내용'}을(를) 반영했습니다. 재고와 원가는 그대로입니다.`,
           color: 'teal',
         });
         return true;
       } catch (error) {
-        notifications.show({ title: '담당자 수정 실패', message: errorMessage(error), color: 'red', autoClose: 9000 });
+        notifications.show({ title: '매출전표 수정 실패', message: errorMessage(error), color: 'red', autoClose: 9000 });
         return false;
       } finally {
         setSaving(false);
       }
     }
     if (locked) {
-      notifications.show({ title: '수불 확정 전표', message: '수불 확정된 출고전표는 수정할 수 없습니다.', color: 'orange' });
+      notifications.show({ title: '수불 확정 전표', message: '수불 확정된 매출전표는 수정할 수 없습니다.', color: 'orange' });
       return false;
     }
     if (selectedReceiptno && !hasPendingChanges) {
-      notifications.show({ title: '저장할 변경사항이 없습니다', message: '현재고 조회에서 출고할 재고를 추가한 뒤 저장해 주세요.', color: 'orange' });
+      notifications.show({ title: '저장할 변경사항이 없습니다', message: '현재고 조회에서 매출할 재고를 추가한 뒤 저장해 주세요.', color: 'orange' });
       return false;
     }
     const sourceHeader = header;
@@ -2075,16 +2254,20 @@ export default function OutboundRegisterPage() {
         customcode: String(sourceHeader.customcode || '').trim(),
         customname: String(sourceHeader.customname || '').trim(),
         manager: String(sourceHeader.manager || '').trim(),
+        destination: String(sourceHeader.destination || '').trim(),
         is_new: !selectedReceiptno,
         items: sourceRows.map((row) => ({
           stocksourcetype: String(row.stocksourcetype || '').trim(),
           stocksourceno: String(row.stocksourceno || '').trim(),
           stocksourceline: Number(row.stocksourceline),
+          description: String(row.description || '').trim(),
           warehousecode: String(row.warehousecode || '').trim(),
           warehousecodename: String(row.warehousecodename || '').trim(),
           unit: resolveMasterCode('unit', row.unit, unitOptions) || String(row.unit || '').trim(),
           qty: String(row.qty ?? '').trim(),
-          weight: String(Number(Number(cleanNumericInput(row.weight)).toFixed(3))),
+          // weight = 총중량 (현재고·수불장 반영), adjweight = 조정
+          weight: String(Number(totalWeightOf(row).toFixed(3))),
+          adjweight: String(Number(signedNumber(row.adjweight).toFixed(3))),
           unitprice: String(Number(Number(cleanNumericInput(row.unitprice)).toFixed(2))),
         })),
         expenses: expenses.map((expense) => {
@@ -2094,7 +2277,7 @@ export default function OutboundRegisterPage() {
           costname: String(expense.costname || '').trim(),
           supplyamt: cleanNumericInput(expense.supplyamt) || '0',
           vat: cleanNumericInput(expense.vat) || '0',
-          // 비용여부 '아니오' = 매출처 부담 → 출고 헤더의 매출처로 저장
+          // 비용여부 '아니오' = 매출처 부담 → 매출 헤더의 매출처로 저장
           customcode: String((isCost ? expense.customcode : sourceHeader.customcode) || '').trim(),
           customname: String((isCost ? expense.customname : sourceHeader.customname) || '').trim(),
           purchaseyn: isCost ? 'Y' : 'N',
@@ -2108,66 +2291,101 @@ export default function OutboundRegisterPage() {
       const { data } = await saveRequest;
       masterPasteErrorsRef.current.clear();
       notifications.show({
-        title: '출고 저장 완료',
+        title: '매출 저장 완료',
         message: data.group_count > 1
-          ? `${data.group_count}개 출고전표 등록 완료 (${(data.receipt_numbers || []).join(', ')}) / 상세 ${data.saved_count}건`
+          ? `${data.group_count}개 매출전표 등록 완료 (${(data.receipt_numbers || []).join(', ')}) / 상세 ${data.saved_count}건`
           : `${data.receiptno} 전표의 상세 ${data.saved_count}건을 저장했습니다.`,
         color: 'teal',
       });
+      // 저장한 전표가 목록에 보이게: 매출일자가 이번 달이 아니면 그 달로 조회하고, 그 전표가 있는 쪽을 연다
       const defaultFilters = createDefaultReceiptFilters();
+      const savedDate = String(sourceHeader.receptdate || '').slice(0, 10);
+      if (savedDate && (savedDate < defaultFilters.date_from || savedDate > defaultFilters.date_to)) {
+        const [year, month] = savedDate.split('-').map(Number);
+        defaultFilters.date_from = `${savedDate.slice(0, 8)}01`;
+        defaultFilters.date_to = `${savedDate.slice(0, 8)}${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`;
+      }
       setFilters(defaultFilters);
       setFilterInputs(defaultFilters);
-      await loadReceipts(1, defaultFilters);
+      await loadReceipts(1, defaultFilters, pageSize, data.receiptno);
       await openReceipt(data.receiptno, true);
       return true;
     } catch (error) {
-      notifications.show({ title: '출고 저장 실패', message: errorMessage(error), color: 'red', autoClose: 9000 });
+      notifications.show({ title: '매출 저장 실패', message: errorMessage(error), color: 'red', autoClose: 9000 });
       return false;
     } finally {
       setSaving(false);
     }
-  }, [locked, selectedReceiptno, hasManagerChanges, hasNewDetails, hasPendingExpenses, hasPendingChanges, rows, expenses, header, unitOptions, validateDetailMasters, validateDocument, loadReceipts, openReceipt]);
+  }, [locked, selectedReceiptno, hasManagerChanges, hasNewDetails, hasPendingExpenses, hasPendingChanges, rows, expenses, header, unitOptions, validateDetailMasters, validateDocument, loadReceipts, openReceipt, pageSize, page, filters]);
 
   const exportDocument = useCallback(() => {
     if (!header.receiptno || !rows.length) {
-      notifications.show({ title: '다운로드할 출고전표 없음', message: '먼저 저장된 출고전표를 선택해 주세요.', color: 'orange' });
+      notifications.show({ title: '다운로드할 매출전표 없음', message: '먼저 저장된 매출전표를 선택해 주세요.', color: 'orange' });
       return;
     }
     setExporting(true);
     try {
       const workbook = XLSX.utils.book_new();
+      // 매입등록 엑셀과 같은 틀: No. / 전표 / 일자 / 거래처 / 창고 / 담당자 (+ 착지) / 상세 칸 / 등록·수정 정보
+      // 창고는 행마다 (한 매출전표에 창고가 여럿일 수 있음). 현재고 수량·중량은 저장 시점 값이 아니라 빼고, 창고는 앞쪽 칸과 겹쳐 뺀다.
       const exportFields = [
-        ['회사코드', () => receiptMetadata.companyid],
-        ['회사명', () => receiptMetadata.companyname],
-        ['출고전표번호', () => header.receiptno],
-        ['출고일자', () => header.receptdate],
-        ['매출처', () => header.customname],
-        ['창고', () => header.warehousecodename],
-        ['담당자', () => header.manager],
-        ['전표 비고', () => header.description],
-        ['수불확정여부', () => subulyn],
-        ['전표 등록일자', () => receiptMetadata.created_at],
-        ['전표 수정일자', () => receiptMetadata.updated_at],
-        ['순번', (row) => row.lineno],
-        ...DETAIL_FIELDS.filter(({ key }) => !['current_qty', 'current_weight'].includes(key)).map(({ key, label }) => [
-          `상세 ${label}`,
-            (row) => key === 'supplyamt' ? amountOf(row, unitOptions.price)
-              : key === 'vat' ? vatAmountOf(row, unitOptions.price)
-                : key === 'unitamt' ? totalAmountOf(row, unitOptions.price) : row[key] ?? '',
+        ['No.', (_, index) => index + 1],
+        ['매출전표', () => header.receiptno || ''],
+        ['매출일자', () => header.receptdate || ''],
+        ['매출처', () => header.customname || ''],
+        ['창고', (row) => row.warehousecodename || header.warehousecodename || ''],
+        ['담당자', () => header.manager || ''],
+        ['착지', () => header.destination || ''],
+        ...DETAIL_FIELDS.filter(({ key }) => !['current_qty', 'current_weight', 'warehousecodename'].includes(key)).map(({ key, label }) => [
+          label,
+          (row) => {
+            const value = key === 'supplyamt' ? amountOf(row, unitOptions.price)
+              : key === 'totalweight' ? totalWeightOf(row)
+                : key === 'adjweight' ? signedNumber(row.adjweight)
+                  : key === 'vat' ? vatAmountOf(row, unitOptions.price)
+                    : key === 'unitamt' ? totalAmountOf(row, unitOptions.price) : row[key] ?? '';
+            // 숫자 칸은 엑셀에서 계산·합계가 되도록 숫자로 넣는다
+            if (EXCEL_NUMBER_KEYS.has(key) && String(value ?? '').trim() !== '') {
+              const number = Number(String(value).replace(/,/g, ''));
+              return Number.isFinite(number) ? number : value;
+            }
+            return value;
+          },
         ]),
-        ['상세 등록일자', (row) => formatExcelDateTime(row.created_at)],
-        ['상세 수정일자', (row) => formatExcelDateTime(row.updated_at)],
+        ['등록일자', (row) => formatExcelDateTime(row.created_at)],
         ['등록자', (row) => row.created_by ?? ''],
+        ['수정일자', (row) => formatExcelDateTime(row.updated_at)],
         ['수정자', (row) => row.updated_by ?? ''],
       ];
       const worksheet = XLSX.utils.aoa_to_sheet([
         exportFields.map(([label]) => label),
-        ...rows.map((row) => exportFields.map(([, getValue]) => getValue(row))),
+        ...rows.map((row, index) => exportFields.map(([, getValue]) => getValue(row, index))),
       ]);
       applyExcelHeaderStyle(worksheet, exportFields.length);
       worksheet['!cols'] = exportFields.map(([label]) => ({ wch: Math.min(28, Math.max(14, String(label).length + 4)) }));
       worksheet['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: exportFields.length - 1 } }) };
       XLSX.utils.book_append_sheet(workbook, worksheet, '매출내역');
+      // 매입등록과 같이 두 번째 시트: 매출등록 기타비용 탭과 같은 칸 (비용여부 '아니오' 거래처 = 매출처)
+      if (expenses.length) {
+        const expenseAmount = (value) => Number(cleanNumericInput(value)) || 0;
+        const expenseFields = [
+          ['No.', (_, index) => index + 1],
+          ['비용 구분', (expense) => expense.costname || ''],
+          ['공급가', (expense) => expenseAmount(expense.supplyamt)],
+          ['부가세', (expense) => expenseAmount(expense.vat)],
+          ['합계금액', (expense) => Math.round((expenseAmount(expense.supplyamt) + expenseAmount(expense.vat)) * 100) / 100],
+          ['거래처', (expense) => (expense.purchaseyn === 'Y' ? expense.customname || '' : header.customname || '')],
+          ['비용여부', (expense) => (expense.purchaseyn === 'Y' ? '예' : '아니오')],
+          ['비고', (expense) => expense.description || ''],
+        ];
+        const expenseSheet = XLSX.utils.aoa_to_sheet([
+          expenseFields.map(([label]) => label),
+          ...expenses.map((expense, index) => expenseFields.map(([, getValue]) => getValue(expense, index))),
+        ]);
+        applyExcelHeaderStyle(expenseSheet, expenseFields.length);
+        expenseSheet['!cols'] = expenseFields.map(([label]) => ({ wch: Math.min(28, Math.max(14, String(label).length + 4)) }));
+        XLSX.utils.book_append_sheet(workbook, expenseSheet, '기타비용');
+      }
       const safeFilePart = (value) => {
         const invalidCharacters = '<>:"/\\|?*';
         const safePart = [...String(value || '').trim()]
@@ -2178,7 +2396,7 @@ export default function OutboundRegisterPage() {
       };
       XLSX.writeFile(workbook, `매출전표_${safeFilePart(rows[0]?.customname || rows[0]?.customcode)}_${safeFilePart(rows[0]?.receptdate || header.receptdate)}_${safeFilePart(header.receiptno)}.xlsx`);
     } finally { setExporting(false); }
-  }, [header, receiptMetadata, rows, subulyn, unitOptions.price]);
+  }, [header, rows, expenses, unitOptions.price]);
 
   const runSearch = useCallback(() => {
     const nextFilters = Object.fromEntries(Object.entries(filterInputs).map(([key, value]) => [key, String(value || '').trim()]));
@@ -2215,7 +2433,7 @@ export default function OutboundRegisterPage() {
     setSelectedIds((current) => current.filter((id) => remainingRows.some((row) => row.id === id)));
     setDocumentDirty(remainingRows.some((row) => row.is_new || row.is_dirty));
     selectionAnchorRef.current = '';
-    notifications.show({ title: '선택 행 제거 완료', message: `저장 전 재고 ${removedCount}행을 출고 상세에서 제거했습니다.`, color: 'teal' });
+    notifications.show({ title: '선택 행 제거 완료', message: `저장 전 재고 ${removedCount}행을 매출 상세에서 제거했습니다.`, color: 'teal' });
   }, [saving, selectedIds, rows]);
 
   const requestToolbarDelete = useCallback(() => {
@@ -2229,7 +2447,7 @@ export default function OutboundRegisterPage() {
         removeSelectedDraftDetails();
         return;
       }
-      notifications.show({ title: '삭제할 행을 선택해 주세요', message: '저장 전에는 출고 상세에서 삭제할 행을 선택한 뒤 최상단 삭제를 눌러 주세요.', color: 'orange' });
+      notifications.show({ title: '삭제할 행을 선택해 주세요', message: '저장 전에는 매출 상세에서 삭제할 행을 선택한 뒤 최상단 삭제를 눌러 주세요.', color: 'orange' });
       return;
     }
     if (hasPendingChanges) {
@@ -2268,19 +2486,19 @@ export default function OutboundRegisterPage() {
     setSaving(true);
     try {
       await axios.delete(`/api/outbound-register/receipts/${encodeURIComponent(selectedReceiptno)}`, authConfig());
-      notifications.show({ title: '출고 삭제 완료', message: `${selectedReceiptno} 전표를 삭제했습니다.`, color: 'teal' });
+      notifications.show({ title: '매출 삭제 완료', message: `${selectedReceiptno} 전표를 삭제했습니다.`, color: 'teal' });
       setDeleteOpen(false);
       setHeader({ ...EMPTY_HEADER, receptdate: localDate() });
       setReceiptMetadata({ companyid: '', companyname: '', created_at: '', updated_at: '' });
       setRows([]); setExpenses([]); setSelectedExpenseIds([]); expenseSelectionAnchorRef.current = ''; setSelectedReceiptno(''); setSubulyn('N'); setDocumentDirty(false); setDetailTab('details');
       await loadReceipts(page, filters);
     } catch (error) {
-      notifications.show({ title: '출고 삭제 실패', message: errorMessage(error), color: 'red' });
+      notifications.show({ title: '매출 삭제 실패', message: errorMessage(error), color: 'red' });
     } finally { setSaving(false); }
   }, [selectedReceiptno, locked, loadReceipts, page, filters]);
 
   const rowContent = useCallback((index, row) => (
-    <DetailCells row={row} index={index} selected={selectedSet.has(row.id)} disabled={saving || locked || (Boolean(selectedReceiptno) && !row.is_new)} managerEditable={Boolean(selectedReceiptno) && !locked && !saving && !hasNewDetails} saved={locked || (Boolean(selectedReceiptno) && !row.is_new)} unitOptions={unitOptions}
+    <DetailCells row={row} index={index} selected={selectedSet.has(row.id)} disabled={saving || locked || (Boolean(selectedReceiptno) && !row.is_new)} managerEditable={Boolean(selectedReceiptno) && !locked && !saving && !hasNewDetails} priceEditable={Boolean(selectedReceiptno) && !locked && !saving} saved={locked || (Boolean(selectedReceiptno) && !row.is_new)} unitOptions={unitOptions}
       onSelect={toggleSelection} onChange={changeDetail} onPaste={pasteRange}
       registerCodeInput={registerCodeInput} registerCellInput={registerCellInput} onFindItem={setItemPickerTargetId}
       onFindMaster={openMasterPicker} onFindCustomer={openCustomerPicker} onFocusCell={setActiveCell} />
@@ -2301,6 +2519,7 @@ export default function OutboundRegisterPage() {
     }
     return totals;
   }, { line_count: 0, total_qty: 0, total_weight: 0, supply_amount: 0, vat_amount: 0, total_amount: 0, other_cost_amount: 0 }), [receipts]);
+  const warehouseData = useMemo(() => unitOptions.warehouse.map((option) => ({ value: option.code, label: option.name || option.code })), [unitOptions.warehouse]);
   const receiptCustomerData = useMemo(() => {
     const options = receiptCustomers.map((customer) => ({
       value: customer.customercode,
@@ -2327,6 +2546,12 @@ export default function OutboundRegisterPage() {
   useLayoutEffect(() => { openReceiptRef.current = openReceipt; }, [openReceipt]);
   const handleOpenReceipt = useCallback((receiptno) => { void openReceiptRef.current(receiptno, true); }, []);
   const highlightedReceiptno = openingReceiptno || selectedReceiptno;
+  // 저장 직후처럼 선택 전표가 목록 아래쪽에 있으면 보이는 곳까지 목록만 스크롤한다
+  useEffect(() => {
+    if (!selectedReceiptno) return;
+    const row = receiptTableRef.current?.querySelector(`.${classes.receiptFinderRowActive}`);
+    row?.scrollIntoView({ block: 'nearest' });
+  }, [selectedReceiptno, receipts]);
   const receiptTable = useMemo(() => (
     <Table className={inboundClasses.receiptFinderTable} stickyHeader highlightOnHover withTableBorder withColumnBorders
       style={{ width: `${receiptTableWidth}px`, minWidth: `${receiptTableWidth}px`, tableLayout: 'fixed' }}>
@@ -2338,18 +2563,21 @@ export default function OutboundRegisterPage() {
           onClick={() => handleOpenReceipt(receipt.receiptno)}>
           <Table.Td>{String(receipt.receptdate || '').slice(0, 10)}</Table.Td>
           <Table.Td>{receipt.customname || ''}</Table.Td>
-          <Table.Td>{receipt.warehousecodename || ''}</Table.Td>
-          <Table.Td ta="right">{Number(receipt.line_count || 0).toLocaleString()}</Table.Td>
+          <Table.Td title={receipt.manager || ''}>{receipt.manager || ''}</Table.Td>
+          <Table.Td title={receipt.destination || ''}>{receipt.destination || ''}</Table.Td>
           <Table.Td ta="right">{Number(receipt.total_qty || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Table.Td>
           <Table.Td ta="right">{Number(receipt.total_weight || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Table.Td>
           <Table.Td ta="right">{formatAmount(String(receipt.supply_amount ?? 0))}</Table.Td>
           <Table.Td ta="right">{formatAmount(String(receipt.vat_amount ?? 0))}</Table.Td>
           <Table.Td ta="right" className={classes.receiptFinderAmount}>{formatAmount(String(receipt.total_amount ?? 0))}</Table.Td>
+          <Table.Td>{receipt.warehousecodename || ''}</Table.Td>
           <Table.Td ta="right">{formatAmount(String(receipt.other_cost_amount ?? 0))}</Table.Td>
           <Table.Td>{receipt.qtyunit || ''}</Table.Td>
           <Table.Td>{receipt.unit || ''}</Table.Td>
           <Table.Td>{receipt.receiptno}</Table.Td>
-          <Table.Td>{receipt.description || ''}</Table.Td>
+          <Table.Td>{registeredAtText(receipt.created_at)}</Table.Td>
+          <Table.Td title={receipt.created_by || ''}>{receipt.created_by || ''}</Table.Td>
+          <Table.Td title={receipt.description || ''}>{receipt.description || ''}</Table.Td>
         </Table.Tr>)}
       </Table.Tbody>
     </Table>
@@ -2400,7 +2628,7 @@ export default function OutboundRegisterPage() {
                 </Table.Tr></Table.Tbody>
               </Table>
               </Box>}
-              <Box ref={receiptHorizontalScrollRef} className={inboundClasses.topReceiptHorizontalScroll} onScroll={(event) => syncReceiptScroll(event.currentTarget.scrollLeft)} aria-label="출고 기본 가로 스크롤">
+              <Box ref={receiptHorizontalScrollRef} className={inboundClasses.topReceiptHorizontalScroll} onScroll={(event) => syncReceiptScroll(event.currentTarget.scrollLeft)} aria-label="매출 기본 가로 스크롤">
                 <Box className={inboundClasses.topReceiptHorizontalContent} style={{ width: `${receiptTableWidth}px` }} />
               </Box>
             </Box>
@@ -2415,19 +2643,28 @@ export default function OutboundRegisterPage() {
   const receiptHeaderFields = useMemo(() => (
           <Box className={inboundClasses.sharedReceiptFields}>
             <Box className={inboundClasses.sharedReceiptField}>
-              <Text size="xs" fw={700} mb={4}>출고일자 <span className={codeClasses.required}>*</span></Text>
-              <ErpDateInput type="date" aria-label="출고일자" value={header.receptdate || ''} disabled={saving || locked}
+              <Text size="xs" fw={700} mb={4}>매출일자 <span className={codeClasses.required}>*</span></Text>
+              <ErpDateInput type="date" aria-label="매출일자" value={header.receptdate || ''} disabled={saving || locked}
                 onChange={(event) => changeReceiptHeader('receptdate', event.currentTarget.value)} />
             </Box>
             <Box className={inboundClasses.sharedReceiptField}>
               <Text size="xs" fw={700} mb={4}>매출처 <span className={codeClasses.required}>*</span></Text>
-              <Select searchable autoSelectOnBlur aria-label="매출처" placeholder=""
+              <Select ref={headerCustomerRef} searchable autoSelectOnBlur aria-label="매출처" placeholder=""
+                dropdownOpened={customerDropdownOpen}
+                onDropdownOpen={() => { if (!suppressCustomerDropdownRef.current) setCustomerDropdownOpen(true); }}
+                onDropdownClose={() => setCustomerDropdownOpen(false)}
                 disabled={readOnly || saving} data={receiptCustomerData} value={header.customcode || null}
                 onChange={(value) => changeReceiptHeader('customcode', value || '')} />
             </Box>
             <Box className={inboundClasses.sharedReceiptField}>
               <Text size="xs" fw={700} mb={4}>창고</Text>
-              <TextInput aria-label="창고" value={header.warehousecodename || ''} readOnly disabled />
+              {/* 창고는 직접 고르지 않는다: [현재고 조회]에서 담은 재고의 창고로 자동 지정 (항상 비활성) */}
+              <Select aria-label="창고" placeholder={readOnly ? '' : '재고 선택 시 자동'}
+                disabled
+                data={header.warehousecode && warehouseData.some((option) => option.value === header.warehousecode) ? warehouseData
+                  : header.warehousecodename ? [{ value: header.warehousecode || '__shown', label: header.warehousecodename }, ...warehouseData] : warehouseData}
+                value={header.warehousecode || (header.warehousecodename ? '__shown' : null)}
+                />
             </Box>
             <Box className={inboundClasses.sharedReceiptField}>
               <Text size="xs" fw={700} mb={4}>담당자</Text>
@@ -2436,13 +2673,14 @@ export default function OutboundRegisterPage() {
                 onCommit={(value) => changeReceiptHeader('manager', value)} />
             </Box>
             <Box className={inboundClasses.sharedReceiptField}>
-              <Text size="xs" fw={700} mb={4}>비고</Text>
-              <DeferredReceiptTextInput key={`${selectedReceiptno}:description:${header.description || ''}`} ariaLabel="비고" value={header.description || ''} maxLength={500}
-                disabled={readOnly || saving} onEditStart={() => markReceiptHeaderEdited('description')}
-                onCommit={(value) => changeReceiptHeader('description', value)} />
+              <Text size="xs" fw={700} mb={4}>착지</Text>
+              {/* 직접 입력한다. 송장 받는 곳 주소 = 착지 (비우면 매출처 주소) */}
+              <DeferredReceiptTextInput key={`${selectedReceiptno}:destination:${header.destination || ''}`} ariaLabel="착지" value={header.destination || ''} maxLength={500}
+                disabled={locked || saving} onEditStart={() => markReceiptHeaderEdited('destination')}
+                onCommit={(value) => changeReceiptHeader('destination', value)} />
             </Box>
           </Box>
-  ), [header, saving, locked, readOnly, receiptCustomerData, changeReceiptHeader, selectedReceiptno, markReceiptHeaderEdited]);
+  ), [header, saving, locked, readOnly, receiptCustomerData, changeReceiptHeader, selectedReceiptno, markReceiptHeaderEdited, warehouseData, customerDropdownOpen]);
   const filterSidebar = useMemo(() => (
         <Paper component="aside" className={`${inboundClasses.receiptFilterSidebar} ${classes.outboundFilterSidebar}`} withBorder>
           <Group className={inboundClasses.receiptFilterHeader} justify="space-between" align="center">
@@ -2451,11 +2689,11 @@ export default function OutboundRegisterPage() {
           </Group>
           <Stack gap="sm" className={inboundClasses.receiptFilterFields}>
             <Box>
-              <Text size="xs" fw={700} mb={5}>출고기간</Text>
+              <Text size="xs" fw={700} mb={5}>매출기간</Text>
               <Stack gap={6}>
-                <ErpDateInput type="date" aria-label="출고기간 시작일" value={filterInputs.date_from}
+                <ErpDateInput type="date" aria-label="매출기간 시작일" value={filterInputs.date_from}
                   onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_from: nextValue })); }} />
-                <ErpDateInput type="date" aria-label="출고기간 종료일" value={filterInputs.date_to}
+                <ErpDateInput type="date" aria-label="매출기간 종료일" value={filterInputs.date_to}
                   onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_to: nextValue })); }} />
               </Stack>
             </Box>
@@ -2465,19 +2703,19 @@ export default function OutboundRegisterPage() {
             <TextInput label="창고" placeholder="창고코드 또는 창고명" value={filterInputs.warehouse}
               onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, warehouse: nextValue })); }}
               onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
-            <TextInput label="출고전표번호" placeholder="전표번호" value={filterInputs.receiptno}
+            <TextInput label="매출전표번호" placeholder="전표번호" value={filterInputs.receiptno}
               onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, receiptno: nextValue })); }}
               onKeyDown={(event) => { if (event.key === 'Enter') runSearch(); }} />
           </Stack>
           <Box className={classes.outboundStockLookup}>
-            <Text fw={700} size="sm">재고조회</Text>
-            <Text size="xs" c="dimmed">기초재고와 입고재고에서 출고할 원천 행을 선택합니다.</Text>
-            <Button fullWidth color="red" leftSection={<IconSearch size={15} />} onClick={addDetail} disabled={saving}>
+            <Text fw={700} size="sm">재고 조회</Text>
+            <Text size="xs" c="dimmed">매출일자·매출처·창고를 입력한 뒤 매출할 재고를 선택합니다.</Text>
+            <Button fullWidth color="red" leftSection={<IconSearch size={15} />} onClick={openStockLookup} disabled={saving || readOnly}>
               현재고 조회
             </Button>
           </Box>
         </Paper>
-  ), [filterInputs, runSearch, addDetail, saving]);
+  ), [filterInputs, runSearch, openStockLookup, saving, readOnly]);
   const pickerModals = useMemo(() => (<>
       <CustomerPickerModal opened={customerPickerOpen} onClose={() => { setCustomerPickerOpen(false); setCustomerPickerTargetId('' ); }} onSelect={selectCustomer} />
       <MasterOptionPickerModal
@@ -2495,6 +2733,7 @@ export default function OutboundRegisterPage() {
         opened={stockPickerOpen}
         receiptno={selectedReceiptno}
         existingRows={rows}
+        initialFilters={stockPickerFilters}
         onClose={() => setStockPickerOpen(false)}
         onApply={applyAvailableStocks}
       />
@@ -2507,7 +2746,7 @@ export default function OutboundRegisterPage() {
         options={masterPickerTarget?.field === 'qtyunit' ? unitOptions.quantity : masterPickerTarget?.field === 'unit' ? unitOptions.price : unitOptions.warehouse}
         onSelect={selectMasterOption}
       />
-  </>), [customerPickerOpen, selectCustomer, expenseCostPickerId, expenseOptions, changeExpense, stockPickerOpen, selectedReceiptno, rows, applyAvailableStocks, itemPickerTargetId, selectItem, masterPickerTarget, unitOptions, selectMasterOption]);
+  </>), [customerPickerOpen, selectCustomer, expenseCostPickerId, expenseOptions, changeExpense, stockPickerOpen, selectedReceiptno, rows, stockPickerFilters, applyAvailableStocks, itemPickerTargetId, selectItem, masterPickerTarget, unitOptions, selectMasterOption]);
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page} ${simpleTheme.simple}`}>
@@ -2530,7 +2769,7 @@ export default function OutboundRegisterPage() {
         <Box className={`${inboundClasses.inboundPrimaryColumn} ${classes.outboundPrimaryColumn}`}>
           <Paper className={`${sharedClasses.panel} ${inboundClasses.topReceiptPanel}`} withBorder>
             <Group className={`${inboundClasses.topReceiptToolbar} ${classes.receiptToolbarWithActions}`} justify="space-between" wrap="wrap">
-              <Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>출고 기본</Text><Badge color="gray" variant="light">{total.toLocaleString()}건</Badge></Group>
+              <Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>매출 기본</Text><Badge color="gray" variant="light">{total.toLocaleString()}건</Badge></Group>
               {/* 선택한 매출전표의 거래명세서 / 납품송장 출력 */}
               <Group gap={6} wrap="nowrap" className={classes.printActions}>
                 <Button size="xs" variant="default" leftSection={<IconFileInvoice size={15} />} onClick={() => openPrint('statement')}
@@ -2545,7 +2784,7 @@ export default function OutboundRegisterPage() {
             </Group>
             <Box ref={receiptTableRef} className={inboundClasses.topReceiptTable}>
               {receiptTable}
-              {!receipts.length && <Box className={inboundClasses.topReceiptEmptyMessage}>{loading ? '조회 중입니다.' : '검색된 출고전표가 없습니다.'}</Box>}
+              {!receipts.length && <Box className={inboundClasses.topReceiptEmptyMessage}>{loading ? '조회 중입니다.' : '검색된 매출전표가 없습니다.'}</Box>}
             </Box>
             {receiptBottom}
           </Paper>
@@ -2554,7 +2793,7 @@ export default function OutboundRegisterPage() {
         <Paper className={`${sharedClasses.panel} ${codeClasses.codePanel} ${classes.editorPanel}`} withBorder>
           <Group className={codeClasses.codeHeader} justify="space-between" align="center" wrap="wrap" gap="sm">
             <Group gap={9} align="center">
-              <Text className={inboundClasses.sectionTitle} fw={700}>출고 상세</Text>
+              <Text className={inboundClasses.sectionTitle} fw={700}>매출 상세</Text>
               <Badge color="gray" variant="light">{rows.length.toLocaleString()}행</Badge>
               {selectedReceiptno && <Badge color="gray" variant="light">{selectedReceiptno}</Badge>}
             </Group>
@@ -2566,9 +2805,9 @@ export default function OutboundRegisterPage() {
 
           {receiptHeaderFields}
 
-          <Box className={classes.detailTabsBar} role="tablist" aria-label="출고 상세 구분">
+          <Box className={classes.detailTabsBar} role="tablist" aria-label="매출 상세 구분">
             <button type="button" role="tab" aria-selected={detailTab === 'details'} className={detailTab === 'details' ? classes.detailTabActive : classes.detailTab}
-              onClick={() => setDetailTab('details')}>출고 상세 {rows.length.toLocaleString()}건</button>
+              onClick={() => setDetailTab('details')}>매출 상세 {rows.length.toLocaleString()}건</button>
             <button type="button" role="tab" aria-selected={detailTab === 'expenses'} className={detailTab === 'expenses' ? classes.detailTabActive : classes.detailTab}
               onClick={() => setDetailTab('expenses')}>기타비용 {expenses.length.toLocaleString()}건</button>
           </Box>
@@ -2591,13 +2830,13 @@ export default function OutboundRegisterPage() {
             )}
             {!detailLoading && !rows.length && (
               <Box className={inboundClasses.emptyDetailMessage}>
-                {selectedReceiptno ? '출고 상세가 없습니다.' : '조회조건의 재고조회에서 출고할 재고를 선택하세요.'}
+                {selectedReceiptno ? '매출 상세가 없습니다.' : '매출일자·매출처·창고를 입력한 뒤 [현재고 조회]로 매출할 재고를 선택하세요.'}
               </Box>
             )}
           </Box>
           <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="flex-end" wrap="wrap">
             <Text size="xs" fw={700}>
-              총 수량 {quantitySummary} · 총 중량 {detailTotals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 })}{rows.length ? 'KG' : ''}
+              총 수량 {quantitySummary} · 총중량 {detailTotals.totalweight.toLocaleString(undefined, { maximumFractionDigits: 3 })}{rows.length ? 'KG' : ''}
               {' · '}총공급가 {formatWon(detailTotals.amount.toFixed(2))}
               {' · '}부가세 {formatWon(detailTotals.vat.toFixed(2))}
               {' · '}합계 {formatWon(detailTotals.total.toFixed(2))}
@@ -2630,7 +2869,7 @@ export default function OutboundRegisterPage() {
 
 
       <ConfirmDeleteModal opened={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={requestDeleteReceipt} loading={saving}
-        title="출고전표를 삭제할까요?" target={selectedReceiptno} message="전표와 상세 내역이 모두 삭제되며" note="삭제한 전표는 복구할 수 없습니다." />
+        title="매출전표를 삭제할까요?" target={selectedReceiptno} message="전표와 상세 내역이 모두 삭제되며" note="삭제한 전표는 복구할 수 없습니다." />
 
 
       {pickerModals}

@@ -23,6 +23,7 @@ def documents(date_from: date | None = None, date_to: date | None = None,
               productinfo: str = Query(default="", max_length=150),
               page: int | None = Query(default=None, ge=1),
               page_size: int | None = Query(default=None, ge=1, le=200),
+              focus_processno: str = Query(default="", max_length=100),
               user: dict = Depends(security_module.get_current_user)):
     if date_from and date_to and date_from > date_to:
         raise HTTPException(status_code=422, detail="시작일은 종료일보다 늦을 수 없습니다.")
@@ -33,6 +34,7 @@ def documents(date_from: date | None = None, date_to: date | None = None,
             # Paged list (가공 목록 with 15/50/100/200 per page, like 출고등록).
             return {"success": True, **process_module.list_documents(
                 user["companyid"], date_from, date_to, **filters, page=page, page_size=page_size or 15,
+                focus_processno=focus_processno.strip(),
             )}
         return {"success": True, "items": process_module.list_documents(
             user["companyid"], date_from, date_to, **filters,

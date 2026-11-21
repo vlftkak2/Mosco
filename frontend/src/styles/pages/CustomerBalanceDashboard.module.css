@@ -139,3 +139,7 @@
 @media (max-width: 980px) {
   .monthSummary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* 경과 구간 줄: 마우스를 올리면 거래처 목록 */
+.agingRowHover { cursor: help; border-radius: 6px; }
+.agingRowHover:hover { background: #f3f6fa; }

@@ -76,6 +76,7 @@ def get_outbound_details(
     customer: str = Query(default="", max_length=150),
     warehouse: str = Query(default="", max_length=100),
     iteminfo: str = Query(default="", max_length=150),
+    summary: bool = Query(default=True),   # false = 쪽 넘김: 요약(건수·합계) 계산 생략
     user: dict = Depends(security_module.get_current_user),
 ):
     if date_from and date_to and date_from > date_to:
@@ -95,6 +96,7 @@ def get_outbound_details(
                 customer=customer,
                 warehouse=warehouse,
                 iteminfo=iteminfo,
+                with_summary=summary,
             ),
         }
     except Exception as error:

@@ -6,7 +6,7 @@ from time import monotonic
 import db as _shared_db
 from pydantic import BaseModel
 from config import DB_CONFIG
-from security import ACCESS_TOKEN_MINUTES, create_access_token
+from security import ACCESS_TOKEN_MINUTES, create_access_token, invalidate_user_access_cache
 from services.auth import User as user_module
 
 
@@ -133,6 +133,15 @@ def process_login(item: LoginRequest, client_ip: str = ""):
         user = matches[0]
         if user_module.verify_password(item.password, user[4]):
             login_limiter.reset(email_key)
+            # 계정당 활성 세션 1개: 새 세션 ID 를 저장하면 이전에 발급한 토큰은 다음 요청부터 거절된다.
+            session_id = secrets.token_urlsafe(32)
+            cursor.execute(
+                "UPDATE user01t SET session_id = %s WHERE companyid = %s AND email = %s",
+                (session_id, user[0], user[3]),
+            )
+            conn.commit()
+            # 이 워커의 권한 캐시를 비운다 (다른 워커는 세션 ID 가 다르면 DB 를 다시 읽어 확인한다).
+            invalidate_user_access_cache(user[0], user[3])
             result = {
                 "success": True,
                 "message": "로그인 성공",
@@ -142,7 +151,7 @@ def process_login(item: LoginRequest, client_ip: str = ""):
                 "user_email": user[3],
                 "user_authority": str(user[5] or "USER").upper(),
             }
-            result["access_token"] = create_access_token(result)
+            result["access_token"] = create_access_token({**result, "session_id": session_id})
             result["token_type"] = "bearer"
             result["expires_in"] = ACCESS_TOKEN_MINUTES * 60
             return result

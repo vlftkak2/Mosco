@@ -513,9 +513,12 @@
 .editorPanel :global(.mantine-Badge-root[style*='orange-light']) { border-color: #f6d9c4; background: #fff7f1; color: #c2561b; }
 
 /* 기본 목록 표 (위쪽 목록: 입고·출고·가공·수금지급 기본) */
-.topReceiptTable :global(table) { --table-border-color: #e6ebf1; --table-hover-color: #f5f9ff; }
+.topReceiptTable :global(table) { --table-border-color: #e6ebf1; --table-hover-color: #f5f9ff; border-top: 0 !important; }
+/* 맨 위 선은 목록 제목줄의 아랫선 하나만: 표 윗테두리·헤더 윗선까지 겹치면 3줄이 되고, 첫 칸만 2줄이라 경계가 어긋나 보였다 */
+.topReceiptTable :global(table thead)::before { display: none !important; }   /* Mantine stickyHeader 가 그리는 윗선 */
 .topReceiptTable :global(table thead th) {
   border-color: #e3e8ef !important;
+  border-top: 0 !important;
   border-bottom-color: #d6dee8 !important;
   background: #f4f6f9 !important;
   color: #4b5b70 !important;

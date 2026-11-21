@@ -15,7 +15,7 @@ _ORDER_BY = "i.iniodate ASC, i.receiptno ASC, i.lineno ASC, i.iniotype ASC"
 #   ST 기초 / IN 매입입고 / OUT 매출출고 / PROCESS_OUT 가공투입 / PROCESS_IN 가공입고 / MOVE_OUT 이동출고 / MOVE_IN 이동입고
 KIND_NAMES = {"ST": "기초", "IN": "매입입고", "OUT": "매출출고", "PROCESS_OUT": "가공투입",
               "PROCESS_IN": "가공입고", "MOVE_OUT": "이동출고", "MOVE_IN": "이동입고"}
-IN_MEMORY_EXCEL_ROWS = 30000  # 이 행 수까지는 엑셀을 메모리에서 만든다 (그 이상은 constant_memory)
+IN_MEMORY_EXCEL_ROWS = 60000  # 이 행 수까지는 엑셀을 메모리에서 만든다 (2~3배 빠름, 그 이상은 constant_memory)
 
 
 def _conditions(
@@ -125,6 +125,40 @@ def list_iniop_stock(companyid: str, page: int, page_size: int, **filters):
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
+# 재고수불 엑셀 칸 (key = 조회 칸 이름, 제목, 형식). 화면과 같은 순서 + 코드 칸은 맨 뒤.
+EXCEL_COLUMNS = [
+    ("iniotype", "수불유형", "kind"),
+    ("iniodate", "수불일자", "date"),
+    ("warehousecodename", "창고명", "text"),
+    ("itemname", "품명", "text"),
+    ("materialname", "강종", "text"),
+    ("surfacename", "표면", "text"),
+    ("myrtle", "도금량(g/㎡)", "number"),
+    ("thickness", "두께", "number"),
+    ("width", "폭", "number"),
+    ("length", "길이", "number"),
+    ("qty", "수량", "number"),
+    ("weight", "중량", "number"),
+    ("customname", "거래처명", "text"),
+    ("productname", "제품번호", "text"),
+    ("costprice", "원가단가(원/kg)", "money"),
+    ("costamt", "원가금액", "money"),
+    ("qtyunit", "수량단위", "text"),
+    ("manager", "담당자", "text"),
+    ("receiptno", "수불전표", "text"),
+    ("lineno", "순번", "number"),
+    ("created_at", "등록일자", "datetime"),
+    ("created_by", "등록자", "text"),
+    ("updated_at", "수정일자", "datetime"),
+    ("updated_by", "수정자", "text"),
+    ("customcode", "거래처코드", "text"),
+    ("itemcode", "품목코드", "text"),
+    ("materialcode", "강종코드", "text"),
+    ("surfacecode", "표면코드", "text"),
+    ("warehousecode", "창고코드", "text"),
+]
+
+
 def write_iniop_stock_excel(companyid: str, output_path: str, **filters):
     where, params = _conditions(companyid, **filters)
     query = f"""SELECT i.iniodate, i.iniotype, i.receiptno, i.customcode, i.customname, i.lineno, i.itemcode, i.itemname,
@@ -140,12 +174,7 @@ def write_iniop_stock_excel(companyid: str, output_path: str, **filters):
                  AND qty_code.code = i.qtyunit{_USER_JOINS}
                 WHERE {where}
                 ORDER BY {_ORDER_BY}"""
-    headers = [
-        "No.", "수불일자", "수불유형", "수불전표", "거래처코드", "거래처명", "라인", "품목코드", "품목명",
-        "제품번호", "강판코드", "강판", "표면코드", "표면", "도금량(g/㎡)", "담당자",
-        "두께", "폭", "길이", "수량", "수량단위", "중량", "창고코드", "창고명", "등록일자", "수정일자",
-        "등록자", "수정자", "원가단가(원/kg)", "원가금액",
-    ]
+    headers = ["No.", *(title for _, title, _ in EXCEL_COLUMNS)]
     # 작은 파일(약 한 달치)은 메모리에서 바로 써서 2~3배 빠르게, 큰 파일은 행마다 임시파일로 흘려 메모리를 아낀다.
     with current_stock_module._connect() as connection, connection.cursor() as cursor:
         cursor.execute(f"SELECT COUNT(*) FROM Iniop01t AS i WHERE {where}", params)
@@ -161,52 +190,45 @@ def write_iniop_stock_excel(companyid: str, output_path: str, **filters):
     datetime_format = workbook.add_format({"num_format": "yyyy-mm-dd hh:mm"})
     worksheet.write_row(0, 0, headers, header_format)
     worksheet.freeze_panes(1, 0)
-    worksheet.set_column("A:A", 8)
-    worksheet.set_column("B:B", 13, date_format)
-    worksheet.set_column("C:C", 11)
-    worksheet.set_column("D:D", 27)
-    worksheet.set_column("E:E", 16)
-    worksheet.set_column("F:F", 24)
-    worksheet.set_column("G:G", 9)
-    worksheet.set_column("H:I", 20)
-    worksheet.set_column("J:O", 18)
-    worksheet.set_column("P:P", 14, number_format)
-    worksheet.set_column("Q:Q", 16)
-    worksheet.set_column("R:T", 12, number_format)
-    worksheet.set_column("U:U", 14, integer_format)
-    worksheet.set_column("V:V", 14, number_format)
-    worksheet.set_column("W:X", 18)
-    worksheet.set_column("Y:Z", 22, datetime_format)
-    worksheet.set_column("AA:AB", 14)
-    worksheet.set_column("AC:AD", 15, number_format)
+    worksheet.set_column(0, 0, 8)
+    widths = {"kind": 11, "date": 12, "datetime": 18, "number": 13, "money": 15, "text": 16}
+    for index, (key, _title, kind) in enumerate(EXCEL_COLUMNS, start=1):
+        worksheet.set_column(index, index, 24 if key in ("receiptno", "productname", "customname") else widths[kind])
     row_no = 1
     try:
         with current_stock_module._connect() as connection, connection.cursor(name="iniop_stock_excel_cursor") as cursor:
             cursor.itersize = 2000
             cursor.execute(query, params)
+            positions = None
             while rows := cursor.fetchmany(2000):
+                if positions is None:
+                    # 조회 칸 이름 → 위치 (칸 순서가 바뀌어도 값이 어긋나지 않게)
+                    names = [column[0] for column in cursor.description]
+                    positions = [names.index(key) for key, _title, _kind in EXCEL_COLUMNS]
+                    kind_position = names.index("iniokind")
                 for row in rows:
                     worksheet.write_number(row_no, 0, row_no)
-                    # 수불유형 칸에는 상세구분(매입입고·가공입고·이동출고 …)을 쓴다
-                    row = (*row[:1], KIND_NAMES.get(row[-1], row[1]), *row[2:-1])
-                    for index, value in enumerate(row, start=1):
+                    for col, ((_key, _title, kind), position) in enumerate(zip(EXCEL_COLUMNS, positions), start=1):
+                        value = row[position]
+                        if kind == "kind":
+                            # 수불유형 칸에는 상세구분(매입입고·가공입고·이동출고 …)을 쓴다
+                            value = KIND_NAMES.get(row[kind_position], value)
                         if value is None:
                             continue
-                        if index == 1:
-                            worksheet.write_datetime(row_no, index, value, date_format)
-                        elif index in (14, 16, 17, 18, 19, 21):
+                        if kind == "date":
+                            worksheet.write_datetime(row_no, col, value, date_format)
+                        elif kind in ("number", "money"):
                             numeric_value = float(value)
                             if numeric_value.is_integer():
-                                worksheet.write_number(row_no, index, int(numeric_value), integer_format)
+                                worksheet.write_number(row_no, col, int(numeric_value), integer_format)
                             else:
-                                worksheet.write_number(row_no, index, numeric_value, number_format)
-                        elif index in (28, 29):
-                            worksheet.write_number(row_no, index, float(value), number_format)
-                        elif index in (24, 25):
-                            worksheet.write_datetime(row_no, index, value.replace(tzinfo=None), datetime_format)
+                                worksheet.write_number(row_no, col, numeric_value, number_format)
+                        elif kind == "datetime":
+                            worksheet.write_datetime(row_no, col, value.replace(tzinfo=None), datetime_format)
                         else:
-                            worksheet.write(row_no, index, value)
+                            worksheet.write(row_no, col, value)
                     row_no += 1
+        worksheet.autofilter(0, 0, max(0, row_no - 1), len(headers) - 1)
     finally:
         workbook.close()
     return row_no - 1

@@ -14,7 +14,8 @@
   코일 칼 1개 중량 = 투입중량 × 제품폭 ÷ 원코일폭,  생산 = Σ칼,  로스 = 투입 − 생산,  수율 = 생산 ÷ 투입
   코일 추천 정렬 = 미생산 폭 수 → 주문충족(±0.5%, 칼 중량 200~3,000kg) → (부족·초과량 + 로스) → 수율
   코일 '나머지'·'전량' 주문 = 목표 중량 없이 남는 만큼 생산 (잔여 생산)
-  시트 로스면적 = 원판면적 × 매수 − 제품면적 합,  중량 = 면적 × 두께 × 7.85e-6
+  시트 = 시안(시트가공 v5) 2단 기요틴 열 배치 (sheet_engine.py): 투입 = 원판 단중 × 매수, 생산 = Σ제품 단중 × 생산수량,
+        로스 = 투입 − 생산, 수율 = 생산 ÷ 투입. 중량 = 폭 × 길이 × 두께 × 7.85e-6
 """
 from __future__ import annotations
 
@@ -31,6 +32,7 @@ from psycopg2.extras import RealDictCursor
 
 import db as _shared_db
 from services.ai.stock_links import allocate_coil_run, plan_outstanding_sql, stock_shares
+from services.ai import sheet_engine as SE
 
 TRIM_LOSS_DEFAULT = 4.0            # 기본 로스(mm) - 회사 기본값
 STEEL_DENSITY = 7.85e-6            # kg / mm³
@@ -39,8 +41,6 @@ MAX_CUTS = 60                      # 코일 1개에서 낼 수 있는 칼 수 �
 MAX_SHEETS = 500
 MAX_COMBOS = 3000                  # 혼합 조합 탐색 상한 (칼 수 많은 조합부터)
 MAX_COMBO_NODES = 300_000          # 혼합 조합 탐색 방문 노드 상한 (안전장치)
-MAX_SHEET_NODES = 300_000          # 시트 1줄 배치 탐색 방문 노드 상한 - 호출 1번 (안전장치)
-MAX_SHEET_TOTAL_NODES = 1_500_000  # 시트 원자재 후보 전체(분석 1번)의 배치 탐색 방문 노드 상한
 MAX_EXTRA_SIZES = 6                # 가공 후보 폭(코일) · 길이(시트) 입력 개수 상한
 MIN_EXTRA_WIDTH = 10.0             # 가공 후보 폭 최소값(mm) - 이보다 작은 값은 무시
 MIN_EXTRA_LENGTH = 50.0            # 가공 후보 길이 최소값(mm) - 이보다 작은 값은 무시
@@ -773,8 +773,16 @@ def _load_stocks(cur, companyid, lines, settings, planno, material) -> list[dict
     item_w = lines[0]["width"]
     if any(not _same_size(x["width"], item_w) for x in lines):
         return []
-    min_len = min(_w(x["length"]) for x in lines)
-    return _stock_candidates(cur, companyid, lines, "SHEET", item_w, min_len, _linked_keys(lines), planno, settings.get("_warehouse"))
+    # 90도 회전으로도 놓을 수 있으니 원판 폭·길이 중 짧은 변 기준으로 넓게 읽고, 배치 가능 여부는 계산에서 가린다 (불가는 '배치 불가')
+    min_side = min([item_w] + [_w(x["length"]) for x in lines])
+    sheets = _stock_candidates(cur, companyid, lines, "SHEET", min_side, min_side, _linked_keys(lines), planno, settings.get("_warehouse"))
+    # 현재고 코일을 길이로 잘라 시트를 만드는 경우 (코일 길이 샤링): 제품 폭 이상인 같은 품명·두께 코일
+    # 품명은 형태 단어(SHEET·COIL·시트·코일·판재)를 뺀 이름으로 찾는다: 'CCGI SHEET' 주문 → 'CCGI COIL' 코일
+    base_name = re.sub(r"\b(SHEET|COIL|PLATE)\b|시트|코일|판재", " ", str(lines[0]["itemname"] or ""), flags=re.I)
+    base_name = " ".join(base_name.split()) or lines[0]["itemname"]
+    coil_lines = [{**lines[0], "itemname": base_name}, *lines[1:]]
+    coils = _stock_candidates(cur, companyid, coil_lines, "COIL", item_w, 0, _linked_keys(lines), planno, settings.get("_warehouse"))
+    return sheets + [{**c, "length": None} for c in coils]
 
 
 def _analyze_coil(stocks, lines, settings):
@@ -892,229 +900,244 @@ def _analyze_coil(stocks, lines, settings):
     return result
 
 
-# ---------------------------------------------------------------- 시트 계산 (시안 v10 sheetSolve)
-def _sheet_pattern(cap, lengths, active, required, mode, style, need, budget=None):
-    """원판 1줄(폭 방향 1스트립)에 놓을 길이별 개수.
-    혼합: 선택 품목은 모든 원판에 1개 이상, 한 줄 개수는 남은 발주수량을 넘지 않음. 가공 후보 길이는 0개 이상.
+# ---------------------------------------------------------------- 시트 계산 (시안 STEEL119 시트가공 v5 · services/ai/sheet_engine.py)
+SHEET_ORIENT_LABEL = {"NORMAL": "기본 방향", "ROTATED": "90도 회전"}
 
-    전체 탐색이 기본이다. 품목·후보 길이가 많아 방문 노드가 상한(MAX_SHEET_NODES, 요청 전체 budget)을 넘으면
-    탐색을 멈추고, 그때까지의 최선과 균형 채우기(greedy) 결과 중 점수가 높은 쪽을 쓴다."""
-    if mode == "SINGLE":
-        i = active[0]
-        fit = int(floor((cap + 1e-7) / lengths[i]))
-        return {i: fit} if fit >= 1 else None
-    if any(need[i] < 1 for i in required):
+
+def _sheet_hist_counts(hist: dict | None, item_w: float, scope: list[dict], extras: list[dict], ncol: int) -> dict | None:
+    """과거 절단 패턴(원판 1매 기준 [폭, 길이, 매]) → 열 1개 기준 {품목 id: 개수}. 이번 원판·품목에 맞지 않으면 None.
+    가공 후보 길이와 같은 칸은 빼고(후보는 남는 길이에 자동으로 채움), 발주 품목 길이만 쓴다."""
+    if not hist or not hist.get("pattern") or ncol < 1:
         return None
-    if sum(lengths[i] for i in required) > cap + 1e-8:
-        return None
-    best, counts = None, {}
-    limit = MAX_SHEET_NODES if budget is None else max(1, min(MAX_SHEET_NODES, budget[0]))
-    visited = 0
+    counts = {}
+    for row in hist["pattern"]:
+        width, length, per_sheet = (to_number(v) for v in (list(row) + [None, None, None])[:3])
+        if not (per_sheet or 0) > 0:
+            continue
+        if not _same_size(width, item_w):
+            return None
+        item = next((o for o in scope if _same_size(o["l"], length)), None)
+        if item is None:
+            if any(_same_size(e["l"], length) for e in extras):
+                continue
+            return None
+        if int(per_sheet) % ncol:
+            return None
+        counts[item["id"]] = counts.get(item["id"], 0) + int(per_sheet) // ncol
+    return {"counts": counts, "source": hist.get("source"), "actual_loss": hist.get("actual_loss")} if counts else None
 
-    def score_of(cnt, used):
-        progress = min(cnt.get(i, 0) / max(1, need[i]) for i in required)
-        balance = sum((cnt.get(i, 0) / need[i] - progress) ** 2 for i in required)
-        return progress * 1e7 - balance * 1e5 + (used if style == "max" else cap - used) * 0.001
 
-    def visit(pos, used):
-        nonlocal best, visited
-        visited += 1
-        if visited > limit:
-            return
-        if pos == len(active):
-            score = score_of(counts, used)
-            if best is None or score > best[0]:
-                best = (score, {k: v for k, v in counts.items() if v})
-            return
-        i = active[pos]
-        extra = i not in required
-        future = sum(lengths[j] for j in active[pos + 1:] if j in required)
-        top = min(12 if extra else need[i], int(floor((cap - used - future + 1e-8) / lengths[i])), 12)
-        for n in range(0 if extra else 1, top + 1):
-            counts[i] = n
-            visit(pos + 1, used + n * lengths[i])
-            if visited > limit:
-                break
-        counts.pop(i, None)
+def _sheet_lb_text(p: dict) -> str:
+    if p.get("kind") == "mixed" and p.get("variant") != "manual" and p.get("lb_sheets"):
+        return f"이론 하한 {p['lb_sheets']}매 달성" if p["sheets"] == p["lb_sheets"] else f"이론 하한 {p['lb_sheets']}매"
+    return ""
 
-    visit(0, 0.0)
-    if budget is not None:
-        budget[0] -= min(visited, limit)
-    if visited > limit:
-        # 탐색 중단 → 균형 채우기: 발주 대비 비율이 가장 낮은 품목부터 1개씩 (한 줄 최대 12개 · 발주수량 이내)
-        greedy = {i: 1 for i in required}
-        used = sum(lengths[i] for i in required)
-        while True:
-            fits = [i for i in required if greedy[i] < min(need[i], 12) and used + lengths[i] <= cap + 1e-8]
-            if not fits:
-                break
-            i = min(fits, key=lambda k: greedy[k] / need[k])
-            greedy[i] += 1
-            used += lengths[i]
-        if style == "max":   # 남는 길이는 가공 후보 길이로 (긴 것부터)
-            for i in sorted((k for k in active if k not in required), key=lambda k: -lengths[k]):
-                n = min(12, int(floor((cap - used + 1e-8) / lengths[i])))
-                if n > 0:
-                    greedy[i] = n
-                    used += n * lengths[i]
-        score = score_of(greedy, used)
-        if best is None or score > best[0]:
-            best = (score, greedy)
-    return best[1] if best else None
+
+def _sheet_from_coil(result, chosen, r, lines, side):
+    """코일 후보를 고른 경우: 최적화 없이 발주 순서대로 길이 절단 (④ '코일 길이 절단' 카드 하나)."""
+    result["raw"] = {**chosen, "raw_width": float(chosen["width"]), "raw_length": None, "raw_sheets": None, "raw_weight": float(chosen["weight"] or 0)}
+    if not r:
+        result["message"] = "가공그룹 제품 폭이 코일 사용 폭보다 넓어 이 코일로 자를 수 없습니다."
+        return result
+    pieces = []
+    for row in r["rows"]:
+        o, line = row["o"], lines[row["o"]["id"]]
+        pieces.append({"key": o["id"], "width": o["w"], "length": o["l"], "need_qty": o["q"], "produced_qty": row["prod"],
+                       "over_qty": row["prod"] - o["q"], "short_qty": row["short"], "lanes": row["lanes"], "cuts": row["cuts"],
+                       "per_sheet": row["lanes"], "used_mm": row["len"], "extra": False, "orderid": line["orderid"], "lineno": line["lineno"]})
+    for row in r["ex_rows"]:
+        e = row["e"]
+        pieces.append({"key": e["id"], "width": e["w"], "length": e["l"], "need_qty": 0, "produced_qty": row["prod"], "over_qty": 0,
+                       "short_qty": 0, "lanes": row["lanes"], "cuts": row["cuts"], "per_sheet": row["lanes"], "used_mm": row["len"],
+                       "extra": True, "candidate": True, "orderid": None, "lineno": None})
+    short_text = ", ".join(f"{SE.fmt_num(p['width'])} × {SE.fmt_num(p['length'])} {p['short_qty']}매" for p in pieces if p.get("short_qty"))
+    result["plans"] = [{
+        "id": "A", "coil": True, "recommended": True, "combo": "COIL", "orientation": "NORMAL", "olabel": "코일 길이 절단", "tag": "",
+        "source": None, "sheets": None, "short_sheets": 0, "side_trim": side,
+        "input_weight": _round(r["input_kg"], 2), "production_weight": _round(r["produced_kg"], 2), "loss_weight": _round(r["scrap_kg"], 2),
+        "excess_weight": 0, "yield_rate": _round(r["yield_pct"], 2),
+        "coil_width": float(chosen["width"]), "coil_weight": float(chosen["weight"] or 0), "thickness": chosen.get("thickness"), "used_mm": _round(r["used_mm"], 1),
+        "remain_mm": _round(r["remain_mm"], 1), "remain_kg": _round(r["remain_kg"], 2),
+        "short_mm": _round(r["short_mm"], 1), "short_kg": _round(r["short_kg"], 2), "short_pcs": r["short_pcs"], "short_text": short_text,
+        "pattern": " / ".join(f"{SE.fmt_num(p['width'])} × {SE.fmt_num(p['length'])} : {p['produced_qty']}매 = {SE.fmt_num(p['used_mm'] / 1000)}m" for p in pieces),
+        "pieces": pieces}]
+    if r["short_pcs"]:
+        result["warnings"].append(f"코일 재고로 {short_text} 부족 (약 {SE.fmt_num(r['short_kg'])}kg) → 시트 재고 또는 신규 매입으로 보충")
+    return result
 
 
 def _analyze_sheet(stocks, lines, settings):
     item_w = lines[0]["width"]
     if any(not _same_size(x["width"], item_w) for x in lines):
         return {"candidates": [], "raw": None, "plans": [], "message": "시트 혼합은 폭이 같은 품목끼리만 할 수 있습니다. 같은 폭 품목을 선택해 주세요."}
-    order_lengths = [_w(x["length"]) for x in lines]
-    extra_lengths = [v for v in _extra_sizes(settings.get("extralengths"), MIN_EXTRA_LENGTH) if v not in order_lengths]
-    lengths = order_lengths + extra_lengths
-    need = [int(ceil(x["need_amount"])) for x in lines] + [0] * len(extra_lengths)
     thick = lines[0]["thickness"]
+    order_lengths = [_w(x["length"]) for x in lines]
     min_len = min(order_lengths)
-    sizes = []   # 과거 매입 규격 자동 후보는 당분간 쓰지 않는다
     mode = settings.get("combo") or ("MIXED" if len(lines) > 1 else "SINGLE")
-    orientation = settings.get("orientation") or "NORMAL"
+    cur_orient = "ROTATED" if settings.get("orientation") == "ROTATED" else "NORMAL"
+    side = max(0.0, to_number(settings.get("sidetrim")) or 0.0)   # 폭 여유 (mm · 양쪽 합)
+    orders = [{"id": i, "w": item_w, "l": order_lengths[i], "q": int(ceil(x["need_amount"]))} for i, x in enumerate(lines)]
     # 단독절단 = 기준 품목(첫 품목)만, 혼합절단 = 담은 품목 전부 + 가공 후보 길이
-    required = list(range(len(lines))) if mode == "MIXED" else [0]
-    active = required + (list(range(len(lines), len(lengths))) if mode == "MIXED" else [])
+    scope = orders if mode == "MIXED" else orders[:1]
+    extra_lengths = [v for v in _extra_sizes(settings.get("extralengths"), MIN_EXTRA_LENGTH) if v not in order_lengths]
+    extras = [{"id": f"x{k}", "w": item_w, "l": v, "q": 0} for k, v in enumerate(extra_lengths)] if mode == "MIXED" else []
     hists = _history_list(settings)
-    hist = None   # evaluate(…, "history") 가 쓰는 현재 가공이력
+    cache: dict = {}   # 같은 원판 길이 · 품목이면 열 패턴 탐색 결과가 같다
 
-    def hist_counts(strips):
-        """과거 절단 패턴(원판 1매 기준 [폭, 길이, 매]) → 이번 원판 1줄 기준 {품목: 개수}. 맞지 않으면 None."""
-        if not hist or not hist.get("pattern"):
-            return None
-        counts = {}
-        for row in hist["pattern"]:
-            width, length, per_sheet = (to_number(v) for v in (list(row) + [None, None, None])[:3])
-            if not (per_sheet or 0) > 0:
-                continue
-            if not _same_size(width, item_w):
-                return None
-            index = next((i for i in active if _same_size(lengths[i], length)), None)
-            if index is None or int(per_sheet) % strips:
-                return None
-            counts[index] = counts.get(index, 0) + int(per_sheet) // strips
-        return counts or None
+    def run(raw_w, raw_l, orientation, hist=None):
+        env = SE.env_of(raw_w, raw_l, thick, orientation, side)
+        h = _sheet_hist_counts(hist, item_w, scope, extras, SE.cols_fit(item_w, env)) if hist else None
+        return env, SE.plans_for(env, mode, scope, extras, h, cache)
 
-    search_budget = [MAX_SHEET_TOTAL_NODES]   # 원자재 후보 전체가 함께 쓰는 탐색 노드 수
-    pattern_cache: dict = {}                   # 같은 원판 길이(cap)·방식이면 배치 결과가 같다
+    def best_of(raw_w, raw_l):
+        """① 후보표: 두 절단방향 중 로스중량이 적은 대표안."""
+        best = None
+        for o in ("NORMAL", "ROTATED"):
+            p = SE.orient_best(run(raw_w, raw_l, o)[1], mode)
+            if p and (best is None or p["scrap_kg"] < best[0]["scrap_kg"] - 1e-6):
+                best = (p, o)
+        return best
 
-    def evaluate(raw_w, raw_l, style="max", budget=search_budget):
-        cap = raw_l if orientation == "NORMAL" else raw_w
-        across = raw_w if orientation == "NORMAL" else raw_l
-        strips = min(int(floor((across + 1e-7) / item_w)), 50)
-        if strips < 1:
-            return None
-        if style == "history":
-            pattern = hist_counts(strips)
-            if not pattern or sum(n * lengths[i] for i, n in pattern.items()) > cap + 1e-7:
-                return None
-        else:
-            key = (cap, style)
-            if key not in pattern_cache:
-                pattern_cache[key] = _sheet_pattern(cap, lengths, active, required, mode, style, need, budget)
-            pattern = dict(pattern_cache[key]) if pattern_cache[key] else None
-        if not pattern:
-            return None
-        per_sheet = {i: pattern.get(i, 0) * strips for i in active}
-        if any(per_sheet[i] <= 0 for i in required):
-            return None
-        sheets = max([int(ceil(need[i] / per_sheet[i])) for i in required if need[i] > 0] + [1])
-        if sheets > MAX_SHEETS:
-            return None
-        produced = {i: per_sheet[i] * sheets for i in active}
-        sheet_area = raw_w * raw_l
-        product_area = sum(produced[i] * lengths[i] * item_w for i in active)
-        loss_area = max(0.0, sheet_area * sheets - product_area)
-        return {"strips": strips, "pattern": pattern, "sheets": sheets, "produced": produced,
-                "input_weight": _round(sheet_area * sheets * thick * STEEL_DENSITY, 2),
-                "production_weight": _round(product_area * thick * STEEL_DENSITY, 2),
-                "loss_weight": _round(loss_area * thick * STEEL_DENSITY, 2),
-                "yield_rate": _round(product_area / (sheet_area * sheets) * 100, 2),
-                "used_across": _round(item_w * strips), "remain_across": _round(across - item_w * strips),
-                "used_along": _round(sum(pattern.get(i, 0) * lengths[i] for i in active))}
+    def metrics(p):
+        return {"sheets": p["sheets"], "input_weight": _round(p["input_kg"], 2), "production_weight": _round(p["produced_kg"], 2),
+                "loss_weight": _round(p["scrap_kg"], 2), "excess_weight": _round(p.get("excess_kg", 0), 2), "yield_rate": _round(p["yield_pct"], 2)}
 
     candidates = []
+
+    def add_candidate(base, raw_w, raw_l, stock_qty):
+        found = best_of(raw_w, raw_l) if raw_w and raw_l else None
+        if not found:
+            candidates.append({**base, "placeable": False, "sheets": None, "input_weight": None, "production_weight": None,
+                               "loss_weight": None, "yield_rate": None, "short_sheets": 0, "orientation": None})
+            return
+        p, o = found
+        candidates.append({**base, **metrics(p), "placeable": True, "orientation": o,
+                           "short_sheets": max(0, p["sheets"] - stock_qty) if stock_qty is not None else 0})
+
+    extras_all = [{"id": f"x{k}", "w": item_w, "l": v, "q": 0} for k, v in enumerate(extra_lengths)]
+
+    def shear_of(s):
+        return SE.coil_shear(float(s["width"]), float(s["weight"] or 0), thick, side, orders, extras_all)
+
     for s in stocks:
         if not s["length"]:
+            r = shear_of(s)
+            if r:   # 가공그룹 제품 폭이 하나라도 코일 사용 폭보다 크면 후보에서 뺀다
+                candidates.append({**s, "label": "연결 원자재" if s["linked"] else "현재고", "coil": True, "placeable": True,
+                                   "orientation": "NORMAL", "sheets": None, "short_sheets": 0, "coil_length_m": _round(r["used_mm"] / 1000, 1),
+                                   "short_pcs": r["short_pcs"], "input_weight": _round(r["input_kg"], 2), "production_weight": _round(r["produced_kg"], 2),
+                                   "loss_weight": _round(r["scrap_kg"], 2), "yield_rate": _round(r["yield_pct"], 2)})
             continue
-        m = evaluate(s["width"], s["length"])
-        if m:
-            candidates.append({**s, **m, "label": "연결 원자재" if s["linked"] else "현재고", "short_sheets": max(0, m["sheets"] - int(s["qty"]))})
+        add_candidate({**s, "label": "연결 원자재" if s["linked"] else "현재고"}, s["width"], s["length"], int(s["qty"]))
     seen = set()
-    new_rows = [*_new_candidates(settings, "SHEET"),
-                *({"width": _w(z["width"]), "length": _w(z["length"]), "source": None, "count": z["count"]} for z in sizes if z["length"])]
-    for size in new_rows:
+    for size in _new_candidates(settings, "SHEET"):
         if (size["width"], size["length"]) in seen:
             continue
         seen.add((size["width"], size["length"]))
-        m = evaluate(size["width"], size["length"])
-        if m:
-            candidates.append({"kind": "NEW", "linked": False, "width": size["width"], "length": size["length"],
-                               "itemname": lines[0]["itemname"], "steelgrade": lines[0]["steelgrade"], "surface": lines[0]["surface"],
-                               "thickness": thick, "qty": None, "weight": None, "source": size.get("source"),
-                               "label": "직접 입력" if size.get("source") == "직접 입력" else "신규 (매입이력)",
-                               "purchase_count": size.get("count"), **m})
-    candidates.sort(key=lambda c: (0 if c["linked"] else 1 if c["kind"] == "STOCK" else 2, -(c["yield_rate"] or 0)))
+        add_candidate({"kind": "NEW", "linked": False, "width": size["width"], "length": size["length"],
+                       "itemname": lines[0]["itemname"], "steelgrade": lines[0]["steelgrade"], "surface": lines[0]["surface"],
+                       "thickness": thick, "qty": None, "weight": None, "source": size.get("source"),
+                       "label": "직접 입력" if size.get("source") == "직접 입력" else "신규 (매입이력)"}, size["width"], size["length"], None)
+    # 순위: 로스중량 적은 순 (배치 불가는 맨 뒤) · 같으면 연결 원자재 → 현재고 → 신규
+    kind_rank = lambda c: 0 if c["linked"] else 1 if c["kind"] == "STOCK" else 2
+    candidates.sort(key=lambda c: (0 if c.get("coil") else 1, 0 if c["placeable"] else 1, c["loss_weight"] if c["placeable"] else 0, kind_rank(c)))
     for rank, c in enumerate(candidates, start=1):
         c["rank"] = rank
-        c["placeable"] = True
         c["id"] = (f"STOCK|{c['sourcetype']}|{c['sourceno']}|{c['sourceline']}" if c["kind"] == "STOCK"
                    else f"NEW|{c['width']:g}x{c['length']:g}")
     candidates = _drop_excluded(candidates, settings)
-    chosen = next((c for c in candidates if c["id"] == settings.get("raw_id")), None) or (candidates[0] if candidates else None)
-    result = {"candidates": _top_candidates(candidates, chosen), "raw": None, "plans": [], "orientation": orientation, "warnings": [], "notes": [], "notes_warn": False}
+    chosen = (next((c for c in candidates if c["id"] == settings.get("raw_id")), None)
+              or next((c for c in candidates if c["placeable"] and c.get("linked")), None)   # 주문서 관리에서 연결한 원자재 우선
+              or next((c for c in candidates if c["placeable"] and not c.get("coil")), None)
+              or next((c for c in candidates if c["placeable"]), None) or (candidates[0] if candidates else None))
+    result = {"candidates": _top_candidates(candidates, chosen), "raw": None, "plans": [], "orientation": cur_orient,
+              "side_trim": side, "bad": [], "warnings": [], "notes": [], "notes_warn": False}
     if not chosen:
         result["message"] = f"폭 {item_w:g}mm · 길이 {min_len:g}mm 이상인 원판 후보가 없습니다. 원판 규격을 직접 입력해 주세요."
         return result
+    if chosen.get("coil"):
+        return _sheet_from_coil(result, chosen, shear_of(chosen), lines, side)
     # 현재고 원판은 실물 규격 고정, 신규 후보만 화면 입력값 적용
     is_stock = chosen["kind"] == "STOCK"
     raw_w = float(chosen["width"] if is_stock else (settings.get("raw_width") or chosen["width"]))
     raw_l = float(chosen["length"] if is_stock else (settings.get("raw_length") or chosen["length"]))
-    stock_sheets = int(chosen["qty"]) if chosen["kind"] == "STOCK" else None
+    stock_sheets = int(chosen["qty"]) if is_stock else None
     result["raw"] = {**chosen, "raw_width": raw_w, "raw_length": raw_l, "raw_sheets": stock_sheets}
-    seen_patterns = set()
-    # 가공이력마다 한 번씩 (history), 그다음 기본 배치 (max · balanced). 가공이력 안은 모두 보이게 (A·B·C 최대 3개)
-    max_plans = min(3, max(2, 1 + len(hists)))
-    for style, one in [*(("history", h) for h in hists), ("max", None), ("balanced", None)]:
-        hist = one
-        m = evaluate(raw_w, raw_l, style, budget=None)   # 선택 원판의 추천안은 요청 budget 과 별도로 계산
-        if not m:
-            continue
-        sig = tuple(sorted(m["pattern"].items()))
-        if sig in seen_patterns:
-            continue
-        seen_patterns.add(sig)
+
+    def plan_out(p, cid, orientation, env):
+        pats = p["sheet_patterns"]
+        first = pats[0]
+        per_first = lambda key: sum(1 for col in first["columns"] for x in col["pieces"] if x["id"] == key)
+        sheets_of = lambda key: sum(sp["sheets"] for sp in pats if any(x["id"] == key for col in sp["columns"] for x in col["pieces"]))
         pieces = []
-        for i in active:
-            extra = i >= len(lines)
-            pieces.append({"length": lengths[i], "width": item_w, "per_strip": m["pattern"].get(i, 0), "per_sheet": m["pattern"].get(i, 0) * m["strips"],
-                           "produced_qty": m["produced"][i], "need_qty": need[i], "over_qty": 0 if extra else m["produced"][i] - need[i],
-                           "extra": extra, "orderid": None if extra else lines[i]["orderid"], "lineno": None if extra else lines[i]["lineno"]})
-        result["plans"].append({"id": "ABC"[len(result["plans"])], "combo": mode, "orientation": orientation, "pieces": pieces,
-                                "source": one.get("source") if style == "history" else None,
-                                "short_sheets": max(0, m["sheets"] - stock_sheets) if stock_sheets is not None else 0,
-                                "pattern": " + ".join(f"{p['length']:g} × {p['per_strip']}" for p in pieces if p["per_strip"]) + (f" (× {m['strips']}줄)" if m["strips"] > 1 else ""),
-                                **{k: m[k] for k in ("sheets", "strips", "input_weight", "production_weight", "loss_weight", "yield_rate",
-                                                     "used_across", "remain_across", "used_along")}})
-        if len(result["plans"]) >= max_plans:
-            break
-    used_sources = {p.get("source") for p in result["plans"]}
+        for o in p["scope"]:
+            line = lines[o["id"]]
+            pieces.append({"key": o["id"], "width": o["w"], "length": o["l"], "need_qty": o["q"], "produced_qty": p["produced"][o["id"]],
+                           "over_qty": p["delta"][o["id"]], "extra": False, "per_sheet": per_first(o["id"]), "sheets_used": sheets_of(o["id"]),
+                           "orderid": line["orderid"], "lineno": line["lineno"]})
+        for e in p.get("extra_list") or []:
+            pieces.append({"key": e["id"], "width": e["w"], "length": e["l"], "need_qty": 0, "produced_qty": p["produced"][e["id"]],
+                           "over_qty": 0, "extra": True, "candidate": True, "per_sheet": per_first(e["id"]), "sheets_used": sheets_of(e["id"]),
+                           "orderid": None, "lineno": None})
+        rotated = orientation == "ROTATED"
+        odesc = (f"제품 폭 {SE.fmt_num(item_w)}mm를 원판 {'길이 ' + SE.fmt_num(raw_l) if rotated else '폭 ' + SE.fmt_num(raw_w)}mm 방향에 배치"
+                 + ("(원판을 돌려 가공)" if rotated else "") + (" · 일부 열은 제품 방향 전환" if p.get("kind") == "single" and p.get("mode") != "A" else ""))
+        return {"id": cid, "combo": mode, "orientation": orientation, "olabel": SHEET_ORIENT_LABEL[orientation], "odesc": odesc,
+                "tag": p.get("tag") or "", "source": p.get("source"), "actual_loss": None,
+                "kind": p.get("kind"), "variant": p.get("variant") or p.get("mode"),
+                **metrics(p), "lb_sheets": p.get("lb_sheets"), "lb_text": _sheet_lb_text(p),
+                "short_sheets": max(0, p["sheets"] - stock_sheets) if stock_sheets is not None else 0,
+                "ncol": p.get("ncol"), "pattern_count": len(pats), "sheet_w": env["W"], "sheet_l": env["L"], "side_trim": side,
+                "pattern": SE.sp_desc(first),
+                "sheet_patterns": [{"sheets": sp["sheets"], "desc": SE.sp_desc(sp),
+                                    "columns": [{"cw": col["cw"], "orient": col["orient"], "pieces": [[x["id"], x["len"]] for x in col["pieces"]]}
+                                                for col in sp["columns"]]} for sp in pats],
+                "pieces": pieces}
+
+    # 추천조합: A안 = 기본 방향 대표안, B안 = 90도 회전 대표안, C안~ = 과거 가공이력 (지금 절단방향)
+    first_hist = hists[0] if hists else None
+    cards, used_sources = [], set()
+    for o in ("NORMAL", "ROTATED"):
+        env, r = run(raw_w, raw_l, o, first_hist)
+        if r.get("error"):
+            result["bad"].append({"orientation": o, "label": ("A안 · " if o == "NORMAL" else "B안 · ") + SHEET_ORIENT_LABEL[o], "why": r["error"]})
+            continue
+        best = SE.orient_best(r, mode)
+        if best:
+            cards.append(plan_out(best, "A" if o == "NORMAL" else "B", o, env))
+        if o != cur_orient:
+            continue
+        hist_plans = [p for p in r["all"] if SE.is_hist(p)][:1]
+        for one in hists[1:]:
+            hist_plans += [p for p in run(raw_w, raw_l, o, one)[1].get("all", []) if SE.is_hist(p)][:1]
+        for hp in hist_plans:
+            if hp is best or hp.get("source") in used_sources:
+                continue
+            used_sources.add(hp.get("source"))
+            card = plan_out(hp, "CDE"[len([c for c in cards if c["id"] not in ("A", "B")])], o, env)
+            card["actual_loss"] = next((h.get("actual_loss") for h in hists if h.get("source") == hp.get("source")), None)
+            cards.append(card)
+            if len(cards) >= 5:
+                break
+    cards.sort(key=lambda c: c["id"])
+    used_sources |= {c["source"] for c in cards if c.get("source")}   # A·B 대표안이 가공이력 안일 수도 있다
+    if cards:
+        ab = sorted((c for c in cards if c["id"] in ("A", "B")), key=lambda c: (c["loss_weight"], c["sheets"]))
+        (ab[0] if ab else cards[0])["recommended"] = True
+    result["plans"] = cards
     for one in hists:
         if one.get("source") not in used_sources:
-            result["warnings"].append(f"가공이력 {one.get('source') or ''}의 절단 패턴이 현재 원판·품목에 맞지 않아 반영하지 못했습니다.")
-    if result["plans"] and result["plans"][0]["short_sheets"] > 0:
-        result["warnings"].append(f"필요 원판 {result['plans'][0]['sheets']}매 중 현재고는 {stock_sheets}매입니다. {result['plans'][0]['short_sheets']}매는 매입이 필요합니다.")
+            result["warnings"].append(f"가공이력 {one.get('source') or ''}의 절단 패턴이 현재 원판·품목·절단방향에 맞지 않아 반영하지 못했습니다.")
+    rec = next((c for c in cards if c.get("recommended")), None)
+    if rec and rec["short_sheets"] > 0:
+        result["warnings"].append(f"필요 원판 {rec['sheets']}매 중 현재고는 {stock_sheets}매입니다. {rec['short_sheets']}매는 매입이 필요합니다.")
     if mode == "SINGLE" and len(lines) > 1:
         result["notes"] = ["단독절단은 기준 품목만 계산합니다. 미선택 발주품목(별도 가공): "
                            + " / ".join(f"{x['length']:g}mm {int(ceil(x['need_amount']))}매" for x in lines[1:])]
         result["notes_warn"] = True
-    if not result["plans"]:
-        result["message"] = ("선택한 품목을 원판 1매에 1개씩 모두 배치할 수 없습니다. 혼합 품목이나 원판 규격을 변경해 주세요."
-                             if mode == "MIXED" else "선택한 원판 규격으로 절단 조합을 만들 수 없습니다.")
+    if not cards:
+        why = result["bad"][0]["why"] if result["bad"] else "배치 가능한 조합이 없음"
+        result["message"] = f"{why}. 원판 규격을 바꾸거나 다른 후보 원판을 선택해 주세요."
     return result
 
 
@@ -1211,6 +1234,11 @@ def save_plan(companyid: str, companyname: str, payload: dict, actor=None) -> di
     else:
         made = {(p["orderid"], p["lineno"]) for p in plan["pieces"] if not p.get("extra") and p["produced_qty"] > 0}
         unmade = [f"{x['orderid']}-{x['lineno']}" for x in result["lines"] if (x["orderid"], x["lineno"]) not in made]
+    # 현재고 원판 계획은 재고 매수 안에서만 확정 (넘으면 재고가공등록을 할 수 없다)
+    if (status == "CONFIRMED" and material == "SHEET" and raw["kind"] == "STOCK" and not plan.get("coil")
+            and int(plan.get("sheets") or 0) > int(raw.get("qty") or 0)):
+        raise ValueError(f"필요 원판 {int(plan.get('sheets') or 0)}매가 현재고 {int(raw.get('qty') or 0)}매보다 많아 확정할 수 없습니다. "
+                         "재고가 충분한 원판을 고르거나 신규 매입 후보로 계획해 주세요.")
     if status == "CONFIRMED" and unmade:
         raise ValueError("이 조합으로 생산되지 않는 품목이 있어 확정할 수 없습니다: " + ", ".join(unmade[:5])
                          + ". 조합(혼합·등분)을 바꾸거나 품목을 빼고 따로 계획해 주세요.")
@@ -1283,7 +1311,7 @@ def save_plan(companyid: str, companyname: str, payload: dict, actor=None) -> di
             "width": raw.get("raw_width"), "length": raw.get("raw_length") if material == "SHEET" else None,
             "rawweight": raw.get("raw_weight") if material == "COIL" else plan.get("input_weight"),
             "rawsheets": plan.get("sheets") if material == "SHEET" else None,
-            "trimloss": result.get("trimloss") if material == "COIL" else None,
+            "trimloss": result.get("trimloss") if material == "COIL" else result.get("side_trim"),   # 시트 = 폭 여유(mm)
             "processmode": raw.get("processmode") if material == "COIL" else None,
             "combo": plan.get("combo"), "orientation": plan.get("orientation") if material == "SHEET" else None,
             "inputweight": plan.get("input_weight"), "productweight": plan.get("production_weight"),

@@ -1,5 +1,5 @@
 // 상담게시판 (메뉴: CUSTOMER_SUPPORT, 메뉴 권한 받은 계정) — 왼쪽 목록 · 오른쪽 상세 + 대화형 답글.
-// 탭: 공지사항(답글 없음) · AI ERP문의 = 운영사(001)만 보고 관리, 재고 · 시스템문의 = 각 회사가 등록 · 관리(운영사도 시험 등록 가능).
+// 탭 순서: 공지사항 › 재고문의 › 시스템문의 › 고객문의. 공지사항(답글 없음) · 고객문의 = 운영사(001)만 보고 관리, 재고 · 시스템문의 = 각 회사가 등록 · 관리(운영사도 시험 등록 가능).
 // 처리상태: 답변대기(답글 없음) · 답변완료(운영사가 마지막) · 추가문의(회사가 마지막). 서버: backend/services/system/Board.py
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
@@ -24,8 +24,9 @@ import { cachedDateFormat } from '../../utils/dateFormat';
 const TABS = [
   { key: 'notice', label: '공지사항', icon: IconSpeakerphone, operatorOnly: true, noReply: true, hint: '운영사 공지 (운영사만 보고 씀)' },
   { key: 'stock', label: '재고문의', icon: IconPackage, hint: '재고 · 납기 문의' },
-  { key: 'ai', label: 'AI ERP문의', icon: IconSparkles, operatorOnly: true, noReply: true, hint: '홈페이지로 들어오는 AI ERP 문의 (운영사만 봄)' },
   { key: 'system', label: '시스템문의', icon: IconSettings, hint: '시스템 이용 문의' },
+  // 고객문의 (내부 키는 예전 그대로 'ai' → 저장된 글 그대로 보임)
+  { key: 'ai', label: '고객문의', icon: IconSparkles, operatorOnly: true, noReply: true, hint: '홈페이지로 들어오는 고객 문의 (운영사만 봄)' },
 ];
 const STATUS = {
   waiting: { label: '답변대기', tone: 'waiting' },
@@ -244,7 +245,7 @@ export default function Board() {
         </div>
 
         <div className={classes.toolbar}>
-          {/* 공지사항 · AI ERP문의는 상태 필터가 없으므로 검색 · 등록 버튼을 왼쪽부터 놓는다 */}
+          {/* 공지사항 · 고객문의는 상태 필터가 없으므로 검색 · 등록 버튼을 왼쪽부터 놓는다 */}
           {!noReply && <div className={classes.filters} role="radiogroup" aria-label="처리상태">
               {STATUS_FILTERS.map(([value, label]) => <button key={value || 'all'} type="button" role="radio" aria-checked={statusFilter === value}
                 className={`${classes.filter} ${statusFilter === value ? classes.filterOn : ''}`} onClick={() => { setStatusFilter(value); setPage(1); }}>{label}</button>)}

@@ -282,7 +282,7 @@ export default function GrossProfitDashboard() {
   const exportExcel = useCallback(() => {
     if (!data?.customers?.length) { notifications.show({ title: '엑셀 데이터 없음', message: '다운로드할 데이터가 없습니다.', color: 'orange' }); return; }
     const sheetRows = data.customers.map((row) => ({
-      거래처: row.customname, 매출: Math.round(row.sales), 매입원가: Math.round(row.cost_of_goods), 판매비용: Math.round(row.selling_cost),
+      거래처: row.customname, 매출: Math.round(row.sales), 매출원가: Math.round(row.cost_of_goods), 판매비용: Math.round(row.selling_cost),
       비용합계: Math.round(row.cost), 순이익: Math.round(row.profit), '마진율(%)': row.margin_rate, '매출비중(%)': row.share,
       전월매출: Math.round(row.prev_sales), '매출 전월대비(%)': changeRate(row.sales, row.prev_sales) === null ? '' : Number(changeRate(row.sales, row.prev_sales).toFixed(1)),
       전월순이익: Math.round(row.prev_profit), '전월 마진율(%)': row.prev_margin_rate ?? '',
@@ -321,10 +321,10 @@ export default function GrossProfitDashboard() {
   const yoy = data?.yoy_total;
   const salesSlices = useMemo(() => topSlices(data?.customers || [], 'sales', 'customname'), [data]);
   const costSlices = useMemo(() => (total ? [
-    { name: '매입금액', value: total.purchase_amt, color: PALETTE[0] },
-    { name: '매입비용', value: total.purchase_cost, color: PALETTE[1] },
+    { name: '매입가액', value: total.purchase_amt, color: PALETTE[0] },
+    { name: '매입 부대비', value: total.purchase_cost, color: PALETTE[1] },
     { name: '가공비', value: total.process_amt, color: PALETTE[2] },
-    { name: '원자재원가', value: total.material_amt, color: PALETTE[4] },
+    { name: '가공 원재료비', value: total.material_amt, color: PALETTE[4] },
     { name: '판매비용', value: total.selling_cost, color: PALETTE[3] },
   ].filter((slice) => slice.value > 0) : []), [total]);
   const marginDrops = useMemo(() => (data?.customers || [])
@@ -341,13 +341,48 @@ export default function GrossProfitDashboard() {
     return rate === null ? '–' : `${rate >= 0 ? '+' : '−'}${Math.abs(rate).toFixed(1)}%`;
   };
   const amount = (value) => Math.round(Number(value || 0)).toLocaleString('ko-KR');
+  // 카드에 마우스를 올리면 보이는 구성 (모두 서버 total 의 값, 원 단위 그대로)
+  const tonsText = `${(Number(total?.weight || 0) / 1000).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}톤`;
+  const breakdowns = total ? {
+    sales: { title: '매출 구성', rows: [
+      { op: '', label: '판매 (매출 공급가)', hint: '매출등록 품목 공급가', value: won(total.sales_goods) },
+      { op: '+', label: '매출비용(+)', hint: "매출 기타비용 중 비용여부 '아니오' (매출처 부담)", value: won(total.sales_plus) },
+      { op: '=', label: '매출', value: won(total.sales), strong: true },
+    ], note: '부가세 제외 · 공급가 기준' },
+    cost: { title: '비용 구성', rows: [
+      { op: '', label: '매입금액', hint: '출고한 재고의 매입 원가', value: won(total.purchase_amt) },
+      { op: '+', label: '매입비용', hint: '매입 기타비용 배부분', value: won(total.purchase_cost) },
+      { op: '+', label: '가공비', hint: '가공 전표 가공금액 배부분', value: won(total.process_amt) },
+      { op: '+', label: '가공 원재료비', hint: '가공품에 들어간 원재료 원가', value: won(total.material_amt) },
+      { op: '=', label: '매출원가', value: won(total.cost_of_goods) },
+      { op: '+', label: '판매비용', hint: "매출 기타비용 중 비용여부 '예' (우리가 부담)", value: won(total.selling_cost) },
+      { op: '=', label: '비용', value: won(total.cost), strong: true },
+    ] },
+    profit: { title: '순이익 계산', rows: [
+      { op: '', label: '매출', value: won(total.sales) },
+      { op: '−', label: '매출원가', value: won(total.cost_of_goods) },
+      { op: '−', label: '판매비용', value: won(total.selling_cost) },
+      { op: '=', label: '순이익', value: won(total.profit), strong: true },
+    ] },
+    margin: { title: '마진율 계산', rows: [
+      { op: '', label: '순이익', value: won(total.profit) },
+      { op: '÷', label: '매출', value: won(total.sales) },
+      { op: '=', label: '마진율', value: total.margin_rate === null ? '–' : `${Number(total.margin_rate).toFixed(2)}%`, strong: true },
+    ], note: '순이익 ÷ 매출 × 100' },
+    perton: { title: '톤당 이익 계산', rows: [
+      { op: '', label: '순이익', value: won(total.profit) },
+      { op: '÷', label: '판매중량', hint: `${Number(total.weight || 0).toLocaleString('ko-KR')}kg`, value: tonsText },
+      { op: '=', label: '톤당 이익', value: total.profit_per_ton === null ? '–' : won(total.profit_per_ton), strong: true },
+      { op: '', label: '톤당 매출', hint: '매출 ÷ 판매중량', value: total.sales_per_ton === null ? '–' : won(total.sales_per_ton) },
+    ], note: `판매 ${Number(total.line_count || 0).toLocaleString('ko-KR')}줄 기준` },
+  } : {};
   const kpis = total ? [
     { key: 'sales', palette: KPI_PALETTE.blue, icon: IconCash, label: '매출', basis: '판매 + 매출비용(+)', value: amount(total.sales),
       trend: <TrendPill current={total.sales} previous={prev?.sales} />,
       stats: [{ label: '판매중량', value: `${tons}톤` }, { label: '전년 동월 대비', value: yoyText('sales') }] },
-    { key: 'cost', palette: KPI_PALETTE.orange, icon: IconReceipt, label: '비용', basis: '매입원가 + 판매비용', value: amount(total.cost),
+    { key: 'cost', palette: KPI_PALETTE.orange, icon: IconReceipt, label: '비용', basis: '매출원가 + 판매비용', value: amount(total.cost),
       trend: <TrendPill current={total.cost} previous={prev?.cost} goodWhenUp={false} />,
-      stats: [{ label: '매입원가', value: `${compact(total.cost_of_goods)}원` }, { label: '판매비용', value: `${compact(total.selling_cost)}원` }] },
+      stats: [{ label: '매출원가', value: `${compact(total.cost_of_goods)}원` }, { label: '판매비용', value: `${compact(total.selling_cost)}원` }] },
     { key: 'profit', palette: KPI_PALETTE.green, icon: IconTrendingUp, label: '순이익', basis: '매출 − 비용', value: amount(total.profit), negative: total.profit < 0,
       trend: <TrendPill current={total.profit} previous={prev?.profit} />,
       stats: [{ label: '손해 본 거래처', value: total.loss_customer_count ? `${total.loss_customer_count}곳` : '없음', warn: total.loss_customer_count > 0 }, { label: '전년 동월 대비', value: yoyText('profit') }] },
@@ -357,7 +392,7 @@ export default function GrossProfitDashboard() {
     { key: 'perton', palette: KPI_PALETTE.amber, icon: IconScale, label: '톤당 이익', basis: '순이익 ÷ 판매중량', value: total.profit_per_ton === null ? '–' : amount(total.profit_per_ton), unit: total.profit_per_ton === null ? '' : '원', negative: (total.profit_per_ton ?? 0) < 0,
       trend: <TrendPill current={total.profit_per_ton} previous={prev?.profit_per_ton} />,
       stats: [{ label: '톤당 매출', value: tonFormat(total.sales_per_ton) }, { label: '판매 건수', value: `${Number(total.line_count || 0).toLocaleString('ko-KR')}줄` }] },
-  ] : [];
+  ].map((kpi) => ({ ...kpi, breakdown: breakdowns[kpi.key] })) : [];
   const insights = total ? buildInsights(total, prev, yoy, data.customers || [], marginDrops) : [];
 
   return (
@@ -396,7 +431,7 @@ export default function GrossProfitDashboard() {
               <span className={pageClasses.flowTitle}>조회기간 손익</span>
               {total ? <>
                 <div className={pageClasses.flowRow}><span>매출</span><b className={pageClasses.flowIn}>+{compact(total.sales)}원</b></div>
-                <div className={pageClasses.flowRow}><span>비용 <small>매입원가 + 판매비용</small></span><b className={pageClasses.flowOut}>−{compact(total.cost)}원</b></div>
+                <div className={pageClasses.flowRow}><span>비용 <small>매출원가 + 판매비용</small></span><b className={pageClasses.flowOut}>−{compact(total.cost)}원</b></div>
                 <div className={`${pageClasses.flowRow} ${pageClasses.flowNet}`}><span>순이익 <small>마진율 {pct(total.margin_rate)}</small></span><b>{total.profit < 0 ? '−' : '+'}{compact(Math.abs(total.profit))}원</b></div>
               </> : <span className={pageClasses.flowEmpty}>{loading ? '불러오는 중…' : '데이터가 없습니다.'}</span>}
             </div>

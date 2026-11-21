@@ -5,7 +5,7 @@ import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, use
 import axios from 'axios';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import XLSX from 'xlsx-js-style';
-import { ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack, Table, Text, TextInput, UnstyledButton } from '@mantine/core';
+import { ActionIcon, Badge, Box, Button, Group, HoverCard, Loader, Pagination, Paper, Select, Stack, Table, Text, TextInput, UnstyledButton } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconAlertTriangle, IconCalendarDue, IconCashBanknote, IconCopy, IconDeviceFloppy, IconFileInvoice, IconFileSpreadsheet,
@@ -13,6 +13,7 @@ import {
 } from '@tabler/icons-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import ErpDateInput from '../../components/common/ErpDateInput';
+import { KPI_PALETTE, KpiBreakdown } from '../../components/common/DashboardKit';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
@@ -22,22 +23,25 @@ import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import { INSTRUMENT_TYPE_OPTIONS, instrumentLabel } from '../../utils/instrumentCodes';
 
 const KIND_LABELS = {
-  RECEIVABLE: '받을 채권', PAYABLE: '지급 채무', ENDORSED_OUT: '배서양도', RETURNED_OWN: '자수어음 회수', UNSPECIFIED: '미분류',
+  RECEIVABLE: '채권', PAYABLE: '채무', ENDORSED_OUT: '배서양도', RETURNED_OWN: '자수어음 회수', UNSPECIFIED: '미분류',
 };
 // 구분 설명 (목록에서 마우스를 올리면 보임)
 const KIND_HINTS = {
-  RECEIVABLE: '수금 · 타수: 받은 증권 (받을 돈)', PAYABLE: '지급 · 자수: 우리가 발행한 증권 (줄 돈)',
+  RECEIVABLE: '수금 · 타수: 받은 증권 (채권)', PAYABLE: '지급 · 자수: 우리가 발행한 증권 (채무)',
   ENDORSED_OUT: '지급 · 타수 직접 입력: 받은 어음을 넘겨 지급함', RETURNED_OWN: '수금 · 자수: 우리가 발행한 어음이 돌아옴',
   UNSPECIFIED: '발행구분이 비어 있습니다 (자수·타수를 입력하면 분류됩니다)',
 };
-const KIND_OPTIONS = [{ value: '', label: '전체' }, ...Object.entries(KIND_LABELS).map(([value, label]) => ({ value, label }))];
-const STATUS_LABELS = { HELD: '보관', UNPAID: '출금 예정', ENDORSED: '배서', SETTLED: '결제', DISCOUNTED: '할인', DISHONORED: '부도' };
-// 상태 배지 색: 결제=완료(초록), 출금 예정=주의(주황), 부도=위험(빨강), 할인=파랑, 보관·배서=중립
-const STATUS_BADGE = { HELD: 'gray', UNPAID: 'orange', ENDORSED: 'gray', SETTLED: 'teal', DISCOUNTED: 'blue', DISHONORED: 'red' };
+// 조회조건 구분: 전체 / 채권(받은 증권) / 채무(우리가 발행한 증권)
+const KIND_OPTIONS = [{ value: '', label: '전체' }, { value: 'RECEIVABLE', label: '채권' }, { value: 'PAYABLE', label: '채무' }];
+const STATUS_LABELS = { HELD: '보관', ENDORSED: '배서', SETTLED: '결제', DISCOUNTED: '할인', DISHONORED: '부도' };
+// 상태 배지 색: 결제=완료(초록), 부도=위험(빨강), 할인=파랑, 보관·배서=중립
+const STATUS_BADGE = { HELD: 'gray', ENDORSED: 'gray', SETTLED: 'teal', DISCOUNTED: 'blue', DISHONORED: 'red' };
+// 상태 조회조건: 전체 + 실제 상태 (보관 · 배서 · 결제 · 할인 · 부도). '진행 중'은 카드 · 만기 구간을 누를 때만 쓰는 내부 조건
 const STATUS_OPTIONS = [
-  { value: '', label: '전체' }, { value: 'OPEN', label: '진행 중' }, // 기본값은 진행 중
+  { value: '', label: '전체' },
   ...Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label })),
 ];
+const STATUS_CHIP_LABELS = { OPEN: '진행 중' };
 const BUCKETS = [
   { key: 'overdue', label: '만기 경과' }, { key: 'd0_30', label: '30일 이내' }, { key: 'd31_60', label: '31–60일' },
   { key: 'd61_90', label: '61–90일' }, { key: 'd91', label: '91일 이후' }, { key: 'none', label: '만기 없음' },
@@ -51,18 +55,20 @@ const SERIES = [
 ];
 const SERIES_COLOR = Object.fromEntries(SERIES.map((series) => [series.key, series.color]));
 const PAGE_SIZE_OPTIONS = [50, 100, 200].map((value) => ({ value: String(value), label: `${value}개씩` }));
+// 화면 · 엑셀 같은 순서: 만기일 · D-day · 구분 · 상태 › 전표번호 › 종류 › 어음번호 › 금액 › 거래처 › 발행회사 › 발행자 › 발행일 ›
+//  보관은행 › 처리일 › 배서처 › 처리메모 › 수금/지급일 › 할인료 › 비고 › 연결전표
 const COLUMNS = [
-  ['maturitydate', '만기일', 92], ['dday', 'D-day', 72], ['kind', '구분', 100], ['status', '상태', 84],
-  ['instrumenttype', '종류', 88], ['instrumentno', '번호', 120], ['instrumentamt', '금액', 115],
-  ['customname', '거래처', 140], ['issuercompany', '발행회사', 120], ['issuedate', '발행일', 90],
-  ['custodybank', '보관은행', 85], ['receiptdate', '수금/지급일', 92], ['receiptno', '전표번호', 160],
-  ['used_receiptno', '연결 전표', 160], ['processdate', '처리일', 90], ['discountfee', '할인료', 85], ['processmemo', '처리메모', 180],
+  ['maturitydate', '만기일', 92], ['dday', 'D-day', 72], ['kind', '구분', 80], ['status', '상태', 84],
+  ['receiptno', '전표번호', 150], ['instrumenttype', '종류', 88], ['instrumentno', '어음번호', 120], ['instrumentamt', '금액', 115],
+  ['customname', '거래처', 140], ['issuercompany', '발행회사', 120], ['issuer', '발행자', 90], ['issuedate', '발행일', 90],
+  ['custodybank', '보관은행', 85], ['processdate', '처리일', 90], ['endorsee', '배서처', 130], ['processmemo', '처리메모', 180],
+  ['receiptdate', '수금/지급일', 92], ['discountfee', '할인료', 85], ['description', '비고', 160], ['used_receiptno', '연결전표', 150],
 ].map(([key, label, width]) => ({ key, label, width }));
 
 const pad = (value) => String(value).padStart(2, '0');
 const dateString = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 const addDays = (days) => { const date = new Date(); date.setDate(date.getDate() + days); return dateString(date); };
-const makeFilters = () => ({ kind: '', status: 'OPEN', bucket: '', maturity_from: '', maturity_to: '', customer: '', instrumenttype: '', keyword: '' });
+const makeFilters = () => ({ kind: '', status: '', bucket: '', maturity_from: '', maturity_to: '', customer: '', instrumenttype: '', keyword: '' });
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const displayDate = (value) => (value ? String(value).slice(0, 10) : '');
 const formatNumber = (value) => {
@@ -78,7 +84,7 @@ const compactWon = (value) => {
   return number.toLocaleString('ko-KR');
 };
 const statusText = (item) => (item.status === 'DISHONORED' && (item.used_receiptno || item.kind === 'ENDORSED_OUT') ? '부도(배서)' : STATUS_LABELS[item.status] || '');
-const isOpen = (item) => (item.kind === 'RECEIVABLE' && item.status === 'HELD') || (item.kind === 'PAYABLE' && item.status === 'UNPAID');
+const isOpen = (item) => ['RECEIVABLE', 'PAYABLE'].includes(item.kind) && item.status === 'HELD';
 const ddayText = (item) => {
   if (item.days_to_maturity === null || item.days_to_maturity === undefined) return '';
   const days = Number(item.days_to_maturity);
@@ -89,7 +95,7 @@ const ddayText = (item) => {
 const CARD_PRESETS = {
   held: { kind: 'RECEIVABLE', status: 'HELD', bucket: '', maturity_from: '', maturity_to: '' },
   due30: { kind: '', status: 'OPEN', bucket: '', maturity_from: '', maturity_to: addDays(30) },
-  unpaid: { kind: 'PAYABLE', status: 'UNPAID', bucket: '', maturity_from: '', maturity_to: '' },
+  unpaid: { kind: 'PAYABLE', status: 'HELD', bucket: '', maturity_from: '', maturity_to: '' },
   dishonored: { kind: '', status: 'DISHONORED', bucket: '', maturity_from: '', maturity_to: '' },
 };
 const matchesPreset = (filters, preset) => Object.entries(preset).every(([key, value]) => (filters[key] || '') === value);
@@ -97,7 +103,7 @@ const matchesPreset = (filters, preset) => Object.entries(preset).every(([key, v
 const describeFilters = (filters) => {
   const parts = [];
   if (filters.kind) parts.push(KIND_LABELS[filters.kind]);
-  parts.push(STATUS_OPTIONS.find((option) => option.value === filters.status)?.label || '전체 상태');
+  parts.push(STATUS_CHIP_LABELS[filters.status] || STATUS_OPTIONS.find((option) => option.value === filters.status)?.label || '전체 상태');
   if (filters.bucket) parts.push(`만기 ${BUCKET_LABELS[filters.bucket]}`);
   if (filters.maturity_from || filters.maturity_to) parts.push(`만기 ${filters.maturity_from || '…'} ~ ${filters.maturity_to || '…'}`);
   if (filters.customer) parts.push(`거래처 "${filters.customer}"`);
@@ -141,7 +147,7 @@ const renderInstrumentCell = (item, key) => {
   if (key === 'instrumenttype') return instrumentLabel('instrumenttype', item.instrumenttype);
   if (key === 'instrumentamt') return <span className={pageClasses.amountCell}>{formatNumber(item.instrumentamt)}</span>;
   if (key === 'discountfee') return Number(item.discountfee || 0) > 0 ? formatNumber(item.discountfee) : '';
-  if (key === 'receiptno') return `${item.receiptno}-${item.lineno}`;
+  if (key === 'receiptno') return item.receiptno || '';
   return item[key] ?? '';
 };
 const InstrumentRow = memo(function InstrumentRow({ item }) {
@@ -242,10 +248,11 @@ export default function InstrumentStatus() {
       if (!rows.length) { notifications.show({ title: '엑셀 데이터 없음', message: '다운로드할 데이터가 없습니다.', color: 'orange' }); return; }
       const sheetRows = rows.map((item) => ({
         만기일: displayDate(item.maturitydate), 'D-day': ddayText(item), 구분: KIND_LABELS[item.kind] || '', 상태: statusText(item),
-        종류: instrumentLabel('instrumenttype', item.instrumenttype), 번호: item.instrumentno || '', 금액: Number(item.instrumentamt || 0),
-        거래처: item.customname || '', 발행회사: item.issuercompany || '', 발행일: displayDate(item.issuedate), 보관은행: item.custodybank || '',
-        '수금/지급일': displayDate(item.receiptdate), 전표번호: `${item.receiptno}-${item.lineno}`, '연결 전표': item.used_receiptno || '',
-        처리일: displayDate(item.processdate), 할인료: Number(item.discountfee || 0) || '', 처리메모: item.processmemo || '',
+        전표번호: item.receiptno || '', 종류: instrumentLabel('instrumenttype', item.instrumenttype), 어음번호: item.instrumentno || '',
+        금액: Number(item.instrumentamt || 0), 거래처: item.customname || '', 발행회사: item.issuercompany || '', 발행자: item.issuer || '',
+        발행일: displayDate(item.issuedate), 보관은행: item.custodybank || '', 처리일: displayDate(item.processdate), 배서처: item.endorsee || '',
+        처리메모: item.processmemo || '', '수금/지급일': displayDate(item.receiptdate), 할인료: Number(item.discountfee || 0) || '',
+        비고: item.description || '', 연결전표: item.used_receiptno || '',
       }));
       const workbook = XLSX.utils.book_new();
       const worksheet = XLSX.utils.json_to_sheet(sheetRows);
@@ -300,15 +307,70 @@ export default function InstrumentStatus() {
   // 카드 문구: 사용자가 바로 읽는 말 (마우스를 올리면 자세한 설명)
   const overdueCount = summary?.due_30?.overdue_count || 0;
   const cards = [
-    { id: 'held', label: '받을 돈 (보유 어음·수표)', icon: IconFileInvoice, value: summary?.held_receivable,
+    { id: 'held', label: '채권 (보유 어음·수표)', icon: IconFileInvoice, value: summary?.held_receivable,
       hint: '수금으로 받아 아직 결제·할인·지급에 쓰지 않은 증권입니다. 누르면 목록이 걸러집니다.' },
-    { id: 'unpaid', label: '나갈 돈 (발행 어음·수표)', icon: IconCashBanknote, value: summary?.unpaid_payable,
+    { id: 'unpaid', label: '채무 (발행 어음·수표)', icon: IconCashBanknote, value: summary?.unpaid_payable,
       hint: '우리가 발행해서 준 증권 중 아직 결제되지 않은 금액입니다. 누르면 목록이 걸러집니다.' },
     { id: 'due30', label: '만기 도래 (30일 이내)', icon: IconCalendarDue, value: summary?.due_30,
-      hint: `오늘부터 30일 안에 만기가 오는 받을 돈과 나갈 돈입니다. 만기가 지났는데 결제 처리하지 않은 건${overdueCount ? `(${overdueCount}건)` : ''}도 포함합니다.` },
+      hint: `오늘부터 30일 안에 만기가 오는 채권과 채무입니다. 만기가 지났는데 결제 처리하지 않은 건${overdueCount ? `(${overdueCount}건)` : ''}도 포함합니다.` },
     { id: 'dishonored', label: '부도', icon: IconAlertTriangle, value: summary?.dishonored,
       hint: '부도 처리된 증권입니다. 넘겨준 어음이 부도나 상환청구를 받은 건(부도(배서))도 포함합니다.' },
   ];
+  // 카드 마우스 올림: 상태별 합계 + 그 카드에 들어간 어음 (거래처 · 종류 · 번호 · 만기/처리일 · 금액)
+  const money = (value) => `${formatNumber(value)}원`;
+  const mmdd = (value) => (value ? String(value).slice(5, 10).replace('-', '.') : '');
+  const statusRows = (kind, order) => order.map((status) => {
+    const found = (summary?.by_status || []).filter((row) => row.kind === kind && row.status === status);
+    const count = found.reduce((sum, row) => sum + Number(row.count || 0), 0);
+    const amount = found.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    return count ? { op: '', label: `${STATUS_LABELS[status] || status} ${count}건`, value: money(amount) } : null;
+  }).filter(Boolean);
+  const itemRows = (items = [], dateOf) => items.map((item) => ({
+    op: '·', label: item.customname || '',
+    hint: [instrumentLabel('instrumenttype', item.instrumenttype), item.instrumentno, dateOf(item), item.processmemo].filter(Boolean).join(' · '),
+    value: money(item.instrumentamt),
+  }));
+  // 채무 카드: 발행 어음(보관 · 결제) + 배서로 넘긴 받은 어음(배서 · 부도) + 지급에 직접 입력한 타수
+  const OUT_GROUPS = [
+    ['OWN', 'HELD', '발행 · 보관'], ['OWN', 'SETTLED', '발행 · 결제'],
+    ['ENDORSED', 'ENDORSED', '배서로 지급'], ['ENDORSED', 'DISHONORED', '배서 후 부도'],
+    ['ENDORSED', 'SETTLED', '배서 · 결제'], ['ENDORSED', 'DISCOUNTED', '배서 · 할인'],
+    ['MANUAL', 'ENDORSED', '타수 직접 지급'], ['MANUAL', 'DISHONORED', '타수 직접 지급 · 부도'],
+  ];
+  const OUT_STATUS_TEXT = (item) => OUT_GROUPS.find(([outkind, status]) => outkind === item.outkind && status === item.status)?.[2] || STATUS_LABELS[item.status] || '';
+  const outgoingRows = OUT_GROUPS.map(([outkind, status, label]) => {
+    const found = (summary?.outgoing_by_status || []).find((row) => row.outkind === outkind && row.status === status);
+    return found && Number(found.count) ? { op: '', label: `${label} ${found.count}건`, value: money(found.amount) } : null;
+  }).filter(Boolean);
+  const moreNote = (value) => (Number(value?.count || 0) > (value?.items || []).length ? `외 ${Number(value.count) - value.items.length}건은 카드를 눌러 목록에서 확인` : '');
+  const cardBreakdowns = summary ? {
+    held: { title: '받은 어음·수표 상태', rows: [
+      ...statusRows('RECEIVABLE', ['HELD', 'ENDORSED', 'SETTLED', 'DISCOUNTED', 'DISHONORED']),
+      { op: '=', label: '보유 중 (보관)', value: money(summary.held_receivable.amount), strong: true },
+      ...itemRows(summary.held_receivable.items, (item) => (item.maturitydate ? `만기 ${mmdd(item.maturitydate)}` : '')),
+    ], note: moreNote(summary.held_receivable) || '결제 · 할인 · 배서 · 부도된 것은 보유에서 빠집니다' },
+    unpaid: { title: '지급으로 나간 어음·수표 상태', rows: [
+      ...outgoingRows,
+      { op: '=', label: '보관 (발행 어음 미결제)', value: money(summary.unpaid_payable.amount), strong: true },
+      ...(summary.outgoing_items || []).map((item) => ({
+        op: '·', label: item.customname || '',
+        hint: [OUT_STATUS_TEXT(item), instrumentLabel('instrumenttype', item.instrumenttype), item.instrumentno,
+          (item.outkind === 'OWN' && item.status === 'HELD') || !item.processdate ? (item.maturitydate ? `만기 ${mmdd(item.maturitydate)}` : '') : `${STATUS_LABELS[item.status] || ''} ${mmdd(item.processdate)}`,
+          item.processmemo].filter(Boolean).join(' · '),
+        value: money(item.instrumentamt),
+      })),
+    ], note: Number(summary.outgoing_count || 0) > (summary.outgoing_items || []).length
+      ? `외 ${Number(summary.outgoing_count) - summary.outgoing_items.length}건은 목록에서 상태를 '전체'로 조회`
+      : '배서 어음의 거래처는 받은 곳(지급처) · 발행 어음 보관이 먼저 나옵니다' },
+    due30: { title: '30일 안에 만기 (진행 중)', rows: [
+      { op: '=', label: `만기 도래 ${Number(summary.due_30.count || 0)}건`, hint: overdueCount ? `만기 지났는데 처리 안 한 것 ${overdueCount}건 포함` : '', value: money(summary.due_30.amount), strong: true },
+      ...itemRows(summary.due_30.items, (item) => `${item.kind === 'PAYABLE' ? '채무' : '채권'} · 만기 ${mmdd(item.maturitydate)}`),
+    ], note: moreNote(summary.due_30) || (summary.due_30.count ? '' : '30일 안에 만기가 오는 진행 중 어음이 없습니다') },
+    dishonored: { title: '부도 내역', rows: [
+      { op: '=', label: `부도 ${Number(summary.dishonored.count || 0)}건`, value: money(summary.dishonored.amount), strong: true },
+      ...itemRows(summary.dishonored.items, (item) => [item.processdate ? `부도 ${mmdd(item.processdate)}` : '', item.used_receiptno || item.kind === 'ENDORSED_OUT' ? '배서' : ''].filter(Boolean).join(' · ')),
+    ], note: moreNote(summary.dishonored) || (summary.dishonored.count ? '부도는 거래처원장에서 수금(지급)이 되돌려집니다' : '부도 처리된 어음이 없습니다') },
+  } : {};
   const filterParts = describeFilters(filters);
   const isDefaultFilter = JSON.stringify(filters) === JSON.stringify(makeFilters());
 
@@ -328,8 +390,8 @@ export default function InstrumentStatus() {
       {cards.map((card) => {
         const selected = matchesPreset(filters, CARD_PRESETS[card.id]);
         const Icon = card.icon;
-        return <UnstyledButton key={card.id} className={`${pageClasses.statCard} ${selected ? pageClasses.statCardActive : ''}`}
-          onClick={() => applyPreset(CARD_PRESETS[card.id])} aria-pressed={selected} title={card.hint}>
+        const button = <UnstyledButton key={card.id} className={`${pageClasses.statCard} ${selected ? pageClasses.statCardActive : ''}`}
+          onClick={() => applyPreset(CARD_PRESETS[card.id])} aria-pressed={selected} title={cardBreakdowns[card.id] ? undefined : card.hint}>
           <Group justify="space-between" wrap="nowrap" align="flex-start">
             <Text className={pageClasses.statLabel}>{card.label}</Text>
             <span className={`${pageClasses.statIcon} ${card.id === 'dishonored' && card.value?.count ? pageClasses.statIconDanger : ''}`}><Icon size={16} stroke={1.8} /></span>
@@ -339,6 +401,13 @@ export default function InstrumentStatus() {
             <span className={pageClasses.statCount}>{Number(card.value?.count || 0).toLocaleString()}건</span>
           </Group>
         </UnstyledButton>;
+        if (!cardBreakdowns[card.id]) return button;
+        return <HoverCard key={card.id} width={340} position="bottom" withArrow shadow="md" openDelay={120} closeDelay={80} withinPortal>
+          <HoverCard.Target>{button}</HoverCard.Target>
+          <HoverCard.Dropdown p={0}>
+            <KpiBreakdown breakdown={cardBreakdowns[card.id]} palette={card.id === 'dishonored' ? KPI_PALETTE.orange : card.id === 'unpaid' ? KPI_PALETTE.amber : KPI_PALETTE.blue} />
+          </HoverCard.Dropdown>
+        </HoverCard>;
       })}
     </Box>
 
@@ -385,7 +454,7 @@ export default function InstrumentStatus() {
         <Group className={classes.filterHeader} justify="space-between" align="center"><Text fw={700}>조회조건</Text><ActionIcon variant="subtle" color="gray" aria-label="조회조건 닫기" onClick={closeFilter}><IconX size={16} /></ActionIcon></Group>
         <Stack gap="sm" className={classes.filterFields}>
           <Select label="구분" data={KIND_OPTIONS} value={filterInputs.kind} onChange={(value) => setFilterInputs((current) => ({ ...current, kind: value || '' }))} />
-          <Select label="상태" data={STATUS_OPTIONS} value={filterInputs.status} onChange={(value) => setFilterInputs((current) => ({ ...current, status: value ?? 'OPEN' }))} />
+          <Select label="상태" data={STATUS_OPTIONS} value={filterInputs.status} onChange={(value) => setFilterInputs((current) => ({ ...current, status: value ?? '' }))} />
           <Select label="만기 구간" data={BUCKET_OPTIONS} value={filterInputs.bucket} onChange={(value) => setFilterInputs((current) => ({ ...current, bucket: value || '' }))} />
           <Box><Text size="xs" fw={700} mb={5}>만기일 기간</Text><Stack gap={6}>
             <ErpDateInput aria-label="만기 시작일" type="date" value={filterInputs.maturity_from} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, maturity_from: nextValue })); }} />

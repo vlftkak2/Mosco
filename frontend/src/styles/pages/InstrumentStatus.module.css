@@ -27,9 +27,9 @@
 .panelHeader { min-height: 44px; flex: 0 0 auto; padding: 10px 14px; border-bottom: 1px solid #e0e6ef; }
 
 /* 만기 구간: 차트 + 표 */
-.agingPanel { display: flex !important; flex: 0 0 232px !important; flex-direction: column; overflow: hidden; border-color: #e0e6ef !important; border-radius: 8px !important; background: #fff !important; }
+.agingPanel { display: flex !important; flex: 0 0 258px !important; flex-direction: column; overflow: hidden; border-color: #e0e6ef !important; border-radius: 8px !important; background: #fff !important; }
 .agingBody { display: grid; min-height: 0; flex: 1 1 auto; grid-template-columns: minmax(0, 1fr) 300px; }
-.agingChart { position: relative; height: 186px; padding: 6px 8px 2px 4px; }
+.agingChart { position: relative; height: 206px; padding: 6px 8px 2px 4px; }
 .agingEmpty { display: flex; height: 100%; align-items: center; justify-content: center; color: #7c899b; font-size: 12px; }
 .agingTable { width: 100%; align-self: start; margin: 4px 0; border-collapse: collapse; border-left: 1px solid #eef1f5; font-size: 11px; }
 .agingTable th { padding: 3px 12px; color: #7b8798; font-weight: 600; text-align: right; }

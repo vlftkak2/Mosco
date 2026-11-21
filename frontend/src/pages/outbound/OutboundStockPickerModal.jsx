@@ -15,15 +15,16 @@ const STOCK_COLUMNS = [
   { key: 'receiptdate', label: '입고일자', width: 100, minWidth: 90 },
   { key: 'customname', label: '매입처', width: 120, minWidth: 90 },
   { key: 'itemname', label: '품명', width: 120, minWidth: 90 },
+  { key: 'materialname', label: '강종', width: 100, minWidth: 80 },
   { key: 'thickness', label: '두께', width: 75, minWidth: 60 },
   { key: 'width', label: '폭', width: 75, minWidth: 60 },
   { key: 'length', label: '길이', width: 75, minWidth: 60 },
   { key: 'warehouse', label: '창고', width: 115, minWidth: 90 },
   { key: 'currentqty', label: '현재고수량', width: 100, minWidth: 90 },
   { key: 'currentweight', label: '현재고중량(kg)', width: 125, minWidth: 100 },
-  { key: 'unitprice', label: '출고단가', width: 130, minWidth: 100 },
-  { key: 'qty', label: '출고수량', width: 100, minWidth: 90 },
-  { key: 'weight', label: '출고중량(kg)', width: 125, minWidth: 100 },
+  { key: 'unitprice', label: '매출단가', width: 130, minWidth: 100 },
+  { key: 'qty', label: '매출수량', width: 100, minWidth: 90 },
+  { key: 'weight', label: '매출중량(kg)', width: 125, minWidth: 100 },
   { key: 'productname', label: '제품번호', width: 260, minWidth: 150 },
 ];
 const RIGHT_COLUMNS = new Set(['thickness', 'width', 'length', 'currentqty', 'currentweight']);
@@ -32,14 +33,19 @@ const createDefaultFilters = () => {
   const today = new Date();
   const formatDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   return {
-    item_search: '',
-    warehouse_search: '',
-    customname: '',
     date_from: formatDate(new Date(today.getFullYear(), today.getMonth(), 1)),
     date_to: formatDate(today),
+    item_search: '',
+    materialname: '',
+    thickness: '',
+    width: '',
+    length: '',
+    warehouse_search: '',
+    customname: '',
     sourcetype: '',
   };
 };
+const NUMBER_FILTERS = ['thickness', 'width', 'length'];
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const sourceKey = (stock) => [stock.sourcetype || stock.stocksourcetype, stock.sourceno || stock.stocksourceno, stock.sourceline ?? stock.stocksourceline].join('\u001f');
 const num = (value) => Number(value) || 0;
@@ -66,7 +72,11 @@ const draftNumberText = (value, maximumFractionDigits = Infinity) => {
 const dimensionValue = (value) => value === null || value === undefined || String(value).trim() === '' ? '' : numberText(value);
 const sourceName = (value) => ({ OPENING: '기초', INBOUND: '입고', PROCESS: '가공', TRANSFER: '이동' })[value] || value;
 
-export default function OutboundStockPickerModal({ opened, receiptno = '', existingRows = [], onClose, onApply }) {
+// initialFilters: 매출등록 헤더에서 넘어오는 기본 조회조건 (기준일 종료 = 매출일자, 창고 = 헤더 창고)
+export default function OutboundStockPickerModal({ opened, receiptno = '', existingRows = [], initialFilters = null, onClose, onApply }) {
+  const initialFiltersRef = useRef(initialFilters);
+  initialFiltersRef.current = initialFilters;
+  const openingFilters = () => ({ ...createDefaultFilters(), ...(initialFiltersRef.current || {}) });
   const [filterInputs, setFilterInputs] = useState(createDefaultFilters);
   const [filters, setFilters] = useState(createDefaultFilters);
   const [stocks, setStocks] = useState([]);
@@ -124,7 +134,8 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
       setPage(nextPage);
     } catch (error) {
       if (id === requestId.current) {
-        const message = error.response?.data?.detail || '출고 가능한 현재고를 조회하지 못했습니다.';
+        const detail = error.response?.data?.detail;
+        const message = typeof detail === 'string' ? detail : '매출 가능한 현재고를 조회하지 못했습니다.';
         setStocks([]);
         setTotal(0);
         notifications.show({ title: '현재고 조회 실패', message, color: 'red' });
@@ -136,7 +147,7 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
 
   useEffect(() => {
     if (!opened) return undefined;
-    const defaults = createDefaultFilters();
+    const defaults = openingFilters();
     setFilterInputs(defaults);
     setFilters(defaults);
     setSelected({});
@@ -152,7 +163,7 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
       notifications.show({ title: '조회 기간 확인', message: '시작일은 종료일보다 늦을 수 없습니다.', color: 'orange' });
       return;
     }
-    const nextFilters = Object.fromEntries(Object.entries(filterInputs).map(([key, value]) => [key, String(value || '').trim()]));
+    const nextFilters = Object.fromEntries(Object.entries(filterInputs).map(([key, value]) => [key, NUMBER_FILTERS.includes(key) ? cleanDraftNumber(value) : String(value || '').trim()]));
     setFilters(nextFilters);
     setPage(1);
     void load(1, nextFilters, pageSize);
@@ -238,11 +249,11 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
       const unitprice = Number(unitpriceText);
       const limit = remaining(stock);
       if (qty <= 0 || weight <= 0 || qty > limit.qty || weight > limit.weight) {
-        notifications.show({ title: '출고량 확인', message: `${stock.itemname}: 출고 수량 또는 중량이 잔량을 초과했습니다.`, color: 'orange' });
+        notifications.show({ title: '매출량 확인', message: `${stock.itemname}: 매출 수량 또는 중량이 잔량을 초과했습니다.`, color: 'orange' });
         return;
       }
       if (!unitpriceText || !Number.isFinite(unitprice) || unitprice < 0) {
-        notifications.show({ title: '출고단가 확인', message: `${stock.itemname}: 출고단가를 입력해 주세요.`, color: 'orange' });
+        notifications.show({ title: '매출단가 확인', message: `${stock.itemname}: 매출단가를 입력해 주세요.`, color: 'orange' });
         return;
       }
       result.push({ ...stock, qty: String(qty), weight: String(weight), unitprice: String(unitprice) });
@@ -252,9 +263,9 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
   };
 
   const stockDisabledReason = (stock, alreadyAdded, available) => {
-    if (alreadyAdded) return '이미 출고 상세에 담긴 재고입니다.';
+    if (alreadyAdded) return '이미 매출 상세에 담긴 재고입니다.';
     if (stock.linked_orders) return '주문서에 연결된 재고입니다.';
-    if (available.qty <= 0 || available.weight <= 0) return '출고 가능한 잔량이 없습니다.';
+    if (available.qty <= 0 || available.weight <= 0) return '매출 가능한 잔량이 없습니다.';
     return '';
   };
   const draftInputRef = (key, field) => (element) => {
@@ -264,26 +275,30 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
   const stopRowToggle = (event) => event.stopPropagation();
 
   return <PickerModal opened={opened} onClose={onClose}
-    title="출고 재고 선택" description="기초·입고·가공 원천 재고에서 출고할 행과 수량·중량·단가를 지정합니다." icon={<IconPackageExport size={22} stroke={1.7} />}
+    title="매출 재고 선택" description="기초·입고·가공 원천 재고에서 매출할 행과 수량·중량·단가를 지정합니다." icon={<IconPackageExport size={22} stroke={1.7} />}
     filters={<>
       <ErpDateInput label="기준일 시작" type="date" value={filterInputs.date_from} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_from: nextValue })); }} />
       <ErpDateInput label="기준일 종료" type="date" value={filterInputs.date_to} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, date_to: nextValue })); }} />
-      <TextInput size="sm" label="품목" placeholder="품목코드·품명·제품번호" leftSection={<IconSearch size={14} />} value={filterInputs.item_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, item_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+      <TextInput size="sm" label="품명" placeholder="품명·품목코드·제품번호" leftSection={<IconSearch size={14} />} value={filterInputs.item_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, item_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+      <TextInput size="sm" label="강종" placeholder="강종명" value={filterInputs.materialname} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, materialname: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+      <TextInput size="sm" label="두께" inputMode="decimal" value={filterInputs.thickness} onChange={(event) => { const nextValue = cleanDraftNumber(event.currentTarget.value); setFilterInputs((current) => ({ ...current, thickness: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+      <TextInput size="sm" label="폭" inputMode="decimal" value={filterInputs.width} onChange={(event) => { const nextValue = cleanDraftNumber(event.currentTarget.value); setFilterInputs((current) => ({ ...current, width: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
+      <TextInput size="sm" label="길이" inputMode="decimal" value={filterInputs.length} onChange={(event) => { const nextValue = cleanDraftNumber(event.currentTarget.value); setFilterInputs((current) => ({ ...current, length: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
       <TextInput size="sm" label="창고" placeholder="창고코드 또는 창고명" value={filterInputs.warehouse_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, warehouse_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
       <TextInput size="sm" label="매입처" placeholder="원천 거래처명" value={filterInputs.customname} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, customname: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && runSearch()} />
       <Select size="sm" label="재고구분" data={[{ value: '', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }, { value: 'TRANSFER', label: '이동' }]} value={filterInputs.sourcetype} onChange={(value) => setFilterInputs((current) => ({ ...current, sourcetype: value || '' }))} />
       <Button size="sm" color="red" leftSection={<IconSearch size={15} />} onClick={runSearch} loading={loading}>조회</Button>
-      <Button size="sm" variant="default" onClick={() => setFilterInputs(createDefaultFilters())}>초기화</Button>
+      <Button size="sm" variant="default" onClick={() => setFilterInputs(openingFilters())}>초기화</Button>
     </>}
-    guide={<p>체크한 행의 출고단가·수량·중량을 입력한 뒤 [선택 재고 반영]을 누르세요. 수량을 바꾸면 중량은 잔량 비율대로 계산됩니다. 매출처는 재고 반영 후 출고 상세에서 입력합니다.</p>}
-    listTitle="출고 가능 재고" count={total} loading={loading} listHint="행 또는 체크박스를 눌러 선택하고, 단가·수량·중량은 표에서 바로 입력하세요"
+    guide={<p>체크한 행의 매출단가·수량·중량을 입력한 뒤 [선택 재고 반영]을 누르세요. 수량을 바꾸면 중량은 잔량 비율대로 계산됩니다. 중량 증감은 반영 후 매출 상세의 조정(kg)에 입력합니다.</p>}
+    listTitle="매출 가능 재고" count={total} loading={loading} listHint="행 또는 체크박스를 눌러 선택하고, 단가·수량·중량은 표에서 바로 입력하세요"
     selectedCount={selectedCount} onClearSelection={() => setSelected({})}
     pagination={<>
       <Pagination size="sm" color="red" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={(next) => load(next, filters, pageSize)} siblings={1} disabled={loading || !total} />
       <Select size="xs" w={92} data={PAGE_OPTIONS} value={String(pageSize)} aria-label="페이지당 행 수" onChange={(value) => { if (!value) return; const next = Number(value); setPageSize(next); void load(1, filters, next); }} />
     </>}
     onApply={apply} applyLabel="선택 재고 반영" applyDisabled={!selectedCount || loading}>
-    <table className={pickerClasses.table} style={{ width: `max(100%, ${tableWidth}px)`, minWidth: tableWidth }} aria-label="출고 가능 재고">
+    <table className={pickerClasses.table} style={{ width: `max(100%, ${tableWidth}px)`, minWidth: tableWidth }} aria-label="매출 가능 재고">
       <colgroup>{STOCK_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: columnWidths[column.key] ?? column.width }} />)}</colgroup>
       <thead><tr>
         {STOCK_COLUMNS.map((column, index) => <th key={column.key} className={`${index ? pickerClasses.resizableHead : pickerClasses.center} ${RIGHT_COLUMNS.has(column.key) ? pickerClasses.right : ''}`}>
@@ -305,20 +320,21 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
             <td>{String(stock.receiptdate || '').slice(0, 10)}</td>
             <td title={stock.customname || ''}>{stock.customname || '자체재고'}</td>
             <td title={stock.itemname || ''}>{stock.itemname}</td>
+            <td title={stock.materialname || ''}>{stock.materialname || ''}</td>
             <td className={pickerClasses.right}>{dimensionValue(stock.thickness)}</td>
             <td className={pickerClasses.right}>{dimensionValue(stock.width)}</td>
             <td className={pickerClasses.right}>{dimensionValue(stock.length)}</td>
             <td>{stock.warehousecodename || stock.warehousecode}</td>
             <td className={pickerClasses.right}>{numberText(stock.current_qty)}</td>
             <td className={pickerClasses.right}>{numberText(stock.current_weight)}</td>
-            <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'unitprice')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.unitprice)} disabled={alreadyAdded} onChange={(event) => updateUnitPriceDraft(stock, event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'unitprice', event)} aria-label={`${stock.itemname} 출고단가`} /></td>
-            <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'qty')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.qty)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'qty', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'qty', event)} aria-label={`${stock.itemname} 출고수량`} /></td>
-            <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'weight')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.weight, 3)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'weight', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'weight', event)} aria-label={`${stock.itemname} 출고중량`} /></td>
+            <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'unitprice')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.unitprice)} disabled={alreadyAdded} onChange={(event) => updateUnitPriceDraft(stock, event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'unitprice', event)} aria-label={`${stock.itemname} 매출단가`} /></td>
+            <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'qty')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.qty)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'qty', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'qty', event)} aria-label={`${stock.itemname} 매출수량`} /></td>
+            <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'weight')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.weight, 3)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'weight', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'weight', event)} aria-label={`${stock.itemname} 매출중량`} /></td>
             <td title={stock.productname || ''}>{stock.productname || ''}</td>
           </tr>;
         })}
         {!stocks.length && <tr><td colSpan={STOCK_COLUMNS.length} className={pickerClasses.emptyCell}>
-          <PickerEmpty title={loading ? '현재고를 조회하고 있습니다' : '출고 가능한 재고가 없습니다'} description={loading ? '' : '조회 기간이나 검색 조건을 바꿔 다시 조회해 주세요.'} />
+          <PickerEmpty title={loading ? '현재고를 조회하고 있습니다' : '매출 가능한 재고가 없습니다'} description={loading ? '' : '조회 기간이나 검색 조건을 바꿔 다시 조회해 주세요.'} />
         </td></tr>}
       </tbody>
     </table>

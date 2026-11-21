@@ -81,3 +81,5 @@
 .startSave:hover { background: #dc323a; box-shadow: 0 3px 10px #e23d4540; }
 .startCancel:focus-visible, .startSave:focus-visible, .startEdit:focus-visible { outline: 2px solid #f0a3a7; outline-offset: 2px; }
 .startValue { margin-top: 6px; color: #1e2e45; font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.kindDISHONOR { background: #fdecec; color: #c9373d; }
+.kindPROCESS { background: #eef3ff; color: #3d5bd1; }

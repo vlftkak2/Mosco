@@ -3,8 +3,7 @@ import axios from 'axios';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import {
-  ActionIcon, Box, Button, Group, Loader, Pagination, Paper, Select, Stack,
-  Table, Text, TextInput,
+  ActionIcon, Box, Button, Checkbox, Group, Loader, Pagination, Paper, Select, Stack, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -28,18 +27,30 @@ const TABLE_COLUMN_WIDTHS = {
   no: 45, receptdate: 100, receiptno: 160, customname: 125, warehousecodename: 110,
   productname: 105, itemname: 125, materialname: 85, surfacename: 75, myrtle: 100,
   thickness: 60, width: 50, length: 60, qty: 70, weight: 80, unitprice: 90,
-  supplyamt: 90, vat: 80, unitamt: 95, other_cost_amount: 105, qtyunit: 75, unit: 75, manager: 80,
-  description: 120, created_at: 145, updated_at: 145, created_by: 90, updated_by: 90,
+  supplyamt: 90, vat: 80, unitamt: 95, kind_label: 75, qtyunit: 75, unit: 75, manager: 80,
+  description: 120, lineno: 55, created_at: 145, updated_at: 145, created_by: 90, updated_by: 90,
 };
 const TABLE_COLUMNS = [
-  ['no', 'No.'], ['receptdate', '입고일자'], ['receiptno', '입고전표'], ['customname', '매입처'],
-  ['warehousecodename', '창고'], ['productname', '제품번호'], ['itemname', '품명'], ['materialname', '강종'],
+  ['no', 'No.'], ['receptdate', '입고일자'], ['customname', '매입처'], ['itemname', '품명'], ['materialname', '강종'],
   ['surfacename', '표면'], ['myrtle', '도금량(g/㎡)'], ['thickness', '두께'], ['width', '폭'], ['length', '길이'],
-  ['qty', '수량'], ['weight', '중량'], ['unitprice', '매입단가'], ['supplyamt', '공급가'], ['vat', '부가세'],
-  ['unitamt', '합계금액'],
-  ['other_cost_amount', '\uAE30\uD0C0\uBE44\uC6A9 \uD569\uACC4'], ['qtyunit', '수량단위'], ['unit', '단가기준'], ['manager', '담당자'], ['description', '비고'],
-  ['created_at', '등록일자'], ['updated_at', '수정일자'], ['created_by', '등록자'], ['updated_by', '수정자'],
+  ['qty', '수량'], ['weight', '중량'], ['supplyamt', '공급가'], ['vat', '부가세'], ['unitamt', '합계금액'],
+  ['warehousecodename', '창고'], ['productname', '제품번호'], ['kind_label', '구분'],
+  ['unitprice', '매입단가'], ['qtyunit', '수량단위'], ['unit', '단가기준'], ['manager', '담당자'], ['description', '비고'],
+  ['receiptno', '입고전표'], ['lineno', '순번'],
+  ['created_at', '등록일자'], ['created_by', '등록자'], ['updated_at', '수정일자'], ['updated_by', '수정자'],
 ].map(([key, label]) => ({ key, label, width: TABLE_COLUMN_WIDTHS[key], minWidth: Math.min(TABLE_COLUMN_WIDTHS[key], 72) }));
+
+// 표 칸 내용 (key → 칸). 순서는 TABLE_COLUMNS 를 따른다 → 머리글과 내용 순서가 항상 같음
+const NUMBER_KEYS = new Set(['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'lineno']);
+const MONEY_KEYS = new Set(['supplyamt', 'vat', 'unitamt', 'unitprice']);
+const renderCell = (key, item) => {
+  if (key === 'receptdate') return <Table.Td key={key} ta="center">{displayDate(item.receptdate)}</Table.Td>;
+  if (key === 'created_at' || key === 'updated_at') return <Table.Td key={key} ta="center">{displayDateTime(item[key])}</Table.Td>;
+  if (NUMBER_KEYS.has(key)) return <Table.Td key={key} ta="right">{displayNumber(item[key])}</Table.Td>;
+  if (MONEY_KEYS.has(key)) return <Table.Td key={key} ta="right">{displayNumber(item[key], 2)}</Table.Td>;
+  if (key === 'kind_label') return <Table.Td key={key} ta="center">{item.kind_label}</Table.Td>;
+  return <Table.Td key={key} title={item[key] || undefined}>{item[key]}</Table.Td>;
+};
 
 const makeDefaultFilters = () => {
   const today = new Date();
@@ -50,6 +61,7 @@ const makeDefaultFilters = () => {
     date_from: `${year}-${pad(month + 1)}-01`,
     date_to: `${year}-${pad(month + 1)}-${pad(new Date(year, month + 1, 0).getDate())}`,
     receiptno: '', customer: '', warehouse: '', iteminfo: '',
+    include_sales_cost: '', include_process_cost: '',
   };
 };
 
@@ -74,6 +86,12 @@ const FILTERS = [
   { key: 'warehouse', label: '창고', placeholder: '창고코드 또는 창고명' },
   { key: 'receiptno', label: '입고전표번호', placeholder: '전표번호' },
   { key: 'iteminfo', label: '품목정보', placeholder: '품목코드 또는 품목명' },
+];
+
+// 조회조건 '비용 포함': 매입 기타비용은 항상 보이고, 아래는 켜면 함께 보인다
+const COST_TOGGLES = [
+  { key: 'include_sales_cost', label: '매출 비용 포함', description: "매출 기타비용 중 비용여부 '예'" },
+  { key: 'include_process_cost', label: '가공 비용 포함', description: '가공전표별 총 가공금액' },
 ];
 
 const periodText = (from, to) => (from || to ? `${from || '처음'} ~ ${to || '끝'}` : '전체 기간');
@@ -160,21 +178,29 @@ export default function InboundSearchPage() {
     </Table.Th>
   );
 
-  const loadItems = useCallback(async (requestedPage, requestedFilters, requestedPageSize) => {
+  // 요약(건수·합계)은 조회조건이 바뀌었을 때(또는 탭 복귀 등 force)만 서버에 계산을 요청한다. 쪽 넘김은 행만 가져온다.
+  const summaryKeyRef = useRef('');
+  const loadItems = useCallback(async (requestedPage, requestedFilters, requestedPageSize, force = false) => {
     const requestId = ++requestIdRef.current;
     setLoading(true);
+    const summaryKey = JSON.stringify(requestedFilters);
+    const withSummary = force || summaryKey !== summaryKeyRef.current;
     try {
-      const params = { page: requestedPage, page_size: requestedPageSize };
+      const params = { page: requestedPage, page_size: requestedPageSize, summary: withSummary };
       Object.entries(requestedFilters).forEach(([key, value]) => {
         if (String(value || '').trim()) params[key] = String(value).trim();
       });
       const { data } = await axios.get('/api/inbound-search/details', { ...authConfig(), params });
       if (requestId !== requestIdRef.current) return;
       setItems(data.items || []);
-      setTotal(data.total || 0);
-      setSummary(data.summary || EMPTY_SUMMARY);
+      if (data.summary) {
+        setTotal(data.total || 0);
+        setSummary(data.summary);
+        summaryKeyRef.current = summaryKey;
+      }
     } catch (error) {
       if (requestId === requestIdRef.current) {
+        summaryKeyRef.current = '';
         notifications.show({
           title: '입고현황 조회 실패',
           message: error.response?.data?.detail || '입고 내역을 불러오지 못했습니다.',
@@ -187,7 +213,7 @@ export default function InboundSearchPage() {
   }, []);
 
   // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
-  usePageReactivated(() => { void loadItems(page, filters, pageSize); });
+  usePageReactivated(() => { void loadItems(page, filters, pageSize, true); });
   useEffect(() => {
     void loadItems(page, filters, pageSize);
   }, [loadItems, page, filters, pageSize]);
@@ -290,30 +316,9 @@ export default function InboundSearchPage() {
               style={{ width: tableWidth, minWidth: tableWidth, tableLayout: 'fixed' }}>
               <colgroup>{TABLE_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${columnWidths[column.key] ?? column.width}px` }} />)}</colgroup>
               <Table.Thead><Table.Tr>{TABLE_COLUMNS.map(renderHeader)}</Table.Tr></Table.Thead>
-              <Table.Tbody>{items.length ? items.map((item, index) => <Table.Tr key={`${item.receiptno}:${item.lineno}`}>
+              <Table.Tbody>{items.length ? items.map((item, index) => <Table.Tr key={`${item.kind}:${item.receiptno}:${item.lineno}`}>
                   <Table.Td ta="center">{(page - 1) * pageSize + index + 1}</Table.Td>
-                  <Table.Td ta="center">{displayDate(item.receptdate)}</Table.Td><Table.Td title={item.receiptno || undefined}>{item.receiptno}</Table.Td>
-                  <Table.Td title={item.customname || undefined}>{item.customname}</Table.Td><Table.Td title={item.warehousecodename || undefined}>{item.warehousecodename}</Table.Td>
-                  <Table.Td title={item.productname || undefined}>{item.productname}</Table.Td><Table.Td title={item.itemname || undefined}>{item.itemname}</Table.Td>
-                  <Table.Td title={item.materialname || undefined}>{item.materialname}</Table.Td><Table.Td title={item.surfacename || undefined}>{item.surfacename}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.myrtle)}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.thickness)}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.width)}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.length)}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.qty)}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.weight)}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.unitprice, 2)}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.supplyamt, 2)}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.vat, 2)}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.unitamt, 2)}</Table.Td>
-                  <Table.Td ta="right">{displayNumber(item.other_cost_amount, 2)}</Table.Td>
-                  <Table.Td>{item.qtyunit}</Table.Td><Table.Td>{item.unit}</Table.Td>
-                  <Table.Td>{item.manager}</Table.Td>
-                  <Table.Td title={item.description || undefined}>{item.description}</Table.Td>
-                  <Table.Td ta="center">{displayDateTime(item.created_at)}</Table.Td>
-                  <Table.Td ta="center">{displayDateTime(item.updated_at)}</Table.Td>
-                  <Table.Td>{item.created_by}</Table.Td>
-                  <Table.Td>{item.updated_by}</Table.Td>
+                  {TABLE_COLUMNS.slice(1).map((column) => renderCell(column.key, item))}
                 </Table.Tr>) : !loading && <Table.Tr><Table.Td colSpan={TABLE_COLUMNS.length} className={classes.emptyCell}>
                   <Box className={classes.emptyState}>
                     <span className={classes.emptyIcon}><IconInbox size={22} stroke={1.6} /></span>
@@ -354,6 +359,19 @@ export default function InboundSearchPage() {
               onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, [key]: nextValue })); }}
               onKeyDown={handleFilterKeyDown} />
           ))}
+          {/* 기타비용(매입 전표)은 항상 포함. 아래 두 가지는 켜서 함께 본다 */}
+          <Box>
+            <Text className={classes.filterGroupLabel}>비용 포함</Text>
+            <Box className={classes.costCheckList}>
+              {COST_TOGGLES.map(({ key, label, description }) => (
+                <label key={key} className={`${classes.costCheckRow} ${filterInputs[key] ? classes.costCheckRowOn : ''}`} title={description}>
+                  <Checkbox size="xs" color="red" checked={Boolean(filterInputs[key])}
+                    onChange={(event) => { const { checked } = event.currentTarget; setFilterInputs((current) => ({ ...current, [key]: checked ? '1' : '' })); }} />
+                  <span className={classes.costCheckLabel}>{label}</span>
+                </label>
+              ))}
+            </Box>
+          </Box>
         </Stack>
       </Paper>}
       </Box>

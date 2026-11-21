@@ -313,6 +313,7 @@ def list_documents(
     productinfo: str = "",
     page: int | None = None,
     page_size: int | None = None,
+    focus_processno: str = "",
 ):
     """Process document list. Without `page` it returns every matching document (list, as before);
     with `page`/`page_size` it returns {"items", "total", "page", "page_size"} for one page."""
@@ -355,10 +356,26 @@ def list_documents(
     with _connect() as connection, connection.cursor() as cursor:
         total = None
         if paged:
+            if focus_processno:
+                # 저장한 전표가 들어 있는 페이지 (정렬: 가공일자, 전표번호 오름차순). 조건에 안 맞으면 요청한 페이지 그대로
+                cursor.execute(
+                    f"""SELECT COUNT(*),
+                               COUNT(*) FILTER (WHERE (h.processdate, h.processno) < (f.processdate, f.processno)),
+                               BOOL_OR(h.processno = f.processno)
+                        FROM Process01t h
+                        CROSS JOIN (SELECT processdate, processno FROM Process01t
+                                    WHERE companyid=%s AND processno=%s) f
+                        WHERE {' AND '.join(where)}""",
+                    [companyid, focus_processno, *params],
+                )
+                _total, before, found = cursor.fetchone()
+                if found:
+                    page = before // page_size + 1
+                    page_params = [page_size, (page - 1) * page_size]
             cursor.execute(f"SELECT COUNT(*) FROM Process01t h WHERE {' AND '.join(where)}", params)
             total = cursor.fetchone()[0]
         cursor.execute(
-            f"""SELECT h.processno, h.processdate, h.customname, h.warehousecodename, h.description,
+            f"""SELECT h.processno, h.processdate, h.customname, h.warehousecodename, h.manager, h.description,
                        h.createdat, h.updatedat,
                        {user_name_sql('h.created_by')} AS created_by,
                        {user_name_sql('h.updated_by')} AS updated_by,
@@ -411,7 +428,7 @@ def list_documents(
                     WHERE d.companyid=h.companyid AND d.processno=h.processno
                 ) summary ON TRUE
                 WHERE {' AND '.join(where)}
-                ORDER BY h.processdate DESC,h.processno DESC
+                ORDER BY h.processdate ASC,h.processno ASC
                 {limit_sql}""", [*params, *page_params],
         )
         items = [_row_dict(cursor, row) for row in cursor.fetchall()]
@@ -525,16 +542,22 @@ def _restore_document_for_edit(cursor, companyid: str, processno: str, actor: st
     # 가공품이 주문에 연결됐거나 확정 계획에 잡혀 있으면 수정하지 않는다
     ensure_not_linked(cursor, companyid, {(t, processno, line) for line in output_lines for t in ("INBOUND", "PROCESS")}, action="수정")
 
+    # 가공품 재고를 지웠다가 다시 만들므로, 담당자가 적은 비고를 순번별로 보관했다가 되돌린다
+    kept_remarks: dict[int, str] = {}
     for output_line in output_lines:
         cursor.execute(
             """DELETE FROM CurrentStock01t
                WHERE companyid=%s AND sourcetype IN ('INBOUND','PROCESS')
                  AND sourceno=%s AND sourceline=%s
-                 AND qty=originalqty AND weight=originalweight""",
+                 AND qty=originalqty AND weight=originalweight
+               RETURNING remark""",
             (companyid, processno, output_line),
         )
-        if cursor.rowcount != 1:
+        deleted = cursor.fetchall()
+        if len(deleted) != 1:
             raise ValueError("가공품이 출고 또는 후속 가공에 사용되어 수정할 수 없습니다.")
+        if deleted[0][0]:
+            kept_remarks[int(output_line)] = deleted[0][0]
 
     for _line_no, source_type, source_no, source_line, qty, weight in source_rows:
         cursor.execute(
@@ -556,6 +579,7 @@ def _restore_document_for_edit(cursor, companyid: str, processno: str, actor: st
         (companyid, processno),
     )
     cursor.execute("DELETE FROM Process02t WHERE companyid=%s AND processno=%s", (companyid, processno))
+    return kept_remarks
 
 
 # ── 가공 최적화 계획 연동 ────────────────────────────────────────────────────
@@ -577,22 +601,29 @@ def _plan_runs(pattern: dict) -> list[dict]:
 def _load_plan(cursor, companyid: str, planno: str, editing_processno: str = "") -> dict:
     cursor.execute(
         """SELECT planno, status, materialtype, rawkind, stocksourcetype, stocksourceno, stocksourceline,
-                  itemname, thickness, width, pattern, processmode
+                  itemname, thickness, width, length, pattern, processmode, rawsheets, inputweight
              FROM aiplan01t WHERE companyid=%s AND planno=%s FOR UPDATE""", (companyid, planno),
     )
     row = cursor.fetchone()
     if not row:
         raise ValueError(f"가공 계획을 찾을 수 없습니다: {planno}")
     plan = _row_dict(cursor, row)
-    if plan["materialtype"] != "COIL" or plan["rawkind"] != "STOCK":
-        raise ValueError("현재고 원자재를 쓰는 코일 계획만 재고가공등록으로 불러올 수 있습니다.")
+    if plan["materialtype"] not in ("COIL", "SHEET") or plan["rawkind"] != "STOCK":
+        raise ValueError("현재고 원자재를 쓰는 계획만 재고가공등록으로 불러올 수 있습니다. 신규 매입 계획은 매입 입고 후 다시 계획해 주세요.")
     allowed = ("CONFIRMED", "DONE") if editing_processno else ("CONFIRMED",)
     if plan["status"] == "DONE" and not editing_processno:
         cursor.execute("SELECT string_agg(processno, ', ') FROM Process01t WHERE companyid=%s AND planno=%s", (companyid, planno))
         raise ValueError(f"이미 가공등록된 계획입니다 ({cursor.fetchone()[0] or '-'}).")
     if plan["status"] not in allowed:
         raise ValueError(f"{planno} 은(는) 확정 상태가 아니라 가공등록할 수 없습니다.")
-    runs = _plan_runs(_plan_pattern(plan["pattern"]))
+    if plan["materialtype"] == "SHEET":
+        sheet = (_plan_pattern(plan["pattern"]).get("plan")) or {}
+        if not [x for x in sheet.get("pieces") or [] if int(x.get("produced_qty") or 0) > 0]:
+            raise ValueError(f"{planno} 계획에 생산할 시트가 없습니다.")
+        plan["sheet"] = sheet
+        runs = [{"weight": float(plan.get("inputweight") or 0)}]
+    else:
+        runs = _plan_runs(_plan_pattern(plan["pattern"]))
     if not runs:
         raise ValueError(f"{planno} 계획에 가공 차수가 없습니다.")
     # 계획 1개 = 전표 1장 → 이 계획으로 등록한 다른 전표가 있으면 안 된다
@@ -608,8 +639,34 @@ def _load_plan(cursor, companyid: str, planno: str, editing_processno: str = "")
     return plan
 
 
+def _sheet_products(sheet: dict) -> list[dict]:
+    """시트 계획에서 실제로 생산하는 품목 (발주 품목 + 가공 후보, 생산 매수 > 0)."""
+    return [x for x in sheet.get("pieces") or [] if int(x.get("produced_qty") or 0) > 0]
+
+
+def _ensure_sheet_plan_structure(plan: dict, source: dict) -> None:
+    """시트 계획 전표: 원소재 바로 아래 품목별 1줄 (폭 · 길이 · 매수가 계획과 같음). 원판은 계획 매수, 코일은 계획 투입중량 이상."""
+    sheet = plan["sheet"]
+    q3 = lambda v: Decimal(str(v or 0)).quantize(Decimal("0.001"))
+    expected = sorted((q3(x["width"]), q3(x["length"]), q3(x["produced_qty"])) for x in _sheet_products(sheet))
+    products = source["products"]
+    parent_ids = {p.get("parent_clientid") for p in products if p.get("parent_clientid")}
+    actual = sorted((q3(p.get("width")), q3(p.get("length")), q3(p.get("qty"))) for p in products)
+    if parent_ids or actual != expected:
+        raise ValueError(f"{plan['planno']} 계획과 가공 줄 구성이 다릅니다 (계획 {len(expected)}줄 · 등록 {len(actual)}줄, 품목별 폭 · 길이 · 매수가 같아야 합니다). "
+                         "계획 전표는 행을 추가하거나 지울 수 없습니다. 다르게 가공하려면 가공최적화에서 계획을 다시 확정해 주세요.")
+    if sheet.get("coil"):
+        if Decimal(str(source["weight"])) + Decimal("0.001") < Decimal(str(plan.get("inputweight") or 0)):
+            raise ValueError(f"{plan['planno']} 계획의 코일 투입중량({Decimal(str(plan.get('inputweight') or 0)):,.3f}kg)보다 적게 투입할 수 없습니다.")
+    elif q3(source["qty"]) != q3(plan.get("rawsheets")):
+        raise ValueError(f"{plan['planno']} 계획의 원판 {Decimal(str(plan.get('rawsheets') or 0)):,.0f}매를 투입해야 합니다 (입력 {Decimal(str(source['qty'])):,.0f}매).")
+
+
 def _ensure_plan_structure(plan: dict, source: dict) -> None:
     """계획 전표는 계획 그대로: 슬리팅 칼(폭 · 개수)과 등분 줄 수가 계획과 같아야 한다 (행 추가 · 삭제 불가)."""
+    if plan.get("materialtype") == "SHEET":
+        _ensure_sheet_plan_structure(plan, source)
+        return
     runs = plan["runs"]
     cuts = sorted(float(p["width"]) for r in runs for p in r.get("pieces") or [] for _ in range(int(p.get("cuts") or 0)))
     products = source["products"]
@@ -675,7 +732,7 @@ def list_plan_runs(companyid: str):
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """SELECT p.planno, p.status, p.itemname, p.steelgrade, p.thickness, p.width, p.rawweight, p.inputweight,
-                      p.processmode, p.combo, p.pattern, p.created_at,
+                      p.processmode, p.combo, p.pattern, p.created_at, p.materialtype, p.length, p.rawsheets,
                       p.stocksourcetype, p.stocksourceno, p.stocksourceline,
                       s.warehousecodename, s.weight AS stockweight,
                       (SELECT string_agg(DISTINCT d.orderid || '-' || d.orderlineno, ', ') FROM aiplan02t d
@@ -683,7 +740,7 @@ def list_plan_runs(companyid: str):
                  FROM aiplan01t p
                  LEFT JOIN CurrentStock01t s ON s.companyid=p.companyid AND s.sourcetype=p.stocksourcetype
                       AND s.sourceno=p.stocksourceno AND s.sourceline=p.stocksourceline
-                WHERE p.companyid=%s AND p.status IN ('CONFIRMED','DONE') AND p.materialtype='COIL' AND p.rawkind='STOCK'
+                WHERE p.companyid=%s AND p.status IN ('CONFIRMED','DONE') AND p.materialtype IN ('COIL','SHEET') AND p.rawkind='STOCK'
                 ORDER BY (p.status = 'DONE'), p.created_at DESC LIMIT 200""", (companyid,),
         )
         plans = [_row_dict(cursor, row) for row in cursor.fetchall()]
@@ -693,7 +750,17 @@ def list_plan_runs(companyid: str):
             registered.setdefault(planno_, []).append(processno_)
     items = []
     for plan in plans:
-        runs = _plan_runs(_plan_pattern(plan.pop("pattern")))
+        pattern = _plan_pattern(plan.pop("pattern"))
+        if plan["materialtype"] == "SHEET":
+            # 시트 계획 = 1차 (원판 절단 또는 코일 길이 절단), 품목별 '폭×길이 매수'
+            sheet = pattern.get("plan") or {}
+            plan["sheetkind"] = "COIL" if sheet.get("coil") else "SHEET"
+            plan["runs"] = [{"run": 1, "label": "코일 길이 절단" if sheet.get("coil") else "원판 절단", "weight": plan.get("inputweight"),
+                             "pattern": " + ".join(f"{float(x['width']):g}×{float(x['length']):g} {int(x['produced_qty'])}매" for x in _sheet_products(sheet))}]
+            plan["processnos"] = sorted(registered.get(plan["planno"], []))
+            items.append(plan)
+            continue
+        runs = _plan_runs(pattern)
         plan["runs"] = [{
             "run": i, "label": r.get("label") or f"{i}차 가공", "weight": r.get("weight"),
             "pattern": " + ".join(f"{float(x['width']):g}×{x['cuts']}" for x in r.get("pieces") or [] if x.get("cuts")),
@@ -722,6 +789,76 @@ def _rule_name(cursor, companyid: str, itemcode, processid):
     return found[0] if found and found[0] else None
 
 
+def _sheet_plan_draft(cursor, companyid: str, plan: dict) -> dict:
+    """시트 계획 → 가공전표 1장 초안 (저장은 하지 않음).
+
+    원소재 (원판 N매 또는 코일 사용 중량)
+      └ 절단 · 세어링  품목마다 1줄 (폭 × 길이 × 생산 매수, 이론중량 = 폭 × 길이 × 두께 × 7.85 ÷ 1,000,000 × 매수)
+    로스(투입 − 이론중량 합)는 품목 이론중량 비율로 kg 단위 배부 → 원소재 투입중량 = Σ(제품 + 로스), 원가는 그대로 넘어간다."""
+    planno = plan["planno"]
+    sheet = plan["sheet"]
+    coil = bool(sheet.get("coil"))
+    cursor.execute(
+        """SELECT sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
+                  itemcode, itemname, productname, materialcode, materialname, surfacecode,
+                  surfacename, myrtle, manager, thickness, width, length, qty, qtyunit,
+                  weight, unit, unitprice, warehousecode, warehousecodename, stockkind,
+                  CASE WHEN weight > 0 THEN ROUND(costamt / weight, 2) END AS costprice,
+                  costamt, feeamt
+             FROM CurrentStock01t
+            WHERE companyid=%s AND sourcetype=%s AND sourceno=%s AND sourceline=%s""",
+        (companyid, *plan["stock_key"]),
+    )
+    row = cursor.fetchone()
+    if not row:
+        raise ValueError("계획 원자재 재고를 찾을 수 없습니다.")
+    stock = _row_dict(cursor, row)
+    stock_qty, stock_weight = Decimal(str(stock["qty"] or 0)), Decimal(str(stock["weight"] or 0))
+    is_coil_stock = not Decimal(str(stock.get("length") or 0)) > 0
+    if coil != is_coil_stock:
+        raise ValueError("계획 원자재의 형태(코일 · 원판)가 현재고와 다릅니다. 가공최적화에서 계획을 다시 확정해 주세요.")
+    if coil:
+        weight = Decimal(str(plan.get("inputweight") or 0)).quantize(Decimal("0.001"))
+        if weight > stock_weight + Decimal("0.001"):
+            raise ValueError(f"계획 투입중량 {weight:,.3f}kg이 코일 현재고 {stock_weight:,.3f}kg보다 큽니다. 재고를 확인해 주세요.")
+        left = stock_weight - weight
+        if left <= Decimal("1"):          # 1kg 이하 자투리 코일은 남기지 않고 함께 투입 (로스로 배부)
+            weight, left = stock_weight, Decimal("0")
+        qty = stock_qty if left <= 0 else Decimal("0")   # 코일이 남으면 수량은 그대로 (중량만 차감)
+        process = _process_code(cursor, companyid, "세어링")
+    else:
+        qty = Decimal(str(plan.get("rawsheets") or 0))
+        if qty <= 0:
+            raise ValueError(f"{planno} 계획의 원판 매수를 확인해 주세요.")
+        if qty > stock_qty:
+            raise ValueError(f"계획 원판 {qty:,.0f}매가 현재고 {stock_qty:,.0f}매보다 많습니다. 재고를 확인하거나 계획을 다시 확정해 주세요.")
+        # 투입중량 = 실제 재고 중량을 매수 비율로 (전부 쓰면 재고 중량 그대로)
+        weight = stock_weight if qty >= stock_qty else (stock_weight * qty / stock_qty).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+        left = stock_weight - weight
+        process = _process_code(cursor, companyid, "절단")
+    name = _rule_name(cursor, companyid, stock["itemcode"], process[0]) or stock.get("itemname") or ""
+    thickness = Decimal(str(stock.get("thickness") or plan.get("thickness") or 0))
+    pieces = _sheet_products(sheet)
+    theory = [(Decimal(str(x["width"])) * Decimal(str(x["length"])) * thickness * Decimal("7.85") / Decimal("1000000")
+               * int(x["produced_qty"])).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP) for x in pieces]
+    if sum(theory) > weight:
+        # 실제 투입중량이 이론중량 합보다 가벼우면 투입중량을 이론 비율로 나눈다 (로스 0)
+        weights = [Decimal(str(v)) for v in _allocate(weight, theory, "0.001")]
+        losses = [Decimal("0")] * len(pieces)
+    else:
+        weights = theory
+        losses = [Decimal(str(v)).quantize(Decimal("0.001")) for v in _allocate(weight - sum(theory), theory, "1")]
+    products = [{"key": f"cut{i}", "parent": None, "processid": process[0], "processcodename": process[1], "productname": name,
+                 "thickness": float(thickness), "width": float(x["width"]), "length": float(x["length"]), "qty": int(x["produced_qty"]),
+                 "qtyunit": stock.get("qtyunit") or "EA", "weight": float(weights[i]), "lossweight": float(losses[i]),
+                 "description": "가공 후보" if x.get("extra") else ""} for i, x in enumerate(pieces)]
+    return {
+        "planno": planno, "runs": 1, "processmode": None, "materialtype": "SHEET", "sheetkind": "COIL" if coil else "SHEET",
+        "stock": stock, "source": {"qty": qty, "weight": weight, "left_weight": left},
+        "products": products, "loss": sum(losses), "keep": Decimal("0"),
+    }
+
+
 def plan_draft(companyid: str, planno: str):
     """계획 불러오기: 계획 전체를 가공전표 1장 초안으로 만든다 (저장은 하지 않음).
 
@@ -733,6 +870,8 @@ def plan_draft(companyid: str, planno: str):
     원샷은 등분 없이 원소재 바로 아래 슬리팅."""
     with _connect() as connection, connection.cursor() as cursor:
         plan = _load_plan(cursor, companyid, planno)
+        if plan["materialtype"] == "SHEET":
+            return _sheet_plan_draft(cursor, companyid, plan)
         cursor.execute(
             f"""SELECT sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
                        itemcode, itemname, productname, materialcode, materialname, surfacecode,
@@ -864,8 +1003,9 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
             cursor.execute("SELECT created_by FROM Process01t WHERE companyid=%s AND processno=%s", (companyid, processno))
             original = cursor.fetchone()
             detail_created_by, detail_updated_by = (original[0] if original else None) or None, actor or None
-            _restore_document_for_edit(cursor, companyid, processno, actor)
+            kept_remarks = _restore_document_for_edit(cursor, companyid, processno, actor)
         else:
+            kept_remarks = {}
             processno = _next_processno(cursor, companyid, payload["processdate"])
 
         cursor.execute(
@@ -1121,6 +1261,15 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
                  product.get("costamt", Decimal("0")), product.get("expamt", Decimal("0")), product.get("feeamt", Decimal("0"))),
             )
 
+        if kept_remarks:
+            # 수정 저장: 같은 순번으로 다시 만들어진 가공품 재고에 비고를 되돌린다 (비고 수정 정보는 그대로 둔다)
+            cursor.execute(
+                """UPDATE CurrentStock01t AS stock SET remark = v.remark
+                   FROM unnest(%s::integer[], %s::text[]) AS v(sourceline, remark)
+                   WHERE stock.companyid = %s AND stock.sourceno = %s AND stock.sourceline = v.sourceline
+                     AND stock.sourcetype IN ('INBOUND', 'PROCESS') AND stock.remark IS NULL""",
+                (list(kept_remarks), list(kept_remarks.values()), companyid, processno),
+            )
         cursor.execute("UPDATE Process01t SET subulyn='Y',updatedat=CURRENT_TIMESTAMP WHERE companyid=%s AND processno=%s", (companyid, processno))
         for linked_plan in {old_planno, planno} - {None}:
             _sync_plan_status(cursor, companyid, linked_plan, actor)

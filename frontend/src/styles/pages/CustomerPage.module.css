@@ -511,3 +511,16 @@
 .simple .addressSearchButton { height: 32px; margin-top: 25px; padding: 0 12px; border: 1px solid #cccccc; border-radius: 4px; background: #fff; box-shadow: none; color: #333; font-size: 13px; font-weight: 500; }
 .simple .addressSearchButton:hover { border-color: #e0434b; background: #fff; box-shadow: none; color: #e0434b; }
 
+
+/* 상세 머리: 거래처명 옆에 코드 · 거래구분 · 사용여부 (한 줄, 좁으면 아래로) */
+.identityInline { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.identityInline > strong { flex: 0 1 auto; max-width: 100%; }
+/* 사업자 유형 라디오 (사업장관리와 같은 모양) */
+.fieldLabel { margin-bottom: 5px; color: #222; font-size: 13px; font-weight: 600; }
+/* (위쪽 .radio 는 다른 용도의 13px 동그라미라 이름을 따로 쓴다) */
+/* 사업자 유형: 라벨 오른쪽에 라디오 (한 줄) */
+.ownerTypeRow { display: flex; align-items: center; gap: 20px; }
+.ownerTypeRow .fieldLabel { margin-bottom: 0; }
+.ownerRadioRow { display: flex; min-height: 32px; align-items: center; gap: 24px; }
+.ownerRadio { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; color: #333; font-size: 13.5px; white-space: nowrap; cursor: pointer; user-select: none; }
+.ownerRadio input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: #e0434b; cursor: pointer; }

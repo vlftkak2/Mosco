@@ -3,7 +3,9 @@ from psycopg2.extras import execute_values
 from config import DB_CONFIG
 #from tkinter import Tk, filedialog 
 from decimal import Decimal, InvalidOperation
-from pydantic import BaseModel, Field, field_validator
+from pydantic import model_validator, BaseModel, Field, field_validator
+# 사업자번호 · 법인번호 검증 · 형식은 사업장관리와 같은 규칙
+from services.masterdata.Workplace import _format as _format_number, valid_businessno, valid_corporationno
 from typing import List
 
 # PostgreSQL 접속 문자열
@@ -22,11 +24,12 @@ class CustomModifyRequest(BaseModel):
     customername: str
     businessno: str = ""
     corporationno: str = ""
+    ownertype: str = "CORP"   # 사업자 유형: CORP 법인 / INDIV 개인 (개인이면 법인번호를 비운다)
     ceoname: str = ""
     tradetype: str = ""
     businesstype: str = ""
     industry: str = ""
-    manager: str = ""
+    manager: str = Field(default="", max_length=20)   # 담당자: 직접 입력 (거래처 담당자 이름)
     zipcode: str = ""
     address: str = ""
     address2: str = ""
@@ -40,6 +43,36 @@ class CustomModifyRequest(BaseModel):
     # 기초 미수금 / 기초 미지급금: 원장 시작일 이전부터 남아 있던 잔액 (MASTER/SUBMASTER만 변경 가능)
     openingreceivable: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=2)
     openingpayable: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=2)
+
+    @field_validator("ownertype", mode="before")
+    @classmethod
+    def _normalize_ownertype(cls, value):
+        # 화면은 CORP/INDIV, 엑셀은 법인/개인으로도 들어온다. 비어 있으면 법인.
+        text = str(value or "").strip().upper()
+        mapped = {"": "CORP", "CORP": "CORP", "법인": "CORP", "법인사업자": "CORP",
+                  "INDIV": "INDIV", "개인": "INDIV", "개인사업자": "INDIV"}.get(text)
+        if mapped is None:
+            raise ValueError("사업자 유형은 법인 또는 개인으로 입력해 주세요.")
+        return mapped
+
+    @model_validator(mode="after")
+    def _individual_has_no_corporationno(self):
+        # 데이터 정합성: 개인사업자는 법인번호가 없다
+        if self.ownertype == "INDIV":
+            self.corporationno = ""
+        self.manager = (self.manager or "").strip()
+        # 사업자번호 · 법인번호: 사업장관리 · 고객사등록과 같은 규칙 (검증번호 확인 + 000-00-00000 / 000000-0000000 형식)
+        businessno = (self.businessno or "").strip()
+        if businessno:
+            if not valid_businessno(businessno):
+                raise ValueError(f"사업자번호가 올바르지 않습니다 ({businessno}). 번호를 다시 확인해 주세요.")
+            self.businessno = _format_number(businessno, (3, 5))
+        corporationno = (self.corporationno or "").strip()
+        if corporationno:
+            if not valid_corporationno(corporationno):
+                raise ValueError(f"법인번호가 올바르지 않습니다 ({corporationno}). 번호를 다시 확인해 주세요.")
+            self.corporationno = _format_number(corporationno, (6,))
+        return self
 
     @field_validator("openingreceivable", "openingpayable", mode="before")
     @classmethod
@@ -158,18 +191,7 @@ def _validate_customer_references(cursor, item: CustomModifyRequest):
     item.manager = (item.manager or "").strip()
     item.bankcode = (item.bankcode or "").strip()
 
-    if item.manager:
-        cursor.execute(
-            """
-            SELECT 1 FROM user01t
-            WHERE companyid = %s AND username = %s
-              AND UPPER(BTRIM(COALESCE(useyn, 'N'))) = 'Y'
-            LIMIT 1
-            """,
-            (item.companyid, item.manager),
-        )
-        if not cursor.fetchone():
-            return {"success": False, "message": f"Manager '{item.manager}' is not an active user for this company."}
+    # 담당자는 거래처 쪽 담당자 이름을 직접 적는 칸이라 회사 계정과 대조하지 않는다.
 
     if item.bankcode:
         cursor.execute(
@@ -197,21 +219,6 @@ def _validate_customer_batch_references(cursor, items: List[CustomModifyRequest]
             manager_values.add(item.manager)
         if item.bankcode:
             bank_values.add(item.bankcode)
-
-    if manager_values:
-        cursor.execute(
-            """
-            SELECT DISTINCT username FROM user01t
-            WHERE companyid = %s
-              AND UPPER(BTRIM(COALESCE(useyn, 'N'))) = 'Y'
-              AND username = ANY(%s)
-            """,
-            (companyid, list(manager_values)),
-        )
-        missing_managers = manager_values - {row[0] for row in cursor.fetchall()}
-        if missing_managers:
-            names = ", ".join(sorted(missing_managers)[:10])
-            return {"success": False, "message": f"사용 중인 회사 계정에 없는 담당자입니다: {names}"}
 
     if bank_values:
         cursor.execute(
@@ -258,15 +265,15 @@ def CustomerCreate(item: CustomModifyRequest, actor: str | None = None):
                 companyid, companyname, customercode, customername, businessno,
                 corporationno, ceoname, tradetype, businesstype, industry, manager,
                 zipcode, address, address2, phone, fax, email, bankcode, accountno, useyn, remark, createdby,
-                openingreceivable, openingpayable
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                openingreceivable, openingpayable, ownertype
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         cursor.execute(query, (
             item.companyid, item.companyname, customercode, item.customername,
             item.businessno, item.corporationno, item.ceoname, item.tradetype,
             item.businesstype, item.industry, item.manager, item.zipcode, item.address, item.address2 or None, item.phone,
             item.fax, item.email, item.bankcode or None, item.accountno, _db_useyn(item.useryn), item.remark,
-            actor or None, item.openingreceivable, item.openingpayable,
+            actor or None, item.openingreceivable, item.openingpayable, item.ownertype,
         ))
 
         conn.commit()
@@ -304,11 +311,9 @@ def CustomerBulkCreate(items: List[CustomModifyRequest], actor: str | None = Non
 
             cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (companyid,))
             requested_codes = [(item.customercode or "").strip() for item in items]
-            if not all(requested_codes):
-                return {"success": False, "message": "엑셀 일괄등록은 거래처코드와 거래처명이 필수입니다."}
             if any(not (item.customername or "").strip() for item in items):
-                return {"success": False, "message": "엑셀 일괄등록은 거래처코드와 거래처명이 필수입니다."}
-            normalized_codes = [code.casefold() for code in requested_codes]
+                return {"success": False, "message": "엑셀 일괄등록은 거래처명이 필수입니다."}
+            normalized_codes = [code.casefold() for code in requested_codes if code]
             if len(normalized_codes) != len(set(normalized_codes)):
                 return {"success": False, "message": "업로드 파일에 중복된 거래처코드가 있습니다."}
 
@@ -321,15 +326,35 @@ def CustomerBulkCreate(items: List[CustomModifyRequest], actor: str | None = Non
                 if duplicates:
                     return {"success": False, "message": f"이미 등록된 거래처코드가 있습니다: {', '.join(duplicates[:10])}"}
 
-            assigned_codes = requested_codes
+            # 거래처코드가 빈 행: 화면 신규 등록과 같은 규칙으로 자동 채번 (Cust-00001 …, 파일에 적힌 코드와 겹치지 않게)
+            assigned_codes = list(requested_codes)
             generated_codes = []
+            if not all(requested_codes):
+                cursor.execute(
+                    """SELECT COALESCE(MAX(substring(customercode FROM 6)::bigint), 0)
+                       FROM customer01t WHERE companyid = %s AND customercode ~* '^Cust-[0-9]+$'""",
+                    (companyid,),
+                )
+                next_number = cursor.fetchone()[0]
+                taken = set(normalized_codes)
+                for index, code in enumerate(assigned_codes):
+                    if code:
+                        continue
+                    while True:
+                        next_number += 1
+                        candidate = f"Cust-{next_number:05d}"
+                        if candidate.casefold() not in taken:
+                            break
+                    taken.add(candidate.casefold())
+                    assigned_codes[index] = candidate
+                    generated_codes.append(candidate)
 
             query = """
                 INSERT INTO customer01t
                     (companyid, companyname, customercode, customername, businessno,
                      corporationno, ceoname, tradetype, businesstype, industry, manager,
                      zipcode, address, address2, phone, fax, email, bankcode, accountno, useyn, remark, createdby,
-                     openingreceivable, openingpayable)
+                     openingreceivable, openingpayable, ownertype)
                 VALUES %s
             """
             values = [
@@ -337,7 +362,7 @@ def CustomerBulkCreate(items: List[CustomModifyRequest], actor: str | None = Non
                  item.businessno, item.corporationno, item.ceoname, item.tradetype,
                  item.businesstype, item.industry, item.manager, item.zipcode, item.address, item.address2 or None, item.phone,
                  item.fax, item.email, item.bankcode or None, item.accountno, _db_useyn(item.useryn), item.remark,
-                 actor or None, item.openingreceivable, item.openingpayable)
+                 actor or None, item.openingreceivable, item.openingpayable, item.ownertype)
                 for item, assigned_code in zip(items, assigned_codes)
             ]
             execute_values(cursor, query, values, page_size=1000)
@@ -367,7 +392,7 @@ def CustomerModify(item: CustomModifyRequest, actor: str | None = None, update_o
         # 거래처정보 업데이트
         query = """
             UPDATE customer01t
-            SET customername=%s, businessno=%s, corporationno=%s, ceoname=%s,
+            SET customername=%s, businessno=%s, corporationno=%s, ownertype=%s, ceoname=%s,
                 tradetype=%s, businesstype=%s, industry=%s, manager=%s,
                 zipcode=%s, address=%s, address2=%s, phone=%s, fax=%s, email=%s, bankcode=%s, accountno=%s,
                 useyn=%s, remark=%s, updatedat=NOW(), updatedby=%s,
@@ -376,7 +401,7 @@ def CustomerModify(item: CustomModifyRequest, actor: str | None = None, update_o
             WHERE companyid=%s AND customercode=%s
         """
         cursor.execute(query, (
-            item.customername, item.businessno, item.corporationno, item.ceoname,
+            item.customername, item.businessno, item.corporationno, item.ownertype, item.ceoname,
             item.tradetype, item.businesstype, item.industry, item.manager,
             item.zipcode, item.address, item.address2 or None, item.phone, item.fax, item.email, item.bankcode or None, item.accountno,
             _db_useyn(item.useryn), item.remark, actor or None,
@@ -436,13 +461,22 @@ def CustomerList(
 
         cursor.execute(
             f"""
-            SELECT * FROM customer01t
-            WHERE {where_sql}
+            SELECT page.*,
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = page.createdby LIMIT 1), page.createdby) AS createdbyname,
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = page.updatedby LIMIT 1), page.updatedby) AS updatedbyname
+            FROM (
+                SELECT * FROM customer01t
+                WHERE {where_sql}
+                ORDER BY
+                  CASE WHEN customercode ~* '^Cust-[0-9]+$'
+                       THEN substring(customercode FROM 6)::bigint END ASC NULLS LAST,
+                  customercode ASC
+                LIMIT %s OFFSET %s
+            ) AS page
             ORDER BY
-              CASE WHEN customercode ~* '^Cust-[0-9]+$'
-                   THEN substring(customercode FROM 6)::bigint END ASC NULLS LAST,
-              customercode ASC
-            LIMIT %s OFFSET %s
+              CASE WHEN page.customercode ~* '^Cust-[0-9]+$'
+                   THEN substring(page.customercode FROM 6)::bigint END ASC NULLS LAST,
+              page.customercode ASC
             """,
             (*params, page_size, (page - 1) * page_size),
         )

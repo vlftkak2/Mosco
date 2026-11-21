@@ -12,7 +12,13 @@ import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 // 3) [반영] → 같은 계산으로 바뀐 거래처만 한 번에 저장 (중간에 오류가 나면 하나도 바뀌지 않는다)
 
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
-const won = (value) => Math.round(Number(value) || 0).toLocaleString('ko-KR');
+// 금액 표시: 소수점이 있으면 둘째 자리까지 그대로 (250,000.5 → 250,000.50)
+const won = (value) => (Number(value) || 0).toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+const FIELD_LABELS = { openingreceivable: '기초 미수금', openingpayable: '기초 미지급금', customercode: '거래처코드' };
+const todayText = () => {
+  const now = new Date(); // 한국 시간 기준 (toISOString 은 UTC)
+  return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+};
 const HEADER_ALIASES = {
   customercode: ['거래처코드', 'customercode', '코드'],
   openingreceivable: ['기초미수금', '기초 미수금', 'openingreceivable'],
@@ -40,14 +46,20 @@ export default function OpeningBalanceModal({ opened, onClose, canEdit, onApplie
       const { data } = await axios.get('/api/opening-balances', authConfig());
       const sheetRows = (data.items || []).map((item) => ({
         거래처코드: item.customercode, 거래처명: item.customername,
-        기초미수금: Number(item.openingreceivable) || 0, 기초미지급금: Number(item.openingpayable) || 0,
+        '기초 미수금': Number(item.openingreceivable) || 0, '기초 미지급금': Number(item.openingpayable) || 0,
       }));
-      const worksheet = XLSX.utils.json_to_sheet(sheetRows, { header: ['거래처코드', '거래처명', '기초미수금', '기초미지급금'] });
+      // 칼럼명은 거래처관리 화면과 같다 (예전 '기초미수금' 제목으로 올려도 받는다)
+      const worksheet = XLSX.utils.json_to_sheet(sheetRows, { header: ['거래처코드', '거래처명', '기초 미수금', '기초 미지급금'] });
+      // 거래처코드는 텍스트 칸 (엑셀에서 숫자로 바뀌지 않게)
+      sheetRows.forEach((_, index) => {
+        const address = XLSX.utils.encode_cell({ r: index + 1, c: 0 });
+        if (worksheet[address]) worksheet[address] = { ...worksheet[address], t: 's', v: String(worksheet[address].v ?? ''), z: '@' };
+      });
       worksheet['!cols'] = [{ wch: 14 }, { wch: 28 }, { wch: 16 }, { wch: 16 }];
       applyExcelHeaderStyle(worksheet, 4);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, '기초잔액');
-      XLSX.writeFile(workbook, `거래처_기초잔액_${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.xlsx`);
+      XLSX.writeFile(workbook, `거래처_기초잔액_${todayText()}.xlsx`);
     } catch (error) {
       notifications.show({ title: '양식 받기 실패', message: error.response?.data?.detail || '기초잔액 양식을 만들지 못했습니다.', color: 'red' });
     } finally {
@@ -63,6 +75,7 @@ export default function OpeningBalanceModal({ opened, onClose, canEdit, onApplie
     if (!file) return;
     setBusy('preview');
     setPreview(null);
+    let parsed = [];
     try {
       const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -72,9 +85,9 @@ export default function OpeningBalanceModal({ opened, onClose, canEdit, onApplie
       const recvIndex = findColumn(headers, 'openingreceivable');
       const payIndex = findColumn(headers, 'openingpayable');
       if (codeIndex < 0 || (recvIndex < 0 && payIndex < 0)) {
-        throw new Error('첫 줄에 "거래처코드"와 "기초미수금"·"기초미지급금" 제목이 있어야 합니다. [양식 받기]로 받은 파일을 사용해 주세요.');
+        throw new Error('첫 줄에 "거래처코드"와 "기초 미수금"·"기초 미지급금" 제목이 있어야 합니다. [양식 받기]로 받은 파일을 사용해 주세요.');
       }
-      const parsed = [];
+      parsed = [];
       table.slice(1).forEach((cells, index) => {
         const code = String(cells[codeIndex] ?? '').trim();
         if (!code) return;
@@ -91,8 +104,13 @@ export default function OpeningBalanceModal({ opened, onClose, canEdit, onApplie
       setPreview(data);
     } catch (error) {
       const detail = error.response?.data?.detail;
+      // 서버 검증 오류 → '엑셀 3행 기초 미수금'처럼 행 번호와 칸 이름으로 알려 준다
       const message = Array.isArray(detail)
-        ? `${detail.length}개 칸의 금액이 잘못되었습니다. 금액은 0 이상의 숫자로 입력해 주세요. (예: ${detail[0]?.loc?.slice(-2).join(' ')})`
+        ? `금액은 0 이상의 숫자로 입력해 주세요. ${detail.slice(0, 5).map((item) => {
+          const [, , index, field] = item.loc || [];
+          const rowno = parsed[index]?.rowno;
+          return `${rowno ? `${rowno}행 ` : ''}${FIELD_LABELS[field] || field || ''}`;
+        }).join(', ')}${detail.length > 5 ? ` 외 ${detail.length - 5}칸` : ''}`
         : detail || error.message || '파일을 읽지 못했습니다.';
       notifications.show({ title: '기초잔액 파일 확인', message, color: 'orange', autoClose: 8000 });
       setRows([]);
@@ -129,7 +147,7 @@ export default function OpeningBalanceModal({ opened, onClose, canEdit, onApplie
       {fileName && <Text size="xs" c="dimmed" style={{ alignSelf: 'center' }}>{fileName}</Text>}
     </>}
     guide={<>
-      <p>[양식 받기]로 받은 파일에서 <b>기초미수금 · 기초미지급금</b> 금액만 고쳐 올리세요. 빈칸은 0원으로 반영됩니다. 기말 잔액은 원장에서 자동 계산되므로 입력하지 않습니다.</p>
+      <p>[양식 받기]로 받은 파일에서 <b>기초 미수금 · 기초 미지급금</b> 금액만 고쳐 올리세요. 빈칸은 0원으로 반영됩니다. 기말 잔액은 원장에서 자동 계산되므로 입력하지 않습니다.</p>
       {!canEdit && <p style={{ color: '#c2561b' }}>기초잔액 반영은 관리자(MASTER·SUBMASTER)만 할 수 있습니다. 양식은 받을 수 있습니다.</p>}
       {preview && <div className={pickerClasses.criteria}>
         <span><b>변경</b>{preview.changed_count.toLocaleString()}곳</span>
@@ -142,7 +160,7 @@ export default function OpeningBalanceModal({ opened, onClose, canEdit, onApplie
     onApply={apply} applyLabel="반영" applying={busy === 'apply'} applyDisabled={!canEdit || !preview?.changed_count || Boolean(busy)}>
     <table className={pickerClasses.table} style={{ width: '100%', minWidth: 760 }} aria-label="바뀌는 거래처">
       <colgroup><col style={{ width: 60 }} /><col style={{ width: 120 }} /><col /><col style={{ width: 220 }} /><col style={{ width: 220 }} /></colgroup>
-      <thead><tr><th className={pickerClasses.center}>엑셀 행</th><th>거래처코드</th><th>거래처명</th><th className={pickerClasses.right}>기초미수금</th><th className={pickerClasses.right}>기초미지급금</th></tr></thead>
+      <thead><tr><th className={pickerClasses.center}>엑셀 행</th><th>거래처코드</th><th>거래처명</th><th className={pickerClasses.right}>기초 미수금</th><th className={pickerClasses.right}>기초 미지급금</th></tr></thead>
       <tbody>
         {changed.map((item) => <tr key={item.customercode} style={{ cursor: 'default' }}>
           <td className={pickerClasses.center}>{item.rowno}</td>

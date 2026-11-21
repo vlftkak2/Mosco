@@ -28,7 +28,10 @@ class OutboundDetailInput(BaseModel):
     warehousecode: str = Field(default="", max_length=50)
     warehousecodename: str = Field(default="", max_length=50)
     qty: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
+    # weight = 총중량 (현재고·수불장에서 빠지는 중량, 매출금액 기준). adjweight = 조정(Kg, +/-).
+    # 조정 전 중량 = weight - adjweight
     weight: Decimal = Field(gt=0, max_digits=15, decimal_places=3)
+    adjweight: Decimal = Field(default=Decimal("0"), max_digits=15, decimal_places=3)
     unit: str = Field(min_length=1, max_length=20)
     unitprice: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
     description: str = Field(default="", max_length=500)
@@ -41,7 +44,9 @@ class OutboundDetailInput(BaseModel):
     @model_validator(mode="after")
     def require_source_fields(self):
         if self.stocksourcetype not in {"OPENING", "INBOUND", "PROCESS"} or not self.stocksourceno:
-            raise ValueError("출고 원천 재고 구분과 전표번호를 확인해 주세요.")
+            raise ValueError("매출 원천 재고 구분과 전표번호를 확인해 주세요.")
+        if self.weight - self.adjweight <= 0:
+            raise ValueError("조정 전 중량(총중량 - 조정)은 0보다 커야 합니다.")
         return self
 
 
@@ -67,12 +72,13 @@ class OutboundSaveRequest(BaseModel):
     customcode: str = Field(default="", max_length=50)
     customname: str = Field(default="", max_length=100)
     manager: str = Field(default="", max_length=100)
+    destination: str = Field(default="", max_length=500)   # 착지 (송장 받는 곳 주소)
     description: str = Field(default="", max_length=500)
     is_new: bool = False
     items: list[OutboundDetailInput] = Field(min_length=1, max_length=10000)
     expenses: list[OutboundExpenseInput] = Field(default_factory=list, max_length=1000)
 
-    @field_validator("receiptno", "customcode", "customname", "manager", "description")
+    @field_validator("receiptno", "customcode", "customname", "manager", "destination", "description")
     @classmethod
     def strip_text(cls, value: str) -> str:
         return value.strip()
@@ -80,7 +86,7 @@ class OutboundSaveRequest(BaseModel):
     @model_validator(mode="after")
     def require_header_fields(self):
         if not self.is_new and not self.receiptno:
-            raise ValueError("수정할 출고전표번호가 없습니다.")
+            raise ValueError("수정할 매출전표번호가 없습니다.")
         # 비용여부 '예' = 다른 거래처(운송사 등)에 지급하는 비용 → 매출처를 거래처로 쓸 수 없음.
         # 매출처 부담이면 '아니오'를 선택한다(이때 거래처는 매출처로 저장된다).
         header_code = self.customcode.lower()
@@ -105,6 +111,32 @@ class OutboundManagerUpdateRequest(BaseModel):
     @classmethod
     def strip_manager(cls, value: str) -> str:
         return value.strip()
+
+
+class OutboundPriceUpdate(BaseModel):
+    lineno: int = Field(ge=1)
+    unitprice: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
+
+
+class OutboundSalesFieldsUpdateRequest(BaseModel):
+    """저장된 매출전표에서 재고·원가와 무관한 칸만 고친다. 보낸 칸만 바꾼다 (None = 그대로)."""
+    manager: str | None = Field(default=None, max_length=100)
+    destination: str | None = Field(default=None, max_length=500)
+    prices: list[OutboundPriceUpdate] = Field(default_factory=list, max_length=5000)
+
+    @field_validator("manager", "destination")
+    @classmethod
+    def strip_text(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
+    @model_validator(mode="after")
+    def validate_payload(self):
+        if self.manager is None and self.destination is None and not self.prices:
+            raise ValueError("수정할 내용이 없습니다.")
+        linenos = [price.lineno for price in self.prices]
+        if len(linenos) != len(set(linenos)):
+            raise ValueError("같은 상세 행의 단가가 중복되었습니다.")
+        return self
 
 
 def _row_dict(cursor, row):
@@ -158,7 +190,9 @@ def list_receipts(
     customcode: str = "",
     customname: str = "",
     warehouse: str = "",
+    focus_receiptno: str = "",
 ):
+    """focus_receiptno 를 주면 그 전표가 들어 있는 쪽(page)을 돌려준다 (저장 직후 목록에서 바로 보이게)."""
     search = query.strip()
     where = "h.companyid = %s"
     params: list = [companyid]
@@ -192,19 +226,34 @@ def list_receipts(
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(f"SELECT COUNT(*) FROM Outbound01t AS h WHERE {where}", params)
         total = cursor.fetchone()[0]
+        if focus_receiptno.strip():
+            # 목록 정렬(매출일자, 전표번호)에서 그 전표 앞에 몇 건이 있는지 → 쪽 번호. 조건에 안 맞으면 요청한 쪽 그대로.
+            cursor.execute(
+                f"""SELECT COUNT(*) FILTER (WHERE (h.receptdate, h.receiptno) < (f.receptdate, f.receiptno)),
+                           COALESCE(BOOL_OR(h.receiptno = f.receiptno), FALSE)
+                    FROM Outbound01t AS h
+                    CROSS JOIN (SELECT receptdate, receiptno FROM Outbound01t
+                                WHERE companyid = %s AND receiptno = %s) AS f
+                    WHERE {where}""",
+                (companyid, focus_receiptno.strip(), *params),
+            )
+            before, found = cursor.fetchone()
+            if found:
+                page = before // page_size + 1
         # 헤더만 먼저 정렬·페이징한 뒤 그 전표들의 상세·기타비용만 집계한다 (전체 전표 집계 후 자르지 않음).
         cursor.execute(
             f"""
             WITH page AS (
-                SELECT h.companyid, h.receiptno, h.receptdate, h.customcode, h.customname,
-                       h.description, h.subulyn, h.created_at
+                SELECT h.companyid, h.receiptno, h.receptdate, h.customcode, h.customname, h.manager, h.destination,
+                       h.description, h.subulyn, h.created_at, h.created_by
                 FROM Outbound01t AS h
                 WHERE {where}
                 ORDER BY h.receptdate ASC, h.receiptno ASC
                 LIMIT %s OFFSET %s
             )
-            SELECT p.receiptno, p.receptdate, p.customcode, p.customname,
+            SELECT p.receiptno, p.receptdate, p.customcode, p.customname, p.manager, p.destination,
                    p.description, p.subulyn, p.created_at,
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = p.created_by LIMIT 1), p.created_by) AS created_by,
                    d.line_count, d.warehousecode,
                    -- Same label as the detail header when a receipt spans several warehouses.
                    CASE WHEN d.warehouse_count > 1 THEN '복수 창고 (' || d.warehouse_count || ')'
@@ -249,7 +298,7 @@ def get_print_document(companyid: str, receiptno: str):
     """
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
-            """SELECT receiptno, receptdate, customcode, customname, manager, description
+            """SELECT receiptno, receptdate, customcode, customname, manager, destination, description
                FROM Outbound01t WHERE companyid = %s AND receiptno = %s""",
             (companyid, receiptno),
         )
@@ -279,6 +328,10 @@ def get_print_document(companyid: str, receiptno: str):
         buyer = _row_dict(cursor, buyer_row) if buyer_row else {}
         # 거래처가 삭제·변경돼도 전표에 저장된 매출처명은 항상 보이게 한다.
         buyer["customername"] = buyer.get("customername") or header["customname"]
+        # 송장의 받는 곳 주소 = 착지 (매출등록에서 직접 입력) → 비어 있으면 거래처 주소.
+        # 거래명세서는 사업자 주소(buyer.address) 그대로.
+        destination = (header.get("destination") or "").strip()
+        buyer["delivery_address"] = destination or buyer.get("address")
 
         _, unit_names = _load_quantity_unit_maps(cursor, companyid)
         cursor.execute(
@@ -323,8 +376,9 @@ def get_receipt(companyid: str, receiptno: str):
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """SELECT companyid, companyname, receiptno, receptdate, customcode, customname,
-                      manager, description, COALESCE(subulyn, 'N') AS subulyn,
-                      created_at, updated_at
+                      manager, destination, description, COALESCE(subulyn, 'N') AS subulyn,
+                      created_at, updated_at,
+                      COALESCE((SELECT u.username FROM user01t u WHERE u.email = Outbound01t.created_by LIMIT 1), created_by) AS created_by
                FROM Outbound01t WHERE companyid = %s AND receiptno = %s""",
             (companyid, receiptno),
         )
@@ -340,7 +394,7 @@ def get_receipt(companyid: str, receiptno: str):
                       h.customname AS customname,
                       d.itemcode, d.itemname, d.productname, d.surfacecode, d.surfacename, d.materialcode, d.materialname,
                       d.myrtle, d.thickness, d.width, d.length, d.qty, d.qtyunit, d.warehousecode, d.warehousecodename,
-                      d.weight, d.unit, d.unitprice, d.supplyamt, d.vat, d.unitamt, d.description,
+                      d.weight, d.adjweight, d.unit, d.unitprice, d.supplyamt, d.vat, d.unitamt, d.description,
                       COALESCE(NULLIF(BTRIM(h.manager), ''), d.manager) AS manager,
                       stock.receiptdate, stock.customname AS sourcecustomname,
                       COALESCE(stock.qty, 0) + COALESCE(own.qty, 0) AS current_qty,
@@ -411,7 +465,7 @@ def _ensure_not_before_receipt(outbound_date, stock: dict):
         outbound_date = date.fromisoformat(outbound_date[:10])
     if outbound_date and receipt_date and outbound_date < receipt_date:
         name = stock.get("productname") or stock.get("itemname") or ""
-        raise ValueError(f"{name} 재고의 입고일({receipt_date:%Y-%m-%d})보다 앞선 날짜로 출고할 수 없습니다.")
+        raise ValueError(f"{name} 재고의 입고일({receipt_date:%Y-%m-%d})보다 앞선 날짜로 매출할 수 없습니다.")
 
 
 def list_available_stock(
@@ -425,9 +479,20 @@ def list_available_stock(
     date_to: date | None = None,
     sourcetype: str = "",
     receiptno: str = "",
+    materialname: str = "",
+    thickness: Decimal | None = None,
+    width: Decimal | None = None,
+    length: Decimal | None = None,
 ):
     where = ["stock.companyid = %s"]
     params: list = [companyid]
+    if materialname.strip():
+        where.append("stock.materialname ILIKE %s")
+        params.append(f"%{materialname.strip()}%")
+    for column, value in (("stock.thickness", thickness), ("stock.width", width), ("stock.length", length)):
+        if value is not None:
+            where.append(f"{column} = %s")
+            params.append(value)
     if item_search.strip():
         pattern = f"%{item_search.strip()}%"
         where.append("(stock.itemcode ILIKE %s OR stock.itemname ILIKE %s OR stock.productname ILIKE %s)")
@@ -555,7 +620,7 @@ def _insert_outbound_expenses(cursor, companyid: str, companyname: str, receiptn
                 raise ValueError(f"{index}행 기타비용 거래처 코드와 이름이 일치하지 않습니다.")
             customname = actual_name
         elif customname:
-            raise ValueError(f"{index}: select the expense customer from the list.")
+            raise ValueError(f"{index}행 기타비용 거래처를 목록에서 선택해 주세요.")
         supplyamt = Decimal(str(expense.get("supplyamt") or 0))
         vat = Decimal(str(expense.get("vat") or 0))
         normalized.append((
@@ -630,7 +695,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict, ac
         item["customcode"] = default_code
         item["customname"] = default_name
         if not item["receptdate"] or (not item["customcode"] and not item["customname"]):
-            raise ValueError(f"{index}행의 출고일자와 거래처를 확인해 주세요.")
+            raise ValueError(f"{index}행의 매출일자와 거래처를 확인해 주세요.")
 
     try:
         with _connect() as connection, connection.cursor() as cursor:
@@ -713,7 +778,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict, ac
             for source_key, demand in demands.items():
                 stock = demand["stock"]
                 if demand["qty"] > Decimal(str(stock["qty"])) or demand["weight"] > Decimal(str(stock["weight"])):
-                    raise ValueError(f"원천 재고 {source_key[1]}/{source_key[2]}의 출고량이 잔량을 초과합니다.")
+                    raise ValueError(f"원천 재고 {source_key[1]}/{source_key[2]}의 매출량이 잔량을 초과합니다.")
 
             # One save creates one sales receipt keyed by the header (출고일자 / 매출처).
             # Detail lines keep their own source-stock warehouse, so a receipt may span warehouses.
@@ -722,7 +787,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict, ac
                 group_key = (item["receptdate"], item["customcode"], "")
                 grouped_items.setdefault(group_key, []).append(item)
             if payload.get("expenses") and len(grouped_items) != 1:
-                raise ValueError("기타비용은 하나의 출고전표에 연결해야 합니다. 품목을 한 전표로 저장한 뒤 등록해 주세요.")
+                raise ValueError("기타비용은 하나의 매출전표에 연결해야 합니다. 품목을 한 전표로 저장한 뒤 등록해 주세요.")
 
             created_receipts = []
             for (receptdate, customcode, warehousecode), group_items in grouped_items.items():
@@ -730,11 +795,12 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict, ac
                 customer_name = customers[customcode]
                 cursor.execute(
                     """INSERT INTO Outbound01t
-                       (companyid, companyname, receiptno, receptdate, customcode, customname, manager, description, subulyn,
+                       (companyid, companyname, receiptno, receptdate, customcode, customname, manager, destination, description, subulyn,
                         created_by)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'N', %s)""",
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'N', %s)""",
                     (companyid, companyname, receiptno, receptdate, customcode, customer_name,
-                     manager or None, payload.get("description") or None, actor or None),
+                     manager or None, (payload.get("destination") or "").strip() or None,
+                     payload.get("description") or None, actor or None),
                 )
                 detail_values = []
                 stock_lines = []
@@ -757,6 +823,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict, ac
                         stock["surfacecode"], stock["surfacename"], stock["materialcode"] or "",
                         stock["materialname"] or "", stock["myrtle"], stock["thickness"], stock["width"], stock["length"],
                         qty, quantity_unit_names.get(stock["qtyunit"], stock["qtyunit"]), weight,
+                        Decimal(str(item.get("adjweight") or 0)),
                         price_unit_names.get(unit) or unit, unitprice, supplyamt, vat, unitamt,
                         stock["warehousecode"], stock["warehousecodename"], item.get("description", "").strip() or None,
                         manager or None, actor or None, None,
@@ -776,7 +843,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict, ac
                     """INSERT INTO Outbound02t
                        (companyid, companyname, receiptno, lineno, stocksourcetype, stocksourceno, stocksourceline,
                         itemcode, itemname, productname, surfacecode, surfacename, materialcode, materialname, myrtle,
-                        thickness, width, length, qty, qtyunit, weight, unit, unitprice, supplyamt, vat, unitamt,
+                        thickness, width, length, qty, qtyunit, weight, adjweight, unit, unitprice, supplyamt, vat, unitamt,
                         warehousecode, warehousecodename, description, manager, created_by, updated_by)
                        VALUES %s""",
                     detail_values,
@@ -807,7 +874,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict, ac
     except IntegrityError as error:
         message = str(error).lower()
         if "outbound01t_pkey" in message or "duplicate key" in message:
-            raise ValueError("출고전표 번호가 중복되었습니다. 다시 저장해 주세요.") from error
+            raise ValueError("매출전표 번호가 중복되었습니다. 다시 저장해 주세요.") from error
         raise
     except Exception:
         logger.exception("Failed to save grouped outbound receipts")
@@ -895,16 +962,16 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
                 "수정" if existing else "등록",
             )
             if existing and str(existing[0] or "N").strip().upper() in {"Y", "YES", "확정"}:
-                raise ValueError("수불 확정된 출고전표는 수정할 수 없습니다.")
+                raise ValueError("수불 확정된 매출전표는 수정할 수 없습니다.")
             if existing and (
                 str(existing[1] or "").strip() != customcode
                 or str(existing[2] or "").strip() != str(payload.get("description") or "").strip()
             ):
-                raise ValueError("저장된 출고전표의 매출처와 비고는 수정할 수 없습니다.")
+                raise ValueError("저장된 매출전표의 매출처와 비고는 수정할 수 없습니다.")
             if payload.get("is_new") and existing:
-                raise ValueError(f"이미 등록된 출고전표번호입니다: {receiptno}")
+                raise ValueError(f"이미 등록된 매출전표번호입니다: {receiptno}")
             if not payload.get("is_new") and not existing:
-                raise ValueError("수정할 출고전표가 없습니다. 목록을 새로고침해 주세요.")
+                raise ValueError("수정할 매출전표가 없습니다. 목록을 새로고침해 주세요.")
 
             # 원래 전표에 있던 원천 재고 (주문 연결 검사에서 제외) — 상세를 지우기 전에 읽는다
             existing_sources = set()
@@ -921,11 +988,12 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
                 cursor.execute(
                     """UPDATE Outbound01t
                        SET receptdate = %s, customcode = %s, customname = %s,
-                           manager = %s, description = %s, updated_at = CURRENT_TIMESTAMP,
+                           manager = %s, destination = %s, description = %s, updated_at = CURRENT_TIMESTAMP,
                            updated_by = %s
                        WHERE companyid = %s AND receiptno = %s""",
                     (payload["receptdate"], customcode, customer_name,
-                     manager or None, payload.get("description") or None, actor or None, companyid, receiptno),
+                     manager or None, (payload.get("destination") or "").strip() or None,
+                     payload.get("description") or None, actor or None, companyid, receiptno),
                 )
                 cursor.execute(
                     "DELETE FROM Outbound02t WHERE companyid = %s AND receiptno = %s",
@@ -939,10 +1007,11 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
                 cursor.execute(
                     """INSERT INTO Outbound01t
                        (companyid, companyname, receiptno, receptdate, customcode,
-                        customname, manager, description, subulyn, created_by)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'N', %s)""",
+                        customname, manager, destination, description, subulyn, created_by)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'N', %s)""",
                     (companyid, companyname, receiptno, payload["receptdate"], customcode,
-                     customer_name, manager or None, payload.get("description") or None, actor or None),
+                     customer_name, manager or None, (payload.get("destination") or "").strip() or None,
+                     payload.get("description") or None, actor or None),
                 )
             # Detail/expense rows are re-inserted on edit: keep the original creator and
             # record the editor as the modifier.
@@ -979,7 +1048,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
                 if demand["qty"] > Decimal(str(stock["qty"])) or demand["weight"] > Decimal(str(stock["weight"])):
                     raise ValueError(
                         f"원천 재고 {source_key[1]}/{source_key[2]} 잔량을 초과했습니다. "
-                        f"수량 {stock['qty']}, 중량 {stock['weight']} 안에서 출고해 주세요."
+                        f"수량 {stock['qty']}, 중량 {stock['weight']} 안에서 매출해 주세요."
                     )
 
             detail_values = []
@@ -1003,6 +1072,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
                     stock["surfacecode"], stock["surfacename"], stock["materialcode"] or "",
                     stock["materialname"] or "", stock["myrtle"], stock["thickness"], stock["width"], stock["length"],
                     qty, quantity_unit_names.get(stock["qtyunit"], stock["qtyunit"]), weight,
+                    Decimal(str(item.get("adjweight") or 0)),
                     price_unit_names.get(unit) or unit, unitprice, supplyamt, vat, unitamt,
                     stock["warehousecode"], stock["warehousecodename"], item.get("description", "").strip() or None,
                     manager or None, detail_created_by, detail_updated_by,
@@ -1023,7 +1093,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
                 """INSERT INTO Outbound02t
                    (companyid, companyname, receiptno, lineno, stocksourcetype, stocksourceno, stocksourceline,
                     itemcode, itemname, productname, surfacecode, surfacename, materialcode, materialname, myrtle,
-                    thickness, width, length, qty, qtyunit, weight, unit, unitprice, supplyamt, vat, unitamt,
+                    thickness, width, length, qty, qtyunit, weight, adjweight, unit, unitprice, supplyamt, vat, unitamt,
                     warehousecode, warehousecodename, description, manager, created_by, updated_by)
                    VALUES %s""",
                 detail_values,
@@ -1045,11 +1115,130 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
     except IntegrityError as error:
         message = str(error).lower()
         if "outbound01t_pkey" in message or "duplicate key" in message:
-            raise ValueError(f"이미 등록된 출고전표번호입니다: {receiptno}") from error
+            raise ValueError(f"이미 등록된 매출전표번호입니다: {receiptno}") from error
         raise
     except Exception:
         logger.exception("Failed to save outbound receipt")
         raise
+
+
+def update_receipt_sales_fields(companyid: str, receiptno: str, data: OutboundSalesFieldsUpdateRequest,
+                                actor: str | None = None) -> dict:
+    """저장된 매출전표의 담당자 · 착지 · 판매단가만 고친다. 재고(CurrentStock01t)와 원가(costamt)는 건드리지 않는다.
+
+    판매단가를 바꾸면 그 행의 공급가 · 부가세 · 합계를 저장 때와 같은 규칙(_calculate_unit_amount)으로 다시 계산해
+    매출상세(Outbound02t)와 수불장 출고 행(Iniop01t OUT)에 함께 반영한다. 매출이익 · 거래처원장 · 매출조회는
+    매출상세를 조회 때 읽으므로 따로 맞출 것이 없다. 마감된 달 · 수불 확정 전표는 수정할 수 없다.
+    """
+    actor = actor or None
+    with _connect() as connection, connection.cursor() as cursor:
+        # 기초재고 재계산처럼 수불장을 다시 쓰는 작업과 겹치지 않게 담당자 수정과 같은 공유 잠금을 잡는다.
+        cursor.execute("SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
+        cursor.execute(
+            """SELECT COALESCE(subulyn, 'N'), receptdate FROM Outbound01t
+               WHERE companyid = %s AND receiptno = %s FOR UPDATE""",
+            (companyid, receiptno),
+        )
+        receipt = cursor.fetchone()
+        if not receipt:
+            raise ValueError("매출전표를 찾을 수 없습니다.")
+        month_close_module.ensure_open(cursor, companyid, [receipt[1]], "수정")
+        if str(receipt[0] or "N").strip().upper() in {"Y", "YES", "\uD655\uC815"}:
+            raise ValueError("수불 확정된 매출전표는 수정할 수 없습니다.")
+
+        header_sets, header_params = [], []
+        if data.manager is not None:
+            header_sets.append("manager = %s")
+            header_params.append(data.manager or None)
+        if data.destination is not None:
+            header_sets.append("destination = %s")
+            header_params.append(data.destination or None)
+        header_sets.append("updated_at = CURRENT_TIMESTAMP")
+        header_sets.append("updated_by = %s")
+        cursor.execute(
+            f"UPDATE Outbound01t SET {', '.join(header_sets)} WHERE companyid = %s AND receiptno = %s",
+            (*header_params, actor, companyid, receiptno),
+        )
+
+        if data.manager is not None:
+            cursor.execute(
+                """UPDATE Outbound02t SET manager = %s, updated_at = CURRENT_TIMESTAMP, updated_by = %s
+                   WHERE companyid = %s AND receiptno = %s""",
+                (data.manager or None, actor, companyid, receiptno),
+            )
+            detail_count = cursor.rowcount
+            cursor.execute(
+                """UPDATE Iniop01t SET manager = %s, updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, updated_by)
+                   WHERE companyid = %s AND iniotype = 'OUT' AND receiptno = %s""",
+                (data.manager or None, actor, companyid, receiptno),
+            )
+            if cursor.rowcount != detail_count:
+                raise ValueError("수불장 담당자 반영 건수가 맞지 않습니다.")
+
+        changes = []
+        if data.prices:
+            requested = {price.lineno: price.unitprice for price in data.prices}
+            cursor.execute(
+                """SELECT lineno, qty, weight, length, unit, unitprice FROM Outbound02t
+                   WHERE companyid = %s AND receiptno = %s AND lineno = ANY(%s)
+                   FOR UPDATE""",
+                (companyid, receiptno, list(requested)),
+            )
+            lines = cursor.fetchall()
+            missing = sorted(set(requested) - {int(line[0]) for line in lines})
+            if missing:
+                raise ValueError(f"매출상세 행을 찾을 수 없습니다 (순번 {', '.join(map(str, missing[:5]))}). 목록을 새로고침해 주세요.")
+            # 매출상세의 단가기준은 코드명으로 저장된다 → 코드를 찾아 저장 때와 같은 계산 토큰(코드 + 코드명)을 만든다.
+            cursor.execute(
+                "SELECT code, code_name FROM CodeMaster01t WHERE companyid = %s AND groupcode = 'PRICE_UNIT'",
+                (companyid,),
+            )
+            unit_codes: dict[str, str] = {}
+            for code, code_name in cursor.fetchall():
+                code, code_name = str(code or "").strip(), str(code_name or "").strip()
+                if code_name:
+                    unit_codes.setdefault(code_name, code)
+                if code:
+                    unit_codes.setdefault(code, code)
+            for lineno, qty, weight, length, unit, old_price in lines:
+                unitprice = requested[int(lineno)]
+                if old_price is not None and Decimal(str(old_price)) == unitprice:
+                    continue  # 단가가 그대로면 금액도 그대로
+                unit_name = str(unit or "").strip()
+                # weight = 저장된 총중량 (조정 포함), length = 원천 재고 길이 — 저장 때 계산과 같은 값
+                supplyamt = _calculate_unit_amount(
+                    Decimal(str(weight or 0)), unitprice, unit_codes.get(unit_name, unit_name), unit_name,
+                    qty=Decimal(str(qty or 0)), length=Decimal(str(length or 0)),
+                )
+                vat = (supplyamt * Decimal("0.10")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                changes.append((int(lineno), unitprice, supplyamt, vat, supplyamt + vat))
+
+        if changes:
+            # 행마다 왕복하지 않도록 배열(unnest)로 한 번에 바꾼다 (매출상세 · 수불장 출고 행 각 1문장).
+            columns = [list(column) for column in zip(*changes)]
+            cursor.execute(
+                """UPDATE Outbound02t AS d
+                   SET unitprice = v.unitprice, supplyamt = v.supplyamt, vat = v.vat, unitamt = v.unitamt,
+                       updated_at = CURRENT_TIMESTAMP, updated_by = %s
+                   FROM unnest(%s::integer[], %s::numeric[], %s::numeric[], %s::numeric[], %s::numeric[])
+                        AS v(lineno, unitprice, supplyamt, vat, unitamt)
+                   WHERE d.companyid = %s AND d.receiptno = %s AND d.lineno = v.lineno""",
+                (actor, *columns, companyid, receiptno),
+            )
+            if cursor.rowcount != len(changes):
+                raise ValueError("매출상세 단가 반영 건수가 맞지 않습니다.")
+            cursor.execute(
+                """UPDATE Iniop01t AS i
+                   SET unitprice = v.unitprice, supplyamt = v.supplyamt, vat = v.vat, unitamt = v.unitamt,
+                       updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, i.updated_by)
+                   FROM unnest(%s::integer[], %s::numeric[], %s::numeric[], %s::numeric[], %s::numeric[])
+                        AS v(lineno, unitprice, supplyamt, vat, unitamt)
+                   WHERE i.companyid = %s AND i.iniotype = 'OUT' AND i.receiptno = %s AND i.lineno = v.lineno""",
+                (actor, *columns, companyid, receiptno),
+            )
+            if cursor.rowcount != len(changes):
+                raise ValueError("수불장 출고 행이 매출상세와 맞지 않아 단가를 반영하지 못했습니다.")
+    return {"price_count": len(changes)}
 
 
 def update_receipt_manager(companyid: str, receiptno: str, manager: str, actor: str | None = None):
@@ -1068,10 +1257,10 @@ def update_receipt_manager(companyid: str, receiptno: str, manager: str, actor: 
         )
         receipt = cursor.fetchone()
         if not receipt:
-            raise ValueError("Outbound receipt was not found.")
+            raise ValueError("매출전표를 찾을 수 없습니다.")
         month_close_module.ensure_open(cursor, companyid, [receipt[1]], "수정")
         if str(receipt[0] or "N").strip().upper() in {"Y", "YES", "\uD655\uC815"}:
-            raise ValueError("A confirmed outbound receipt cannot be edited.")
+            raise ValueError("수불 확정된 매출전표는 수정할 수 없습니다.")
 
         cursor.execute(
             """UPDATE Outbound01t
@@ -1085,7 +1274,7 @@ def update_receipt_manager(companyid: str, receiptno: str, manager: str, actor: 
         )
         updated_count = cursor.fetchone()[0]
         if not updated_count:
-            raise ValueError("Outbound receipt has no detail rows.")
+            raise ValueError("매출전표에 상세 행이 없습니다.")
         cursor.execute(
             """UPDATE Outbound02t
                SET manager = %s, updated_at = CURRENT_TIMESTAMP, updated_by = %s
@@ -1093,7 +1282,7 @@ def update_receipt_manager(companyid: str, receiptno: str, manager: str, actor: 
             (normalized_manager or None, actor or None, companyid, receiptno),
         )
         if cursor.rowcount != updated_count:
-            raise ValueError("Outbound detail manager update count did not match.")
+            raise ValueError("매출상세 담당자 반영 건수가 맞지 않습니다.")
         cursor.execute(
             """UPDATE Iniop01t
                SET manager = %s, updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, updated_by)
@@ -1101,7 +1290,7 @@ def update_receipt_manager(companyid: str, receiptno: str, manager: str, actor: 
             (normalized_manager or None, actor or None, companyid, receiptno),
         )
         if cursor.rowcount != updated_count:
-            raise ValueError("Inventory ledger manager update count did not match.")
+            raise ValueError("수불장 담당자 반영 건수가 맞지 않습니다.")
     return updated_count
 
 
@@ -1120,7 +1309,7 @@ def delete_receipt(companyid: str, receiptno: str, actor: str | None = None):
             return 0
         month_close_module.ensure_open(cursor, companyid, [row[1]], "삭제")
         if str(row[0] or "N").strip().upper() in {"Y", "YES", "확정"}:
-            raise ValueError("수불 확정된 출고전표는 삭제할 수 없습니다.")
+            raise ValueError("수불 확정된 매출전표는 삭제할 수 없습니다.")
         current_stock_module.reverse_document(cursor, companyid, "OUT", receiptno, actor=actor)
         cursor.execute("DELETE FROM Outbound02t WHERE companyid = %s AND receiptno = %s", (companyid, receiptno))
         cursor.execute("DELETE FROM Outbound01t WHERE companyid = %s AND receiptno = %s", (companyid, receiptno))

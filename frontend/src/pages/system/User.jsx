@@ -38,7 +38,7 @@ const authConfig = () => ({
   headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` },
 });
 
-const emptyUser = () => ({ companyid: '', username: '', email: '', authority: 'USER', password: '', useyn: 'Y' });
+const emptyUser = () => ({ companyid: '', usercode: '', username: '', email: '', authority: 'USER', password: '', useyn: 'Y' });
 const COMPANY_STATUS_LABELS = {
   PENDING: '승인대기',
   ACTIVE: '이용중',
@@ -57,13 +57,26 @@ const PAGE_SIZE_OPTIONS = [15, 20, 50, 100].map((value) => ({ value: String(valu
 const DEFAULT_PAGE_SIZE = 15;
 
 const USER_COLUMNS = [
+  { key: 'usercode', label: '사용자 코드', width: 90 },
   { key: 'username', label: '사용자명', width: 120 },
   { key: 'email', label: '이메일', width: 220 },
   { key: 'authority', label: '권한', width: 110 },
   { key: 'useyn', label: '사용여부', width: 90 },
+  { key: 'createdat', label: '등록일자', width: 140 },
   { key: 'created_by', label: '등록자', width: 90 },
+  { key: 'updatedat', label: '수정일자', width: 140 },
   { key: 'updated_by', label: '수정자', width: 90 },
 ];
+// 목록 날짜: YYYY-MM-DD HH:mm (등록일자 · 수정일자는 시간까지)
+const pad2 = (value) => String(value).padStart(2, '0');
+const listDate = (value) => {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}` : '';
+};
+const listDateTime = (value) => {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? `${listDate(value)} ${pad2(date.getHours())}:${pad2(date.getMinutes())}` : '';
+};
 
 export default function User() {
   const userCols = useResizableColumns(USER_COLUMNS); // 목록 열: 머리글 오른쪽 끝을 끌어 너비 조절
@@ -298,7 +311,15 @@ export default function User() {
       setIsNew(false);
       setSelectedEmail(data.item.email);
       setDraft({ ...data.item, password: '' });
-      notifications.show({ title: isNew ? '계정 등록 완료' : '계정 수정 완료', message: `${data.item.username} 계정을 저장했습니다.`, color: 'teal' });
+      notifications.show({
+        title: isNew ? '계정 등록 완료' : '계정 수정 완료',
+        // 새 계정은 메뉴 권한 없이 시작한다 (플랫폼 관리자 제외)
+        message: isNew && data.item.authority !== 'MASTER'
+          ? `${data.item.username} 계정을 저장했습니다. 메뉴권한관리에서 사용할 메뉴를 부여해 주세요.`
+          : `${data.item.username} 계정을 저장했습니다.`,
+        color: 'teal',
+        autoClose: isNew ? 7000 : undefined,
+      });
       await Promise.all([loadUsers(companyid, data.item.email, true), loadCompanies()]);
     } catch (error) {
       notifications.show({ title: '저장 실패', message: errorMessage(error, '고객사 계정을 저장하지 못했습니다.'), color: 'red' });
@@ -449,12 +470,15 @@ export default function User() {
               </colgroup>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th className={pickerClasses.resizableHead}>사용자명<ColumnResizeHandle column={USER_COLUMNS[0]} columns={userCols} /></Table.Th>
-                  <Table.Th className={pickerClasses.resizableHead}>이메일<ColumnResizeHandle column={USER_COLUMNS[1]} columns={userCols} /></Table.Th>
-                  <Table.Th className={pickerClasses.resizableHead}>권한<ColumnResizeHandle column={USER_COLUMNS[2]} columns={userCols} /></Table.Th>
-                  <Table.Th className={pickerClasses.resizableHead}>사용여부<ColumnResizeHandle column={USER_COLUMNS[3]} columns={userCols} /></Table.Th>
-                  <Table.Th className={pickerClasses.resizableHead}>등록자<ColumnResizeHandle column={USER_COLUMNS[4]} columns={userCols} /></Table.Th>
-                  <Table.Th className={pickerClasses.resizableHead}>수정자<ColumnResizeHandle column={USER_COLUMNS[5]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>사용자 코드<ColumnResizeHandle column={USER_COLUMNS[0]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>사용자명<ColumnResizeHandle column={USER_COLUMNS[1]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>이메일<ColumnResizeHandle column={USER_COLUMNS[2]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>권한<ColumnResizeHandle column={USER_COLUMNS[3]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>사용여부<ColumnResizeHandle column={USER_COLUMNS[4]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>등록일자<ColumnResizeHandle column={USER_COLUMNS[5]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>등록자<ColumnResizeHandle column={USER_COLUMNS[6]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>수정일자<ColumnResizeHandle column={USER_COLUMNS[7]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>수정자<ColumnResizeHandle column={USER_COLUMNS[8]} columns={userCols} /></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -464,6 +488,7 @@ export default function User() {
                     className={selectedEmail === user.email ? classes.selectedRow : ''}
                     onClick={() => handleSelectUser(user)}
                   >
+                    <Table.Td title={user.usercode || ''}>{user.usercode || ''}</Table.Td>
                     <Table.Td className={classes.nameCell} title={user.username}>{user.username}</Table.Td>
                     <Table.Td title={user.email}>{user.email}</Table.Td>
                     <Table.Td>
@@ -476,12 +501,14 @@ export default function User() {
                         {user.useyn === 'Y' ? '사용중' : '사용중지'}
                       </Badge>
                     </Table.Td>
+                    <Table.Td title={listDateTime(user.createdat)}>{listDateTime(user.createdat)}</Table.Td>
                     <Table.Td title={user.created_by || ''}>{user.created_by || ''}</Table.Td>
+                    <Table.Td title={listDateTime(user.updatedat)}>{listDateTime(user.updatedat)}</Table.Td>
                     <Table.Td title={user.updated_by || ''}>{user.updated_by || ''}</Table.Td>
                   </Table.Tr>
                 )) : (
                   <Table.Tr className={classes.emptyRow}>
-                    <Table.Td colSpan={7} className={classes.emptyCell}>
+                    <Table.Td colSpan={USER_COLUMNS.length} className={classes.emptyCell}>
                       <div className={classes.empty}>
                         <span className={classes.emptyIcon}>
                           {loadingUsers ? <IconSearch size={20} /> : companyid ? <IconInbox size={22} /> : <IconBuilding size={20} />}
@@ -576,6 +603,8 @@ export default function User() {
                   {readOnlyExisting && <span className={classes.formSectionHint}>조회 전용 계정</span>}
                 </div>
                 <div className={classes.formGrid}>
+                  {/* 사용자 코드: 회사별 내부 관리 코드 (001, 002, …) — 저장할 때 서버가 부여, 바꿀 수 없음 */}
+                  <TextInput label="사용자 코드" value={draft.usercode || ''} placeholder="저장 시 자동 부여" readOnly disabled />
                   <TextInput label="사용자명" withAsterisk value={draft.username} onChange={(event) => updateDraft('username', event.currentTarget.value)} maxLength={20} disabled={readOnlyExisting} />
                   <TextInput label="이메일" withAsterisk type="email" value={draft.email} onChange={(event) => updateDraft('email', event.currentTarget.value)} maxLength={50} disabled={readOnlyExisting} />
                   <Select

@@ -636,7 +636,8 @@ def lookup_stock(companyid: str, items: list[dict]):
 def _current_stock_conditions(companyid, itemcode, itemname, thickness, width, length,
                               warehousecode, warehousecodename, sourcetype="", customname="",
                               include_zero=False, source_lines=False, item_search="",
-                              product_search="", warehouse_search="", receipt_search="", date_from=None, date_to=None):
+                              product_search="", warehouse_search="", receipt_search="", date_from=None, date_to=None,
+                              remark_search=""):
     where = ["stock.companyid = %s"]
     params = [companyid]
     if source_lines:
@@ -658,7 +659,11 @@ def _current_stock_conditions(companyid, itemcode, itemname, thickness, width, l
         if receipt_search.strip():
             where.append("stock.sourceno ILIKE %s")
             params.append(f"%{receipt_search.strip()}%")
-    elif date_from or date_to or receipt_search.strip():
+        if remark_search.strip():
+            # 비고 부분 검색 (trigram 인덱스 ix_currentstock01t_remark_trgm)
+            where.append("stock.remark ILIKE %s")
+            params.append(f"%{remark_search.strip()}%")
+    elif date_from or date_to or receipt_search.strip() or remark_search.strip():
         # The legacy aggregate table has no source receipt date to filter by.
         where.append("FALSE")
     if item_search.strip():
@@ -690,14 +695,14 @@ def _current_stock_select(source_lines: bool):
     source_fields = (
         "stock.sourcetype, stock.sourceno, stock.sourceline, stock.receiptdate, "
         "stock.customcode, stock.customname, stock.originalqty, stock.originalweight, "
-        "COALESCE(price_unit.code_name, stock.unit) AS unit, stock.unitprice"
+        "COALESCE(price_unit.code_name, stock.unit) AS unit, stock.unitprice, stock.remark"
         if source_lines else
         "NULL::text AS sourcetype, NULL::text AS sourceno, NULL::integer AS sourceline, "
         "NULL::date AS receiptdate, NULL::text AS customcode, NULL::text AS customname, "
         "stock.qty AS originalqty, stock.weight AS originalweight, "
-        "NULL::text AS unit, NULL::numeric AS unitprice"
+        "NULL::text AS unit, NULL::numeric AS unitprice, NULL::text AS remark"
     )
-    # 원가 칸은 맨 뒤에 둔다 (엑셀 출력이 칸 위치로 값을 쓴다)
+    # 엑셀은 칸 이름(EXCEL_COLUMNS)으로 값을 찾으므로 순서는 자유
     cost_fields = (
         ", stock.stockkind, " + LOT_COST_PRICE_SQL + " AS costprice, stock.costamt AS stockamt, "
         "stock.costamt - stock.expamt - stock.feeamt AS realamt, stock.expamt, stock.feeamt"
@@ -706,7 +711,10 @@ def _current_stock_select(source_lines: bool):
         "NULL::numeric AS realamt, NULL::numeric AS expamt, NULL::numeric AS feeamt"
     )
     manager_field = (
-        "COALESCE((SELECT NULLIF(BTRIM(header.manager), '') "
+        # 이 재고를 판 매출 줄 중 가장 최근 전표의 담당자. 원천재고 인덱스(ix_outbound02t_stock_source)로 이 재고의
+        # 매출 줄만 먼저 찾고(OFFSET 0 으로 고정) 그다음 정렬한다 → 50만 행에서도 행당 인덱스 조회 1번.
+        "COALESCE((SELECT recent.manager FROM ("
+        "SELECT NULLIF(BTRIM(header.manager), '') AS manager, header.receptdate, header.receiptno, outbound_detail.lineno "
         "FROM Outbound02t AS outbound_detail "
         "JOIN Outbound01t AS header "
         "ON header.companyid = outbound_detail.companyid "
@@ -715,8 +723,9 @@ def _current_stock_select(source_lines: bool):
         "AND outbound_detail.stocksourcetype = stock.sourcetype "
         "AND outbound_detail.stocksourceno = stock.sourceno "
         "AND outbound_detail.stocksourceline = stock.sourceline "
-        "AND NULLIF(BTRIM(header.manager), '') IS NOT NULL "
-        "ORDER BY header.receptdate DESC, header.receiptno DESC, outbound_detail.lineno DESC "
+        "OFFSET 0) AS recent "
+        "WHERE recent.manager IS NOT NULL "
+        "ORDER BY recent.receptdate DESC, recent.receiptno DESC, recent.lineno DESC "
         "LIMIT 1), stock.manager) AS manager, "
         if source_lines else "stock.manager, "
     )
@@ -733,15 +742,58 @@ def _current_stock_select(source_lines: bool):
     )
 
 
+class StockRemarkItem(BaseModel):
+    sourcetype: str = Field(min_length=1, max_length=20)
+    sourceno: str = Field(min_length=1, max_length=100)
+    sourceline: int = Field(ge=0)
+    remark: str = Field(default="", max_length=500)
+
+    @field_validator("sourcetype", "sourceno", "remark")
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class StockRemarkSaveRequest(BaseModel):
+    items: list[StockRemarkItem] = Field(min_length=1, max_length=1000)
+
+
+def save_lot_remarks(companyid: str, items: list[dict], actor: str | None = None) -> int:
+    """현재고 비고만 저장한다 (수량 · 원가 · updated_at 은 건드리지 않는다). 여러 줄을 한 문장으로."""
+    keys = [(item["sourcetype"].upper(), item["sourceno"], int(item["sourceline"])) for item in items]
+    if len(set(keys)) != len(keys):
+        raise ValueError("같은 재고의 비고가 중복되었습니다.")
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """UPDATE CurrentStock01t AS stock
+               SET remark = NULLIF(v.remark, ''), remark_updated_at = CURRENT_TIMESTAMP, remark_updated_by = %s
+               FROM unnest(%s::text[], %s::text[], %s::integer[], %s::text[]) AS v(sourcetype, sourceno, sourceline, remark)
+               WHERE stock.companyid = %s AND stock.sourcetype = v.sourcetype
+                 AND stock.sourceno = v.sourceno AND stock.sourceline = v.sourceline""",
+            (actor or None, [key[0] for key in keys], [key[1] for key in keys], [key[2] for key in keys],
+             [item["remark"] for item in items], companyid),
+        )
+        if cursor.rowcount != len(items):
+            raise ValueError("일부 재고를 찾을 수 없습니다 (삭제되었거나 다시 만들어졌습니다). 다시 조회한 뒤 저장해 주세요.")
+        return cursor.rowcount
+
+
 def list_current_stock(companyid: str, page: int, page_size: int, **filters):
     with _connect() as connection, connection.cursor() as cursor:
         source_lines = _uses_source_lines(cursor)
         where, params = _current_stock_conditions(companyid, source_lines=source_lines, **filters)
         cursor.execute(f"SELECT COUNT(*) FROM CurrentStock01t AS stock WHERE {where}", params)
         total = cursor.fetchone()[0]
+        order_sql = ('stock.receiptdate ASC, stock.sourcetype, stock.sourceno, stock.sourceline' if source_lines
+                     else 'stock.itemcode, stock.thickness, stock.width, stock.length, stock.warehousecode, stock.qtyunit')
+        # 조건·정렬로 이 쪽의 행만 먼저 고른 뒤, 그 행에만 코드명·담당자·사용자명을 붙인다
+        # (뒤 쪽으로 가도 건너뛴 행에는 담당자 조회를 하지 않는다)
         cursor.execute(
             f"""SELECT {_current_stock_select(source_lines)}
-                FROM CurrentStock01t AS stock
+                FROM (SELECT stock.* FROM CurrentStock01t AS stock
+                      WHERE {where}
+                      ORDER BY {order_sql}
+                      LIMIT %s OFFSET %s) AS stock
                 LEFT JOIN CodeMaster01t AS qty_code
                   ON qty_code.companyid = stock.companyid
                  AND qty_code.groupcode = 'QTY'
@@ -750,16 +802,62 @@ def list_current_stock(companyid: str, page: int, page_size: int, **filters):
                   ON price_unit.companyid = stock.companyid
                  AND price_unit.groupcode = 'PRICE_UNIT'
                  AND price_unit.code = stock.unit
-                WHERE {where}
-                ORDER BY {('stock.receiptdate ASC, stock.sourcetype, stock.sourceno, stock.sourceline' if source_lines else 'stock.itemcode, stock.thickness, stock.width, stock.length, stock.warehousecode, stock.qtyunit')}
-                LIMIT %s OFFSET %s""",
+                ORDER BY {order_sql}""",
             (*params, page_size, (page - 1) * page_size),
         )
         items = [_row_dict(cursor, row) for row in cursor.fetchall()]
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
-UNIT_PRICE_INDEX = 10  # _current_stock_select 의 stock.unitprice 위치 (엑셀에서 제외)
+# 엑셀: 행이 이만큼 이하면 메모리에서 바로 만든다 (임시파일로 나눠 쓰는 것보다 2~3배 빠름). 넘으면 메모리를 아끼려고 나눠 쓴다.
+IN_MEMORY_EXCEL_ROWS = 60000
+
+
+def _excel_options(cursor, count_sql: str, params) -> dict:
+    cursor.execute(count_sql, params)
+    return {"in_memory": True} if cursor.fetchone()[0] <= IN_MEMORY_EXCEL_ROWS else {"constant_memory": True}
+
+
+# 현재고 엑셀 칸 (key = 조회 칸 이름, 제목, 형식). 화면과 같은 순서 + 코드 칸은 맨 뒤.
+# 입력 단가(stock.unitprice)는 넣지 않는다 (재고 가치는 원가단가·재고금액).
+EXCEL_COLUMNS = [
+    ("stockkind", "재고구분", "kind"),
+    ("receiptdate", "입고일자", "date"),
+    ("warehousecodename", "창고명", "text"),
+    ("itemname", "품명", "text"),
+    ("materialname", "강종", "text"),
+    ("surfacename", "표면", "text"),
+    ("myrtle", "도금량(g/㎡)", "number"),
+    ("thickness", "두께", "number"),
+    ("width", "폭", "number"),
+    ("length", "길이", "number"),
+    ("qty", "현재수량", "number"),
+    ("weight", "현재중량", "number"),
+    ("customname", "매입처", "text"),
+    ("productname", "제품번호", "text"),
+    ("originalqty", "최초수량", "number"),
+    ("originalweight", "최초중량", "number"),
+    ("costprice", "원가단가(원/kg)", "number"),
+    ("realamt", "매입가액", "number"),
+    ("expamt", "매입 부대비", "number"),
+    ("feeamt", "가공금액", "number"),
+    ("stockamt", "재고금액", "number"),
+    ("qtyunit", "수량단위", "text"),
+    ("unit", "단가기준", "text"),
+    ("manager", "담당자", "text"),
+    ("sourceno", "원천전표", "text"),
+    ("sourceline", "원천순번", "number"),
+    ("created_at", "등록일자", "datetime"),
+    ("created_by", "등록자", "text"),
+    ("updated_at", "수정일자", "datetime"),
+    ("updated_by", "수정자", "text"),
+    ("remark", "비고", "text"),
+    ("customcode", "매입처코드", "text"),
+    ("itemcode", "품목코드", "text"),
+    ("materialcode", "강종코드", "text"),
+    ("surfacecode", "표면코드", "text"),
+    ("warehousecode", "창고코드", "text"),
+]
 
 
 def write_current_stock_excel(companyid: str, output_path: str, **filters):
@@ -778,12 +876,10 @@ def write_current_stock_excel(companyid: str, output_path: str, **filters):
                  AND price_unit.code = stock.unit
                 WHERE {where}
                 ORDER BY {('stock.receiptdate ASC, stock.sourcetype, stock.sourceno, stock.sourceline' if source_lines else 'stock.itemcode, stock.thickness, stock.width, stock.length, stock.warehousecode, stock.qtyunit')}"""
-    headers = ["No.", "재고구분", "원천전표", "원천순번", "입고일자", "거래처코드", "거래처명",
-               "최초수량", "최초중량", "단가기준", "품목코드", "품목명", "Lot번호",
-               "강판코드", "강판", "표면코드", "표면", "도금량(g/㎡)", "담당자", "두께", "폭", "길이",
-               "현재수량", "수량단위", "현재중량", "창고코드", "창고명", "등록일자", "수정일자", "등록자", "수정자",
-               "재고구분(상세)", "원가단가(원/kg)", "재고금액", "원자재원가", "기타비용", "가공금액"]
-    workbook = xlsxwriter.Workbook(output_path, {"constant_memory": True})
+    headers = ["No.", *(title for _, title, _ in EXCEL_COLUMNS)]
+    with _connect() as connection, connection.cursor() as cursor:
+        options = _excel_options(cursor, f"SELECT COUNT(*) FROM CurrentStock01t AS stock WHERE {where}", params)
+    workbook = xlsxwriter.Workbook(output_path, options)
     worksheet = workbook.add_worksheet("현재고현황")
     header_format = workbook.add_format({"bold": True, "font_color": "#B4232D", "bg_color": "#FFF3F3", "border": 1, "border_color": "#E5BFC2"})
     integer_format = workbook.add_format({"num_format": "#,##0;[Red]-#,##0;0"})
@@ -792,42 +888,254 @@ def write_current_stock_excel(companyid: str, output_path: str, **filters):
     datetime_format = workbook.add_format({"num_format": "yyyy-mm-dd hh:mm"})
     worksheet.write_row(0, 0, headers, header_format)
     worksheet.freeze_panes(1, 0)
-    worksheet.set_column("A:A", 8)
-    worksheet.set_column("B:W", 16)
-    worksheet.set_column("C:C", 26)
-    worksheet.set_column("G:G", 24)
-    worksheet.set_column("L:M", 20)
-    worksheet.set_column("V:W", 20, datetime_format)
-    worksheet.set_column("AE:AF", 14)
-    worksheet.set_column("AG:AL", 14)
+    worksheet.set_column(0, 0, 8)
+    widths = {"kind": 10, "date": 12, "datetime": 18, "number": 13, "text": 16}
+    for index, (key, _title, kind) in enumerate(EXCEL_COLUMNS, start=1):
+        worksheet.set_column(index, index, 24 if key in ("sourceno", "productname") else widths[kind])
     row_no = 1
     try:
         with _connect() as connection, connection.cursor(name="current_stock_excel_cursor") as cursor:
             cursor.itersize = 2000
             cursor.execute(query, params)
+            positions = None
             while rows := cursor.fetchmany(2000):
+                if positions is None:
+                    # 조회 칸 이름 → 위치 (칸 순서가 바뀌어도 값이 어긋나지 않게)
+                    names = [column[0] for column in cursor.description]
+                    positions = [names.index(key) for key, _title, _kind in EXCEL_COLUMNS]
                 for row in rows:
                     worksheet.write_number(row_no, 0, row_no)
-                    for index, value in enumerate(row, start=1):
-                        # 10번째 칸(입력 단가)은 엑셀에서 뺀다 (재고 가치는 원가단가·재고금액). 뒤 칸은 한 칸씩 당겨 쓴다
-                        if value is None or index == UNIT_PRICE_INDEX:
+                    for col, ((_key, _title, kind), position) in enumerate(zip(EXCEL_COLUMNS, positions), start=1):
+                        value = row[position]
+                        if value is None:
                             continue
-                        col = index - 1 if index > UNIT_PRICE_INDEX else index
-                        if index == 32:
-                            value = stock_cost_module.stock_kind_label(value)
-                        if index in (3, 7, 8, 18, 20, 21, 22, 23, 25, 33, 34, 35, 36, 37):
+                        if kind == "kind":
+                            worksheet.write(row_no, col, stock_cost_module.stock_kind_label(value))
+                        elif kind == "number":
                             numeric_value = float(value)
                             if numeric_value.is_integer():
                                 worksheet.write_number(row_no, col, int(numeric_value), integer_format)
                             else:
                                 worksheet.write_number(row_no, col, numeric_value, number_format)
-                        elif index in (28, 29):
+                        elif kind == "datetime":
                             worksheet.write_datetime(row_no, col, value.replace(tzinfo=None), datetime_format)
-                        elif index == 4:
+                        elif kind == "date":
                             worksheet.write_datetime(row_no, col, value, date_format)
                         else:
                             worksheet.write(row_no, col, value)
                     row_no += 1
+        worksheet.autofilter(0, 0, max(0, row_no - 1), len(headers) - 1)
     finally:
         workbook.close()
     return row_no - 1
+
+
+# ---------------------------------------------------------------------------
+# 재고 로트 원가 이력 (현재고 > 행 더블클릭)
+#   origin: 원 전표(매입·기초)부터 재고이전·가공을 거쳐 이 로트가 만들어지기까지의 원가 구성 경로
+#   steps : 이 로트에서 출고(매출·가공투입·이동출고)된 내역 — 저장(계산)된 순서
+# 금액은 수불장에 기록된 값 그대로이고, 산식은 같은 규칙으로 다시 따라가 표시만 한다.
+# ---------------------------------------------------------------------------
+_HISTORY_KIND_NAMES = {"ST": "기초", "IN": "매입입고", "OUT": "매출출고", "PROCESS_OUT": "가공투입",
+                       "PROCESS_IN": "가공입고", "MOVE_OUT": "이동출고", "MOVE_IN": "이동입고"}
+_LOT_COLUMNS = """sourcetype, sourceno, sourceline, stockkind, itemcode, itemname, productname,
+                  warehousecodename, receiptdate, originalqty, qty, originalweight, weight,
+                  COALESCE(costamt, 0) AS costamt, COALESCE(expamt, 0) AS expamt, COALESCE(feeamt, 0) AS feeamt"""
+
+
+def _dec0(value) -> Decimal:
+    return Decimal(str(value if value is not None else 0))
+
+
+def _load_lot(cursor, companyid: str, sourcetypes, sourceno: str, sourceline: int):
+    cursor.execute(
+        f"""SELECT {_LOT_COLUMNS} FROM CurrentStock01t
+            WHERE companyid = %s AND sourcetype = ANY(%s) AND sourceno = %s AND sourceline = %s
+            LIMIT 1""",
+        (companyid, list(sourcetypes), sourceno, sourceline),
+    )
+    row = cursor.fetchone()
+    return _row_dict(cursor, row) if row else None
+
+
+def _lot_created(cursor, companyid: str, lot: dict):
+    """이 로트를 만든 수불 행 (매입입고 · 기초 · 가공입고 · 이동입고)."""
+    cursor.execute(
+        """SELECT iniodate, COALESCE(iniokind, iniotype) AS kind, receiptno, lineno, customname, qty, weight,
+                  COALESCE(supplyamt, 0) AS supplyamt, COALESCE(costamt, 0) AS costamt,
+                  COALESCE(expamt, 0) AS expamt, COALESCE(feeamt, 0) AS feeamt
+           FROM Iniop01t
+           WHERE companyid = %s AND iniotype IN ('IN', 'ST') AND receiptno = %s AND lineno = %s
+           LIMIT 1""",
+        (companyid, lot["sourceno"], lot["sourceline"]),
+    )
+    row = cursor.fetchone()
+    return _row_dict(cursor, row) if row else None
+
+
+def _lot_steps(cursor, companyid: str, lot: dict, created: dict | None) -> list[dict]:
+    """이 로트에서 빠진 원가 (매출 · 이동출고 · 가공투입)를 저장 순서대로, 산식과 함께."""
+    source_types = sorted({str(lot["sourcetype"] or ""), str(lot["stockkind"] or "")} - {""})
+    cursor.execute(
+        """WITH uses AS (
+               SELECT receiptno AS docno, lineno FROM Outbound02t
+               WHERE companyid = %(c)s AND stocksourcetype = ANY(%(t)s) AND stocksourceno = %(n)s AND stocksourceline = %(l)s
+               UNION
+               -- 재고이전 수불은 상세 1행마다 이동출고(순번 × 2 − 1) · 이동입고(순번 × 2) 두 줄
+               SELECT receiptno, lineno * 2 - 1 FROM inoutmove02t
+               WHERE companyid = %(c)s AND stocksourcetype = ANY(%(t)s) AND stocksourceno = %(n)s AND stocksourceline = %(l)s
+               UNION
+               SELECT processno, lineno FROM Process02t
+               WHERE companyid = %(c)s AND linetype = 'SOURCE'
+                 AND stocksourcetype = ANY(%(t)s) AND stocksourceno = %(n)s AND stocksourceline = %(l)s
+           )
+           SELECT i.iniodate, COALESCE(i.iniokind, i.iniotype) AS kind, i.receiptno, i.lineno, i.customname,
+                  i.qty, i.weight, COALESCE(i.costamt, 0) AS costamt, COALESCE(i.expamt, 0) AS expamt,
+                  COALESCE(i.feeamt, 0) AS feeamt
+           FROM uses u
+           JOIN Iniop01t i ON i.companyid = %(c)s AND i.iniotype = 'OUT' AND i.receiptno = u.docno AND i.lineno = u.lineno
+           ORDER BY i.created_at, i.receiptno, i.lineno""",
+        {"c": companyid, "t": source_types, "n": lot["sourceno"], "l": lot["sourceline"]},
+    )
+    uses = [_row_dict(cursor, row) for row in cursor.fetchall()]
+    base = created or lot
+    remain = [_dec0(base["costamt"]), _dec0(base["expamt"]), _dec0(base["feeamt"]), _dec0(lot["originalweight"])]
+    steps = []
+    for use in uses:
+        weight = _dec0(use["weight"])
+        before_cost, before_exp, before_fee, before_weight = remain
+        raw = (before_cost * weight / before_weight) if before_weight > 0 else before_cost
+        expected = stock_cost_module.consume_parts(before_cost, before_exp, before_fee, before_weight, weight)
+        recorded = (_dec0(use["costamt"]), _dec0(use["expamt"]), _dec0(use["feeamt"]))
+        remain = [before_cost - recorded[0], before_exp - recorded[1], before_fee - recorded[2], before_weight - weight]
+        steps.append({
+            "iniodate": use["iniodate"], "kind": use["kind"], "kindname": _HISTORY_KIND_NAMES.get(use["kind"], use["kind"]),
+            "receiptno": use["receiptno"], "lineno": use["lineno"], "customname": use["customname"],
+            "qty": use["qty"], "weight": weight, "before_cost": before_cost, "before_weight": before_weight,
+            "takes_all": before_weight <= 0 or weight >= before_weight, "raw_cost": raw.quantize(Decimal("0.01")),
+            "costamt": recorded[0], "expamt": recorded[1], "feeamt": recorded[2],
+            "realamt": recorded[0] - recorded[1] - recorded[2],
+            "matches": tuple(expected) == recorded,
+            "after_cost": remain[0], "after_weight": remain[3],
+        })
+    return steps
+
+
+def _origin_note(cursor, companyid: str, lot: dict, created: dict | None) -> dict:
+    """원 전표(매입 · 기초)에서 이 로트 원가가 어떻게 정해졌는지."""
+    cost = _dec0((created or lot)["costamt"])
+    exp = _dec0((created or lot)["expamt"])
+    if (created or {}).get("kind") == "ST" or lot["stockkind"] == "OPENING":
+        return {"basis": "opening", "supplyamt": cost - exp}
+    cursor.execute(
+        """SELECT COALESCE((SELECT SUM(supplyamt) FROM Inbound03t WHERE companyid = %s AND receiptno = %s), 0),
+                  COALESCE((SELECT SUM(weight) FROM Inbound02t WHERE companyid = %s AND receiptno = %s), 0)""",
+        (companyid, lot["sourceno"], companyid, lot["sourceno"]),
+    )
+    expense_total, doc_weight = cursor.fetchone()
+    return {"basis": "inbound", "supplyamt": cost - exp, "expense_total": _dec0(expense_total),
+            "doc_weight": _dec0(doc_weight), "line_weight": _dec0((created or lot)["weight"])}
+
+
+def _parent_of(cursor, companyid: str, lot: dict, created: dict | None):
+    """재고이전 · 가공으로 만들어진 로트의 바로 앞 로트와, 그 로트에서 빠진 수불 행 · 이 로트로 들어온 원가 구성."""
+    kind = (created or {}).get("kind") or ""
+    if lot["stockkind"] == "TRANSFER" or kind == "MOVE_IN":
+        detail_line = int(lot["sourceline"]) // 2
+        cursor.execute(
+            """SELECT stocksourcetype, stocksourceno, stocksourceline FROM inoutmove02t
+               WHERE companyid = %s AND receiptno = %s AND lineno = %s""",
+            (companyid, lot["sourceno"], detail_line),
+        )
+        source = cursor.fetchone()
+        if not source:
+            return None
+        return {"via": "transfer", "parent_key": source, "out_doc": (lot["sourceno"], int(lot["sourceline"]) - 1)}
+    if lot["stockkind"] == "PROCESS" or kind == "PROCESS_IN":
+        cursor.execute(stock_cost_module._PROCESS_LINE_SQL, (companyid, [lot["sourceno"]]))
+        rows = cursor.fetchall()
+        for source, nodes in stock_cost_module._process_trees(rows):
+            ids = {node["id"] for node in nodes}
+            if int(lot["sourceline"]) not in ids:
+                continue
+            fees = stock_cost_module.process_product_amounts(Decimal("0"), nodes)
+            leaf_ids = set(fees)
+            leaf_weight = sum((_dec0(node["weight"]) for node in nodes if node["id"] in leaf_ids), Decimal("0"))
+            this_node = next(node for node in nodes if node["id"] == int(lot["sourceline"]))
+            cursor.execute(
+                "SELECT processcodename FROM Process02t WHERE companyid = %s AND processno = %s AND lineno = %s",
+                (companyid, lot["sourceno"], lot["sourceline"]),
+            )
+            process_name = (cursor.fetchone() or [None])[0]
+            fee = fees.get(int(lot["sourceline"]), Decimal("0"))
+            return {
+                "via": "process", "parent_key": (source[5], source[6], source[7]), "out_doc": (lot["sourceno"], int(source[1])),
+                "process_fee": fee, "process_name": process_name, "product_count": len(leaf_ids),
+                "product_weight": _dec0(this_node["weight"]), "leaf_weight": leaf_weight,
+            }
+    return None
+
+
+def get_lot_cost_history(companyid: str, sourcetype: str, sourceno: str, sourceline: int):
+    with _connect() as connection, connection.cursor() as cursor:
+        lot = _load_lot(cursor, companyid, [sourcetype], sourceno, sourceline)
+        if not lot:
+            return None
+        created = _lot_created(cursor, companyid, lot)
+        steps = _lot_steps(cursor, companyid, lot, created)
+
+        # 원가 구성 경로: 이 로트에서 거꾸로 원 전표까지 따라간 뒤 순서를 뒤집는다
+        origin = []
+        current, current_created = lot, created
+        for _depth in range(20):
+            parent = _parent_of(cursor, companyid, current, current_created)
+            entry = {
+                "kind": (current_created or {}).get("kind") or "", "kindname": _HISTORY_KIND_NAMES.get((current_created or {}).get("kind"), stock_cost_module.stock_kind_label(current["stockkind"])),
+                "iniodate": (current_created or {}).get("iniodate") or current["receiptdate"],
+                "receiptno": current["sourceno"], "lineno": current["sourceline"],
+                "customname": (current_created or {}).get("customname"), "itemname": current["itemname"],
+                "productname": current["productname"], "warehousecodename": current["warehousecodename"],
+                "weight": _dec0(current["originalweight"]),
+                "costamt": _dec0((current_created or current)["costamt"]), "expamt": _dec0((current_created or current)["expamt"]),
+                "feeamt": _dec0((current_created or current)["feeamt"]), "is_this": current is lot,
+            }
+            entry["realamt"] = entry["costamt"] - entry["expamt"] - entry["feeamt"]
+            if not parent:
+                entry["note"] = _origin_note(cursor, companyid, current, current_created)
+                origin.append(entry)
+                break
+            parent_lot = _load_lot(cursor, companyid, [parent["parent_key"][0], "INBOUND", "OPENING", "PROCESS", "TRANSFER"],
+                                   parent["parent_key"][1], int(parent["parent_key"][2]))
+            if not parent_lot:
+                origin.append(entry)
+                break
+            parent_created = _lot_created(cursor, companyid, parent_lot)
+            out_step = next((step for step in _lot_steps(cursor, companyid, parent_lot, parent_created)
+                             if step["receiptno"] == parent["out_doc"][0] and int(step["lineno"]) == parent["out_doc"][1]), None)
+            if parent["via"] == "process":
+                entry["note"] = {"basis": "process", "material": entry["costamt"] - parent["process_fee"],
+                                 "process_fee": parent["process_fee"], "process_name": parent["process_name"],
+                                 "product_count": parent["product_count"], "product_weight": parent["product_weight"],
+                                 "leaf_weight": parent["leaf_weight"], "input_cost": out_step and out_step["costamt"]}
+            else:
+                entry["note"] = {"basis": "transfer", "moved": entry["costamt"]}
+            origin.append(entry)
+            if out_step:
+                origin.append({**out_step, "is_out": True})
+            current, current_created = parent_lot, parent_created
+        origin.reverse()
+
+    start_cost = _dec0((created or lot)["costamt"])
+    consumed = sum((step["costamt"] for step in steps), Decimal("0"))
+    remaining_weight = steps[-1]["after_weight"] if steps else _dec0(lot["originalweight"])
+    return {
+        "lot": {**lot, "kindname": stock_cost_module.stock_kind_label(lot["stockkind"])},
+        "origin": origin,
+        "steps": steps,
+        "summary": {
+            "in_cost": start_cost, "in_weight": _dec0(lot["originalweight"]),
+            "out_cost": consumed, "out_weight": _dec0(lot["originalweight"]) - _dec0(lot["weight"]),
+            "stock_cost": _dec0(lot["costamt"]), "stock_weight": _dec0(lot["weight"]),
+            "balanced": start_cost - consumed == _dec0(lot["costamt"]) and remaining_weight == _dec0(lot["weight"]),
+        },
+    }

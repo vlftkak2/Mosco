@@ -2,11 +2,27 @@ import {
   TextInput, PasswordInput, Checkbox, Button, Text, Box, Stack,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
+import { useState } from 'react';
 import classes from '../../styles/auth/LoginPage.module.css';
 import axios from 'axios';
 import steel119Logo from '../../assets/img/steel119-login.png';
+import { LOGIN_NOTICE_KEY } from '../../utils/sessionGuard';
+
+// 다른 곳에서 로그인되어 로그아웃된 경우 등, 로그인 화면에 보여 줄 안내 문구 (다음 로그인 시도 때 지운다)
+function readLoginNotice() {
+  try {
+    return sessionStorage.getItem(LOGIN_NOTICE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function clearLoginNotice() {
+  try { sessionStorage.removeItem(LOGIN_NOTICE_KEY); } catch { /* 무시 */ }
+}
 
 function LoginPage() {
+  const [loginNotice, setLoginNotice] = useState(readLoginNotice);
   const rememberedEmail = localStorage.getItem('remembered_email') || '';
   const form = useForm({
     initialValues: { company: '', email: rememberedEmail, password: '', rememberMe: Boolean(rememberedEmail) },
@@ -17,6 +33,8 @@ function LoginPage() {
   });
 
   const handleLogin = async (values) => {
+    clearLoginNotice();
+    setLoginNotice('');
     if (values.rememberMe) {
       localStorage.setItem('remembered_email', values.email);
     } else {
@@ -83,6 +101,10 @@ function LoginPage() {
               <h1 className={classes.loginHeaderTitle}>로그인</h1>
               <Text className={classes.loginDescription}>등록된 비즈니스 계정으로 로그인해 주세요.</Text>
             </Box>
+
+            {loginNotice && (
+              <Text c="#dc2626" size="sm" mb={20} role="alert">{loginNotice}</Text>
+            )}
 
             <form onSubmit={form.onSubmit(handleLogin)}>
               <Stack gap={20}>

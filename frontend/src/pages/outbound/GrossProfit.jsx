@@ -1,5 +1,5 @@
 // 매출이익분석 (메뉴: GROSS_PROFIT)
-// 출고(매출) 행마다 원가(매입금액·매입비용·가공비·원자재원가)와 매출비용을 붙여 이익·마진율을 보여 준다. 매출처별 그룹·소계·총계.
+// 출고(매출) 행마다 원가(매입가액·매입 부대비·가공비·가공 원재료비)와 매출비용을 붙여 이익·마진율을 보여 준다. 매출처별 그룹·소계·총계.
 // 계산식은 backend/services/outbound/GrossProfit.py 상단 설명 참고.
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
@@ -25,7 +25,7 @@ const ORIGIN_LABELS = { INBOUND: '입고', OPENING: '기초재고', PROCESS: '�
 // 매입금액 = 매입단가 × 기준수량. 기준수량은 원가기준에 따라 중량(kg) · 중량÷1000(톤) · 수량 · 길이
 const COST_UNIT_LABELS = { KG: 'KG', TON: 'TON', QTY: '수량', LENGTH: '길이' };
 const PROFIT_OPTIONS = [{ value: '', label: '전체' }, { value: 'GAIN', label: '이익' }, { value: 'LOSS', label: '손실' }];
-// 옛 프로그램과 같은 순서: 이익금액 → 매입금액 → 매입비용 → 가공비 → 매출금액 → 매출비용(+/−) → 마진율
+// 옛 프로그램과 같은 순서: 이익금액 → 매입가액 → 매입 부대비 → 가공비 → 매출금액 → 매출비용(+/−) → 마진율
 const COLUMNS = [
   { key: 'no', label: 'NO', width: 46, align: 'center' },
   { key: 'receptdate', label: '매출일자', width: 92 },
@@ -33,24 +33,23 @@ const COLUMNS = [
   { key: 'sales_amt', label: '매출금액', width: 108, type: 'money' },
   { key: 'sales_plus', label: '매출비용(+)', width: 92, type: 'money' },
   { key: 'sales_minus', label: '매출비용(−)', width: 92, type: 'money' },
-  { key: 'purchase_amt', label: '매입금액', width: 105, type: 'money' },
-  { key: 'purchase_cost', label: '매입비용', width: 88, type: 'money' },
+  { key: 'purchase_amt', label: '매입가액', width: 105, type: 'money' },
+  { key: 'purchase_cost', label: '매입 부대비', width: 92, type: 'money' },
   { key: 'process_amt', label: '가공비', width: 88, type: 'money' },
-  { key: 'material_amt', label: '원자재원가', width: 96, type: 'money' },
+  { key: 'material_amt', label: '가공 원재료비', width: 104, type: 'money' },
   { key: 'profit_amt', label: '이익금액', width: 105, type: 'money' },
   { key: 'margin_rate', label: '마진율(%)', width: 88, type: 'margin' },
   { key: 'productname', label: '품명', width: 110 },
   { key: 'itemname', label: '품목', width: 120 },
   { key: 'materialname', label: '강종', width: 80 },
   { key: 'surfacename', label: '표면', width: 72 },
-  { key: 'myrtle', label: '도금량', width: 72 },
   { key: 'thickness', label: '두께', width: 62, type: 'decimal' },
   { key: 'width', label: '폭', width: 66, type: 'decimal' },
   { key: 'length', label: '길이', width: 66, type: 'decimal' },
   { key: 'qty', label: '수량', width: 60, type: 'decimal' },
   { key: 'weight', label: '중량', width: 82, type: 'decimal' },
   { key: 'sales_price', label: '매출단가', width: 86, type: 'decimal' },
-  // 원가단가(kg) = 이 출고 줄 매입원가 ÷ 출고중량. 입력 단가(매입단가)·원가기준·기준수량은 원가 계산에 쓰지 않아 숨김
+  // 원가단가(kg) = 이 출고 줄 매출원가 ÷ 출고중량. 입력 단가(매입단가)·원가기준·기준수량은 원가 계산에 쓰지 않아 숨김
   { key: 'costprice', label: '원가단가(kg)', width: 92, type: 'decimal' },
   { key: 'origin_kind', label: '원가구분', width: 74, align: 'center' },
   { key: 'origin_no', label: '원천번호', width: 160 },
@@ -77,6 +76,25 @@ const money = (value) => Math.round(Number(value || 0)).toLocaleString('ko-KR');
 const decimal = (value) => (value === null || value === undefined || value === '' ? '' : Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 3 }));
 const marginText = (value) => (value === null || value === undefined ? '–' : Number(value).toFixed(2));
 const groupKey = (entry) => `${entry.customcode || ''}|${entry.customname || ''}`;
+// 칼럼 정렬 (화면에 받은 행만 브라우저에서 정렬 → 서버 다시 조회 없음). 머리글 클릭: 오름차순 → 내림차순 → 기본 순서
+const NUMERIC_SORT = new Set(COLUMNS.filter((column) => column.type).map((column) => column.key));
+const textCollator = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
+const sortValue = (entry, key) => {
+  const value = entry?.[key];
+  if (value === null || value === undefined || value === '') return null;
+  if (NUMERIC_SORT.has(key)) { const number = Number(value); return Number.isFinite(number) ? number : null; }
+  return key === 'origin_kind' ? (ORIGIN_LABELS[value] || String(value)) : String(value);
+};
+// 빈 값은 방향과 상관없이 항상 뒤로
+const compareBy = (key, dir) => (a, b) => {
+  const left = sortValue(a, key);
+  const right = sortValue(b, key);
+  if (left === null || right === null) return left === right ? 0 : left === null ? 1 : -1;
+  const result = typeof left === 'number' ? left - right : textCollator.compare(left, right);
+  return dir === 'desc' ? -result : result;
+};
+// 매출처 그룹 순서: 소계에 있는 값(금액·수량·중량·마진율·매출처명)이면 그 값으로, 아니면 매출처명 순서 그대로
+const GROUP_SORT_KEYS = new Set([...COLUMNS.filter((column) => column.type === 'money' || column.type === 'margin').map((column) => column.key), 'qty', 'weight', 'customname']);
 const costTotal = (entry) => Number(entry?.purchase_amt || 0) + Number(entry?.purchase_cost || 0) + Number(entry?.process_amt || 0) + Number(entry?.material_amt || 0);
 
 function MarginCell({ value, profit }) {
@@ -131,7 +149,8 @@ const GroupBlock = memo(function GroupBlock({ group, rows, startIndex, collapsed
         </span>
       </td>
     </tr>
-    {!collapsed && rows.map((row, offset) => <ProfitRow key={`${row.receiptno}:${row.lineno}`} row={row} index={startIndex + offset + 1} />)}
+    {/* key = 자리(순번): 정렬해도 행(DOM)을 옮기지 않고 같은 자리의 글자만 바꾼다 (그룹 순서가 바뀔 때 수백 행 이동 비용 제거) */}
+    {!collapsed && rows.map((row, offset) => <ProfitRow key={offset} row={row} index={startIndex + offset + 1} />)}
     <tr className={`${TR} ${pageClasses.subtotalRow}`} data-with-row-border="true"><SummaryCells entry={group} label="소계" /></tr>
   </>;
 });
@@ -170,6 +189,9 @@ export default function GrossProfit() {
   const [collapsed, setCollapsed] = useState(() => new Set());
   const tableColumns = useResizableColumns(COLUMNS);  // 열 너비 조절 (화면에서만, 엑셀은 그대로)
   const [autoCollapsed, setAutoCollapsed] = useState(false);
+  const [sort, setSort] = useState({ key: '', dir: 'asc' });
+  const toggleSort = useCallback((key) => setSort((current) => (current.key !== key ? { key, dir: 'asc' }
+    : current.dir === 'asc' ? { key, dir: 'desc' } : { key: '', dir: 'asc' })), []);
   const requestId = useRef(0);
   const closeFilter = useCallback(() => setFilterOpen(false), []);
   // 현황판에서 넘어온 조건 (?customer=&date_from=&date_to=) 적용
@@ -226,13 +248,16 @@ export default function GrossProfit() {
       byGroup.get(key).push(row);
     });
     const result = [];
-    data.groups.forEach((group) => {
-      const rows = byGroup.get(groupKey(group)) || [];
+    const compare = sort.key ? compareBy(sort.key, sort.dir) : null;
+    const groups = compare && GROUP_SORT_KEYS.has(sort.key) ? [...data.groups].sort(compare) : data.groups;
+    groups.forEach((group) => {
+      const groupRows = byGroup.get(groupKey(group)) || [];
+      const rows = compare ? [...groupRows].sort(compare) : groupRows;
       const startIndex = result.length ? result[result.length - 1].startIndex + result[result.length - 1].rows.length : 0;
       result.push({ group, rows, startIndex });
     });
     return result;
-  }, [data]);
+  }, [data, sort]);
   const total = data.total;
 
   const exportExcel = useCallback(() => {
@@ -292,9 +317,9 @@ export default function GrossProfit() {
   const salesTotal = Number(total?.sales_amt || 0) + Number(total?.sales_plus || 0); // 매출비용(+)도 매출
   const cards = [
     { label: '매출금액', value: `${money(Number(total?.sales_amt || 0) + Number(total?.sales_plus || 0))}원`, hint: `판매 ${money(total?.sales_amt)} + 매출비용(+) ${money(total?.sales_plus)}`, accent: pageClasses.statSales, icon: IconChartBar },
-    { label: '매입원가', value: `${money(costTotal(total))}원`, hint: `매입금액 ${money(total?.purchase_amt)} + 매입비용 ${money(total?.purchase_cost)} + 가공비 ${money(total?.process_amt)} + 원자재원가 ${money(total?.material_amt)}`, accent: pageClasses.statCost, icon: IconShoppingCart },
-    { label: '판매비용', value: `${money(total?.sales_minus)}원`, hint: "출고 기타비용 중 비용여부 '예' (운반비 등 우리가 부담한 비용)", accent: pageClasses.statExpense, icon: IconTruckDelivery },
-    { label: '이익금액', value: `${money(total?.profit_amt)}원`, hint: '매출금액(매출비용(+) 포함) − 매입원가 − 판매비용', tone: Number(total?.profit_amt || 0) < 0 ? 'loss' : 'gain', accent: pageClasses.statProfit, icon: IconCoin },
+    { label: '매출원가', value: `${money(costTotal(total))}원`, hint: `매입가액 ${money(total?.purchase_amt)} + 매입 부대비 ${money(total?.purchase_cost)} + 가공비 ${money(total?.process_amt)} + 가공 원재료비 ${money(total?.material_amt)}`, accent: pageClasses.statCost, icon: IconShoppingCart },
+    { label: '판매비용', value: `${money(total?.sales_minus)}원`, hint: "매출 기타비용 중 비용여부 '예' 합계", accent: pageClasses.statExpense, icon: IconTruckDelivery },
+    { label: '이익금액', value: `${money(total?.profit_amt)}원`, hint: '매출금액(매출비용(+) 포함) − 매출원가 − 판매비용', tone: Number(total?.profit_amt || 0) < 0 ? 'loss' : 'gain', accent: pageClasses.statProfit, icon: IconCoin },
     { label: '마진율', value: salesTotal ? `${marginText(total?.margin_rate)}%` : '–', hint: '이익금액 ÷ (매출금액 + 매출비용(+))', tone: Number(total?.profit_amt || 0) < 0 ? 'loss' : 'gain', accent: pageClasses.statMargin, icon: IconPercentage },
   ];
 
@@ -340,10 +365,19 @@ export default function GrossProfit() {
               {/* 열 너비: 헤더 오른쪽 경계를 끌어 조절, 두 번 누르면 원래대로 */}
               <Table className={`${classes.statusTable} ${pageClasses.profitTable}`} withTableBorder withColumnBorders style={{ width: tableColumns.tableWidth, minWidth: tableColumns.tableWidth, tableLayout: 'fixed' }}>
                 <colgroup>{COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${tableColumns.widthOf(column)}px` }} />)}</colgroup>
-                <Table.Thead><Table.Tr>{COLUMNS.map((column) => <Table.Th key={column.key} className={pickerClasses.resizableHead} style={{ position: 'sticky', top: 0, zIndex: 3 }}>
-                  {column.label}<ColumnResizeHandle column={column} columns={tableColumns} /></Table.Th>)}</Table.Tr></Table.Thead>
+                <Table.Thead><Table.Tr>{COLUMNS.map((column) => {
+                  const sortable = column.key !== 'no';
+                  const active = sort.key === column.key;
+                  return <Table.Th key={column.key} className={pickerClasses.resizableHead}
+                    style={{ position: 'sticky', top: 0, zIndex: 3, cursor: sortable ? 'pointer' : undefined, userSelect: 'none' }}
+                    title={sortable ? '눌러서 정렬 (오름차순 → 내림차순 → 기본)' : undefined}
+                    aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}
+                    onClick={sortable ? () => toggleSort(column.key) : undefined}>
+                    {column.label}{active && <span className={pageClasses.sortMark}>{sort.dir === 'asc' ? ' ▲' : ' ▼'}</span>}
+                    <ColumnResizeHandle column={column} columns={tableColumns} /></Table.Th>;
+                })}</Table.Tr></Table.Thead>
                 <tbody>
-                  {blocks.length ? blocks.map((block) => <GroupBlock key={groupKey(block.group)} group={block.group} rows={block.rows} startIndex={block.startIndex}
+                  {blocks.length ? blocks.map((block, blockIndex) => <GroupBlock key={blockIndex} group={block.group} rows={block.rows} startIndex={block.startIndex}
                     collapsed={collapsed.has(groupKey(block.group))} onToggle={toggleGroup} />)
                     : !loading && <tr><td colSpan={COLUMNS.length} className={`${pageClasses.emptyCell} ${classes.emptyCell}`}>
                       <Box className={classes.emptyState}>

@@ -15,7 +15,7 @@ import { cachedDateFormat } from '../../utils/dateFormat';
 
 const monthFilters = () => {
   const now = new Date(); const y = now.getFullYear(); const m = now.getMonth(); const pad = (v) => String(v).padStart(2, '0');
-  return { date_from: `${y}-${pad(m + 1)}-01`, date_to: `${y}-${pad(m + 1)}-${pad(new Date(y, m + 1, 0).getDate())}`, iniotype: "", customname: "", item_search: "", product_search: "", warehouse_search: "" };
+  return { date_from: `${y}-${pad(m + 1)}-01`, date_to: `${y}-${pad(m + 1)}-${pad(new Date(y, m + 1, 0).getDate())}`, iniotype: "", receiptno: "", customname: "", item_search: "", product_search: "", warehouse_search: "" };
 };
 const PAGE_OPTIONS = [{ value: '15', label: '15개씩' }, { value: '50', label: '50개씩' }, { value: '100', label: '100개씩' }, { value: '200', label: '200개씩' }];
 // 수불 상세구분: 가공·창고이동도 수불유형은 입고/출고라서 전표 종류로 나눠 보여준다
@@ -52,7 +52,7 @@ export default function IniopStockPage() {
   useEffect(() => { void load(); }, [load]);
   const search = () => { if (inputs.date_from && inputs.date_to && inputs.date_from > inputs.date_to) { notifications.show({ title: "조회 조건 확인", message: "수불 시작일은 종료일보다 뒤일 수 없습니다.", color: "orange" }); return; } setFilters(Object.fromEntries(Object.entries(inputs).map(([key, value]) => [key, String(value || "").trim()]))); setPage(1); };
   const exportExcel = async () => { if (!total || exporting) return; setExporting(true); try { const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value)); const { data } = await axios.get('/api/iniop-stock/items/export', { ...authConfig(), params, responseType: 'blob' }); const url = URL.createObjectURL(data); const link = document.createElement('a'); link.href = url; link.download = `재고수불현황_${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.xlsx`; document.body.appendChild(link); link.click(); link.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); } catch { notifications.show({ title: '엑셀 다운로드 실패', message: '재고수불 현황을 엑셀로 저장하지 못했습니다.', color: 'red' }); } finally { setExporting(false); } };
-  const fields = [["customname", "거래처명"], ["item_search", "품목"], ["product_search", "제품번호"], ["warehouse_search", "창고"]];
+  const fields = [["customname", "거래처명"], ["item_search", "품목"], ["product_search", "제품번호"], ["warehouse_search", "창고"], ["receiptno", "전표"]];
 
   useErpPageRibbon({ onSearch: search, onExcel: exportExcel, showPrint: false, useSaveColor: false });
 
@@ -73,7 +73,7 @@ export default function IniopStockPage() {
             <ErpDateInput aria-label="재고기간 종료일" type="date" value={inputs.date_to} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, date_to: nextValue })); }} />
           </Stack>
         </Box>
-        {fields.map(([key, label]) => <TextInput key={key} label={label} placeholder={key === "customname" ? "거래처명 검색" : key === "item_search" ? "품목코드 또는 품목명" : key === "product_search" ? "제품번호 검색" : "창고코드 또는 창고명"} value={inputs[key] || ""} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, [key]: nextValue })); }} onKeyDown={(event) => event.key === "Enter" && search()} />)}
+        {fields.map(([key, label]) => <TextInput key={key} label={label} placeholder={key === "receiptno" ? "전표 검색" : key === "customname" ? "거래처명 검색" : key === "item_search" ? "품목코드 또는 품목명" : key === "product_search" ? "제품번호 검색" : "창고코드 또는 창고명"} value={inputs[key] || ""} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, [key]: nextValue })); }} onKeyDown={(event) => event.key === "Enter" && search()} />)}
       </Stack>
     </Paper>}
     <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder>
@@ -85,31 +85,33 @@ export default function IniopStockPage() {
         </Box>
       </Group>
       <Box className={classes.tableWrap}>{loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}{items.length ? <ResizableVirtualTable data={items} computeItemKey={(_index, item) => `${item.iniotype}:${item.receiptno}:${item.lineno}`} rowOffset={(page - 1) * pageSize} minTableWidth={0} columns={[
+          // 칸 순서: 현재고현황과 같게 (수불유형/수불일자/창고/품명/강종/표면/도금량/두께/폭/길이/수량/중량/거래처/제품번호/
+          //          원가단가/원가금액/수량단위/담당자/수불전표/순번/등록·수정, 전표·순번은 등록일자 왼쪽)
           { key: 'no', label: 'No.', width: 48, minWidth: 45, render: (_item, index) => center(index + 1) },
           { key: 'iniotype', label: '수불유형', width: 80, minWidth: 70, render: (item) => typeBadge(item.iniokind || item.iniotype) },
           { key: 'iniodate', label: '수불일자', width: 100, minWidth: 90, render: (item) => center(String(item.iniodate || '').slice(0, 10)) },
-          { key: 'customname', label: '거래처명', width: 125, minWidth: 105, render: (item) => text(item.customname || '') },
-          { key: 'receiptno', label: '수불전표', width: 160, minWidth: 140, render: (item) => text(item.receiptno || '') },
-          { key: 'lineno', label: '순번', width: 55, minWidth: 48, render: (item) => num(item.lineno ?? '') },
           { key: 'warehousecodename', label: '창고명', width: 110, minWidth: 95, render: (item) => text(item.warehousecodename || '') },
           { key: 'itemname', label: '품명', width: 120, minWidth: 102, render: (item) => text(item.itemname || '') },
-          { key: 'productname', label: '제품번호', width: 105, minWidth: 90, render: (item) => text(item.productname || '') },
           { key: 'materialname', label: '강종', width: 85, minWidth: 72, render: (item) => text(item.materialname || '') },
           { key: 'surfacename', label: '표면', width: 75, minWidth: 65, render: (item) => text(item.surfacename || '') },
           { key: 'myrtle', label: '도금량(g/㎡)', width: 100, minWidth: 90, render: (item) => num(numberText(item.myrtle)) },
-          { key: 'manager', label: '담당자', width: 80, minWidth: 68, render: (item) => text(item.manager || '') },
           { key: 'thickness', label: '두께', width: 75, minWidth: 65, render: (item) => num(numberText(item.thickness)) },
           { key: 'width', label: '폭', width: 75, minWidth: 65, render: (item) => num(numberText(item.width)) },
           { key: 'length', label: '길이', width: 75, minWidth: 65, render: (item) => num(numberText(item.length)) },
           { key: 'qty', label: '수량', width: 80, minWidth: 68, render: (item) => num(numberText(item.qty)) },
           { key: 'weight', label: '중량(KG)', width: 90, minWidth: 78, render: (item) => num(numberText(item.weight)) },
+          { key: 'customname', label: '거래처명', width: 125, minWidth: 105, render: (item) => text(item.customname || '') },
+          { key: 'productname', label: '제품번호', width: 105, minWidth: 90, render: (item) => text(item.productname || '') },
           // 재고수불은 원가 기준으로만 본다 (거래 단가·공급가·부가세·합계는 매입·매출현황에서 확인, 데이터는 그대로 둠)
           { key: 'costprice', label: '원가단가(kg)', width: 100, minWidth: 85, render: (item) => <span title='원가단가 = 원가금액 ÷ 중량을 소수 둘째 자리에서 반올림한 값입니다. 금액이 기준이라 단가 × 중량과 끝전이 다를 수 있습니다.'>{num(moneyText(item.costprice))}</span> },
           { key: 'costamt', label: '원가금액', width: 110, minWidth: 92, render: (item) => num(moneyText(item.costamt)) },
           { key: 'qtyunit', label: '수량단위', width: 75, minWidth: 65, render: (item) => center(item.qtyunit || '') },
+          { key: 'manager', label: '담당자', width: 80, minWidth: 68, render: (item) => text(item.manager || '') },
+          { key: 'receiptno', label: '수불전표', width: 160, minWidth: 140, render: (item) => text(item.receiptno || '') },
+          { key: 'lineno', label: '순번', width: 55, minWidth: 48, render: (item) => num(item.lineno ?? '') },
           { key: 'created_at', label: '등록일자', width: 145, minWidth: 130, render: (item) => center(timestampText(item.created_at)) },
-          { key: 'updated_at', label: '수정일자', width: 145, minWidth: 130, render: (item) => center(timestampText(item.updated_at)) },
           { key: 'created_by', label: '등록자', width: 90, minWidth: 70, render: (item) => text(item.created_by || '') },
+          { key: 'updated_at', label: '수정일자', width: 145, minWidth: 130, render: (item) => center(timestampText(item.updated_at)) },
           { key: 'updated_by', label: '수정자', width: 90, minWidth: 70, render: (item) => text(item.updated_by || '') },
         ]} /> : <Box className={classes.emptyState}>
           <span className={classes.emptyIcon}><IconInbox size={22} stroke={1.6} /></span>

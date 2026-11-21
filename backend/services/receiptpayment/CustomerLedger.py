@@ -2,13 +2,23 @@
 
 원장용 테이블을 따로 두지 않고, 전표에서 바로 모아 계산한다 (전표를 고치거나 지우면 즉시 반영).
 
+금액 기준: 기본은 공급가(부가세 제외), 화면의 '합계금액 기준'을 켜면 공급가 + 부가세 (기타비용도 같은 기준).
+대시보드(채권채무요약 · 홈)도 같은 기준 (기본 공급가, 화면에서 합계금액 기준 선택).
+
 받을 돈(미수금)
-  + 매출      : 매출등록 전표 (공급가 + 부가세) + 매출처 부담 기타비용 (비용여부 ≠ '예')
-  - 수금      : 수금·지급 등록 '수금' 전표 (현금 + 증권 + 통장 + 카드 + 상계 + 잡손실)
+  + 매출      : 매출등록 전표 + 매출처 부담 기타비용 (비용여부 ≠ '예') → 매출금액에 합쳐서 표시
+  - 수금      : 수금·지급 등록 '수금' 전표 (현금 + 증권 + 상계 + 잡손실 − 잡이익) + '지급' 전표의 상계
 줄 돈(미지급금)
-  + 매입      : 매입등록 전표 (공급가 + 부가세) + 매입처 부담 기타비용 (비용여부 ≠ '예')
-  + 비용      : 매입·매출 기타비용 중 비용여부 '예' → 그 기타비용의 거래처(운송사 등)에 줄 돈
-  - 지급      : 수금·지급 등록 '지급' 전표 (현금 + 증권 + 통장 + 카드 + 상계 + 잡손실)
+  + 매입      : 매입등록 전표 + 매입 기타비용 전부 (매입등록에는 비용여부가 없음, 매입 원가에 녹임) → 매입금액에 합쳐서 표시
+  + 매입(비용): 매출 기타비용 중 비용여부 '예' → 그 기타비용의 거래처(운송사 등)의 매입으로 표시
+  + 가공      : 재고가공 전표의 가공금액 → 가공처 거래처의 매입 (가공일자, 가공금액 0원 전표도 줄을 만든다)
+  - 지급      : 수금·지급 등록 '지급' 전표 (현금 + 증권 + 상계 − 잡손실 + 잡이익) + '수금' 전표의 상계
+
+잡손실 · 잡이익: 수금은 + 잡손실 − 잡이익, 지급은 − 잡손실 + 잡이익 (덜 받은/더 준 차액은 손실, 더 받은/덜 준 차액은 이익).
+부도: 수금/지급등록에서 [부도] 처리한 어음은 처리일에 '부도' 줄로 되돌린다 (처리취소하면 사라짐).
+  - 받은 어음(수금) 부도      → 그 거래처 수금 −어음금액 (미수가 다시 생김)
+  - 넘겨준 어음(지급) 부도    → 받은 거래처 지급 −어음금액 (미지급이 다시 생김: 배서 · 타수 직접 입력)
+상계는 받을 돈과 줄 돈을 서로 지우는 것이므로 수금/지급 구분과 관계없이 미수·미지급 양쪽에서 함께 뺀다.
 
 회사별 원장 시작일(company01t.ledgerstartdate)이 있으면 그날부터의 전표만 쌓고, 그 이전 잔액은
 거래처 기초잔액(customer01t.openingreceivable / openingpayable)으로 본다.
@@ -17,6 +27,10 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import db as _shared_db
+from services.receiptpayment.ReceiptPayment import INSTRUMENT_OPTIONS
+
+# 적요의 증권 이름: 입력한 수표/어음 종류 그대로 (외상매출채권 · 전자어음 · 약속어음 …)
+INSTRUMENT_TYPE_NAMES = INSTRUMENT_OPTIONS["instrumenttype"]
 
 _connect = _shared_db.connect
 ZERO = Decimal("0")
@@ -27,25 +41,25 @@ _KEY = "COALESCE(NULLIF(BTRIM({code}), ''), 'NAME:' || BTRIM(COALESCE({name}, ''
 ENTRIES_SQL = f"""
 WITH
 out_items AS (
-    SELECT companyid, receiptno, COUNT(*) AS cnt, SUM(COALESCE(supplyamt, 0) + COALESCE(vat, 0)) AS amt,
+    SELECT companyid, receiptno, COUNT(*) AS cnt, SUM(COALESCE(supplyamt, 0) + CASE WHEN %(with_vat)s THEN COALESCE(vat, 0) ELSE 0 END) AS amt,
            (ARRAY_AGG(itemname ORDER BY lineno))[1] AS firstname
     FROM Outbound02t WHERE companyid = %(companyid)s GROUP BY companyid, receiptno
 ),
 out_exp AS (
-    SELECT companyid, receiptno, SUM(COALESCE(totalamt, 0)) AS amt
+    SELECT companyid, receiptno, SUM(CASE WHEN %(with_vat)s THEN COALESCE(totalamt, 0) ELSE COALESCE(supplyamt, 0) END) AS amt
     FROM Outbound03t
     WHERE companyid = %(companyid)s AND UPPER(COALESCE(purchaseyn, 'N')) <> 'Y'
     GROUP BY companyid, receiptno
 ),
 in_items AS (
-    SELECT companyid, receiptno, COUNT(*) AS cnt, SUM(COALESCE(supplyamt, 0) + COALESCE(vat, 0)) AS amt,
+    SELECT companyid, receiptno, COUNT(*) AS cnt, SUM(COALESCE(supplyamt, 0) + CASE WHEN %(with_vat)s THEN COALESCE(vat, 0) ELSE 0 END) AS amt,
            (ARRAY_AGG(itemname ORDER BY lineno))[1] AS firstname
     FROM Inbound02t WHERE companyid = %(companyid)s GROUP BY companyid, receiptno
 ),
 in_exp AS (
-    SELECT companyid, receiptno, SUM(COALESCE(totalamt, 0)) AS amt
+    SELECT companyid, receiptno, SUM(CASE WHEN %(with_vat)s THEN COALESCE(totalamt, 0) ELSE COALESCE(supplyamt, 0) END) AS amt
     FROM Inbound03t
-    WHERE companyid = %(companyid)s AND UPPER(COALESCE(purchaseyn, 'N')) <> 'Y'
+    WHERE companyid = %(companyid)s
     GROUP BY companyid, receiptno
 ),
 rp AS (
@@ -56,6 +70,8 @@ rp AS (
            SUM(COALESCE(chargeamt, 0)) AS chargeamt,
            COUNT(*) FILTER (WHERE COALESCE(instrumentamt, 0) > 0) AS instrumentcnt,
            (ARRAY_AGG(instrumentno ORDER BY lineno) FILTER (WHERE COALESCE(instrumentamt, 0) > 0))[1] AS instrumentno,
+           (ARRAY_AGG(instrumenttype ORDER BY lineno) FILTER (WHERE COALESCE(instrumentamt, 0) > 0))[1] AS instrumenttype,
+           COUNT(DISTINCT NULLIF(instrumenttype, '')) FILTER (WHERE COALESCE(instrumentamt, 0) > 0) AS instrumenttypecnt,
            (ARRAY_AGG(maturitydate ORDER BY lineno) FILTER (WHERE COALESCE(instrumentamt, 0) > 0))[1] AS maturitydate
     FROM ReceiptPayment02t WHERE companyid = %(companyid)s GROUP BY companyid, receiptno
 ),
@@ -67,7 +83,8 @@ entries AS (
            COALESCE(i.amt, 0) + COALESCE(e.amt, 0) AS sales, 0::numeric AS receipt, 0::numeric AS purchase, 0::numeric AS payment,
            NULL::numeric AS cashamt, NULL::numeric AS instrumentamt, NULL::numeric AS bankamt, NULL::numeric AS cardamt,
            NULL::numeric AS offsetamt, NULL::numeric AS lossamt, NULL::numeric AS chargeamt,
-           NULL::bigint AS instrumentcnt, NULL::varchar AS instrumentno, NULL::date AS maturitydate, h.description
+           NULL::bigint AS instrumentcnt, NULL::varchar AS instrumentno, NULL::varchar AS instrumenttype, NULL::bigint AS instrumenttypecnt,
+           NULL::date AS maturitydate, h.description
     FROM Outbound01t h
     LEFT JOIN out_items i ON i.companyid = h.companyid AND i.receiptno = h.receiptno
     LEFT JOIN out_exp e ON e.companyid = h.companyid AND e.receiptno = h.receiptno
@@ -78,46 +95,70 @@ entries AS (
            h.receptdate, 3, 'PURCHASE', h.receiptno,
            i.firstname, COALESCE(i.cnt, 0), COALESCE(e.amt, 0),
            0, 0, COALESCE(i.amt, 0) + COALESCE(e.amt, 0), 0,
-           NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, h.description
+           NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, h.description
     FROM Inbound01t h
     LEFT JOIN in_items i ON i.companyid = h.companyid AND i.receiptno = h.receiptno
     LEFT JOIN in_exp e ON e.companyid = h.companyid AND e.receiptno = h.receiptno
     WHERE h.companyid = %(companyid)s
     UNION ALL
-    -- 기타비용 비용여부 '예' → 그 거래처에 줄 돈 (매출 전표·매입 전표 모두)
+    -- 매출 기타비용 비용여부 '예' → 그 거래처(운송사 등)에 줄 돈 (매입 기타비용은 매입처 매입에 합산)
     SELECT {_KEY.format(code='x.customcode', name='x.customname')}, MAX(x.customcode), MAX(x.customname),
            h.receptdate, 4, 'COST', h.receiptno,
            (ARRAY_AGG(x.costname ORDER BY x.lineno))[1], COUNT(*), 0,
-           0, 0, SUM(COALESCE(x.totalamt, 0)), 0,
-           NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+           0, 0, SUM(CASE WHEN %(with_vat)s THEN COALESCE(x.totalamt, 0) ELSE COALESCE(x.supplyamt, 0) END), 0,
+           NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
            CASE WHEN x.src = 'OUT' THEN '매출 ' ELSE '매입 ' END || h.receiptno
     FROM (
-        SELECT 'OUT' AS src, companyid, receiptno, lineno, customcode, customname, costname, totalamt, purchaseyn FROM Outbound03t
-        UNION ALL
-        SELECT 'IN', companyid, receiptno, lineno, customcode, customname, costname, totalamt, purchaseyn FROM Inbound03t
+        SELECT 'OUT' AS src, companyid, receiptno, lineno, customcode, customname, costname, supplyamt, totalamt, purchaseyn FROM Outbound03t
     ) x
     JOIN (
         SELECT 'OUT' AS src, companyid, receiptno, receptdate FROM Outbound01t
-        UNION ALL
-        SELECT 'IN', companyid, receiptno, receptdate FROM Inbound01t
     ) h ON h.src = x.src AND h.companyid = x.companyid AND h.receiptno = x.receiptno
     WHERE x.companyid = %(companyid)s AND UPPER(COALESCE(x.purchaseyn, 'N')) = 'Y'
       AND (NULLIF(BTRIM(x.customcode), '') IS NOT NULL OR NULLIF(BTRIM(x.customname), '') IS NOT NULL)
     GROUP BY 1, h.receptdate, h.receiptno, x.src
+    UNION ALL
+    -- 가공: 가공처에 줄 돈 (가공품 줄의 가공금액 합계, 0원도 표시)
+    SELECT {_KEY.format(code='p.customcode', name='p.customname')}, p.customcode, p.customname,
+           p.processdate, 4, 'PROCESS', p.processno,
+           (ARRAY_AGG(COALESCE(NULLIF(BTRIM(d.processcodename), ''), '가공') ORDER BY d.lineno) FILTER (WHERE d.linetype = 'PRODUCT'))[1],
+           COUNT(*) FILTER (WHERE d.linetype = 'PRODUCT'), 0,
+           0, 0, COALESCE(SUM(COALESCE(d.supplyamt, 0) + CASE WHEN %(with_vat)s THEN COALESCE(d.vat, 0) ELSE 0 END), 0), 0,
+           NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, p.description
+    FROM Process01t p
+    LEFT JOIN Process02t d ON d.companyid = p.companyid AND d.processno = p.processno
+    WHERE p.companyid = %(companyid)s
+      AND (NULLIF(BTRIM(p.customcode), '') IS NOT NULL OR NULLIF(BTRIM(p.customname), '') IS NOT NULL)
+    GROUP BY p.companyid, p.processno, p.processdate, p.customcode, p.customname, p.description
     UNION ALL
     -- 수금 / 지급
     SELECT {_KEY.format(code='h.customcode', name='h.customname')}, h.customcode, h.customname,
            h.receiptdate, CASE WHEN h.transactiontype = 'RECEIPT' THEN 2 ELSE 5 END, h.transactiontype, h.receiptno,
            NULL, 0, 0,
            0,
-           CASE WHEN h.transactiontype = 'RECEIPT' THEN r.cashamt + r.instrumentamt + r.bankamt + r.cardamt + r.offsetamt + r.lossamt ELSE 0 END,
+           r.offsetamt + CASE WHEN h.transactiontype = 'RECEIPT' THEN r.cashamt + r.instrumentamt + r.bankamt + r.cardamt + r.lossamt - r.chargeamt ELSE 0 END,
            0,
-           CASE WHEN h.transactiontype = 'PAYMENT' THEN r.cashamt + r.instrumentamt + r.bankamt + r.cardamt + r.offsetamt + r.lossamt ELSE 0 END,
+           r.offsetamt + CASE WHEN h.transactiontype = 'PAYMENT' THEN r.cashamt + r.instrumentamt + r.bankamt + r.cardamt - r.lossamt + r.chargeamt ELSE 0 END,
            r.cashamt, r.instrumentamt, r.bankamt, r.cardamt, r.offsetamt, r.lossamt, r.chargeamt,
-           r.instrumentcnt, r.instrumentno, r.maturitydate, h.description
+           r.instrumentcnt, r.instrumentno, r.instrumenttype, r.instrumenttypecnt, r.maturitydate, h.description
     FROM ReceiptPayment01t h
     JOIN rp r ON r.companyid = h.companyid AND r.receiptno = h.receiptno
     WHERE h.companyid = %(companyid)s AND h.transactiontype IN ('RECEIPT', 'PAYMENT')
+    UNION ALL
+    -- 부도: 처리일에 수금(받은 어음) / 지급(넘겨준 어음)을 어음금액만큼 되돌린다
+    SELECT {_KEY.format(code='h.customcode', name='h.customname')}, h.customcode, h.customname,
+           d.processdate, 6, 'DISHONOR', h.receiptno,
+           NULL, 0, 0,
+           0,
+           CASE WHEN h.transactiontype = 'RECEIPT' THEN -d.instrumentamt ELSE 0 END,
+           0,
+           CASE WHEN h.transactiontype = 'PAYMENT' THEN -d.instrumentamt ELSE 0 END,
+           NULL, d.instrumentamt, NULL, NULL, NULL, NULL, NULL,
+           1, d.instrumentno, d.instrumenttype, 1, d.maturitydate, d.processmemo
+    FROM ReceiptPayment02t d
+    JOIN ReceiptPayment01t h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
+    WHERE d.companyid = %(companyid)s AND h.transactiontype IN ('RECEIPT', 'PAYMENT')
+      AND d.instrumentstatus = 'DISHONORED' AND d.instrumentamt > 0 AND d.processdate IS NOT NULL
 )
 """
 
@@ -125,24 +166,25 @@ entries AS (
 DASHBOARD_ENTRIES_SQL = f"""
 WITH
 out_amt AS (
-    SELECT receiptno, SUM(COALESCE(supplyamt, 0) + COALESCE(vat, 0)) AS amt
+    SELECT receiptno, SUM(COALESCE(supplyamt, 0) + CASE WHEN %(with_vat)s THEN COALESCE(vat, 0) ELSE 0 END) AS amt
     FROM Outbound02t WHERE companyid = %(companyid)s GROUP BY receiptno
 ),
 out_exp AS (
-    SELECT receiptno, SUM(COALESCE(totalamt, 0)) AS amt
+    SELECT receiptno, SUM(CASE WHEN %(with_vat)s THEN COALESCE(totalamt, 0) ELSE COALESCE(supplyamt, 0) END) AS amt
     FROM Outbound03t WHERE companyid = %(companyid)s AND UPPER(COALESCE(purchaseyn, 'N')) <> 'Y' GROUP BY receiptno
 ),
 in_amt AS (
-    SELECT receiptno, SUM(COALESCE(supplyamt, 0) + COALESCE(vat, 0)) AS amt
+    SELECT receiptno, SUM(COALESCE(supplyamt, 0) + CASE WHEN %(with_vat)s THEN COALESCE(vat, 0) ELSE 0 END) AS amt
     FROM Inbound02t WHERE companyid = %(companyid)s GROUP BY receiptno
 ),
 in_exp AS (
-    SELECT receiptno, SUM(COALESCE(totalamt, 0)) AS amt
-    FROM Inbound03t WHERE companyid = %(companyid)s AND UPPER(COALESCE(purchaseyn, 'N')) <> 'Y' GROUP BY receiptno
+    SELECT receiptno, SUM(CASE WHEN %(with_vat)s THEN COALESCE(totalamt, 0) ELSE COALESCE(supplyamt, 0) END) AS amt
+    FROM Inbound03t WHERE companyid = %(companyid)s GROUP BY receiptno
 ),
 rp AS (
     SELECT receiptno, SUM(COALESCE(cashamt, 0) + COALESCE(instrumentamt, 0) + COALESCE(bankamt, 0)
-                          + COALESCE(cardamt, 0) + COALESCE(offsetamt, 0) + COALESCE(lossamt, 0)) AS amt
+                          + COALESCE(cardamt, 0)) AS amt,
+           SUM(COALESCE(lossamt, 0)) AS lossamt, SUM(COALESCE(chargeamt, 0)) AS chargeamt, SUM(COALESCE(offsetamt, 0)) AS offsetamt
     FROM ReceiptPayment02t WHERE companyid = %(companyid)s GROUP BY receiptno
 ),
 entries AS (
@@ -162,32 +204,46 @@ entries AS (
     WHERE h.companyid = %(companyid)s
     UNION ALL
     SELECT {_KEY.format(code='x.customcode', name='x.customname')}, MAX(x.customcode), MAX(x.customname),
-           h.receptdate, 4, h.receiptno, 0, 0, SUM(COALESCE(x.totalamt, 0)), 0
+           h.receptdate, 4, h.receiptno, 0, 0, SUM(CASE WHEN %(with_vat)s THEN COALESCE(x.totalamt, 0) ELSE COALESCE(x.supplyamt, 0) END), 0
     FROM (
-        SELECT 'OUT' AS src, companyid, receiptno, customcode, customname, totalamt, purchaseyn FROM Outbound03t
-        UNION ALL
-        SELECT 'IN', companyid, receiptno, customcode, customname, totalamt, purchaseyn FROM Inbound03t
+        SELECT 'OUT' AS src, companyid, receiptno, customcode, customname, supplyamt, totalamt, purchaseyn FROM Outbound03t
     ) x
     JOIN (
         SELECT 'OUT' AS src, companyid, receiptno, receptdate FROM Outbound01t
-        UNION ALL
-        SELECT 'IN', companyid, receiptno, receptdate FROM Inbound01t
     ) h ON h.src = x.src AND h.companyid = x.companyid AND h.receiptno = x.receiptno
     WHERE x.companyid = %(companyid)s AND UPPER(COALESCE(x.purchaseyn, 'N')) = 'Y'
       AND (NULLIF(BTRIM(x.customcode), '') IS NOT NULL OR NULLIF(BTRIM(x.customname), '') IS NOT NULL)
     GROUP BY 1, h.receptdate, h.receiptno, x.src
     UNION ALL
+    SELECT {_KEY.format(code='p.customcode', name='p.customname')}, p.customcode, p.customname,
+           p.processdate, 4, p.processno, 0, 0, COALESCE(SUM(COALESCE(d.supplyamt, 0) + CASE WHEN %(with_vat)s THEN COALESCE(d.vat, 0) ELSE 0 END), 0), 0
+    FROM Process01t p
+    LEFT JOIN Process02t d ON d.companyid = p.companyid AND d.processno = p.processno
+    WHERE p.companyid = %(companyid)s
+      AND (NULLIF(BTRIM(p.customcode), '') IS NOT NULL OR NULLIF(BTRIM(p.customname), '') IS NOT NULL)
+    GROUP BY p.companyid, p.processno, p.processdate, p.customcode, p.customname
+    UNION ALL
     SELECT {_KEY.format(code='h.customcode', name='h.customname')}, h.customcode, h.customname,
            h.receiptdate, CASE WHEN h.transactiontype = 'RECEIPT' THEN 2 ELSE 5 END, h.receiptno,
-           0, CASE WHEN h.transactiontype = 'RECEIPT' THEN r.amt ELSE 0 END,
-           0, CASE WHEN h.transactiontype = 'PAYMENT' THEN r.amt ELSE 0 END
+           0, r.offsetamt + CASE WHEN h.transactiontype = 'RECEIPT' THEN r.amt + r.lossamt - r.chargeamt ELSE 0 END,
+           0, r.offsetamt + CASE WHEN h.transactiontype = 'PAYMENT' THEN r.amt - r.lossamt + r.chargeamt ELSE 0 END
     FROM ReceiptPayment01t h
     JOIN rp r ON r.receiptno = h.receiptno
     WHERE h.companyid = %(companyid)s AND h.transactiontype IN ('RECEIPT', 'PAYMENT')
+    UNION ALL
+    SELECT {_KEY.format(code='h.customcode', name='h.customname')}, h.customcode, h.customname,
+           d.processdate, 6, h.receiptno,
+           0, CASE WHEN h.transactiontype = 'RECEIPT' THEN -d.instrumentamt ELSE 0 END,
+           0, CASE WHEN h.transactiontype = 'PAYMENT' THEN -d.instrumentamt ELSE 0 END
+    FROM ReceiptPayment02t d
+    JOIN ReceiptPayment01t h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
+    WHERE d.companyid = %(companyid)s AND h.transactiontype IN ('RECEIPT', 'PAYMENT')
+      AND d.instrumentstatus = 'DISHONORED' AND d.instrumentamt > 0 AND d.processdate IS NOT NULL
 )
 """
 
-KIND_NAMES = {"SALES": "매출", "RECEIPT": "수금", "PURCHASE": "매입", "PAYMENT": "지급", "COST": "비용"}
+# 비용여부 '예' 기타비용(COST)은 그 거래처의 매입으로 표시한다
+KIND_NAMES = {"SALES": "매출", "RECEIPT": "수금", "PURCHASE": "매입", "PAYMENT": "지급", "COST": "매입", "DISHONOR": "부도", "PROCESS": "가공"}
 
 
 def _num(value) -> Decimal:
@@ -200,6 +256,10 @@ def _money(value) -> str:
 
 def _summary(row: dict) -> str:
     kind = row["kind"]
+    if kind == "PROCESS":
+        name = str(row.get("firstname") or "가공").strip()
+        count = int(row.get("cnt") or 0)
+        return f"가공 {name}{f' 외 {count - 1}건' if count > 1 else ''}"
     if kind in ("SALES", "PURCHASE", "COST"):
         name = str(row.get("firstname") or "").strip()
         count = int(row.get("cnt") or 0)
@@ -210,8 +270,15 @@ def _summary(row: dict) -> str:
         if _num(row.get("extraamt")) > 0:
             text += f" + 기타비용 {_money(row['extraamt'])}"
         return text
+    if kind == "DISHONOR":
+        code = str(row.get("instrumenttype") or "").strip()
+        name = INSTRUMENT_TYPE_NAMES.get(code, code) or "수표/어음"
+        detail = ", ".join(filter(None, [str(row.get("instrumentno") or "").strip(),
+                                         f"만기 {row['maturitydate']}" if row.get("maturitydate") else ""]))
+        return f"{name} {_money(row['instrumentamt'])} 부도{f' ({detail})' if detail else ''}"
     parts = []
-    for field, label in (("cashamt", "현금"), ("bankamt", "통장"), ("cardamt", "카드"), ("offsetamt", "상계"), ("lossamt", "잡손실")):
+    # 적요: 현금 · 증권 · 상계 · 잡손실 · 잡이익 (은행예금 · 카드는 수금/지급등록에서 쓰지 않아 적요에 넣지 않는다. 금액 합계에는 그대로 포함)
+    for field, label in (("cashamt", "현금"), ("offsetamt", "상계"), ("lossamt", "잡손실")):
         if _num(row.get(field)) > 0:
             parts.append(f"{label} {_money(row[field])}")
     if _num(row.get("instrumentamt")) > 0:
@@ -220,9 +287,13 @@ def _summary(row: dict) -> str:
         extra = ", ".join(filter(None, [detail, f"만기 {maturity}" if maturity else ""]))
         count = int(row.get("instrumentcnt") or 0)
         more = f" 외 {count - 1}장" if count > 1 else ""
-        parts.insert(1, f"증권 {_money(row['instrumentamt'])}{f' ({extra}{more})' if extra or more else ''}")
+        code = str(row.get("instrumenttype") or "").strip()
+        name = INSTRUMENT_TYPE_NAMES.get(code, code) or "수표/어음"
+        if int(row.get("instrumenttypecnt") or 0) > 1:
+            name = "수표/어음"  # 종류가 섞인 전표
+        parts.insert(1, f"{name} {_money(row['instrumentamt'])}{f' ({extra}{more})' if extra or more else ''}")
     if _num(row.get("chargeamt")) > 0:
-        parts.append(f"과금 {_money(row['chargeamt'])}")
+        parts.append(f"잡이익 {_money(row['chargeamt'])}")
     return " · ".join(parts)
 
 
@@ -250,11 +321,12 @@ def _effective_from(start: date | None, date_from: date) -> date:
     return max(start, date_from) if start else date_from
 
 
-def list_balances(companyid: str, date_from: date, date_to: date, keyword: str = "", balance_only: bool = False) -> dict:
-    """거래처별 기초 · 기간 증감 · 기말 잔액."""
+def list_balances(companyid: str, date_from: date, date_to: date, keyword: str = "", balance_only: bool = False,
+                  with_vat: bool = False) -> dict:
+    """거래처별 기초 · 기간 증감 · 기말 잔액. with_vat=False: 공급가 기준, True: 합계금액(공급가 + 부가세) 기준."""
     start = get_settings(companyid)["ledgerstartdate"]
     params = {"companyid": companyid, "start": start, "date_from": date_from, "date_to": date_to,
-              "keyword": f"%{keyword.strip().lower()}%"}
+              "keyword": f"%{keyword.strip().lower()}%", "with_vat": bool(with_vat)}
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             ENTRIES_SQL + """,
@@ -308,10 +380,10 @@ def list_balances(companyid: str, date_from: date, date_to: date, keyword: str =
     return {"items": result, "totals": totals, "ledgerstartdate": start}
 
 
-def get_ledger(companyid: str, ckey: str, date_from: date, date_to: date) -> dict:
-    """한 거래처의 원장: 이월 잔액 + 기간 내 전표 (일자순) + 미수·미지급 잔액 누계."""
+def get_ledger(companyid: str, ckey: str, date_from: date, date_to: date, with_vat: bool = False) -> dict:
+    """한 거래처의 원장: 이월 잔액 + 기간 내 전표 (일자순) + 미수·미지급 잔액 누계. 금액 기준은 list_balances 와 같다."""
     start = get_settings(companyid)["ledgerstartdate"]
-    params = {"companyid": companyid, "ckey": ckey, "start": start, "date_from": date_from, "date_to": date_to}
+    params = {"companyid": companyid, "ckey": ckey, "start": start, "date_from": date_from, "date_to": date_to, "with_vat": bool(with_vat)}
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """SELECT customercode, customername, COALESCE(openingreceivable, 0), COALESCE(openingpayable, 0)
@@ -372,14 +444,91 @@ def _add_months(value: date, months: int) -> date:
     return date(index // 12, index % 12 + 1, 1)
 
 
-def dashboard(companyid: str, as_of: date, top_n: int = 10) -> dict:
-    """기준일 시점의 회사 전체 받을 돈 / 줄 돈 현황.
+# 채권채무요약 카드 마우스 올림: 기간 합계를 어디서 왔는지 나눠서 (ENTRIES 와 같은 규칙 · 같은 금액 기준)
+_PERIOD_PARTS_SQL = """
+WITH rp AS (
+    SELECT h.transactiontype AS t,
+           COALESCE(d.cashamt, 0) + COALESCE(d.bankamt, 0) + COALESCE(d.cardamt, 0) AS cash,
+           COALESCE(d.instrumentamt, 0) AS inst, COALESCE(d.offsetamt, 0) AS offs,
+           COALESCE(d.lossamt, 0) AS loss, COALESCE(d.chargeamt, 0) AS gain
+    FROM ReceiptPayment02t d JOIN ReceiptPayment01t h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
+    WHERE d.companyid = %(companyid)s AND h.receiptdate BETWEEN %(pf)s AND %(as_of)s
+),
+dish AS (
+    SELECT h.transactiontype AS t, COALESCE(d.instrumentamt, 0) AS amt
+    FROM ReceiptPayment02t d JOIN ReceiptPayment01t h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
+    WHERE d.companyid = %(companyid)s AND d.instrumentstatus = 'DISHONORED' AND d.instrumentamt > 0
+      AND d.processdate BETWEEN %(pf)s AND %(as_of)s
+)
+SELECT
+  (SELECT COALESCE(SUM(COALESCE(d.supplyamt, 0) + CASE WHEN %(with_vat)s THEN COALESCE(d.vat, 0) ELSE 0 END), 0)
+     FROM Outbound02t d JOIN Outbound01t h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
+    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s) AS sales_goods,
+  (SELECT COALESCE(SUM(CASE WHEN %(with_vat)s THEN COALESCE(x.totalamt, 0) ELSE COALESCE(x.supplyamt, 0) END), 0)
+     FROM Outbound03t x JOIN Outbound01t h ON h.companyid = x.companyid AND h.receiptno = x.receiptno
+    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s AND UPPER(COALESCE(x.purchaseyn, 'N')) <> 'Y') AS sales_plus,
+  (SELECT COALESCE(SUM(COALESCE(d.supplyamt, 0) + CASE WHEN %(with_vat)s THEN COALESCE(d.vat, 0) ELSE 0 END), 0)
+     FROM Inbound02t d JOIN Inbound01t h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
+    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s) AS purchase_goods,
+  (SELECT COALESCE(SUM(CASE WHEN %(with_vat)s THEN COALESCE(x.totalamt, 0) ELSE COALESCE(x.supplyamt, 0) END), 0)
+     FROM Inbound03t x JOIN Inbound01t h ON h.companyid = x.companyid AND h.receiptno = x.receiptno
+    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s) AS purchase_exp,
+  (SELECT COALESCE(SUM(CASE WHEN %(with_vat)s THEN COALESCE(x.totalamt, 0) ELSE COALESCE(x.supplyamt, 0) END), 0)
+     FROM Outbound03t x JOIN Outbound01t h ON h.companyid = x.companyid AND h.receiptno = x.receiptno
+    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s AND UPPER(COALESCE(x.purchaseyn, 'N')) = 'Y'
+      AND (NULLIF(BTRIM(x.customcode), '') IS NOT NULL OR NULLIF(BTRIM(x.customname), '') IS NOT NULL)) AS purchase_cost,
+  (SELECT COALESCE(SUM(COALESCE(d.supplyamt, 0) + CASE WHEN %(with_vat)s THEN COALESCE(d.vat, 0) ELSE 0 END), 0)
+     FROM Process02t d JOIN Process01t p ON p.companyid = d.companyid AND p.processno = d.processno
+    WHERE p.companyid = %(companyid)s AND p.processdate BETWEEN %(pf)s AND %(as_of)s
+      AND (NULLIF(BTRIM(p.customcode), '') IS NOT NULL OR NULLIF(BTRIM(p.customname), '') IS NOT NULL)) AS purchase_process,
+  (SELECT COALESCE(SUM(cash), 0) FROM rp WHERE t = 'RECEIPT') AS r_cash,
+  (SELECT COALESCE(SUM(inst), 0) FROM rp WHERE t = 'RECEIPT') AS r_inst,
+  (SELECT COALESCE(SUM(offs), 0) FROM rp WHERE t = 'RECEIPT') AS r_offset,
+  (SELECT COALESCE(SUM(loss), 0) FROM rp WHERE t = 'RECEIPT') AS r_loss,
+  (SELECT COALESCE(SUM(gain), 0) FROM rp WHERE t = 'RECEIPT') AS r_gain,
+  (SELECT COALESCE(SUM(offs), 0) FROM rp WHERE t = 'PAYMENT') AS r_cross_offset,
+  (SELECT COALESCE(SUM(amt), 0) FROM dish WHERE t = 'RECEIPT') AS r_dishonor,
+  (SELECT COALESCE(SUM(cash), 0) FROM rp WHERE t = 'PAYMENT') AS p_cash,
+  (SELECT COALESCE(SUM(inst), 0) FROM rp WHERE t = 'PAYMENT') AS p_inst,
+  (SELECT COALESCE(SUM(offs), 0) FROM rp WHERE t = 'PAYMENT') AS p_offset,
+  (SELECT COALESCE(SUM(loss), 0) FROM rp WHERE t = 'PAYMENT') AS p_loss,
+  (SELECT COALESCE(SUM(gain), 0) FROM rp WHERE t = 'PAYMENT') AS p_gain,
+  (SELECT COALESCE(SUM(offs), 0) FROM rp WHERE t = 'RECEIPT') AS p_cross_offset,
+  (SELECT COALESCE(SUM(amt), 0) FROM dish WHERE t = 'PAYMENT') AS p_dishonor
+"""
 
-    전표를 한 줄씩 가져오지 않고 SQL 에서 (거래처 x 월) 합계와 선입선출 미수 잔여분만 계산해 가져온다.
+TREND_MIN_MONTHS = 6    # 기간이 짧아도 월말 잔액 추이는 최소 6개월을 보여 준다
+TREND_MAX_MONTHS = 36   # 기간이 길면 마지막 36개월만
+
+
+def _months_between(first: date, last: date) -> int:
+    return (last.year - first.year) * 12 + last.month - first.month + 1
+
+
+def dashboard(companyid: str, as_of: date, top_n: int = 10, with_vat: bool = False, date_from: date | None = None) -> dict:
+    """회사 전체 받을 돈 / 줄 돈 현황.
+
+    - 잔액(미수금 · 미지급금 · 순잔액 · 상위 거래처 · 경과 기간): 종료일(as_of) 시점
+    - 기간 합계(매출 · 수금 · 매입 · 지급): date_from ~ as_of (date_from 이 없으면 종료일이 속한 달 1일부터 = 예전 '이번 달')
+    - 비교 기준: 시작일 전날 잔액 (summary.open_*)
+    - 월말 잔액 추이: 기간의 월 (최소 6개월, 최대 36개월). date_from 이 없으면 최근 12개월 (홈 화면)
+    전표를 한 줄씩 가져오지 않고 SQL 에서 (거래처 x 월 x 기간 전/후) 합계와 선입선출 미수 잔여분만 계산해 가져온다.
     """
     start = get_settings(companyid)["ledgerstartdate"]
-    month_from = _add_months(_month_start(as_of), -11)
-    params = {"companyid": companyid, "start": start, "as_of": as_of, "month_from": month_from}
+    end_month = _month_start(as_of)
+    if date_from is None:
+        period_from = end_month
+        month_from = _add_months(end_month, -11)
+    else:
+        period_from = min(date_from, as_of)
+        month_from = _month_start(period_from)
+        span = _months_between(month_from, end_month)
+        if span < TREND_MIN_MONTHS:
+            month_from = _add_months(end_month, -(TREND_MIN_MONTHS - 1))
+        elif span > TREND_MAX_MONTHS:
+            month_from = _add_months(end_month, -(TREND_MAX_MONTHS - 1))
+    params = {"companyid": companyid, "start": start, "as_of": as_of, "month_from": month_from, "period_from": period_from,
+              "with_vat": bool(with_vat)}
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             DASHBOARD_ENTRIES_SQL + """,
@@ -410,12 +559,13 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10) -> dict:
                    (ARRAY_AGG(customname ORDER BY entrydate, kindorder, docno))[1] AS customname,
                    CASE WHEN entrydate < %(month_from)s THEN NULL
                         ELSE date_trunc('month', entrydate)::date END AS month,
+                   entrydate < %(period_from)s AS before_period,
                    MIN(entrydate) AS first_date, MAX(entrydate) AS last_date,
                    SUM(sales) AS sales, SUM(receipt) AS receipt, SUM(purchase) AS purchase, SUM(payment) AS payment
             FROM scoped
-            GROUP BY ckey, 5
+            GROUP BY ckey, 5, 6
             UNION ALL
-            SELECT 'F', ckey, NULL, NULL, d, NULL, NULL, LEAST(amt, cum - credit), NULL, NULL, NULL
+            SELECT 'F', ckey, NULL, NULL, d, NULL, NULL, NULL, LEAST(amt, cum - credit), NULL, NULL, NULL
             FROM fifo
             WHERE cum - credit > 0""",
             params,
@@ -427,6 +577,10 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10) -> dict:
             (companyid,),
         )
         customers = {code: {"name": name, "recv": _num(recv), "pay": _num(pay)} for code, name, recv, pay in cursor.fetchall()}
+        # 기간 합계 구성 (원장 시작일 이전 전표는 원장과 같이 뺀다)
+        part_from = max(start, period_from) if start else period_from
+        cursor.execute(_PERIOD_PARTS_SQL, {"companyid": companyid, "pf": part_from, "as_of": as_of, "with_vat": bool(with_vat)})
+        parts = {key: _num(value) for key, value in zip((column[0] for column in cursor.description), cursor.fetchone())}
 
     book = {}
 
@@ -447,19 +601,31 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10) -> dict:
             account(ckey)
 
     months = {}
-    for offset in range(12):
+    for offset in range(_months_between(month_from, end_month)):
         key = _add_months(month_from, offset)
         months[key] = {"month": key.strftime("%Y-%m"), "sales": ZERO, "receipt": ZERO, "purchase": ZERO, "payment": ZERO}
 
-    # 거래처별 (12개월 이전 합계 + 월별 증감) -> 월말 잔액 추이
+    # 거래처별 (추이 첫 달 이전 합계 + 월별 증감) -> 월말 잔액 추이
+    #  + 시작일 전 증감 -> 비교 기준(시작일 전날 잔액), 시작일 이후 -> 기간 합계
     before = {}
     per_month = {}
-    fifo_rows = [(row[1], row[4], _num(row[7])) for row in rows if row[0] == "F"]
+    pre_period = {}
+    period = {"sales": ZERO, "receipt": ZERO, "purchase": ZERO, "payment": ZERO}
+    fifo_rows = [(row[1], row[4], _num(row[8])) for row in rows if row[0] == "F"]
     # 거래처 이름·코드는 그 거래처의 가장 이른 전표 기준 (예전과 같은 결과)
-    month_rows = sorted((row for row in rows if row[0] == "M"), key=lambda row: row[5])
-    for _tag, ckey, code, name, month, _first, last_date, sales, receipt, purchase, payment in month_rows:
+    month_rows = sorted((row for row in rows if row[0] == "M"), key=lambda row: row[6])
+    for _tag, ckey, code, name, month, before_period, _first, last_date, sales, receipt, purchase, payment in month_rows:
         acc = account(ckey, code, name)
         sales, receipt, purchase, payment = _num(sales), _num(receipt), _num(purchase), _num(payment)
+        if before_period:
+            pre = pre_period.setdefault(ckey, [ZERO, ZERO])
+            pre[0] += sales - receipt
+            pre[1] += purchase - payment
+        else:
+            period["sales"] += sales
+            period["receipt"] += receipt
+            period["purchase"] += purchase
+            period["payment"] += payment
         acc["recv"] += sales - receipt
         acc["pay"] += purchase - payment
         acc["credit"] += receipt
@@ -478,7 +644,7 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10) -> dict:
         delta[0] += sales - receipt
         delta[1] += purchase - payment
 
-    # 월말 잔액 추이: 요약 카드와 같은 기준 (거래처별 잔액 중 0보다 큰 것만 더한다 = 선수·선급은 빼고)
+    # 월말 잔액 추이: 요약 카드와 같은 기준 = 거래처원장 합계 (선수금 · 선급금 거래처의 마이너스 잔액도 그대로 더한다)
     running = {ckey: [acc["opening_recv"], acc["opening_pay"]] for ckey, acc in book.items()}
     for ckey, (recv_delta, pay_delta) in before.items():
         balance = running.setdefault(ckey, [ZERO, ZERO])
@@ -491,13 +657,14 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10) -> dict:
             balance[0] += recv_delta
             balance[1] += pay_delta
         trend.append({**months[key],
-                      "recv_balance": sum((v[0] for v in running.values() if v[0] > 0), ZERO),
-                      "pay_balance": sum((v[1] for v in running.values() if v[1] > 0), ZERO)})
+                      "recv_balance": sum((v[0] for v in running.values()), ZERO),
+                      "pay_balance": sum((v[1] for v in running.values()), ZERO)})
 
     # 미수금 경과 기간 (선입선출): 수금은 가장 오래된 매출(기초잔액 포함)부터 갚은 것으로 본다. (잔여분은 SQL 에서 계산)
     aging = {key: ZERO for key, *_ in AGING_BUCKETS}
     aging["unknown"] = ZERO  # 원장 시작일이 없을 때의 기초잔액 (언제 생긴 돈인지 모름)
     per_account = {}
+    oldest_date = {}  # (거래처, 구간) -> 아직 남은 가장 오래된 매출일 (마우스 올림 창)
     for ckey, debit_date, left in fifo_rows:
         if left <= 0:
             continue
@@ -509,6 +676,8 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10) -> dict:
         for key, _label, low, high in AGING_BUCKETS:
             if days >= low and (high is None or days <= high):
                 per[key] += left
+                previous = oldest_date.get((ckey, key))
+                oldest_date[(ckey, key)] = debit_date if previous is None or debit_date < previous else previous
                 break
     overdue = []
     for ckey, acc in book.items():  # 거래처 순서(동점 정렬)를 예전과 같게
@@ -522,9 +691,31 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10) -> dict:
             overdue.append({"ckey": acc["ckey"], "customcode": acc["customcode"], "customname": acc["customname"],
                             "recv": acc["recv"], "over30": late, "over90": per["over90"]})
 
+    def aging_customers(key, limit=10):
+        # 경과 구간 마우스 올림: 그 구간에 남은 미수금이 큰 거래처 순 (최대 10곳)
+        rows = [{"ckey": acc["ckey"], "customcode": acc["customcode"], "customname": acc["customname"],
+                 "amount": per_account[ckey][key], "oldest": oldest_date.get((ckey, key))}
+                for ckey, acc in book.items() if ckey in per_account and per_account[ckey][key] > 0]
+        rows.sort(key=lambda row: row["amount"], reverse=True)
+        return {"customer_count": len(rows), "customers": rows[:limit]}
+
     accounts = list(book.values())
-    recv_pos = sum((a["recv"] for a in accounts if a["recv"] > 0), ZERO)
-    pay_pos = sum((a["pay"] for a in accounts if a["pay"] > 0), ZERO)
+    # 기초: 시작일 전날 잔액 (거래처원장의 기초 합계와 같음)
+    opening = [(acc["opening_recv"] + pre_period.get(acc["ckey"], [ZERO, ZERO])[0],
+                acc["opening_pay"] + pre_period.get(acc["ckey"], [ZERO, ZERO])[1]) for acc in accounts]
+    open_recv = sum((recv for recv, _ in opening), ZERO)
+    open_pay = sum((pay for _, pay in opening), ZERO)
+    # 카드 마우스 올림: 잔액 = 전체 거래처 합계(마이너스 포함) + 마이너스 거래처(선수 · 선급)를 뺀 만큼
+    breakdown = {
+        **parts,
+        "recv_open_all": sum((recv for recv, _ in opening), ZERO), "pay_open_all": sum((pay for _, pay in opening), ZERO),
+        "recv_close_all": sum((a["recv"] for a in accounts), ZERO), "pay_close_all": sum((a["pay"] for a in accounts), ZERO),
+        "advance_amount": sum((-a["recv"] for a in accounts if a["recv"] < 0), ZERO), "advance_count": sum(1 for a in accounts if a["recv"] < 0),
+        "prepaid_amount": sum((-a["pay"] for a in accounts if a["pay"] < 0), ZERO), "prepaid_count": sum(1 for a in accounts if a["pay"] < 0),
+    }
+    # 기말: 거래처원장의 기말 미수금 · 기말 미지급금 합계와 같음 (선수금 · 선급금 거래처의 마이너스도 포함)
+    recv_pos = sum((a["recv"] for a in accounts), ZERO)
+    pay_pos = sum((a["pay"] for a in accounts), ZERO)
     this_month = months.get(_month_start(as_of), {})
 
     def top(field):
@@ -544,18 +735,23 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10) -> dict:
                       for kind, text, a in attention]
 
     return {
-        "as_of": as_of, "ledgerstartdate": start,
+        "as_of": as_of, "date_from": period_from, "ledgerstartdate": start, "with_vat": bool(with_vat),
         "summary": {
             "receivable": recv_pos, "payable": pay_pos, "net": recv_pos - pay_pos,
             "receivable_customers": sum(1 for a in accounts if a["recv"] > 0),
             "payable_customers": sum(1 for a in accounts if a["pay"] > 0),
             "month_receipt": this_month.get("receipt", ZERO), "month_payment": this_month.get("payment", ZERO),
             "month_sales": this_month.get("sales", ZERO), "month_purchase": this_month.get("purchase", ZERO),
+            # 기간(시작일 ~ 종료일) 합계 · 시작일 전날 잔액
+            "period_sales": period["sales"], "period_receipt": period["receipt"],
+            "period_purchase": period["purchase"], "period_payment": period["payment"],
+            "open_receivable": open_recv, "open_payable": open_pay, "open_net": open_recv - open_pay,
         },
+        "breakdown": breakdown,
         "top_receivable": top("recv"), "top_payable": top("pay"),
         "trend": trend,
-        "aging": [{"key": key, "label": label, "amount": aging[key]} for key, label, *_ in AGING_BUCKETS]
-                 + ([{"key": "unknown", "label": "기초잔액(날짜 미상)", "amount": aging["unknown"]}] if aging["unknown"] else []),
+        "aging": [{"key": key, "label": label, "amount": aging[key], **aging_customers(key)} for key, label, *_ in AGING_BUCKETS]
+                 + ([{"key": "unknown", "label": "기초잔액(날짜 미상)", "amount": aging["unknown"], **aging_customers("unknown")}] if aging["unknown"] else []),
         "overdue": sorted(overdue, key=lambda r: r["over30"], reverse=True)[:top_n],
         "attention": sorted(attention_rows, key=lambda r: (r["kind"], -abs(r["recv"] or r["pay"])))[:30],
     }

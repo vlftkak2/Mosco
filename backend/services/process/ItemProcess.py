@@ -124,7 +124,7 @@ def list_documents(
                 FROM Process01t h
                 {_TOTALS_LATERAL}
                 WHERE {where_sql}
-                ORDER BY h.processdate DESC, h.processno DESC
+                ORDER BY h.processdate ASC, h.processno ASC
                 LIMIT %s OFFSET %s""",
             (*params, page_size, (page - 1) * page_size),
         )
@@ -162,21 +162,20 @@ def write_documents_excel(
         companyid, date_from, date_to, processno, customer, warehouse, iteminfo, processmethod
     )
     headers = [
-        "No.", "가공일자", "가공처", "창고", "상세건수", "수량", "중량(KG)",
-        "공급가", "부가세", "합계금액", "가공전표", "담당자", "비고", "등록일자", "수정일자",
-        "등록자", "수정자",
+        "No.", "가공일자", "가공처", "창고", "수량", "중량(KG)",
+        "공급가", "부가세", "합계금액", "가공전표", "담당자", "비고", "등록일자", "등록자",
+        "수정일자", "수정자",
     ]
     query = f"""
         SELECT h.processdate, h.customname, h.warehousecodename,
-               COALESCE(totals.detail_count, 0), COALESCE(totals.qty, 0),
+               COALESCE(totals.qty, 0),
                COALESCE(totals.weight, 0), COALESCE(totals.supplyamt, 0),
                COALESCE(totals.vat, 0), COALESCE(totals.unitamt, 0), h.processno,
-               h.manager, h.description, h.createdat, h.updatedat,
-               {_CREATED_BY}, {_UPDATED_BY}
+               h.manager, h.description, h.createdat, {_CREATED_BY}, h.updatedat, {_UPDATED_BY}
         FROM Process01t h
         {_TOTALS_LATERAL}
         WHERE {where_sql}
-        ORDER BY h.processdate DESC, h.processno DESC
+        ORDER BY h.processdate ASC, h.processno ASC
     """
 
     workbook = xlsxwriter.Workbook(output_path, {"constant_memory": True})
@@ -195,15 +194,17 @@ def write_documents_excel(
     worksheet.set_column("A:A", 8)
     worksheet.set_column("B:B", 13, date_format)
     worksheet.set_column("C:D", 22)
-    worksheet.set_column("E:E", 12, integer_format)
-    worksheet.set_column("F:G", 15, number_format)
-    worksheet.set_column("H:J", 17, money_format)
-    worksheet.set_column("K:K", 21)
-    worksheet.set_column("L:L", 14)
-    worksheet.set_column("M:M", 16)
-    worksheet.set_column("N:N", 32)
-    worksheet.set_column("N:O", 22, datetime_format)
-    worksheet.set_column("P:Q", 14)
+    # 칸: A No. / B 가공일자 / C·D 가공처·창고 / E·F 수량·중량 / G~I 금액 / J 가공전표 / K 담당자 / L 비고
+    #     M 등록일자 / N 등록자 / O 수정일자 / P 수정자
+    worksheet.set_column("E:F", 15, number_format)
+    worksheet.set_column("G:I", 17, money_format)
+    worksheet.set_column("J:J", 21)
+    worksheet.set_column("K:K", 14)
+    worksheet.set_column("L:L", 32)
+    worksheet.set_column("M:M", 22, datetime_format)
+    worksheet.set_column("N:N", 14)
+    worksheet.set_column("O:O", 22, datetime_format)
+    worksheet.set_column("P:P", 14)
 
     row_number = 1
     try:
@@ -219,12 +220,12 @@ def write_documents_excel(
                                 continue
                             if column_index == 1 and isinstance(value, date):
                                 worksheet.write_datetime(row_number, column_index, value, date_format)
-                            elif column_index in (13, 14) and isinstance(value, datetime):
+                            elif column_index in (12, 14) and isinstance(value, datetime):
                                 worksheet.write_datetime(row_number, column_index, value.replace(tzinfo=None), datetime_format)
-                            elif column_index in (4, 5, 6, 7, 8, 9):
+                            elif column_index in (4, 5, 6, 7, 8):
                                 number_value = float(value)
                                 number_cell_format = integer_format if number_value.is_integer() else (
-                                    number_format if column_index in (4, 5, 6) else money_format
+                                    number_format if column_index in (4, 5) else money_format
                                 )
                                 worksheet.write_number(row_number, column_index, number_value, number_cell_format)
                             else:

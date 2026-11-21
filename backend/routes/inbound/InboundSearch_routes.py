@@ -28,6 +28,8 @@ def export_inbound_details(
     itemcode: str = Query(default="", max_length=100),
     itemname: str = Query(default="", max_length=150),
     iteminfo: str = Query(default="", max_length=150),
+    include_sales_cost: bool = Query(default=False),     # 매출 비용 포함 (매출 기타비용 중 비용여부 '예')
+    include_process_cost: bool = Query(default=False),   # 가공 비용 포함 (가공 전표별 가공금액)
     user: dict = Depends(security_module.get_current_user),
 ):
     if date_from and date_to and date_from > date_to:
@@ -48,6 +50,8 @@ def export_inbound_details(
             itemcode=itemcode,
             itemname=itemname,
             iteminfo=iteminfo,
+            include_sales_cost=include_sales_cost,
+            include_process_cost=include_process_cost,
         )
     except Exception as error:
         os.unlink(temp_file.name)
@@ -76,6 +80,9 @@ def get_inbound_details(
     itemcode: str = Query(default="", max_length=100),
     itemname: str = Query(default="", max_length=150),
     iteminfo: str = Query(default="", max_length=150),
+    include_sales_cost: bool = Query(default=False),     # 매출 비용 포함 (매출 기타비용 중 비용여부 '예')
+    include_process_cost: bool = Query(default=False),   # 가공 비용 포함 (가공 전표별 가공금액)
+    summary: bool = Query(default=True),   # false = 쪽 넘김: 요약(건수·합계) 계산 생략
     user: dict = Depends(security_module.get_current_user),
 ):
     if date_from and date_to and date_from > date_to:
@@ -95,6 +102,9 @@ def get_inbound_details(
                 itemcode=itemcode,
                 itemname=itemname,
                 iteminfo=iteminfo,
+                include_sales_cost=include_sales_cost,
+                include_process_cost=include_process_cost,
+                with_summary=summary,
             ),
         }
     except Exception as error:

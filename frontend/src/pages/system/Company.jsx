@@ -21,7 +21,6 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconBuildingSkyscraper,
-  IconClockHour4,
   IconId,
   IconInbox,
   IconMapPin,
@@ -47,9 +46,9 @@ const COMPANY_COLUMNS = [
   { key: 'plan_code', label: '서비스유형', width: 90 },
   { key: 'company_status', label: '이용상태', width: 90 },
   { key: 'licensed_seats', label: '허용계정', width: 80 },
-  { key: 'createdat', label: '등록일자', width: 110 },
-  { key: 'updatedat', label: '수정일자', width: 110 },
+  { key: 'createdat', label: '등록일자', width: 150 },
   { key: 'created_by', label: '등록자', width: 80 },
+  { key: 'updatedat', label: '수정일자', width: 150 },
   { key: 'updated_by', label: '수정자', width: 80 },
 ];
 const PLAN_OPTIONS = [
@@ -93,6 +92,7 @@ const emptyCompany = () => ({
   companyid: '',
   companyname: '',
   businessno: '',
+  corporationno: '',
   ceoname: '',
   phone: '',
   zipcode: '',
@@ -111,6 +111,7 @@ const normalizeCompany = (row = {}) => ({
   companyid: String(row.companyid ?? ''),
   companyname: String(row.companyname ?? ''),
   businessno: String(row.businessno ?? ''),
+  corporationno: String(row.corporationno ?? ''),
   ceoname: String(row.ceoname ?? ''),
   phone: String(row.phone ?? ''),
   zipcode: String(row.zipcode ?? ''),
@@ -139,7 +140,15 @@ const formatDate = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   const pad = (part) => String(part).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`; // 목록은 YYYY-MM-DD (시각은 마우스를 올리면 보임)
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+// 목록 등록일자 · 수정일자: YYYY-MM-DD HH:mm (시간까지)
+const formatListDateTime = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const pad = (part) => String(part).padStart(2, '0');
+  return `${formatDate(value)} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
 const errorMessage = (error, fallback) => apiErrorMessage(error, fallback);
@@ -295,6 +304,7 @@ export default function Company() {
         companyid: String(draft.companyid ?? '').trim(),
         companyname: String(draft.companyname ?? '').trim(),
         businessno: String(draft.businessno ?? '').trim(),
+        corporationno: String(draft.corporationno ?? '').trim(),
         ceoname: String(draft.ceoname ?? '').trim(),
         phone: String(draft.phone ?? '').trim(),
         zipcode: String(draft.zipcode ?? '').trim(),
@@ -451,9 +461,9 @@ export default function Company() {
                     </Table.Td>
                     <Table.Td><Badge size="sm" variant="light" color={company.company_status === 'ACTIVE' ? 'teal' : company.company_status === 'SUSPENDED' ? 'orange' : 'gray'}>{STATUS_LABEL[company.company_status] || company.company_status}</Badge></Table.Td>
                     <Table.Td>{Number(company.licensed_seats || 0).toLocaleString('ko-KR')}</Table.Td>
-                    <Table.Td className={classes.mutedCell} title={formatDateTime(company.createdat)}>{formatDate(company.createdat)}</Table.Td>
-                    <Table.Td className={classes.mutedCell} title={formatDateTime(company.updatedat)}>{formatDate(company.updatedat)}</Table.Td>
+                    <Table.Td className={classes.mutedCell} title={formatDateTime(company.createdat)}>{formatListDateTime(company.createdat)}</Table.Td>
                     <Table.Td title={company.created_by_name || company.created_by || ''}>{company.created_by_name || company.created_by || ''}</Table.Td>
+                    <Table.Td className={classes.mutedCell} title={formatDateTime(company.updatedat)}>{formatListDateTime(company.updatedat)}</Table.Td>
                     <Table.Td title={company.updated_by_name || company.updated_by || ''}>{company.updated_by_name || company.updated_by || ''}</Table.Td>
                   </Table.Tr>
                 )) : (
@@ -516,8 +526,10 @@ export default function Company() {
                 <div className={classes.formGrid}>
                   <TextInput label="고객사 코드" withAsterisk value={draft.companyid} onChange={(event) => updateDraft('companyid', event.currentTarget.value)} disabled={!isNew} maxLength={50} />
                   <TextInput label="고객사명" withAsterisk value={draft.companyname} onChange={(event) => updateDraft('companyname', event.currentTarget.value)} maxLength={100} />
-                  <TextInput label="사업자번호" value={draft.businessno} onChange={(event) => updateDraft('businessno', event.currentTarget.value)} maxLength={20} />
                   <TextInput label="대표자명" value={draft.ceoname} onChange={(event) => updateDraft('ceoname', event.currentTarget.value)} maxLength={100} />
+                  <TextInput label="사업자번호" placeholder="000-00-00000" value={draft.businessno} onChange={(event) => updateDraft('businessno', event.currentTarget.value)} maxLength={20} />
+                  {/* 법인번호: 사업장관리의 법인등록번호와 같은 값 (어느 쪽에서 고쳐도 함께 바뀐다) */}
+                  <TextInput label="법인번호" placeholder="000000-0000000" value={draft.corporationno} onChange={(event) => updateDraft('corporationno', event.currentTarget.value)} maxLength={20} />
                   <TextInput label="전화번호" value={draft.phone} onChange={(event) => updateDraft('phone', event.currentTarget.value)} maxLength={30} />
                 </div>
               </section>
@@ -564,15 +576,6 @@ export default function Company() {
                 </div>
               </section>
 
-              <section className={classes.formSection}>
-                <div className={classes.formSectionHead}><IconClockHour4 size={15} />등록 이력</div>
-                <div className={classes.formGrid}>
-                  <TextInput label="등록일시" value={formatDateTime(draft.createdat)} readOnly disabled />
-                  <TextInput label="수정일시" value={formatDateTime(draft.updatedat)} readOnly disabled />
-                  <TextInput label="등록자" value={draft.created_by_name || draft.created_by || ''} readOnly disabled />
-                  <TextInput label="수정자" value={draft.updated_by_name || draft.updated_by || ''} readOnly disabled />
-                </div>
-              </section>
             </div>
           </ScrollArea>
         </Paper>

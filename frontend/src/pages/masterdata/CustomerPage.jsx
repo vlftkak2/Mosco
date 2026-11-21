@@ -1,6 +1,7 @@
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
+  Autocomplete,
   Badge,
   Box,
   Button,
@@ -97,6 +98,7 @@ const emptyCustomer = () => ({
   customername: "",
   businessno: "",
   corporationno: "",
+  ownertype: "CORP",
   ceoname: "",
   tradetype: "매입처",
   businesstype: "",
@@ -123,6 +125,7 @@ const toCustomer = (row) => ({
   customername: row.customername ?? "",
   businessno: row.businessno ?? "",
   corporationno: row.corporationno ?? "",
+  ownertype: row.ownertype === "INDIV" ? "INDIV" : "CORP",
   ceoname: row.ceoname ?? "",
   tradetype: row.tradetype || "매입처",
   businesstype: row.businesstype ?? "",
@@ -142,20 +145,102 @@ const toCustomer = (row) => ({
   openingpayable: parseOpeningAmount(row.openingpayable) ?? 0,
 });
 
+// 사업자번호 · 법인번호 검증번호 확인 (서버 · 사업장관리와 같은 규칙). 엑셀 일괄등록에서 행별로 먼저 거른다.
+const digitsOf = (value) => String(value ?? "").replace(/\D/g, "");
+const validBusinessNo = (value) => {
+  const digits = digitsOf(value);
+  if (digits.length !== 10) return false;
+  const weights = [1, 3, 7, 1, 3, 7, 1, 3, 5];
+  let total = weights.reduce((sum, weight, index) => sum + Number(digits[index]) * weight, 0);
+  total += Math.floor((Number(digits[8]) * 5) / 10);
+  return (10 - (total % 10)) % 10 === Number(digits[9]);
+};
+const validCorporationNo = (value) => {
+  const digits = digitsOf(value);
+  if (digits.length !== 13) return false;
+  const total = [...digits.slice(0, 12)].reduce((sum, digit, index) => sum + Number(digit) * (index % 2 === 0 ? 1 : 2), 0);
+  return (10 - (total % 10)) % 10 === Number(digits[12]);
+};
+
 const errorMessage = (error, fallback) => {
   const detail = error.response?.data?.detail;
-  if (Array.isArray(detail)) return detail.map((item) => item.msg).join(", ");
+  if (Array.isArray(detail)) return detail.map((item) => String(item.msg || "").replace(/^Value error,\s*/i, "")).join(", ");
   return detail || error.response?.data?.message || error.message || fallback;
 };
 
 const TRADETYPE_TONE = { 매입처: "purchase", 매출처: "sales", 매입매출처: "both" };
+
+// 거래처 엑셀 칼럼: 상세 화면 입력 순서 · 화면 이름과 같다. 양식 받기 · 목록 엑셀 · 일괄 업로드가 같은 정의를 쓴다.
+//  text: 엑셀에서 숫자로 바뀌어 앞자리 0이 사라지지 않게 텍스트 칸으로 만든다.
+//  aliases: 예전 양식(대표자명 · 전화번호 · 은행명 · 기초미수금 …)으로 올려도 받는다.
+const TRADETYPES = ["매입처", "매출처", "매입매출처"];
+const CUSTOMER_EXCEL_COLUMNS = [
+  { key: "customercode", header: "거래처코드", width: 14, text: true, aliases: ["customercode", "거래처 코드", "거래처코드(자동채번)", "거래처코드(선택/자동채번)"], guide: "비우면 자동 채번 (Cust-00001 형식). 이미 있는 코드나 파일 안에서 겹친 코드는 등록하지 않습니다." },
+  { key: "tradetype", header: "거래구분", width: 12, aliases: ["tradetype"], guide: "매입처 / 매출처 / 매입매출처 (비우면 매입처)" },
+  { key: "customername", header: "거래처명", width: 26, required: true, aliases: ["customername", "거래처명(상호)", "상호명"], guide: "거래처 이름 (상호)" },
+  { key: "ceoname", header: "대표자", width: 12, aliases: ["ceoname", "대표자명", "대표자 성명"] },
+  { key: "ownertype", header: "사업자유형", width: 12, aliases: ["ownertype", "사업자 유형"], guide: "법인사업자 / 개인사업자 (비우면 법인사업자)" },
+  { key: "businessno", header: "사업자번호", width: 15, text: true, aliases: ["businessno", "사업자등록번호"], guide: "000-00-00000 (- 없이 10자리도 됨, 검증번호 확인)" },
+  { key: "corporationno", header: "법인번호", width: 17, text: true, aliases: ["corporationno", "법인등록번호"], guide: "000000-0000000 (- 없이 13자리도 됨). 개인사업자는 비웁니다." },
+  { key: "businesstype", header: "업태", width: 12, aliases: ["businesstype"] },
+  { key: "industry", header: "업종", width: 12, aliases: ["industry"] },
+  { key: "phone", header: "전화", width: 15, text: true, aliases: ["phone", "전화번호", "대표 연락처", "연락처"] },
+  { key: "fax", header: "팩스", width: 15, text: true, aliases: ["fax", "팩스번호"] },
+  { key: "email", header: "이메일", width: 22, aliases: ["email", "메일"] },
+  { key: "zipcode", header: "우편번호", width: 10, text: true, aliases: ["zipcode", "우편 번호"], guide: "숫자 5자리" },
+  { key: "address", header: "주소", width: 36, aliases: ["address", "사업장 주소"] },
+  { key: "address2", header: "상세주소", width: 24, aliases: ["address2", "상세 주소"] },
+  { key: "bankcode", header: "은행", width: 14, aliases: ["bankname", "은행명", "bankcode", "은행코드", "bank"], guide: "기본정보관리에 등록된 은행 이름 (아래 은행 목록)" },
+  { key: "accountno", header: "계좌번호", width: 18, text: true, aliases: ["accountno", "계좌"] },
+  { key: "useryn", header: "사용여부", width: 10, aliases: ["useryn", "사용 여부"], guide: "사용중 / 사용중지 (비우면 사용중)" },
+  { key: "manager", header: "업체 담당자", width: 12, aliases: ["manager", "업체담당자", "담당자"], guide: "20자 이내" },
+  { key: "openingreceivable", header: "기초 미수금", width: 14, aliases: ["openingreceivable", "기초미수금"], guide: "0 이상 숫자 (관리자만 반영, 그 외 계정은 0으로 등록)" },
+  { key: "openingpayable", header: "기초 미지급금", width: 14, aliases: ["openingpayable", "기초미지급금"], guide: "0 이상 숫자 (관리자만 반영, 그 외 계정은 0으로 등록)" },
+  { key: "remark", header: "비고", width: 24, aliases: ["remark"] },
+];
+const excelHeaderKey = (value) => String(value ?? "").replace(/\s+/g, "").toLowerCase();
+const CUSTOMER_HEADER_LOOKUP = new Map(CUSTOMER_EXCEL_COLUMNS.flatMap((column) =>
+  [column.header, ...(column.aliases || [])].map((name) => [excelHeaderKey(name), column.key])));
+// 텍스트 칸: 양식의 빈 줄에도 텍스트 서식을 미리 넣어 둔다 (숫자로 입력돼 앞자리 0이 사라지는 것을 막음)
+const TEMPLATE_TEXT_ROWS = 300;
+const markTextColumns = (worksheet, columns, rowCount) => {
+  columns.forEach((column, columnIndex) => {
+    if (!column.text) return;
+    for (let row = 1; row <= rowCount; row += 1) {
+      const address = XLSX.utils.encode_cell({ r: row, c: columnIndex });
+      const cell = worksheet[address];
+      worksheet[address] = cell ? { ...cell, t: "s", v: String(cell.v ?? ""), z: "@" } : { t: "s", v: "", z: "@" };
+    }
+  });
+  const range = XLSX.utils.decode_range(worksheet["!ref"]);
+  range.e.r = Math.max(range.e.r, rowCount);
+  worksheet["!ref"] = XLSX.utils.encode_range(range);
+};
+// 엑셀에서 숫자로 읽힌 우편번호(6234 → 06234)를 5자리로 되돌린다
+const normalizeZipcode = (value) => (/^\d{1,4}$/.test(value) ? value.padStart(5, "0") : value);
 const OPENING_BALANCE_LOCKED_TITLE = "MASTER/SUBMASTER 권한만 변경할 수 있습니다.";
 
+// 상세 머리의 사용여부: 같은 줄의 코드 · 거래구분처럼 글자로 (사용중지는 흐리게)
 const StatusTag = ({ value }) => (
   <span className={`${classes.tag} ${value === "사용중" ? classes.tagActive : classes.tagInactive}`}>
     {value}
   </span>
 );
+// 목록의 사용여부: 고객계정관리 목록과 같은 둥근 배지 (사용중 = 초록, 사용중지 = 회색)
+const StatusBadge = ({ value }) => (
+  <Badge size="sm" variant="light" color={value === "사용중" ? "teal" : "gray"}>{value}</Badge>
+);
+const OWNER_TYPES = [["CORP", "법인사업자"], ["INDIV", "개인사업자"]];
+// 목록 날짜: YYYY-MM-DD (마우스를 올리면 시각까지)
+const pad2 = (value) => String(value).padStart(2, "0");
+const listDate = (value) => {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}` : "";
+};
+const listDateTime = (value) => {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? `${listDate(value)} ${pad2(date.getHours())}:${pad2(date.getMinutes())}` : "";
+};
 
 const TradetypeTag = ({ value }) =>
   value ? (
@@ -186,6 +271,10 @@ const CUSTOMER_COLUMNS = [
   { key: 'tel', label: '전화', width: 120, minWidth: 70 },
   { key: 'fax', label: '팩스', width: 120, minWidth: 70 },
   { key: 'type', label: '거래구분', width: 96, minWidth: 70, center: true },
+  { key: 'createdat', label: '등록일자', width: 100, minWidth: 80, center: true },
+  { key: 'createdby', label: '등록자', width: 84, minWidth: 60 },
+  { key: 'updatedat', label: '수정일자', width: 100, minWidth: 80, center: true },
+  { key: 'updatedby', label: '수정자', width: 84, minWidth: 60 },
   { key: 'use', label: '사용여부', width: 86, minWidth: 64, center: true },
 ];
 
@@ -284,14 +373,18 @@ const CustomerTable = memo(function CustomerTable({
               <Table.Td className={classes.centerCell} title={customer.tradetype || "-"}>
                 <TradetypeTag value={customer.tradetype} />
               </Table.Td>
+              <Table.Td className={classes.centerCell} title={listDateTime(customer.createdat)}>{listDate(customer.createdat)}</Table.Td>
+              <Table.Td title={customer.createdbyname || customer.createdby || ""}>{customer.createdbyname || customer.createdby || ""}</Table.Td>
+              <Table.Td className={classes.centerCell} title={listDateTime(customer.updatedat)}>{listDate(customer.updatedat)}</Table.Td>
+              <Table.Td title={customer.updatedbyname || customer.updatedby || ""}>{customer.updatedbyname || customer.updatedby || ""}</Table.Td>
               <Table.Td className={classes.centerCell}>
-                <StatusTag value={customer.useryn} />
+                <StatusBadge value={customer.useryn} />
               </Table.Td>
             </Table.Tr>
           ))
         ) : (
           <Table.Tr className={classes.emptyRow}>
-            <Table.Td colSpan={8} className={classes.emptyCell}>
+            <Table.Td colSpan={CUSTOMER_COLUMNS.length} className={classes.emptyCell}>
               <div className={classes.emptyState}>
                 <strong>{loading ? "불러오는 중..." : "검색 결과가 없습니다."}</strong>
                 {!loading && <span>검색어나 사용 여부·거래 구분 조건을 바꿔 보세요.</span>}
@@ -340,7 +433,7 @@ const CustomerListPanel = memo(function CustomerListPanel({
         <div className={classes.toolbarActions}>
           <ExcelBulkActions
             onDownloadTemplate={onDownloadTemplate}
-            templateTitle="거래처 일괄등록 샘플 양식을 내려받습니다"
+            templateTitle="거래처 일괄등록 양식(작성안내 포함)을 내려받습니다"
             inputRef={uploadInputRef}
             onUpload={onUpload}
             uploading={Boolean(uploadProgress)}
@@ -476,7 +569,7 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
         </Badge>
       </div>
       <div className={`${classes.identityStrip} ${isNew ? classes.identityStripNew : ""}`}>
-        <div className={classes.identityText}>
+        <div className={`${classes.identityText} ${classes.identityInline}`}>
           <strong title={headerName}>{headerName}</strong>
           <div className={classes.identityMeta}>
             {hasCustomer ? (
@@ -495,6 +588,7 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
         </div>
       </div>
       <Box className={classes.formBody}>
+        {/* 기본정보: 거래처코드 · 거래구분 · 거래처명 · 대표자 */}
         <FormSection title="기본정보">
           <TextInput
             className={classes.codeInput}
@@ -505,13 +599,13 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
             }
             disabled={!isNew}
           />
-          <TextInput
-            label="대표자"
-            value={draft.ceoname}
-            onChange={(event) => onChange("ceoname", event.currentTarget.value)}
+          <Select
+            label="거래구분"
+            value={draft.tradetype}
+            onChange={(value) => onChange("tradetype", value || "")}
+            data={["매입처", "매출처", "매입매출처"]}
           />
           <TextInput
-            className={classes.fullRow}
             label="거래처명"
             value={draft.customername}
             onChange={(event) =>
@@ -519,21 +613,44 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
             }
             required
           />
+          <TextInput
+            label="대표자"
+            value={draft.ceoname}
+            onChange={(event) => onChange("ceoname", event.currentTarget.value)}
+          />
         </FormSection>
 
+        {/* 사업자·연락처: 사업자 유형 · 사업자번호 · 법인번호 · 업태 · 업종 · 전화 · 팩스 · 이메일 · 주소 */}
         <FormSection title="사업자·연락처">
+          <div className={`${classes.fullRow} ${classes.ownerTypeRow}`}>
+            <div className={classes.fieldLabel}>사업자 유형</div>
+            <div className={classes.ownerRadioRow} role="radiogroup" aria-label="사업자 유형">
+              {OWNER_TYPES.map(([value, text]) => (
+                <label key={value} className={classes.ownerRadio}>
+                  <input type="radio" name="customer-ownertype" value={value} checked={draft.ownertype === value}
+                    onChange={() => {
+                      onChange("ownertype", value);
+                      // 개인사업자는 법인번호가 없다 (서버도 같은 규칙으로 비운다)
+                      if (value === "INDIV") onChange("corporationno", "");
+                    }} />
+                  {text}
+                </label>
+              ))}
+            </div>
+          </div>
           <TextInput
-            label="사업자등록번호"
+            label="사업자번호"
             value={draft.businessno}
-            placeholder="예시 입력값 000-00-00000"
+            placeholder="000-00-00000"
             onChange={(event) =>
               onChange("businessno", event.currentTarget.value)
             }
           />
           <TextInput
-            label="법인등록번호"
+            label="법인번호"
             value={draft.corporationno}
-            placeholder="예시 입력값 000000-0000000"
+            placeholder={draft.ownertype === "INDIV" ? "개인사업자는 입력하지 않습니다" : "000000-0000000"}
+            disabled={draft.ownertype === "INDIV"}
             onChange={(event) => onChange("corporationno", event.currentTarget.value)}
           />
           <TextInput
@@ -595,32 +712,17 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
           />
         </FormSection>
 
-        <FormSection title="거래·담당">
-          <Select
-            label="거래구분"
-            value={draft.tradetype}
-            onChange={(value) => onChange("tradetype", value || "")}
-            data={["매입처", "매출처", "매입매출처"]}
-          />
-          <Select
-            label="사용 여부"
-            value={displayUseyn(draft.useryn)}
-            onChange={(value) => onChange("useryn", value || "")}
-            data={["사용중", "사용중지"]}
-          />
-          <Select
-            className={classes.dropdownSelect}
-            label="담당자"
-            value={managers.includes(draft.manager) ? draft.manager : null}
-            onChange={(value) => onChange("manager", value || "")}
-            data={managers}
-            searchable
-            clearable
-            placeholder="담당자 선택"
-          />
-        </FormSection>
-
-        <FormSection title="계좌">
+        {/* 부가정보: 은행 · 계좌번호 · 사용여부 · 담당자 · 기초잔액 */}
+        <FormSection
+          title="부가정보"
+          aside={
+            !canEditOpeningBalances && (
+              <span className={classes.lockChip} title={OPENING_BALANCE_LOCKED_TITLE}>
+                기초잔액 읽기 전용
+              </span>
+            )
+          }
+        >
           <Select
             className={classes.dropdownSelect}
             label="은행"
@@ -636,26 +738,28 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
             value={draft.accountno}
             onChange={(event) => onChange("accountno", event.currentTarget.value)}
           />
-        </FormSection>
-
-        <FormSection
-          title="기초잔액"
-          hint={OPENING_BALANCE_HELP}
-          aside={
-            !canEditOpeningBalances && (
-              <span className={classes.lockChip} title={OPENING_BALANCE_LOCKED_TITLE}>
-                읽기 전용
-              </span>
-            )
-          }
-        >
+          <Select
+            label="사용 여부"
+            value={displayUseyn(draft.useryn)}
+            onChange={(value) => onChange("useryn", value || "")}
+            data={["사용중", "사용중지"]}
+          />
+          {/* 담당자: 직접 입력 (회사 직원 이름은 추천으로만 보여준다) */}
+          <Autocomplete
+            label="업체 담당자"
+            value={draft.manager}
+            onChange={(value) => onChange("manager", value)}
+            data={managers}
+            maxLength={20}
+            placeholder="업체 담당자 이름"
+          />
           <NumberInput
             className={classes.amountInput}
             label="기초 미수금"
             value={draft.openingreceivable}
             onChange={(value) => onChange("openingreceivable", value)}
             disabled={!canEditOpeningBalances}
-            title={canEditOpeningBalances ? undefined : OPENING_BALANCE_LOCKED_TITLE}
+            title={canEditOpeningBalances ? OPENING_BALANCE_HELP : OPENING_BALANCE_LOCKED_TITLE}
             thousandSeparator=","
             decimalScale={2}
             allowNegative={false}
@@ -671,7 +775,7 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
             value={draft.openingpayable}
             onChange={(value) => onChange("openingpayable", value)}
             disabled={!canEditOpeningBalances}
-            title={canEditOpeningBalances ? undefined : OPENING_BALANCE_LOCKED_TITLE}
+            title={canEditOpeningBalances ? OPENING_BALANCE_HELP : OPENING_BALANCE_LOCKED_TITLE}
             thousandSeparator=","
             decimalScale={2}
             allowNegative={false}
@@ -681,11 +785,9 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
             hideControls
             styles={{ input: { textAlign: "right" } }}
           />
-          {!canEditOpeningBalances && (
-            <p className={`${classes.lockNote} ${classes.fullRow}`}>
-              기초 미수금·미지급금은 MASTER/SUBMASTER 권한만 변경할 수 있습니다.
-            </p>
-          )}
+          <p className={`${classes.lockNote} ${classes.fullRow}`}>
+            {canEditOpeningBalances ? OPENING_BALANCE_HELP : "기초 미수금·미지급금은 MASTER/SUBMASTER 권한만 변경할 수 있습니다."}
+          </p>
         </FormSection>
 
         <FormSection title="비고">
@@ -1061,14 +1163,6 @@ export default function CustomerPage() {
       });
       return;
     }
-    if (draft.manager && !managers.includes(draft.manager)) {
-      notifications.show({
-        message: "담당자 정보가 사용자 목록에 없습니다. 담당자를 다시 선택해 주세요.",
-        color: "orange",
-        position: "bottom-right",
-      });
-      return;
-    }
     const creating = isNew;
     const payload = {
       ...draft,
@@ -1113,42 +1207,41 @@ export default function CustomerPage() {
     } finally {
       setSaving(false);
     }
-  }, [draft, isNew, managers, refreshAfterWrite]);
+  }, [draft, isNew, refreshAfterWrite]);
 
   const downloadTemplate = useCallback(() => {
-    const headers = [
-      "거래처코드",
-      "거래처명",
-      "사업자번호",
-      "법인번호",
-      "대표자명",
-      "거래구분",
-      "업태",
-      "업종",
-      "담당자",
-      "우편번호",
-      "주소",
-      "상세주소",
-      "전화번호",
-      "팩스",
-      "이메일",
-      "은행명",
-      "계좌번호",
-      "사용여부",
-      "비고",
-      "기초미수금",
-      "기초미지급금",
-    ];
-    const worksheet = XLSX.utils.aoa_to_sheet([
-      headers,
-      ["CUST001", "거래처명", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 0, 0],
-    ]);
+    // 1번 시트 '거래처' = 업로드할 데이터 (상세 화면 입력 순서), 2번 시트 '작성안내' = 칼럼별 입력 규칙 · 은행 목록
+    const headers = CUSTOMER_EXCEL_COLUMNS.map((column) => column.header);
+    const sample = {
+      customercode: "", tradetype: "매입처", customername: "(예시) 모스코상사 - 이 줄은 지우고 작성", ceoname: "홍길동",
+      ownertype: "법인사업자", businessno: "", corporationno: "", businesstype: "도매", industry: "철강재",
+      phone: "02-1234-5678", fax: "", email: "", zipcode: "", address: "", address2: "",
+      bankcode: banks[0]?.bankname || "", accountno: "", useryn: "사용중", manager: "", openingreceivable: 0, openingpayable: 0, remark: "",
+    };
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, CUSTOMER_EXCEL_COLUMNS.map((column) => sample[column.key])]);
+    markTextColumns(worksheet, CUSTOMER_EXCEL_COLUMNS, TEMPLATE_TEXT_ROWS);
     applyExcelHeaderStyle(worksheet, headers.length);
-    worksheet["!cols"] = headers.map(() => ({ wch: 18 }));
+    worksheet["!cols"] = CUSTOMER_EXCEL_COLUMNS.map((column) => ({ wch: column.width }));
+
+    const guideRows = [
+      ["칼럼", "필수", "입력 방법"],
+      ...CUSTOMER_EXCEL_COLUMNS.map((column) => [column.header, column.required ? "필수" : "", column.guide || ""]),
+      [],
+      ["※ 첫 번째 시트('거래처')만 읽습니다. 첫 줄 제목은 바꾸지 마세요. 예시 줄은 지우고 작성해 주세요."],
+      ["※ 틀린 행은 등록하지 않고 행 번호와 이유를 알려 드립니다. 나머지 행은 등록됩니다."],
+      [],
+      ["은행 목록 (기본정보관리)"],
+      ...banks.map((bank) => [bank.bankname]),
+    ];
+    const guideSheet = XLSX.utils.aoa_to_sheet(guideRows);
+    applyExcelHeaderStyle(guideSheet, 3);
+    guideSheet["!cols"] = [{ wch: 16 }, { wch: 6 }, { wch: 80 }];
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "거래처");
-    XLSX.writeFile(workbook, "거래처_일괄등록_샘플.xlsx");
-  }, []);
+    XLSX.utils.book_append_sheet(workbook, guideSheet, "작성안내");
+    XLSX.writeFile(workbook, "거래처_일괄등록_양식.xlsx");
+  }, [banks]);
 
   const exportCustomers = useCallback(async () => {
     if (!companyid) return;
@@ -1165,72 +1258,35 @@ export default function CustomerPage() {
       });
       if (data.success === false)
         throw new Error(data.error || "엑셀 데이터를 불러오지 못했습니다.");
-      const headers = [
-        "거래처코드",
-        "거래처명",
-        "사업자번호",
-        "법인번호",
-        "대표자명",
-        "거래구분",
-        "업태",
-        "업종",
-        "담당자",
-        "우편번호",
-        "주소",
-        "상세주소",
-        "전화번호",
-        "팩스",
-        "이메일",
-        "은행명",
-        "계좌번호",
-        "사용여부",
-        "비고",
-        "기초미수금",
-        "기초미지급금",
-        "등록자",
-        "수정자",
-      ];
+      // 양식과 같은 칼럼명 · 순서 (그대로 고쳐서 다시 올릴 수 있다) → 목록의 등록일자 · 등록자 · 수정일자 · 수정자
+      const headers = [...CUSTOMER_EXCEL_COLUMNS.map((column) => column.header), "등록일자", "등록자", "수정일자", "수정자"];
+      const valueOf = (customer, key) => {
+        if (key === "ownertype") return customer.ownertype === "INDIV" ? "개인사업자" : "법인사업자";
+        if (key === "bankcode") {
+          return customer.bankname ?? banks.find((bank) =>
+            String(bank.bankcode ?? "").trim().toLocaleLowerCase() === String(customer.bankcode ?? "").trim().toLocaleLowerCase())?.bankname ?? "";
+        }
+        if (key === "useryn") return displayUseyn(customer.useryn ?? customer.useyn);
+        if (key === "openingreceivable" || key === "openingpayable") return parseOpeningAmount(customer[key]) ?? 0;
+        return customer[key] ?? "";
+      };
       const worksheet = XLSX.utils.aoa_to_sheet([
         headers,
         ...(data.data || []).map((customer) => [
-          customer.customercode ?? "",
-          customer.customername ?? "",
-          customer.businessno ?? "",
-          customer.corporationno ?? "",
-          customer.ceoname ?? "",
-          customer.tradetype ?? "",
-          customer.businesstype ?? "",
-          customer.industry ?? "",
-          customer.manager ?? "",
-          customer.zipcode ?? "",
-          customer.address ?? "",
-          customer.address2 ?? "",
-          customer.phone ?? "",
-          customer.fax ?? "",
-          customer.email ?? "",
-          customer.bankname ??
-            banks.find(
-              (bank) =>
-                String(bank.bankcode ?? "").trim().toLocaleLowerCase() ===
-                String(customer.bankcode ?? "").trim().toLocaleLowerCase(),
-            )?.bankname ??
-            "",
-          customer.accountno ?? "",
-          displayUseyn(customer.useryn ?? customer.useyn),
-          customer.remark ?? "",
-          parseOpeningAmount(customer.openingreceivable) ?? 0,
-          parseOpeningAmount(customer.openingpayable) ?? 0,
+          ...CUSTOMER_EXCEL_COLUMNS.map((column) => valueOf(customer, column.key)),
+          listDateTime(customer.createdat),
           customer.createdbyname ?? "",
+          listDateTime(customer.updatedat),
           customer.updatedbyname ?? "",
         ]),
       ]);
+      markTextColumns(worksheet, CUSTOMER_EXCEL_COLUMNS, (data.data || []).length);
       applyExcelHeaderStyle(worksheet, headers.length);
-      worksheet["!cols"] = headers.map((_, index) => ({
-        wch: index === 1 ? 26 : index === 10 ? 36 : 18,
-      }));
+      worksheet["!cols"] = [...CUSTOMER_EXCEL_COLUMNS.map((column) => ({ wch: column.width })), { wch: 17 }, { wch: 10 }, { wch: 17 }, { wch: 10 }];
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "거래처목록");
-      const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+      const now = new Date(); // 파일 이름 날짜: 한국 시간 기준 (toISOString 은 UTC 라 새벽에는 전날로 찍힌다)
+      const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
       XLSX.writeFile(workbook, `거래처목록_${date}.xlsx`);
       notifications.show({
         title: "엑셀 다운로드 완료",
@@ -1272,57 +1328,20 @@ export default function CustomerPage() {
         const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
         if (rows.length > 10000)
           throw new Error("한 번에 최대 10,000행까지 등록할 수 있습니다.");
-        const aliases = {
-          customercode: [
-            "customercode",
-            "거래처코드",
-            "거래처 코드",
-            "거래처코드(자동채번)",
-            "거래처코드(선택/자동채번)",
-          ],
-          customername: [
-            "customername",
-            "거래처명",
-            "거래처명(상호)",
-            "상호명",
-          ],
-          businessno: ["businessno", "사업자번호", "사업자등록번호"],
-          corporationno: ["corporationno", "법인번호", "법인등록번호"],
-          ceoname: ["ceoname", "대표자명", "대표자", "대표자 성명"],
-          tradetype: ["tradetype", "거래구분"],
-          businesstype: ["businesstype", "업태"],
-          industry: ["industry", "업종"],
-          manager: ["manager", "담당자"],
-          zipcode: ["zipcode", "우편번호", "우편 번호"],
-          phone: ["phone", "전화번호", "대표 연락처", "연락처"],
-          fax: ["fax", "팩스"],
-          email: ["email", "이메일", "메일"],
-          bankcode: ["bankname", "은행명", "은행", "bankcode", "은행코드", "bank"],
-          accountno: ["accountno", "계좌번호", "계좌"],
-          address: ["address", "주소", "사업장 주소"],
-          address2: ["address2", "상세주소", "상세 주소"],
-          useryn: ["useryn", "사용여부", "사용 여부"],
-          remark: ["remark", "비고"],
-          openingreceivable: ["openingreceivable", "기초미수금", "기초 미수금"],
-          openingpayable: ["openingpayable", "기초미지급금", "기초 미지급금"],
-        };
+        // 지금 등록된 거래처코드: 이미 있는 코드는 그 행만 빼고 나머지를 등록한다 (서버는 하나라도 겹치면 전체를 거부)
+        setUploadProgress("등록된 거래처코드 확인 중");
+        const { data: existingData } = await axios.get("/api/opening-balances", authConfig());
+        const existingCodes = new Set((existingData.items || []).map((item) => String(item.customercode || "").trim().toLowerCase()));
         const imported = rows
           .map((row, rowIndex) => {
-            const normalized = Object.fromEntries(
-              Object.entries(row).map(([key, value]) => [
-                key.trim().toLowerCase(),
-                String(value).trim(),
-              ]),
-            );
             const customer = { ...emptyCustomer(), tradetype: "" };
             customer.companyid = companyid;
             customer.companyname = companyname;
-            Object.entries(aliases).forEach(([field, names]) => {
-              const key = names.find(
-                (name) => normalized[name.toLowerCase()] !== undefined,
-              );
-              if (key) customer[field] = normalized[key.toLowerCase()];
+            Object.entries(row).forEach(([header, value]) => {
+              const field = CUSTOMER_HEADER_LOOKUP.get(excelHeaderKey(header));
+              if (field) customer[field] = String(value ?? "").trim();
             });
+            customer.zipcode = normalizeZipcode(customer.zipcode);
             const importedBankValue = customer.bankcode.trim().toLocaleLowerCase();
             const bankMatch = importedBankValue
               ? banks.find((bank) => bank.bankcode.trim().toLocaleLowerCase() === importedBankValue)
@@ -1345,20 +1364,42 @@ export default function CustomerPage() {
 
         if (!imported.length)
           throw new Error(
-            "업로드할 데이터가 없습니다. 샘플 양식의 첫 번째 시트를 확인해 주세요.",
+            "업로드할 데이터가 없습니다. 양식의 첫 번째 시트('거래처')를 확인해 주세요.",
           );
         const failures = [];
         const validCustomers = [];
+        const codesInFile = new Map();
         imported.forEach(({ customer, excelRow, bankError, openingError }) => {
           const rowErrors = [];
-          if (!customer.customercode) rowErrors.push("거래처코드 필수");
+          const code = customer.customercode.trim();
+          if (code) {
+            if (existingCodes.has(code.toLowerCase())) rowErrors.push(`이미 등록된 거래처코드(${code})`);
+            if (codesInFile.has(code.toLowerCase())) rowErrors.push(`${codesInFile.get(code.toLowerCase())}행과 같은 거래처코드(${code})`);
+            else codesInFile.set(code.toLowerCase(), excelRow);
+          }
           if (!customer.customername) rowErrors.push("거래처명 필수");
-          if (bankError) rowErrors.push("코드마스터에 등록되지 않은 은행명/은행코드");
-          if (openingError) rowErrors.push("기초미수금/기초미지급금은 0 이상의 숫자");
+          if (customer.customername.startsWith("(예시)")) rowErrors.push("예시 줄 (지우고 작성)");
+          if (!customer.tradetype) customer.tradetype = "매입처";
+          else if (!TRADETYPES.includes(customer.tradetype)) rowErrors.push(`거래구분은 ${TRADETYPES.join(" / ")}`);
+          const ownerText = String(customer.ownertype || "").trim();
+          if (!ownerText || ["법인", "법인사업자", "CORP"].includes(ownerText.toUpperCase())) customer.ownertype = "CORP";
+          else if (["개인", "개인사업자", "INDIV"].includes(ownerText.toUpperCase())) customer.ownertype = "INDIV";
+          else rowErrors.push("사업자유형은 법인사업자 / 개인사업자");
+          const useText = String(customer.useryn || "").trim();
+          if (!useText || ["사용중", "Y"].includes(useText.toUpperCase())) customer.useryn = "Y";
+          else if (["사용중지", "미사용", "N"].includes(useText.toUpperCase())) customer.useryn = "N";
+          else rowErrors.push("사용여부는 사용중 / 사용중지");
+          if (customer.manager.length > 20) rowErrors.push("업체 담당자는 20자 이내");
+          if (bankError) rowErrors.push("기본정보관리에 등록되지 않은 은행");
+          if (openingError) rowErrors.push("기초 미수금 / 기초 미지급금은 0 이상의 숫자");
+          if (customer.businessno && !validBusinessNo(customer.businessno)) rowErrors.push(`사업자번호 확인(${customer.businessno})`);
+          if (customer.ownertype === "INDIV") customer.corporationno = ""; // 개인사업자는 법인번호 없음 (서버도 같은 규칙)
+          else if (customer.corporationno && !validCorporationNo(customer.corporationno)) rowErrors.push(`법인번호 확인(${customer.corporationno})`);
           if (rowErrors.length) failures.push(`${excelRow}행: ${rowErrors.join(", ")}`);
           else validCustomers.push(customer);
         });
 
+        let generatedCount = 0;
         if (validCustomers.length) {
           setUploadProgress(
             `${validCustomers.length.toLocaleString()}건 서버 등록 중`,
@@ -1368,15 +1409,22 @@ export default function CustomerPage() {
           }, authConfig());
           if (data.success === false)
             throw new Error(data.message || "일괄 등록에 실패했습니다.");
+          generatedCount = (data.generated_codes || []).length;
         }
         notifications.show({
           title: failures.length
             ? validCustomers.length ? "일괄 등록 완료 (일부 제외)" : "일괄 등록 중단"
             : "일괄 등록 완료",
-          message: `${validCustomers.length}건 등록${failures.length ? `, ${failures.length}건 제외: ${failures.slice(0, 5).join(" / ")}` : ""}`,
+          message: <div>
+            <div>{validCustomers.length.toLocaleString()}건 등록{generatedCount ? ` (자동 채번 ${generatedCount}건)` : ""}{failures.length ? `, ${failures.length.toLocaleString()}건 제외` : ""}</div>
+            {failures.length > 0 && <div style={{ maxHeight: 220, overflowY: "auto", marginTop: 6, fontSize: 12, lineHeight: 1.5 }}>
+              {failures.map((failure) => <div key={failure}>{failure}</div>)}
+            </div>}
+          </div>,
           color: failures.length ? "orange" : "teal",
           position: "bottom-right",
-          autoClose: 7000,
+          // 제외된 행이 있으면 사용자가 닫을 때까지 둔다 (이유를 다 읽을 수 있게)
+          autoClose: failures.length ? false : 7000,
         });
         if (validCustomers.length > 0) await refreshAfterWrite(true);
       } catch (error) {

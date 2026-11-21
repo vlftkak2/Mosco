@@ -1,9 +1,11 @@
 import db as _shared_db
 from psycopg2.extras import RealDictCursor
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import DB_CONFIG
 from services.inventory.CurrentStock import user_name_sql
+# 법인등록번호 검증 · 표시 형식은 사업장관리와 같은 규칙 (같은 company01t.corporationno 칸을 함께 쓴다)
+from services.masterdata.Workplace import _format as _format_number, valid_corporationno
 
 
 conn_str = (
@@ -19,6 +21,7 @@ class CompanyInput(BaseModel):
     companyid: str = Field(min_length=1, max_length=50)
     companyname: str = Field(min_length=1, max_length=100)
     businessno: str = Field(default="", max_length=20)
+    corporationno: str = Field(default="", max_length=20)
     ceoname: str = Field(default="", max_length=100)
     phone: str = Field(default="", max_length=30)
     zipcode: str = Field(default="", max_length=10)
@@ -28,7 +31,8 @@ class CompanyInput(BaseModel):
     company_status: str = "PENDING"
     licensed_seats: int = Field(default=0, ge=0)
 
-    @field_validator("companyid", "companyname", "businessno", "ceoname", "phone", "zipcode", "address1", "address2", mode="before")
+    @field_validator("companyid", "companyname", "businessno", "corporationno", "ceoname", "phone", "zipcode",
+                     "address1", "address2", mode="before")
     @classmethod
     def strip_text(cls, value):
         return str(value or "").strip()
@@ -48,6 +52,15 @@ class CompanyInput(BaseModel):
         if value not in {"PENDING", "ACTIVE", "SUSPENDED", "CLOSED"}:
             raise ValueError("올바른 고객사 상태를 선택해 주세요.")
         return value
+
+    @model_validator(mode="after")
+    def check_corporationno(self):
+        # 비워 두면 그대로 저장. 입력하면 사업장관리와 같은 규칙으로 검증하고 000000-0000000 형식으로 맞춘다
+        if self.corporationno:
+            if not valid_corporationno(self.corporationno):
+                raise ValueError("법인등록번호가 올바르지 않습니다. 번호를 다시 확인해 주세요.")
+            self.corporationno = _format_number(self.corporationno, (6,))
+        return self
 
 
 def _connect():
@@ -89,6 +102,36 @@ def is_submaster(companyid: str, email: str) -> bool:
         return cursor.fetchone() is not None
 
 
+_COLUMN_NAMES: list[str] | None = None
+
+
+def _company_columns(cursor) -> list[str]:
+    """company01t 의 바이너리가 아닌 칸 이름 (한 번만 읽어 둔다)."""
+    global _COLUMN_NAMES
+    if _COLUMN_NAMES is None:
+        cursor.execute(
+            """SELECT column_name FROM information_schema.columns
+               WHERE table_schema = current_schema() AND table_name = 'company01t' AND data_type <> 'bytea'
+               ORDER BY ordinal_position"""
+        )
+        _COLUMN_NAMES = [row["column_name"] if isinstance(row, dict) else row[0] for row in cursor.fetchall()]
+    return _COLUMN_NAMES
+
+
+def _returning_sql(cursor) -> str:
+    """저장 후 돌려줄 칸 (이미지 BYTEA 제외 — RETURNING * 이면 이미지가 있는 고객사 저장 응답이 500 오류가 난다)."""
+    return ", ".join(f'"{name}"' for name in _company_columns(cursor))
+
+
+def _list_columns_sql(cursor) -> str:
+    """목록에 실을 company01t 칸 (바이너리 칸 제외).
+
+    사업장관리에서 올린 로고 · 직인 · 사업자등록증 이미지(BYTEA)를 c.* 로 함께 읽으면
+    응답을 JSON 으로 바꾸지 못해 목록이 500 오류가 나고, 이미지만큼 전송량도 커진다. 칸 이름은 한 번만 읽어 둔다.
+    """
+    return ", ".join(f'c."{name}"' for name in _company_columns(cursor))
+
+
 def list_companies(q: str = "", plan_code: str = "", company_status: str = "", page: int = 1, page_size: int = 30):
     conditions = ["TRUE"]
     params = []
@@ -109,7 +152,7 @@ def list_companies(q: str = "", plan_code: str = "", company_status: str = "", p
         cursor.execute(f"SELECT COUNT(*) AS total FROM company01t c WHERE {where}", params)
         total = cursor.fetchone()["total"]
         cursor.execute(
-            f"""SELECT c.*,
+            f"""SELECT {_list_columns_sql(cursor)},
                        {user_name_sql('c.created_by')} AS created_by_name,
                        {user_name_sql('c.updated_by')} AS updated_by_name,
                        COUNT(u.email) FILTER (WHERE UPPER(COALESCE(u.useyn, 'N')) = 'Y')::integer AS active_users,
@@ -136,13 +179,13 @@ def create_company(data: CompanyInput, actor: str | None = None):
                 raise ValueError("이미 등록된 사업자번호입니다.")
         cursor.execute(
             """INSERT INTO company01t
-               (companyid, companyname, businessno, ceoname, phone, zipcode,
+               (companyid, companyname, businessno, corporationno, ceoname, phone, zipcode,
                 address1, address2, plan_code, company_status, licensed_seats, created_by)
-               VALUES (%s, %s, NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''),
+               VALUES (%s, %s, NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''),
                        NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''),
                        %s, %s, %s, %s)
-               RETURNING *""",
-            (data.companyid, data.companyname, data.businessno, data.ceoname, data.phone,
+               RETURNING """ + _returning_sql(cursor),
+            (data.companyid, data.companyname, data.businessno, data.corporationno, data.ceoname, data.phone,
              data.zipcode, data.address1, data.address2, data.plan_code,
              data.company_status, data.licensed_seats, actor or None),
         )
@@ -171,13 +214,13 @@ def update_company(companyid: str, data: CompanyInput, actor: str | None = None)
                 raise ValueError("이미 등록된 사업자번호입니다.")
         cursor.execute(
             """UPDATE company01t
-               SET companyid = %s, companyname = %s, businessno = NULLIF(%s, ''), ceoname = NULLIF(%s, ''),
-                   phone = NULLIF(%s, ''), zipcode = NULLIF(%s, ''),
+               SET companyid = %s, companyname = %s, businessno = NULLIF(%s, ''), corporationno = NULLIF(%s, ''),
+                   ceoname = NULLIF(%s, ''), phone = NULLIF(%s, ''), zipcode = NULLIF(%s, ''),
                    address1 = NULLIF(%s, ''), address2 = NULLIF(%s, ''), plan_code = %s,
                    company_status = %s, licensed_seats = %s, updatedat = CURRENT_TIMESTAMP, updated_by = %s
                WHERE companyid = %s
-               RETURNING *""",
-            (data.companyid, data.companyname, data.businessno, data.ceoname, data.phone,
+               RETURNING """ + _returning_sql(cursor),
+            (data.companyid, data.companyname, data.businessno, data.corporationno, data.ceoname, data.phone,
              data.zipcode, data.address1, data.address2, data.plan_code,
              data.company_status, data.licensed_seats, actor or None, companyid),
         )

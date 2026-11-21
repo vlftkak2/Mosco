@@ -18,24 +18,23 @@ import { cachedDateFormat } from '../../utils/dateFormat';
 
 const PAGE_SIZE_OPTIONS = [15, 50, 100, 200].map((value) => ({ value: String(value), label: `${value}개씩` }));
 const COLUMNS = [
-  ['receiptdate', '수금/지급일', 100], ['transactiontype', '구분', 75], ['customname', '거래처', 100],
-  ['cashamt', '현금', 90], ['instrumenttype', '수표/어음 종류', 90], ['instrumentno', '수표/어음 번호', 90],
-  ['instrumentamt', '수표·어음', 95],
-  ['issuercompany', '발행회사', 100], ['issuekind', '발행구분', 90], ['maturitydate', '만기일', 100],
-  ['instrumentstatus', '어음처리상태', 90], ['processdate', '처리일', 100], ['discountfee', '할인료', 80], ['processmemo', '처리메모', 130],
-  ['bankamt', '은행예금', 70], ['cardamt', '카드', 70],
-  ['offsetamt', '상계', 70], ['lossamt', '잡손실', 70], ['chargeamt', '과금', 70], ['totalamt', '자금 합계', 80],
-  ['settleamt', '상계·잡손실', 85], ['ledgeramt', '전표 합계', 90],
-  ['detail_description', '비고', 130], ['receiptno', '전표번호', 160], ['lineno', '전표순번', 70],
-  ['linked_receiptno', '연결 전표', 160],
-  ['created_at', '등록일자', 110], ['updated_at', '수정일자', 110],
-  ['created_by', '등록자', 80], ['updated_by', '수정자', 80],
+  // 화면 · 엑셀 같은 순서
+  ['receiptdate', '수금/지급일', 100], ['transactiontype', '구분', 75], ['customname', '거래처', 120],
+  ['cashamt', '현금', 90], ['instrumentamt', '수표/어음 금액', 105], ['totalamt', '자금 합계', 95],
+  ['instrumenttype', '수표/어음 종류', 100], ['instrumentno', '수표/어음 번호', 120],
+  ['issuercompany', '발행회사', 110], ['issuer', '발행자', 80], ['issuedate', '발행일', 100], ['maturitydate', '만기일', 100],
+  ['custodyaccount', '보관계좌', 120], ['custodybank', '보관은행', 100],
+  ['processdate', '처리일', 100], ['instrumentstatus', '어음처리상태', 95], ['endorsee', '배서처', 130], ['processmemo', '처리메모', 130], ['discountfee', '할인료', 80],
+  ['offsetamt', '상계', 80], ['lossamt', '잡손실', 80], ['chargeamt', '잡이익', 80],
+  ['receiptno', '전표번호', 160], ['lineno', '전표순번', 70], ['linked_receiptno', '연결전표', 160],
+  ['detail_description', '비고', 130],
+  ['created_at', '등록일자', 110], ['created_by', '등록자', 80], ['updated_at', '수정일자', 110], ['updated_by', '수정자', 80],
 ].map(([key, label, width]) => ({ key, label, width, minWidth: Math.min(width, 65) }));
 const NUMERIC_COLUMNS = new Set(['cashamt', 'instrumentamt', 'bankamt', 'cardamt', 'offsetamt', 'lossamt', 'chargeamt', 'totalamt', 'settleamt', 'ledgeramt', 'discountfee']);
 const DATE_COLUMNS = ['receiptdate', 'issuedate', 'maturitydate', 'processdate'];
-// 발행한 어음(지급·자수)은 처리 전 상태를 '출금 예정'(만기에 통장에서 나갈 돈)으로 보여 준다 (수금/지급 등록과 같음).
+// 발행한 어음(지급·자수)도 처리 전 상태는 '보관' (수금/지급 등록과 같음). 처리일: 배서는 넘겨준 지급 전표의 일자 (서버가 계산).
 const statusText = (item) => {
-  if (item.transactiontype === 'PAYMENT' && String(item.issuekind || '').toUpperCase() === 'OWN' && !item.instrumentstatus && Number(item.instrumentamt || 0) > 0) return '출금 예정';
+  if (item.transactiontype === 'PAYMENT' && String(item.issuekind || '').toUpperCase() === 'OWN' && !item.instrumentstatus && Number(item.instrumentamt || 0) > 0) return '보관'; // 예전 빈 상태
   if (item.instrumentstatus === 'DISHONORED' && (item.source_receiptno || item.linked_receiptno
     || (item.transactiontype === 'PAYMENT' && String(item.issuekind || '').toUpperCase() === 'OTHER'))) return '부도(배서)'; // 넘겨준 어음의 부도
   return instrumentLabel('instrumentstatus', item.instrumentstatus);
@@ -50,17 +49,16 @@ const makeDefaultFilters = () => {
     date_from: `${year}-${pad(month + 1)}-01`,
     date_to: `${year}-${pad(month + 1)}-${pad(new Date(year, month + 1, 0).getDate())}`,
     transactiontype: '', customer: '', receiptno: '',
-    instrumentstatus: '', instrumenttype: '', issuekind: '',
+    instrumentstatus: '', instrumenttype: '',
   };
 };
 // 내역 탭 증권 조건
 const DETAIL_STATUS_OPTIONS = [
-  { value: '', label: '전체' }, { value: 'HELD', label: '보관' }, { value: 'UNPAID', label: '출금 예정' }, { value: 'ENDORSED', label: '배서' },
+  { value: '', label: '전체' }, { value: 'HELD', label: '보관' }, { value: 'ENDORSED', label: '배서' },
   { value: 'SETTLED', label: '결제' }, { value: 'DISCOUNTED', label: '할인' }, { value: 'DISHONORED', label: '부도' },
 ];
 const TRANSACTION_FILTER_OPTIONS = [{ value: '', label: '전체' }, { value: 'RECEIPT', label: '수금' }, { value: 'PAYMENT', label: '지급' }];
 const INSTRUMENT_TYPE_FILTER_OPTIONS = [{ value: '', label: '전체' }, ...INSTRUMENT_TYPE_OPTIONS];
-const ISSUE_KIND_FILTER_OPTIONS = [{ value: '', label: '전체' }, { value: 'OTHER', label: '타수' }, { value: 'OWN', label: '자수' }, { value: 'NONE', label: '빈값' }];
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const displayDate = (value) => value ? String(value).slice(0, 10) : '';
 const displayDateTime = (value) => {
@@ -140,7 +138,6 @@ const DetailFilterSidebar = memo(function DetailFilterSidebar({ filterInputs, se
       <TextInput label="전표번호" placeholder="전표번호" value={filterInputs.receiptno} onChange={(event) => { const { value: nextValue } = event.currentTarget; setFilterInputs((current) => ({ ...current, receiptno: nextValue })); }} onKeyDown={onKeyDown} />
       <Select label="증권 상태" data={DETAIL_STATUS_OPTIONS} value={filterInputs.instrumentstatus} onChange={(value) => setFilterInputs((current) => ({ ...current, instrumentstatus: value || '' }))} />
       <Select label="수표/어음 종류" data={INSTRUMENT_TYPE_FILTER_OPTIONS} value={filterInputs.instrumenttype} onChange={(value) => setFilterInputs((current) => ({ ...current, instrumenttype: value || '' }))} />
-      <Select label="발행구분" data={ISSUE_KIND_FILTER_OPTIONS} value={filterInputs.issuekind} onChange={(value) => setFilterInputs((current) => ({ ...current, issuekind: value || '' }))} />
     </Stack>
   </Paper>;
 });
@@ -300,8 +297,9 @@ export default function ReceiptPaymentSearch() {
       <Box className={paymentClasses.summaryStrip} aria-label="수금/지급 현황 요약">
         <SummaryItem label="수금/지급 전표 수" value={Number(summary.receipt_count || 0).toLocaleString()} unit="건" />
         <SummaryItem label="상세 건수" value={Number(summary.detail_count || 0).toLocaleString()} unit="건" />
-        <SummaryItem label="총 수금액 (자금)" value={formatNumber(summary.receipt_total || 0)} unit="원" tone={paymentClasses.toneReceipt} />
-        <SummaryItem label="총 지급액 (자금)" value={formatNumber(summary.payment_total || 0)} unit="원" tone={paymentClasses.tonePayment} />
+        {/* 전표 합계 기준 (거래처원장과 같은 규칙): 수금 = 자금 + 상계 + 잡손실 − 잡이익 / 지급 = 자금 + 상계 − 잡손실 + 잡이익 */}
+        <SummaryItem label="총 수금액" value={formatNumber(summary.receipt_total || 0)} unit="원" tone={paymentClasses.toneReceipt} />
+        <SummaryItem label="총 지급액" value={formatNumber(summary.payment_total || 0)} unit="원" tone={paymentClasses.tonePayment} />
       </Box>
 
       <Box className={classes.inboundWorkspace}>

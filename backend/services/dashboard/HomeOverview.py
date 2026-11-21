@@ -127,6 +127,18 @@ def _purchase(cursor, companyid: str, date_from: date, date_to: date, head: str 
     return {"amount": amount, "weight": weight, "count": count}
 
 
+def _purchase_expense(cursor, companyid: str, date_from: date, date_to: date):
+    """기간 매입 기타비용 공급가 (매입 카드 마우스 올림: 매입 공급가와 따로 보여 준다)."""
+    cursor.execute(
+        """SELECT COALESCE(SUM(x.supplyamt), 0), COUNT(*)
+           FROM Inbound03t x JOIN Inbound01t h ON h.companyid = x.companyid AND h.receiptno = x.receiptno
+           WHERE h.companyid = %s AND h.receptdate BETWEEN %s AND %s""",
+        (companyid, date_from, date_to),
+    )
+    amount, count = cursor.fetchone()
+    return {"amount": amount, "count": count}
+
+
 # 최근 전표: 전표 한 장 = 한 줄 (첫 품목 + 외 N건)
 _RECENT_SQL = """
 SELECT h.receiptno, h.receptdate, h.customname,
@@ -160,6 +172,7 @@ def overview(user: dict, date_from: date, date_to: date, today: date, is_admin: 
 
     with _db.connect() as connection, connection.cursor() as cursor:
         purchase = _purchase(cursor, companyid, date_from, date_to)
+        purchase["expense"] = _purchase_expense(cursor, companyid, date_from, date_to)
         # 비교: 매출이익 현황과 같은 '전월 같은 기간'
         prev_from, prev_to = gross_profit_dashboard.previous_period(date_from, date_to)
         purchase_prev = _purchase(cursor, companyid, prev_from, prev_to)
@@ -172,7 +185,7 @@ def overview(user: dict, date_from: date, date_to: date, today: date, is_admin: 
     with _db.connect() as connection, connection.cursor() as cursor:
         purchase_trend = _purchase_trend(cursor, companyid, [row["month"] for row in profit["trend"]])
     sales = {
-        "total": {**{key: profit["total"].get(key) for key in ("sales", "weight", "line_count")}, "slips": sales_slips},
+        "total": {**{key: profit["total"].get(key) for key in ("sales", "sales_goods", "sales_plus", "weight", "line_count")}, "slips": sales_slips},
         "prev": {key: profit["prev_total"].get(key) for key in ("sales", "weight")},
         "trend": [{"month": row["month"], "sales": row["sales"], "weight": row["weight"]} for row in profit["trend"]],
     }
@@ -189,7 +202,8 @@ def overview(user: dict, date_from: date, date_to: date, today: date, is_admin: 
         total = profit["total"]
         losers = sorted((row for row in profit["customers"] if row["profit"] < 0), key=lambda row: row["profit"])
         result["profit"] = {
-            "total": {key: total.get(key) for key in ("profit", "margin_rate", "cost", "sales")},
+            "total": {key: total.get(key) for key in ("profit", "margin_rate", "cost", "sales", "cost_of_goods", "selling_cost",
+                                                      "purchase_amt", "purchase_cost", "process_amt", "material_amt")},
             "prev": {key: profit["prev_total"].get(key) for key in ("profit", "margin_rate")},
             "trend": [{"month": row["month"], "profit": row["profit"], "cost": row["cost"], "sales": row["sales"], "margin_rate": row["margin_rate"]} for row in profit["trend"]],
             "loss_customers": [{"customname": row["customname"], "profit": row["profit"]} for row in losers[:5]],
@@ -207,5 +221,9 @@ def overview(user: dict, date_from: date, date_to: date, today: date, is_admin: 
             "late": late, "over90": over90,
             "top_receivable": ledger["top_receivable"],
             "prepaid_count": len(prepaid), "prepaid_amount": sum((-(row["pay"] or ZERO) for row in prepaid), ZERO),
+            # 미수금 카드 마우스 올림
+            "recv_close_all": ledger["breakdown"]["recv_close_all"], "advance_amount": ledger["breakdown"]["advance_amount"],
+            "advance_count": ledger["breakdown"]["advance_count"],
+            "aging": [{"label": row["label"], "amount": row["amount"]} for row in ledger["aging"]],
         }
     return _plain(result)

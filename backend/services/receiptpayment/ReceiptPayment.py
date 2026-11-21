@@ -23,12 +23,14 @@ INSTRUMENT_FIELD_LABELS = {"instrumenttype": "수표/어음 종류", "issuekind"
 
 # 금액 구분
 #   totalamt  (자금 합계)   = 현금 + 수표·어음 + 은행예금 + 카드      : 실제로 돈·증권이 오간 금액
-#   settleamt (상계·잡손실) = 상계 + 잡손실                         : 돈이 오가지 않고 채권·채무만 정리한 금액
+#   settleamt (상계·잡손실·잡이익) = 상계 ± 잡손실 ± 잡이익          : 돈이 오가지 않고 채권·채무만 정리한 금액
 #   ledgeramt (전표 합계)   = totalamt + settleamt                 : 거래처원장·잔액에서 미수/미지급을 줄이는 금액
-#   과금(chargeamt)은 어느 합계에도 넣지 않는다.
+#   잡손실 · 잡이익(chargeamt, 예전 이름 '과금'): 수금과 지급이 서로 반대.
+#     수금: + 잡손실 − 잡이익  (99,990 받고 잡손실 10 → 미수 100,000 감소 / 100,010 받고 잡이익 10 → 미수 100,000 감소)
+#     지급: − 잡손실 + 잡이익  (100,010 주고 잡손실 10 → 미지급 100,000 감소 / 99,990 주고 잡이익 10 → 미지급 100,000 감소)
 class ReceiptPaymentDetailInput(BaseModel):
-    cashamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=3)
-    instrumentamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=3)
+    cashamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=2)
+    instrumentamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=2)
     instrumenttype: str = Field(default="", max_length=20)
     instrumentno: str = Field(default="", max_length=100)
     issuedate: date | None = None
@@ -39,11 +41,11 @@ class ReceiptPaymentDetailInput(BaseModel):
     custodyaccount: str = Field(default="", max_length=100)
     custodybank: str = Field(default="", max_length=100)
     instrumentstatus: str = Field(default="", max_length=30)
-    bankamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=3)
-    cardamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=3)
-    offsetamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=3)
-    lossamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=3)
-    chargeamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=3)
+    bankamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=2)
+    cardamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=2)
+    offsetamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=2)
+    lossamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=2)
+    chargeamt: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=2)
     description: str = Field(default="", max_length=500)
     # 보유증권 불러오기: 지급 행이 사용한 수금 증권(전표번호·순번)
     source_receiptno: str = Field(default="", max_length=30)
@@ -105,6 +107,18 @@ class ReceiptPaymentSaveRequest(BaseModel):
             if item.instrumenttype and item.instrumentamt <= 0:
                 raise ValueError(f"{lineno}행: 수표/어음 종류를 선택했으면 금액은 '수표/어음' 칸에 입력해 주세요. "
                                  "현금으로 받았다면 종류를 비워 주세요.")
+            if item.issuedate and item.maturitydate and item.maturitydate < item.issuedate:
+                raise ValueError(f"{lineno}행: 만기일이 발행일보다 앞입니다. 날짜를 확인해 주세요.")
+        # 전표 하나는 '기본(현금·은행예금·카드·상계·잡손실·잡이익)' 또는 '어음/수표' 중 한 가지로만 입력한다 (화면의 탭과 같은 규칙).
+        cash_fields = ("cashamt", "bankamt", "cardamt", "offsetamt", "lossamt", "chargeamt")
+        kinds = set()
+        for lineno, item in enumerate(self.items, start=1):
+            is_instrument = item.instrumentamt > 0 or bool(item.instrumenttype) or bool(item.instrumentno)
+            if is_instrument and any(getattr(item, field) > 0 for field in cash_fields):
+                raise ValueError(f"{lineno}행: 어음/수표 행에는 현금·은행예금·카드·상계·잡손실·잡이익을 함께 넣을 수 없습니다.")
+            kinds.add("INSTRUMENT" if is_instrument else "CASH")
+        if len(kinds) > 1:
+            raise ValueError("기본(현금 등)과 어음/수표를 한 전표에 함께 입력할 수 없습니다. 전표를 나눠 저장해 주세요.")
         return self
 
 
@@ -137,32 +151,44 @@ def _where_conditions(companyid: str, date_from: date | None, date_to: date | No
 
 def list_documents(companyid: str, page: int, page_size: int, date_from: date | None = None,
                    date_to: date | None = None, receiptno: str = "", customer: str = "",
-                   transactiontype: str = ""):
+                   transactiontype: str = "", focus_receiptno: str = ""):
     where_sql, params = _where_conditions(companyid, date_from, date_to, receiptno, customer, transactiontype)
     with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute(f"SELECT COUNT(*) FROM ReceiptPayment01t AS h WHERE {where_sql}", params)
-        total = cursor.fetchone()[0]
+        # 저장 직후: 그 전표가 들어 있는 쪽을 찾아 연다 (정렬 순서상 앞에 있는 전표 수 / 쪽 크기)
+        #  (조회조건에 맞지 않는 전표면 요청한 쪽 그대로)
+        focus = focus_receiptno.strip()
+        if focus:
+            cursor.execute(f"SELECT h.receiptdate, h.created_at FROM ReceiptPayment01t AS h WHERE {where_sql} AND h.receiptno = %s", (*params, focus))
+            found = cursor.fetchone()
+            if found:
+                cursor.execute(
+                    f"""SELECT COUNT(*) FROM ReceiptPayment01t AS h
+                        WHERE {where_sql} AND (h.receiptdate, h.created_at, h.receiptno) < (%s, %s, %s)""",
+                    (*params, found[0], found[1], focus),
+                )
+                page = cursor.fetchone()[0] // page_size + 1
+        # 요약 + 전체 건수: 조건에 맞는 전표를 한 번 고른 뒤 상세와 한 번에 집계한다 (전표마다 상세를 따로 찾지 않음)
         cursor.execute(
             f"""
-            SELECT COUNT(*)::integer AS document_count,
-                   COALESCE(SUM(d.line_count), 0)::integer AS detail_count,
-                   COALESCE(SUM(CASE WHEN h.transactiontype = 'RECEIPT' THEN d.totalamt ELSE 0 END), 0)::numeric(18, 3) AS receipt_total,
-                   COALESCE(SUM(CASE WHEN h.transactiontype = 'PAYMENT' THEN d.totalamt ELSE 0 END), 0)::numeric(18, 3) AS payment_total,
-                   COALESCE(SUM(CASE WHEN h.transactiontype = 'RECEIPT' THEN d.settleamt ELSE 0 END), 0)::numeric(18, 3) AS receipt_settle_total,
-                   COALESCE(SUM(CASE WHEN h.transactiontype = 'PAYMENT' THEN d.settleamt ELSE 0 END), 0)::numeric(18, 3) AS payment_settle_total,
+            WITH hh AS MATERIALIZED (
+                SELECT h.companyid, h.receiptno, h.transactiontype FROM ReceiptPayment01t AS h WHERE {where_sql}
+            )
+            SELECT (SELECT COUNT(*) FROM hh)::integer AS document_count,
+                   COUNT(d.lineno)::integer AS detail_count,
+                   COALESCE(SUM(CASE WHEN hh.transactiontype = 'RECEIPT' THEN d.totalamt ELSE 0 END), 0)::numeric(18, 3) AS receipt_total,
+                   COALESCE(SUM(CASE WHEN hh.transactiontype = 'PAYMENT' THEN d.totalamt ELSE 0 END), 0)::numeric(18, 3) AS payment_total,
+                   COALESCE(SUM(CASE WHEN hh.transactiontype = 'RECEIPT' THEN COALESCE(d.offsetamt, 0) + COALESCE(d.lossamt, 0) - COALESCE(d.chargeamt, 0) ELSE 0 END), 0)::numeric(18, 3) AS receipt_settle_total,
+                   COALESCE(SUM(CASE WHEN hh.transactiontype = 'PAYMENT' THEN COALESCE(d.offsetamt, 0) - COALESCE(d.lossamt, 0) + COALESCE(d.chargeamt, 0) ELSE 0 END), 0)::numeric(18, 3) AS payment_settle_total,
                    COALESCE(SUM(d.totalamt), 0)::numeric(18, 3) AS total_amount
-            FROM ReceiptPayment01t AS h
-            LEFT JOIN LATERAL (
-                SELECT COUNT(*) AS line_count, COALESCE(SUM(totalamt), 0) AS totalamt,
-                       COALESCE(SUM(COALESCE(offsetamt, 0) + COALESCE(lossamt, 0)), 0) AS settleamt
-                FROM ReceiptPayment02t AS d
-                WHERE d.companyid = h.companyid AND d.receiptno = h.receiptno
-            ) AS d ON TRUE
-            WHERE {where_sql}
+            FROM hh
+            LEFT JOIN ReceiptPayment02t AS d ON d.companyid = hh.companyid AND d.receiptno = hh.receiptno
             """,
             params,
         )
         summary = _row_dict(cursor, cursor.fetchone())
+        total = summary["document_count"]
+        # 페이지: 정렬 인덱스(companyid, receiptdate, created_at, receiptno · 수금/지급일 → 등록일자 오름차순)로 이 쪽 전표만 먼저 고르고, 그 전표에만 상세 합계 · 사용자명을 붙인다
+        # (뒤 쪽으로 가도 건너뛴 전표의 상세는 계산하지 않는다)
         cursor.execute(
             f"""
             SELECT h.receiptno, h.receiptdate, h.transactiontype, h.customcode, h.customname,
@@ -178,9 +204,14 @@ def list_documents(companyid: str, page: int, page_size: int, date_from: date | 
                    COALESCE(d.lossamt, 0)::numeric(15, 3) AS lossamt,
                    COALESCE(d.chargeamt, 0)::numeric(15, 3) AS chargeamt,
                    COALESCE(d.totalamt, 0)::numeric(15, 3) AS totalamt,
-                   (COALESCE(d.offsetamt, 0) + COALESCE(d.lossamt, 0))::numeric(15, 3) AS settleamt,
-                   (COALESCE(d.totalamt, 0) + COALESCE(d.offsetamt, 0) + COALESCE(d.lossamt, 0))::numeric(15, 3) AS ledgeramt
-            FROM ReceiptPayment01t AS h
+                   (COALESCE(d.offsetamt, 0) + CASE WHEN h.transactiontype = 'RECEIPT' THEN COALESCE(d.lossamt, 0) - COALESCE(d.chargeamt, 0) ELSE COALESCE(d.chargeamt, 0) - COALESCE(d.lossamt, 0) END)::numeric(15, 3) AS settleamt,
+                   (COALESCE(d.totalamt, 0) + COALESCE(d.offsetamt, 0) + CASE WHEN h.transactiontype = 'RECEIPT' THEN COALESCE(d.lossamt, 0) - COALESCE(d.chargeamt, 0) ELSE COALESCE(d.chargeamt, 0) - COALESCE(d.lossamt, 0) END)::numeric(15, 3) AS ledgeramt
+            FROM (
+                SELECT h.* FROM ReceiptPayment01t AS h
+                WHERE {where_sql}
+                ORDER BY h.receiptdate, h.created_at, h.receiptno
+                LIMIT %s OFFSET %s
+            ) AS h
             LEFT JOIN LATERAL (
                 SELECT COUNT(*) AS line_count,
                        SUM(cashamt) AS cashamt, SUM(instrumentamt) AS instrumentamt,
@@ -190,9 +221,7 @@ def list_documents(companyid: str, page: int, page_size: int, date_from: date | 
                 FROM ReceiptPayment02t AS d
                 WHERE d.companyid = h.companyid AND d.receiptno = h.receiptno
             ) AS d ON TRUE
-            WHERE {where_sql}
-            ORDER BY h.receiptdate DESC, h.receiptno DESC
-            LIMIT %s OFFSET %s
+            ORDER BY h.receiptdate, h.created_at, h.receiptno
             """,
             (*params, page_size, (page - 1) * page_size),
         )
@@ -226,10 +255,11 @@ def list_detail_rows(companyid: str, page: int, page_size: int, date_from: date 
             f"""
             SELECT COUNT(DISTINCT h.receiptno)::integer AS receipt_count,
                    COUNT(d.lineno)::integer AS detail_count,
-                   COALESCE(SUM(CASE WHEN h.transactiontype = 'RECEIPT' THEN d.totalamt ELSE 0 END), 0)::numeric(18, 3) AS receipt_total,
-                   COALESCE(SUM(CASE WHEN h.transactiontype = 'PAYMENT' THEN d.totalamt ELSE 0 END), 0)::numeric(18, 3) AS payment_total,
-                   COALESCE(SUM(CASE WHEN h.transactiontype = 'RECEIPT' THEN COALESCE(d.offsetamt, 0) + COALESCE(d.lossamt, 0) ELSE 0 END), 0)::numeric(18, 3) AS receipt_settle_total,
-                   COALESCE(SUM(CASE WHEN h.transactiontype = 'PAYMENT' THEN COALESCE(d.offsetamt, 0) + COALESCE(d.lossamt, 0) ELSE 0 END), 0)::numeric(18, 3) AS payment_settle_total
+                   -- 총 수금액 · 총 지급액 = 전표 합계 (거래처원장과 같은 규칙: 수금 + 잡손실 − 잡이익 / 지급 − 잡손실 + 잡이익)
+                   COALESCE(SUM(CASE WHEN h.transactiontype = 'RECEIPT' THEN COALESCE(d.totalamt, 0) + COALESCE(d.offsetamt, 0) + COALESCE(d.lossamt, 0) - COALESCE(d.chargeamt, 0) ELSE 0 END), 0)::numeric(18, 3) AS receipt_total,
+                   COALESCE(SUM(CASE WHEN h.transactiontype = 'PAYMENT' THEN COALESCE(d.totalamt, 0) + COALESCE(d.offsetamt, 0) - COALESCE(d.lossamt, 0) + COALESCE(d.chargeamt, 0) ELSE 0 END), 0)::numeric(18, 3) AS payment_total,
+                   COALESCE(SUM(CASE WHEN h.transactiontype = 'RECEIPT' THEN COALESCE(d.offsetamt, 0) + COALESCE(d.lossamt, 0) - COALESCE(d.chargeamt, 0) ELSE 0 END), 0)::numeric(18, 3) AS receipt_settle_total,
+                   COALESCE(SUM(CASE WHEN h.transactiontype = 'PAYMENT' THEN COALESCE(d.offsetamt, 0) - COALESCE(d.lossamt, 0) + COALESCE(d.chargeamt, 0) ELSE 0 END), 0)::numeric(18, 3) AS payment_settle_total
             {join_sql}
             WHERE {where_sql}
             """,
@@ -244,16 +274,26 @@ def list_detail_rows(companyid: str, page: int, page_size: int, date_from: date 
                    d.lineno, d.cashamt, d.instrumenttype, d.instrumentno, d.instrumentamt,
                    d.issuedate, d.issuercompany, d.issuer, d.issuekind, d.maturitydate,
                    d.custodyaccount, d.custodybank, d.instrumentstatus,
-                   d.processdate, d.discountfee, d.processmemo, d.source_receiptno,
-                   COALESCE(d.source_receiptno, {_USED_RECEIPTNO_SQL}) AS linked_receiptno,
+                   COALESCE(d.processdate, u.receiptdate, CASE WHEN COALESCE(d.source_receiptno, '') <> '' THEN h.receiptdate END) AS processdate,
+                   d.discountfee, d.processmemo, d.source_receiptno,
+                   COALESCE(NULLIF(d.source_receiptno, ''), u.receiptno) AS linked_receiptno,
+                   -- 배서처: 수금 증권을 넘겨준 지급 전표의 거래처 / 지급어음 선택으로 넣은 지급 행은 그 지급 전표의 거래처
+                   CASE WHEN u.receiptno IS NOT NULL THEN u.customname WHEN COALESCE(d.source_receiptno, '') <> '' THEN h.customname END AS endorsee,
                    d.bankamt, d.cardamt, d.offsetamt, d.lossamt, d.chargeamt, d.totalamt,
-                   (COALESCE(d.offsetamt, 0) + COALESCE(d.lossamt, 0)) AS settleamt,
-                   (COALESCE(d.totalamt, 0) + COALESCE(d.offsetamt, 0) + COALESCE(d.lossamt, 0)) AS ledgeramt,
+                   (COALESCE(d.offsetamt, 0) + CASE WHEN h.transactiontype = 'RECEIPT' THEN COALESCE(d.lossamt, 0) - COALESCE(d.chargeamt, 0) ELSE COALESCE(d.chargeamt, 0) - COALESCE(d.lossamt, 0) END) AS settleamt,
+                   (COALESCE(d.totalamt, 0) + COALESCE(d.offsetamt, 0) + CASE WHEN h.transactiontype = 'RECEIPT' THEN COALESCE(d.lossamt, 0) - COALESCE(d.chargeamt, 0) ELSE COALESCE(d.chargeamt, 0) - COALESCE(d.lossamt, 0) END) AS ledgeramt,
                    d.description AS detail_description,
                    d.created_at, COALESCE(d.updated_at, h.updated_at) AS updated_at,
                    COALESCE((SELECT u.username FROM user01t u WHERE u.email = COALESCE(d.created_by, h.created_by) LIMIT 1), COALESCE(d.created_by, h.created_by)) AS created_by,
                    COALESCE((SELECT u.username FROM user01t u WHERE u.email = COALESCE(d.updated_by, h.updated_by) LIMIT 1), COALESCE(d.updated_by, h.updated_by)) AS updated_by
             {join_sql}
+            LEFT JOIN LATERAL (
+                SELECT p.receiptno, ph.customname, ph.receiptdate
+                FROM ReceiptPayment02t p
+                JOIN ReceiptPayment01t ph ON ph.companyid = p.companyid AND ph.receiptno = p.receiptno
+                WHERE p.companyid = d.companyid AND p.source_receiptno = d.receiptno AND p.source_lineno = d.lineno
+                LIMIT 1
+            ) u ON TRUE
             WHERE {where_sql}
             ORDER BY h.receiptdate DESC, h.receiptno DESC, d.lineno NULLS FIRST
             LIMIT %s OFFSET %s
@@ -279,19 +319,26 @@ def get_document(companyid: str, receiptno: str):
             return None
         document = _row_dict(cursor, row)
         cursor.execute(
-            """SELECT companyid, companyname, receiptno, lineno, cashamt, instrumentamt,
+            """SELECT ReceiptPayment02t.companyid, companyname, ReceiptPayment02t.receiptno, lineno, cashamt, instrumentamt,
                       instrumenttype, instrumentno, issuedate, issuercompany, issuer, issuekind,
                       maturitydate, custodyaccount, custodybank, instrumentstatus,
                       bankamt, cardamt, offsetamt, lossamt, chargeamt, totalamt,
                       description, created_at, updated_at, source_receiptno, source_lineno,
                       processdate, discountfee, processmemo,
-                      (SELECT p.receiptno FROM ReceiptPayment02t p
-                        WHERE p.companyid = ReceiptPayment02t.companyid AND p.source_receiptno = ReceiptPayment02t.receiptno
-                          AND p.source_lineno = ReceiptPayment02t.lineno LIMIT 1) AS used_receiptno,
+                      u.receiptno AS used_receiptno, u.customname AS used_customname, u.receiptdate AS used_date,
                       COALESCE((SELECT u.username FROM user01t u WHERE u.email = ReceiptPayment02t.created_by LIMIT 1), ReceiptPayment02t.created_by) AS created_by,
                       COALESCE((SELECT u.username FROM user01t u WHERE u.email = ReceiptPayment02t.updated_by LIMIT 1), ReceiptPayment02t.updated_by) AS updated_by
                FROM ReceiptPayment02t
-               WHERE companyid = %s AND receiptno = %s
+               -- 배서: 이 증권을 넘겨준 지급 전표 (배서처 = 그 지급 전표의 거래처, 처리일 = 그 지급 전표의 일자)
+               LEFT JOIN LATERAL (
+                   SELECT p.receiptno, ph.customname, ph.receiptdate
+                   FROM ReceiptPayment02t p
+                   JOIN ReceiptPayment01t ph ON ph.companyid = p.companyid AND ph.receiptno = p.receiptno
+                   WHERE p.companyid = ReceiptPayment02t.companyid AND p.source_receiptno = ReceiptPayment02t.receiptno
+                     AND p.source_lineno = ReceiptPayment02t.lineno
+                   LIMIT 1
+               ) u ON TRUE
+               WHERE companyid = %s AND ReceiptPayment02t.receiptno = %s
                ORDER BY lineno""",
             (companyid, receiptno),
         )
@@ -304,6 +351,57 @@ def get_document(companyid: str, receiptno: str):
 _HELD_CONDITION = """h.transactiontype = 'RECEIPT' AND d.instrumentamt > 0
     AND COALESCE(NULLIF(d.issuekind, ''), 'OTHER') = 'OTHER'
     AND COALESCE(NULLIF(d.instrumentstatus, ''), 'HELD') = 'HELD'"""
+
+
+# 어음번호는 회사 안에서 한 장에 하나. '지급어음 선택'으로 넣은 지급 행은 원래 수금 어음과 같은 증권이라 세지 않는다.
+def _norm_instrumentno(value) -> str:
+    return str(value or "").strip().upper()
+
+
+def find_instrument_numbers(companyid: str, pairs: list[tuple[str, str]], transactiontype: str, exclude_receiptno: str = "",
+                            cursor=None) -> list[dict]:
+    """같은 구분(수금 또는 지급)에 이미 저장된 '어음번호 + 발행회사'가 같은 어음 (exclude_receiptno 전표는 빼고)."""
+    keys = sorted({_norm_instrumentno(no) + "\t" + _norm_instrumentno(issuer) for no, issuer in pairs if _norm_instrumentno(no)})
+    if not keys:
+        return []
+    sql = """SELECT d.instrumentno, d.issuercompany, d.receiptno, d.lineno, h.receiptdate, h.transactiontype, h.customname
+             FROM ReceiptPayment02t d
+             JOIN ReceiptPayment01t h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
+             WHERE d.companyid = %s AND h.transactiontype = %s AND d.instrumentamt > 0 AND COALESCE(d.source_receiptno, '') = ''
+               AND UPPER(BTRIM(d.instrumentno)) || E'\t' || UPPER(BTRIM(COALESCE(d.issuercompany, ''))) = ANY(%s)
+               AND d.receiptno <> %s
+             ORDER BY d.receiptno, d.lineno"""
+    params = (companyid, transactiontype, keys, exclude_receiptno or "")
+    if cursor is not None:
+        cursor.execute(sql, params)
+        return [_row_dict(cursor, row) for row in cursor.fetchall()]
+    with _connect() as connection, connection.cursor() as own_cursor:
+        own_cursor.execute(sql, params)
+        return [_row_dict(own_cursor, row) for row in own_cursor.fetchall()]
+
+
+def _check_instrument_numbers(cursor, companyid: str, receiptno: str, transactiontype: str, items: list[dict]):
+    """저장 전 검사: '어음번호 + 발행회사'가 같은 어음이 이 전표 안에 또는 같은 구분(수금/지급)의 다른 전표에 있으면 저장 불가."""
+    seen = {}
+    for lineno, item in enumerate(items, start=1):
+        if item.get("source_receiptno") or not (item.get("instrumentamt") and item["instrumentamt"] > 0):
+            continue
+        no = _norm_instrumentno(item.get("instrumentno"))
+        if not no:
+            continue
+        key = (no, _norm_instrumentno(item.get("issuercompany")))
+        if key in seen:
+            raise ValueError(f"{seen[key]}행과 {lineno}행의 어음번호 · 발행회사({item['instrumentno']} · {item.get('issuercompany') or '발행회사 없음'})가 같습니다.")
+        seen[key] = lineno
+    if not seen:
+        return
+    found = find_instrument_numbers(companyid, list(seen), transactiontype, receiptno, cursor)
+    if found:
+        first = found[0]
+        kind = "수금" if first["transactiontype"] == "RECEIPT" else "지급"
+        more = f" 외 {len(found) - 1}건" if len(found) > 1 else ""
+        raise ValueError(f"어음번호 {first['instrumentno']} · 발행회사 {first['issuercompany'] or '(없음)'} 어음은 이미 "
+                         f"{first['receiptno']}({kind} · {first['customname'] or ''}) 전표에 있습니다{more}.")
 
 
 def list_held_instruments(companyid: str, page: int = 1, page_size: int = 50, maturity_from: date | None = None,
@@ -433,7 +531,7 @@ PROCESSED_STATUSES = ("SETTLED", "DISCOUNTED", "DISHONORED")
 
 class InstrumentProcessLine(BaseModel):
     lineno: int = Field(gt=0)
-    discountfee: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=3)
+    discountfee: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=2)
 
 
 class InstrumentProcessRequest(BaseModel):
@@ -550,7 +648,7 @@ def process_instruments(companyid: str, receiptno: str, payload: dict, actor: st
                        SET instrumentstatus = %s, processdate = NULL, discountfee = 0, processmemo = NULL,
                            updated_at = CURRENT_TIMESTAMP, updated_by = COALESCE(%s, updated_by)
                        WHERE companyid = %s AND receiptno = %s AND lineno = %s""",
-                    ("ENDORSED" if endorsed or manual_endorsed else "HELD" if transactiontype == "RECEIPT" else None,
+                    ("ENDORSED" if endorsed or manual_endorsed else "HELD",
                      actor or None, companyid, receiptno, lineno),
                 )
             else:
@@ -578,14 +676,14 @@ def process_instruments(companyid: str, receiptno: str, payload: dict, actor: st
 
 
 # 증권 상태 공용 SQL (수금/지급 현황 내역 조회와 수표/어음 현황 InstrumentStatus.py 가 함께 사용)
-#  유효 상태: 지급·자수의 빈 상태 = 출금 예정(UNPAID). 그 밖의 빈 상태는 빈값 그대로.
+#  유효 상태: 지급·자수의 빈 상태(예전 데이터) = 보관. 그 밖의 빈 상태는 빈값 그대로.
 _EFFECTIVE_STATUS_SQL = """CASE
     WHEN d.instrumentamt > 0 AND COALESCE(d.instrumentstatus, '') = ''
-         AND h.transactiontype = 'PAYMENT' AND d.issuekind = 'OWN' THEN 'UNPAID'
+         AND h.transactiontype = 'PAYMENT' AND d.issuekind = 'OWN' THEN 'HELD'
     ELSE NULLIF(d.instrumentstatus, '') END"""
 _USED_RECEIPTNO_SQL = """(SELECT p.receiptno FROM ReceiptPayment02t p WHERE p.companyid = d.companyid
     AND p.source_receiptno = d.receiptno AND p.source_lineno = d.lineno LIMIT 1)"""
-INSTRUMENT_STATUS_FILTERS = ("OPEN", "HELD", "UNPAID", "ENDORSED", "SETTLED", "DISCOUNTED", "DISHONORED")
+INSTRUMENT_STATUS_FILTERS = ("OPEN", "HELD", "ENDORSED", "SETTLED", "DISCOUNTED", "DISHONORED")
 
 
 def search_customers(companyid: str, query: str, limit: int = 30):
@@ -665,17 +763,20 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
             cursor.execute("DELETE FROM ReceiptPayment02t WHERE companyid = %s AND receiptno = %s", (companyid, receiptno))
 
         used_keys = _apply_source_instruments(cursor, companyid, receiptno, payload["transactiontype"], items)
+        _check_instrument_numbers(cursor, companyid, receiptno, payload["transactiontype"], items)
 
         for lineno, item in enumerate(items, start=1):
             cashamt = item["cashamt"]
             instrumentamt = item["instrumentamt"]
             # 발행구분은 입력한 그대로 저장한다 (빈값이면 빈값, 서버가 채우지 않음).
-            # 처리상태를 비워 두면: 수금 증권(자수 제외) = 보관, 지급 타수(넘겨준 증권) = 배서. 지급 자수는 비워 둔다(= 미결제).
+            # 처리상태를 비워 두면: 수금 증권(자수 제외) = 보관, 지급 타수(넘겨준 증권) = 배서, 지급 자수(발행한 어음) = 보관.
             if instrumentamt > 0 and not item["instrumentstatus"]:
                 if payload["transactiontype"] == "RECEIPT" and item["issuekind"] != "OWN":
                     item["instrumentstatus"] = "HELD"
                 elif payload["transactiontype"] == "PAYMENT" and item["issuekind"] == "OTHER":
                     item["instrumentstatus"] = "ENDORSED"
+                elif payload["transactiontype"] == "PAYMENT":
+                    item["instrumentstatus"] = "HELD"
             bankamt = item["bankamt"]
             cardamt = item["cardamt"]
             totalamt = cashamt + instrumentamt + bankamt + cardamt

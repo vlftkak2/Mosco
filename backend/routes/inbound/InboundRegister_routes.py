@@ -23,6 +23,7 @@ def get_receipts(
     warehouse: str = Query(default="", max_length=100),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
+    focus_receiptno: str = Query(default="", max_length=100),
     user: dict = Depends(security_module.get_current_user),
 ):
     if date_from and date_to and date_from > date_to:
@@ -31,6 +32,7 @@ def get_receipts(
         return {"success": True, **inbound_module.list_receipts(
             user["companyid"], page, page_size, q, date_from, date_to,
             receiptno=receiptno, customer=customer, customcode=customcode, customname=customname, warehouse=warehouse,
+            focus_receiptno=focus_receiptno,
         )}
     except Exception as error:
         raise HTTPException(status_code=500, detail="입고 목록을 조회하지 못했습니다.") from error

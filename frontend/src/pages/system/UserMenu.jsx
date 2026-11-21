@@ -64,6 +64,7 @@ const OTHER_SECTION_LABEL = '기타';
 
 
 const MENU_USER_COLUMNS = [
+  { key: 'usercode', label: '사용자 코드', width: 90 },
   { key: 'username', label: '사용자명', width: 130 },
   { key: 'email', label: '이메일', width: 240 },
   { key: 'authority', label: '권한', width: 110 },
@@ -73,9 +74,18 @@ const PERM_COLUMNS = [
   { key: 'menu', label: '메뉴', width: 240 },
   { key: 'access', label: '접근', width: 84, minWidth: 70 },
   { key: 'status', label: '운영상태', width: 88 },
+  { key: 'created_at', label: '등록일자', width: 140 },
   { key: 'created_by', label: '등록자', width: 90 },
+  { key: 'updated_at', label: '수정일자', width: 140 },
   { key: 'updated_by', label: '수정자', width: 90 },
 ];
+// 등록일자 · 수정일자: YYYY-MM-DD HH:mm
+const pad2 = (value) => String(value).padStart(2, '0');
+const dateTimeText = (value) => {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime())
+    ? `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}` : '';
+};
 
 export default function UserMenu() {
   // 표 열: 머리글 오른쪽 끝을 끌어 너비 조절 (두 번 누르면 기본 너비)
@@ -355,10 +365,11 @@ export default function UserMenu() {
               <colgroup>{MENU_USER_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: userCols.widthOf(column) }} />)}</colgroup>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th className={pickerClasses.resizableHead}>사용자명<ColumnResizeHandle column={MENU_USER_COLUMNS[0]} columns={userCols} /></Table.Th>
-                  <Table.Th className={pickerClasses.resizableHead}>이메일<ColumnResizeHandle column={MENU_USER_COLUMNS[1]} columns={userCols} /></Table.Th>
-                  <Table.Th className={pickerClasses.resizableHead}>권한<ColumnResizeHandle column={MENU_USER_COLUMNS[2]} columns={userCols} /></Table.Th>
-                  <Table.Th className={pickerClasses.resizableHead}>사용여부<ColumnResizeHandle column={MENU_USER_COLUMNS[3]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>사용자 코드<ColumnResizeHandle column={MENU_USER_COLUMNS[0]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>사용자명<ColumnResizeHandle column={MENU_USER_COLUMNS[1]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>이메일<ColumnResizeHandle column={MENU_USER_COLUMNS[2]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>권한<ColumnResizeHandle column={MENU_USER_COLUMNS[3]} columns={userCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>사용여부<ColumnResizeHandle column={MENU_USER_COLUMNS[4]} columns={userCols} /></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -368,6 +379,7 @@ export default function UserMenu() {
                     className={selectedEmail === user.email ? classes.selectedRow : ''}
                     onClick={() => setSelectedEmail(user.email)}
                   >
+                    <Table.Td title={user.usercode || ''}>{user.usercode || ''}</Table.Td>
                     <Table.Td className={classes.nameCell} title={user.username}>{user.username}</Table.Td>
                     <Table.Td title={user.email}>{user.email}</Table.Td>
                     <Table.Td>
@@ -383,7 +395,7 @@ export default function UserMenu() {
                   </Table.Tr>
                 )) : (
                   <Table.Tr className={classes.emptyRow}>
-                    <Table.Td colSpan={4} className={classes.emptyCell}>
+                    <Table.Td colSpan={MENU_USER_COLUMNS.length} className={classes.emptyCell}>
                       <div className={classes.empty}>
                         <span className={classes.emptyIcon}>
                           {loadingUsers ? <IconSearch size={20} /> : !companyid ? <IconBuilding size={20} /> : <IconInbox size={22} />}
@@ -472,8 +484,10 @@ export default function UserMenu() {
                     <ColumnResizeHandle column={PERM_COLUMNS[1]} columns={permCols} />
                   </Table.Th>
                   <Table.Th className={`${pickerClasses.resizableHead} ${classes.statusColumn}`}>운영상태<ColumnResizeHandle column={PERM_COLUMNS[2]} columns={permCols} /></Table.Th>
-                  <Table.Th className={pickerClasses.resizableHead}>등록자<ColumnResizeHandle column={PERM_COLUMNS[3]} columns={permCols} /></Table.Th>
-                  <Table.Th className={pickerClasses.resizableHead}>수정자<ColumnResizeHandle column={PERM_COLUMNS[4]} columns={permCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>등록일자<ColumnResizeHandle column={PERM_COLUMNS[3]} columns={permCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>등록자<ColumnResizeHandle column={PERM_COLUMNS[4]} columns={permCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>수정일자<ColumnResizeHandle column={PERM_COLUMNS[5]} columns={permCols} /></Table.Th>
+                  <Table.Th className={pickerClasses.resizableHead}>수정자<ColumnResizeHandle column={PERM_COLUMNS[6]} columns={permCols} /></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -482,8 +496,8 @@ export default function UserMenu() {
                   return [
                     <Table.Tr key={`group:${group.key}`} className={classes.groupRow}>
                       <Table.Td><span className={classes.groupLabel}>{group.label}</span><span className={classes.groupCount}>{grantedCount} / {group.items.length}</span></Table.Td>
-                      <Table.Td />
-                      <Table.Td /><Table.Td /><Table.Td />
+                      {/* 나머지 칸도 같은 색으로 (칸 수 = 표 칼럼 수) */}
+                      {PERM_COLUMNS.slice(1).map((column) => <Table.Td key={column.key} />)}
                     </Table.Tr>,
                     ...group.items.map((menu) => (
                       <Table.Tr
@@ -501,7 +515,9 @@ export default function UserMenu() {
                             aria-label={`${menu.menuname} 접근 허용`} />
                         </Table.Td>
                         <Table.Td className={`${classes.statusColumn} ${menu.useyn === 'Y' ? classes.statusOn : classes.statusOff}`}>{menu.useyn === 'Y' ? '사용중' : '사용중지'}</Table.Td>
+                        <Table.Td className={classes.auditCell}>{dateTimeText(menu.created_at)}</Table.Td>
                         <Table.Td className={classes.auditCell} title={menu.created_by || ''}>{menu.created_by || ''}</Table.Td>
+                        <Table.Td className={classes.auditCell}>{dateTimeText(menu.updated_at)}</Table.Td>
                         <Table.Td className={classes.auditCell} title={menu.updated_by || ''}>{menu.updated_by || ''}</Table.Td>
                       </Table.Tr>
                     )),

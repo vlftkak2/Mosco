@@ -20,6 +20,7 @@ import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import classes from '../../styles/pages/ReceiptPayment.module.css';
+import outboundClasses from '../../styles/pages/OutboundRegister.module.css'; // 상세 탭 모양 (매입 · 매출등록과 같음)
 import searchClasses from '../../styles/pages/ReceiptPaymentSearch.module.css';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 
@@ -38,7 +39,7 @@ const AMOUNT_FIELDS = [
   { key: 'cardamt', label: '카드', width: 85 },
   { key: 'offsetamt', label: '상계', width: 85 },
   { key: 'lossamt', label: '잡손실', width: 85 },
-  { key: 'chargeamt', label: '과금', width: 85 },
+  { key: 'chargeamt', label: '잡이익', width: 85 },
 ];
 const INSTRUMENT_PREFIX_FIELDS = [
   { key: 'instrumenttype', label: '수표/어음 종류', width: 100, options: INSTRUMENT_OPTIONS_BY_FIELD.instrumenttype },
@@ -54,22 +55,30 @@ const INSTRUMENT_INFO_FIELDS = [
   { key: 'custodybank', label: '보관은행', width: 110, maxLength: 100 },
   { key: 'instrumentstatus', label: '어음처리상태', width: 120, options: INSTRUMENT_OPTIONS_BY_FIELD.instrumentstatus },
 ];
-// 수표/어음 상세 칸 뒤의 금액 칸: 현금 · 은행예금 · 카드 · 상계 · 잡손실 · 과금
-const REMAINING_AMOUNT_FIELDS = AMOUNT_FIELDS.filter((field) => field.key !== 'instrumentamt');
 const DESCRIPTION_FIELD = { key: 'description', label: '비고', width: 180, maxLength: 500 };
-const DETAIL_NAVIGATION_FIELDS = [
-  ...INSTRUMENT_PREFIX_FIELDS.map((field) => field.key),
-  AMOUNT_FIELDS[1].key,
-  ...INSTRUMENT_INFO_FIELDS.map((field) => field.key),
-  ...REMAINING_AMOUNT_FIELDS.map((field) => field.key),
-  'description',
+// 전표 하나는 '기본'(현금 · 상계 · 잡손실 · 잡이익 · 비고 한 줄) 또는 '어음/수표'(증권 여러 장) 중 한 가지로만 입력한다 (탭으로 나눔).
+const CASH_FORM_FIELDS = [
+  { key: 'cashamt', label: '현금' }, { key: 'offsetamt', label: '상계' },
+  { key: 'lossamt', label: '잡손실' }, { key: 'chargeamt', label: '잡이익' },
 ];
+const CASH_KEYS = CASH_FORM_FIELDS.map((field) => field.key);
+const emptyCashForm = () => ({ cashamt: '', offsetamt: '', lossamt: '', chargeamt: '', description: '' });
+const INSTRUMENT_AMOUNT_FIELD = { key: 'instrumentamt', label: '금액', width: 110 };
+const INSTRUMENT_FIELD_BY_KEY = Object.fromEntries([...INSTRUMENT_PREFIX_FIELDS, ...INSTRUMENT_INFO_FIELDS].map((field) => [field.key, field]));
+// 어음/수표 칸 순서: 종류 / 어음번호 / 금액 / 발행회사 / 발행자 / 발행일 / 만기일 / 보관계좌 / 보관은행 / 어음처리상태 / 비고
+const INSTRUMENT_GRID_FIELDS = ['instrumenttype', 'instrumentno', 'instrumentamt', 'issuercompany', 'issuer', 'issuedate', 'maturitydate',
+  'custodyaccount', 'custodybank', 'instrumentstatus'].map((key) => (key === 'instrumentamt' ? INSTRUMENT_AMOUNT_FIELD
+  : key === 'instrumenttype' ? { ...INSTRUMENT_FIELD_BY_KEY[key], label: '종류' }
+    : key === 'instrumentno' ? { ...INSTRUMENT_FIELD_BY_KEY[key], label: '어음번호' } : INSTRUMENT_FIELD_BY_KEY[key]));
+const INSTRUMENT_KEYS = [...INSTRUMENT_PREFIX_FIELDS, ...INSTRUMENT_INFO_FIELDS].map((field) => field.key).concat('instrumentamt');
+const DETAIL_NAVIGATION_FIELDS = [...INSTRUMENT_GRID_FIELDS.map((field) => field.key), 'description'];
+// 수금/지급 기본 목록: 수금/지급일 · 구분 · 거래처 · 담당자 · 금액 · 비고 · 전표번호 · 등록/수정 정보
 const SUMMARY_COLUMNS = [
-  ['receiptdate', '수금/지급일', 95], ['transactiontype', '구분', 60], ['customname', '거래처', 125],
-  ['line_count', '상세건수', 65], ['instrumentamt', '수표·어음', 95], ['cashamt', '현금', 85],
-  ['bankamt', '은행예금', 85], ['cardamt', '카드', 75], ['totalamt', '자금 합계', 90],
-  ['offsetamt', '상계', 80], ['lossamt', '잡손실', 80], ['settleamt', '상계·잡손실', 90], ['ledgeramt', '전표 합계', 95],
-  ['chargeamt', '과금', 80], ['receiptno', '전표번호', 160],
+  ['receiptdate', '수금/지급일', 95], ['transactiontype', '구분', 60], ['customname', '거래처', 125], ['manager', '담당자', 80],
+  ['cashamt', '현금', 90], ['instrumentamt', '수표/어음', 95], ['totalamt', '자금 합계', 95],
+  ['offsetamt', '상계', 80], ['lossamt', '잡손실', 80], ['chargeamt', '잡이익', 80], ['description', '비고', 160],
+  ['receiptno', '전표번호', 150], ['created_at', '등록일자', 130], ['created_by', '등록자', 80],
+  ['updated_at', '수정일자', 130], ['updated_by', '수정자', 80],
 ].map(([key, label, width]) => ({ key, label, width }));
 // 결제·할인·부도 처리 결과 (저장된 전표에서 처리, 입력 중에는 비어 있음)
 const PROCESS_COLUMNS = [
@@ -77,12 +86,29 @@ const PROCESS_COLUMNS = [
   { key: 'discountfee', label: '할인료', width: 90 },
   { key: 'processmemo', label: '처리메모', width: 160 },
 ];
-const DETAIL_COLUMN_WIDTHS = [36, 46, ...INSTRUMENT_PREFIX_FIELDS.map((field) => field.width), AMOUNT_FIELDS[1].width,
-  ...INSTRUMENT_INFO_FIELDS.map((field) => field.width), ...REMAINING_AMOUNT_FIELDS.map((field) => field.width), 80, DESCRIPTION_FIELD.width,
-  ...PROCESS_COLUMNS.map((column) => column.width)];
-const DETAIL_HEADER_LABELS = ['', 'No.', ...INSTRUMENT_PREFIX_FIELDS.map((field) => field.label), AMOUNT_FIELDS[1].label,
-  ...INSTRUMENT_INFO_FIELDS.map((field) => field.label), ...REMAINING_AMOUNT_FIELDS.map((field) => field.label), '합계', DESCRIPTION_FIELD.label,
-  ...PROCESS_COLUMNS.map((column) => column.label)];
+// 어음/수표 표: 저장된 전표에서만 처리 결과(처리일 · 할인료 · 처리메모)를 뒤에 붙인다
+// 지급 전표 맨 끝: '지급어음 선택'으로 넣은 어음의 원래 수금 전표번호
+const SOURCE_COLUMN = { key: 'source_receiptno', label: '수금 원천 전표', width: 150 };
+// 어음/수표 표 칸 (보이는 조건: saved = 저장된 전표만, receipt = 수금 전표만, payment = 지급 전표만)
+//  … 보관은행 | 처리일 | 어음처리상태 | 배서처 | 처리메모 | 할인료 | 비고 | 수금 원천 전표 (수금 · 지급 같은 순서)
+const ENDORSEE_COLUMN = { key: 'endorsee', label: '배서처', width: 130 };
+const INSTRUMENT_PRE_STATUS_FIELDS = INSTRUMENT_GRID_FIELDS.filter((field) => field.key !== 'instrumentstatus');
+const INSTRUMENT_STATUS_FIELD = INSTRUMENT_GRID_FIELDS.find((field) => field.key === 'instrumentstatus');
+const INSTRUMENT_COLUMN_SPECS = [
+  { key: 'check', label: '', width: 36 }, { key: 'no', label: 'No.', width: 46 },
+  ...INSTRUMENT_PRE_STATUS_FIELDS.map((field) => ({ key: field.key, label: field.label, width: field.width })),
+  { ...PROCESS_COLUMNS.find((column) => column.key === 'processdate'), saved: true },
+  { key: INSTRUMENT_STATUS_FIELD.key, label: INSTRUMENT_STATUS_FIELD.label, width: INSTRUMENT_STATUS_FIELD.width },
+  { ...ENDORSEE_COLUMN, saved: true, receipt: true },
+  { ...PROCESS_COLUMNS.find((column) => column.key === 'processmemo'), saved: true },
+  { ...PROCESS_COLUMNS.find((column) => column.key === 'discountfee'), saved: true },
+  { key: DESCRIPTION_FIELD.key, label: DESCRIPTION_FIELD.label, width: DESCRIPTION_FIELD.width },
+  { ...SOURCE_COLUMN, payment: true },
+];
+const INSTRUMENT_COLUMN_WIDTHS = INSTRUMENT_COLUMN_SPECS.map((column) => column.width);
+const INSTRUMENT_HEADER_LABELS = INSTRUMENT_COLUMN_SPECS.map((column) => column.label);
+const sourceText = (row) => row.source_receiptno || '';
+
 const AMOUNT_KEYS = AMOUNT_FIELDS.map(({ key }) => key);
 const todayString = () => {
   const d = new Date();
@@ -121,6 +147,8 @@ const makeDetail = (data = {}) => ({
   // 보유증권 불러오기: 지급 행이 사용한 수금 증권 / 수금 증권이 사용된 지급전표
   source_receiptno: data.source_receiptno ?? '', source_lineno: data.source_lineno ?? null,
   used_receiptno: data.used_receiptno ?? '',
+  // 배서: 넘겨준 지급 전표의 거래처 · 일자 (처리일 칸에 일자를 보여 준다)
+  used_customname: data.used_customname ?? '', used_date: data.used_date ? String(data.used_date).slice(0, 10) : '',
 });
 const sourceKey = (receiptno, lineno) => `${receiptno}:${lineno}`;
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
@@ -131,7 +159,49 @@ const numeric = (value) => {
 const formatted = (value) => numeric(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
 const dateOnly = (value) => value ? String(value).slice(0, 10) : '';
 const totalOf = (row) => ['cashamt', 'instrumentamt', 'bankamt', 'cardamt'].reduce((sum, key) => sum + numeric(row[key]), 0);
+// 저장된 행이 증권 줄인지 (증권 정보가 하나라도 있으면 어음/수표)
+const isInstrumentRow = (row) => numeric(row.instrumentamt) > 0 || Boolean(String(row.instrumenttype || '').trim())
+  || Boolean(String(row.instrumentno || '').trim()) || Boolean(row.source_receiptno);
+// 어음/수표 행에 입력한 내용이 있는지
+const instrumentRowHasInput = (row) => isInstrumentRow(row)
+  || INSTRUMENT_KEYS.some((key) => key !== 'instrumentamt' && String(row[key] ?? '').trim()) || Boolean(String(row.description || '').trim());
+const cashFormHasInput = (form) => CASH_KEYS.some((key) => numeric(form[key]) > 0) || Boolean(String(form.description || '').trim());
+// 저장된 상세 → 기본 한 줄 (기본 줄이 여러 개였던 예전 전표는 합쳐서 보여 준다)
+const cashFormOf = (rows) => rows.reduce((form, row) => ({
+  cashamt: String(numeric(form.cashamt) + numeric(row.cashamt) + numeric(row.bankamt) + numeric(row.cardamt) || ''),
+  offsetamt: String(numeric(form.offsetamt) + numeric(row.offsetamt) || ''),
+  lossamt: String(numeric(form.lossamt) + numeric(row.lossamt) || ''),
+  chargeamt: String(numeric(form.chargeamt) + numeric(row.chargeamt) || ''),
+  description: [form.description, row.description].map((text) => String(text || '').trim()).filter(Boolean).join(' / '),
+}), emptyCashForm());
 const typeName = (value) => value === 'PAYMENT' ? '지급' : '수금';
+// 저장된 기본 전표 수정: 불러온 값과 지금 값이 다른지 (금액은 숫자로, 글자는 앞뒤 공백 없이 비교)
+const cashEditKey = (header, form) => JSON.stringify([
+  header.receiptno, header.receiptdate, header.transactiontype, header.customcode, String(header.manager || '').trim(), String(header.description || '').trim(),
+  ...CASH_KEYS.map((key) => numeric(form[key])), String(form.description || '').trim(),
+]);
+// 만기일이 발행일보다 앞이면 잘못 입력한 날짜 (둘 다 있을 때만 비교)
+const maturityBeforeIssue = (row) => Boolean(row.issuedate && row.maturitydate && String(row.maturitydate).slice(0, 10) < String(row.issuedate).slice(0, 10));
+// 같은 어음 = '어음번호 + 발행회사'가 같은 것 (대소문자 · 앞뒤 공백 무시). 수금 · 지급 각각 한 장만.
+//  '지급어음 선택' 행은 원래 수금 어음과 같은 증권이라 세지 않는다.
+const instrumentNoKey = (value) => String(value || '').trim().toUpperCase();
+const instrumentKey = (row) => (instrumentNoKey(row.instrumentno) ? `${instrumentNoKey(row.instrumentno)}\t${instrumentNoKey(row.issuercompany)}` : '');
+const duplicateInstrumentRows = (rows) => {
+  const seen = new Map();
+  for (const [index, row] of rows.entries()) {
+    const key = instrumentKey(row);
+    if (!key || row.source_receiptno) continue;
+    if (seen.has(key)) return [seen.get(key) + 1, index + 1, row.instrumentno, row.issuercompany];
+    seen.set(key, index);
+  }
+  return null;
+};
+const notifyMaturityBeforeIssue = (rowNumber) => notifications.show({
+  id: 'receipt-payment-maturity-check', title: '만기일 확인',
+  message: `어음/수표 ${rowNumber}행: 만기일이 발행일보다 앞입니다. 날짜를 확인해 주세요.`, color: 'orange',
+});
+// 잡손실 · 잡이익: 수금은 + 잡손실 − 잡이익, 지급은 − 잡손실 + 잡이익 — 서버 · 거래처원장과 같은 규칙
+const signedAdjust = (loss, gain, transactiontype) => (transactiontype === 'RECEIPT' ? numeric(loss) - numeric(gain) : numeric(gain) - numeric(loss));
 const errorText = (error) => {
   const detail = error.response?.data?.detail;
   if (typeof detail === 'string') return detail;
@@ -147,17 +217,32 @@ const ResizableHeaderCell = memo(function ResizableHeaderCell({ index, width, on
 });
 
 // 자금 합계 = 현금+수표·어음+은행예금+카드 / 상계·잡손실 = 돈이 오가지 않은 정리액 / 전표 합계 = 둘의 합 (거래처원장 반영액)
-const DOCUMENT_MONEY_KEYS = ['cashamt', 'instrumentamt', 'bankamt', 'cardamt', 'totalamt', 'offsetamt', 'lossamt', 'settleamt', 'ledgeramt', 'chargeamt'];
+const DOCUMENT_MONEY_KEYS = ['cashamt', 'instrumentamt', 'totalamt', 'offsetamt', 'lossamt', 'chargeamt'];
+const DATE_TIME_KEYS = new Set(['created_at', 'updated_at']);
+const seoulDateTime = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+// 등록일자 · 수정일자: 화면은 분까지, 엑셀은 초까지 (매입등록과 동일)
+const dateTimeText = (value, withSeconds = false) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const part = Object.fromEntries(seoulDateTime.formatToParts(date).map((entry) => [entry.type, entry.value]));
+  return `${part.year}-${part.month}-${part.day} ${part.hour}:${part.minute}${withSeconds ? `:${part.second}` : ''}`;
+};
 const ReceiptPaymentSummaryRow = memo(function ReceiptPaymentSummaryRow({ doc, selected, onSelect }) {
-  return <Table.Tr className={selected ? classes.selectedRow : ''} onClick={() => onSelect(doc.receiptno)}>
+  const rowRef = useRef(null);
+  // 저장 직후 선택된 전표가 목록 아래쪽에 있어도 보이도록 스크롤
+  useEffect(() => { if (selected) rowRef.current?.scrollIntoView({ block: 'nearest' }); }, [selected]);
+  return <Table.Tr ref={rowRef} className={selected ? classes.selectedRow : ''} onClick={() => onSelect(doc.receiptno)}>
     {SUMMARY_COLUMNS.map((column) => {
       const value = doc[column.key];
       const money = DOCUMENT_MONEY_KEYS.includes(column.key);
-      return <Table.Td key={column.key} ta={money || column.key === 'line_count' ? 'right' : undefined} title={column.key === 'transactiontype' ? typeName(value) : String(value ?? '')}>
+      const text = DATE_TIME_KEYS.has(column.key) ? dateTimeText(value) : undefined;
+      return <Table.Td key={column.key} ta={money ? 'right' : column.key === 'transactiontype' ? 'center' : undefined} title={column.key === 'transactiontype' ? typeName(value) : text ?? String(value ?? '')}>
         {column.key === 'receiptdate' ? dateOnly(value)
+          : text !== undefined ? text
           : column.key === 'transactiontype' // 수금/지급 현황과 같은 둥근 배지
             ? <Badge className={value === 'PAYMENT' ? searchClasses.paymentBadge : searchClasses.receiptBadge} variant="light">{typeName(value)}</Badge>
-          : money ? formatted(value) : column.key === 'line_count' ? Number(value || 0).toLocaleString() : value || ''}
+          : money ? formatted(value) : value || ''}
       </Table.Td>;
     })}
   </Table.Tr>;
@@ -211,7 +296,7 @@ const ReceiptPaymentDetailInputCell = memo(function ReceiptPaymentDetailInputCel
   };
   return <Table.Td data-detail-row={rowId} data-detail-field={field.key}>
     {numericInput
-      ? <NumberInput aria-label={`${rowNumber}행 ${field.label}`} value={value} min={0} allowNegative={false} decimalScale={3} thousandSeparator="," hideControls withKeyboardEvents={false} size="xs" disabled={disabled} placeholder="" onChange={(nextValue) => onUpdate(rowId, field.key, nextValue)} />
+      ? <NumberInput aria-label={`${rowNumber}행 ${field.label}`} value={value} min={0} allowNegative={false} decimalScale={2} thousandSeparator="," hideControls withKeyboardEvents={false} size="xs" disabled={disabled} placeholder="" onChange={(nextValue) => onUpdate(rowId, field.key, nextValue)} />
       : field.type === 'date'
         ? <ErpDateInput aria-label={`${rowNumber}행 ${field.label}`} size="xs" value={value} disabled={disabled} placeholder="" autoComplete="off" onChange={(event) => onUpdate(rowId, field.key, event.currentTarget.value)} />
         : field.options
@@ -247,6 +332,45 @@ const ReceiptPaymentDetailInputCell = memo(function ReceiptPaymentDetailInputCel
   </Table.Td>;
 });
 
+// 기본 탭: 현금 · 상계 · 잡손실 · 잡이익 · 비고 — 어음/수표 표와 같은 모양의 한 줄 표에서 입력 (←/→ · Enter 로 칸 이동)
+const CASH_TABLE_FIELDS = [...CASH_FORM_FIELDS.map((field) => ({ ...field, width: 150 })), { ...DESCRIPTION_FIELD, width: 320 }];
+const CashEntryTable = memo(function CashEntryTable({ form, disabled, readOnly, showRow = true, onChange }) {
+  const update = useCallback((_rowId, key, value) => onChange(key, key === 'description' ? value : (value === '' ? '' : String(value))), [onChange]);
+  const moveFocus = (event) => {
+    const input = event.target instanceof HTMLElement ? event.target.closest('input') : null;
+    const cell = input?.closest('[data-detail-field]');
+    if (!input || !cell) return;
+    let step = 0;
+    if (event.key === 'Enter') step = 1;
+    else if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+      try {
+        const atStart = input.selectionStart === 0 && input.selectionEnd === 0;
+        const atEnd = input.selectionStart === (input.value?.length ?? 0) && input.selectionEnd === input.selectionStart;
+        if (event.key === 'ArrowRight' && atEnd) step = 1;
+        if (event.key === 'ArrowLeft' && atStart) step = -1;
+      } catch { return; }
+    }
+    if (!step) return;
+    const cells = [...event.currentTarget.querySelectorAll('[data-detail-field]')];
+    const next = cells[cells.indexOf(cell) + step]?.querySelector('input');
+    if (!next) return;
+    event.preventDefault();
+    next.focus();
+  };
+  return <Table className={`${sharedClasses.table} ${codeClasses.codeTable} ${classes.table} ${classes.cashTable}`} withTableBorder withColumnBorders
+    style={{ tableLayout: 'fixed', width: '100%', minWidth: CASH_TABLE_FIELDS.reduce((sum, field) => sum + field.width, 46) }} onKeyDown={moveFocus}>
+    <colgroup><col style={{ width: 46 }} />{CASH_TABLE_FIELDS.map((field) => <col key={field.key} style={{ width: field.width }} />)}</colgroup>
+    <Table.Thead><Table.Tr><Table.Th ta="center">No.</Table.Th>{CASH_TABLE_FIELDS.map((field) => <Table.Th key={field.key}>{field.label}</Table.Th>)}</Table.Tr></Table.Thead>
+    <Table.Tbody>{showRow && <Table.Tr>
+      <Table.Td ta="center">1</Table.Td>
+      {CASH_TABLE_FIELDS.map((field) => (readOnly
+        ? (field.key === 'description' ? <ReadonlyTextCell key={field.key} field={field} value={form.description} /> : <ReadonlyAmountCell key={field.key} value={form[field.key]} />)
+        : <ReceiptPaymentDetailInputCell key={field.key} rowId="cash" rowNumber={1} field={field} value={form[field.key]}
+          numericInput={field.key !== 'description'} disabled={disabled} onUpdate={update} />))}
+    </Table.Tr>}</Table.Tbody>
+  </Table>;
+});
+
 const ReceiptPaymentHeaderTextInput = memo(function ReceiptPaymentHeaderTextInput({ label, value, maxLength, disabled, onCommit }) {
   const [draft, setDraft] = useState(value ?? '');
   const [syncedValue, setSyncedValue] = useState(value);
@@ -259,7 +383,7 @@ const ReceiptPaymentHeaderTextInput = memo(function ReceiptPaymentHeaderTextInpu
     onBlur={() => { if (draft !== (value ?? '')) onCommit(draft); }} />;
 });
 
-const ReceiptPaymentDetailRow = memo(function ReceiptPaymentDetailRow({ row, index, selected, disabled: rowDisabled, issuerCompanyOptions, bankOptions, onToggle, onUpdate, onOpenPicker }) {
+const ReceiptPaymentDetailRow = memo(function ReceiptPaymentDetailRow({ row, index, selected, disabled: rowDisabled, bankOptions, showSource, onToggle, onUpdate, onOpenPicker }) {
   const rowNumber = index + 1;
   const fromHeld = Boolean(row.source_receiptno);
   const disabled = rowDisabled || fromHeld; // 불러온 증권 행은 내용 수정 불가 (행 삭제·비고만 가능)
@@ -267,21 +391,19 @@ const ReceiptPaymentDetailRow = memo(function ReceiptPaymentDetailRow({ row, ind
   return <Table.Tr className={[selected ? classes.detailSelectedRow : '', fromHeld ? classes.heldSourceRow : ''].filter(Boolean).join(' ')}>
     <Table.Td ta="center"><input type="checkbox" aria-label={`${rowNumber}행 선택`} checked={selected} disabled={rowDisabled} onChange={(event) => onToggle(row.id, event.nativeEvent.shiftKey)} /></Table.Td>
     <Table.Td ta="center" title={sourceTitle}>{rowNumber}{fromHeld && <span className={classes.heldBadge}>보유</span>}{row.used_receiptno && <span className={classes.usedBadge}>사용</span>}</Table.Td>
-    {INSTRUMENT_PREFIX_FIELDS.map((field) => <ReceiptPaymentDetailInputCell key={field.key} rowId={row.id} rowNumber={rowNumber} field={field} value={row[field.key]} disabled={disabled} onUpdate={onUpdate} />)}
-    <ReceiptPaymentDetailInputCell rowId={row.id} rowNumber={rowNumber} field={AMOUNT_FIELDS[1]} value={row[AMOUNT_FIELDS[1].key]} numericInput disabled={disabled} onUpdate={onUpdate} />
-    {INSTRUMENT_INFO_FIELDS.map((field) => <ReceiptPaymentDetailInputCell key={field.key} rowId={row.id} rowNumber={rowNumber} field={field} value={row[field.key]}
-      suggestions={field.key === 'issuercompany' ? issuerCompanyOptions : field.key === 'custodybank' ? bankOptions : undefined}
-      onOpenPicker={['issuercompany', 'custodybank'].includes(field.key) ? onOpenPicker : undefined} disabled={disabled} onUpdate={onUpdate} />)}
-    {REMAINING_AMOUNT_FIELDS.map((field) => <ReceiptPaymentDetailInputCell key={field.key} rowId={row.id} rowNumber={rowNumber} field={field} value={row[field.key]} numericInput disabled={disabled} onUpdate={onUpdate} />)}
-    <Table.Td ta="right" className={classes.calculatedAmount}>{formatted(totalOf(row))}</Table.Td>
+    {INSTRUMENT_GRID_FIELDS.map((field) => <ReceiptPaymentDetailInputCell key={field.key} rowId={row.id} rowNumber={rowNumber} field={field} value={row[field.key]}
+      numericInput={field.key === 'instrumentamt'}
+      // 발행회사는 수기 입력 그대로 저장 (자동맞춤 · 선택창 없음). 보관은행만 목록 선택을 돕는다.
+      suggestions={field.key === 'custodybank' ? bankOptions : undefined}
+      onOpenPicker={field.key === 'custodybank' ? onOpenPicker : undefined} disabled={disabled} onUpdate={onUpdate} />)}
     <ReceiptPaymentDetailInputCell rowId={row.id} rowNumber={rowNumber} field={DESCRIPTION_FIELD} value={row.description} disabled={rowDisabled} onUpdate={onUpdate} />
-    {PROCESS_COLUMNS.map((column) => <td key={column.key} className={classes.readonlyCell} title="저장한 뒤 결제·할인·부도 처리할 수 있습니다." />)}
+    {showSource && <Table.Td title={row.source_receiptno ? `${row.source_receiptno}-${row.source_lineno}` : undefined}>{sourceText(row)}</Table.Td>}
   </Table.Tr>;
 });
 
 // 결제·할인·부도·처리취소 가능 여부 (백엔드 _process_block_reason 과 같은 규칙)
 //  받은 증권(수금·타수): 보관 → 결제/할인/부도, 처리된 것 → 처리취소. 배서된 것은 불가.
-//  발행한 어음(지급·자수): 출금 예정 → 결제, 결제된 것 → 처리취소.
+//  발행한 어음(지급·자수): 보관 → 결제, 결제된 것 → 처리취소.
 const PROCESS_ACTION_INFO = {
   SETTLE: { label: '결제', color: 'teal' },
   DISCOUNT: { label: '할인', color: 'blue' },
@@ -316,15 +438,15 @@ const canProcess = (row, transactiontype, action) => {
 const processActionsFor = (transactiontype) => (transactiontype === 'PAYMENT' ? ['SETTLE', 'DISHONOR', 'CANCEL'] : ['SETTLE', 'DISCOUNT', 'DISHONOR', 'CANCEL']);
 const isManualEndorsed = (row, transactiontype) => transactiontype === 'PAYMENT' && String(row.issuekind || '').toUpperCase() === 'OTHER' && !row.source_receiptno;
 const isProcessable = (row, transactiontype) => processActionsFor(transactiontype).some((action) => canProcess(row, transactiontype, action));
-// 발행한 어음(지급·자수)은 처리 전 상태를 '출금 예정'(만기에 통장에서 나갈 돈)으로 보여 준다.
+// 발행한 어음(지급·자수)도 처리 전 상태는 '보관' (만기에 결제 처리).
 const statusText = (row, transactiontype) => {
-  if (transactiontype === 'PAYMENT' && String(row.issuekind || '').toUpperCase() === 'OWN' && !row.instrumentstatus && numeric(row.instrumentamt) > 0) return '출금 예정';
+  if (transactiontype === 'PAYMENT' && !row.instrumentstatus && numeric(row.instrumentamt) > 0 && !isManualEndorsed(row, transactiontype)) return '보관'; // 예전 빈 상태
   if (row.instrumentstatus === 'DISHONORED' && (row.used_receiptno || row.source_receiptno || isManualEndorsed(row, transactiontype))) return '부도(배서)'; // 넘겨준 어음의 부도
   return instrumentLabel('instrumentstatus', row.instrumentstatus);
 };
 // 처리취소하면 돌아갈 상태
 const statusBeforeProcess = (row, transactiontype) => (isManualEndorsed(row, transactiontype) ? '배서'
-  : transactiontype === 'PAYMENT' ? '출금 예정' : row.used_receiptno ? '배서' : '보관');
+  : row.used_receiptno ? '배서' : '보관');
 
 // 저장된 전표(읽기 전용)는 입력 컴포넌트 대신 글자만 그린다 → 전표 선택 시 렌더가 훨씬 가볍다.
 const readonlyText = (field, value) => field.options ? instrumentLabel(field.key, value)
@@ -337,31 +459,34 @@ const ReadonlyTextCell = ({ field, value }) => {
 const ReceiptPaymentReadonlyRow = memo(function ReceiptPaymentReadonlyRow({ row, index, transactiontype, selectable, selected, onToggle }) {
   const rowNumber = index + 1;
   const sourceTitle = row.source_receiptno ? `보유증권 ${row.source_receiptno}-${row.source_lineno} 사용` : row.used_receiptno ? `지급전표 ${row.used_receiptno}에 사용됨` : undefined;
-  return <tr className={[selected ? classes.detailSelectedRow : '', row.source_receiptno ? classes.heldSourceRow : ''].filter(Boolean).join(' ') || undefined}>
+  // 저장된 전표: 행 아무 곳이나 눌러도 체크 (처리 가능한 행만). 체크박스를 직접 누르면 체크박스가 처리한다.
+  return <tr className={[selected ? classes.detailSelectedRow : '', row.source_receiptno ? classes.heldSourceRow : ''].filter(Boolean).join(' ') || undefined}
+    style={selectable ? { cursor: 'pointer' } : undefined}
+    onClick={(event) => { if (selectable && !(event.target instanceof HTMLInputElement)) onToggle(row.id, event.shiftKey); }}>
     <td className={classes.readonlyCell} data-align="center"><input type="checkbox" aria-label={`${rowNumber}행 선택`} checked={selected} disabled={!selectable}
       title={selectable ? undefined : '결제·할인·부도 처리 대상이 아닌 행입니다.'} onChange={(event) => onToggle(row.id, event.nativeEvent.shiftKey)} /></td>
     <td className={classes.readonlyCell} data-align="center" title={sourceTitle}>{rowNumber}{row.source_receiptno && <span className={classes.heldBadge}>보유</span>}{row.used_receiptno && <span className={classes.usedBadge}>사용</span>}</td>
-    {INSTRUMENT_PREFIX_FIELDS.map((field) => <ReadonlyTextCell key={field.key} field={field} value={row[field.key]} />)}
-    <ReadonlyAmountCell value={row.instrumentamt} />
-    {INSTRUMENT_INFO_FIELDS.map((field) => (field.key === 'instrumentstatus'
-      ? <td key={field.key} className={`${classes.readonlyCell} ${PROCESSED_STATUSES.includes(row.instrumentstatus) ? classes[`status${row.instrumentstatus}`] || '' : ''}`}>{statusText(row, transactiontype)}</td>
+    {INSTRUMENT_PRE_STATUS_FIELDS.map((field) => (field.key === 'instrumentamt' ? <ReadonlyAmountCell key={field.key} value={row.instrumentamt} />
       : <ReadonlyTextCell key={field.key} field={field} value={row[field.key]} />))}
-    {REMAINING_AMOUNT_FIELDS.map((field) => <ReadonlyAmountCell key={field.key} value={row[field.key]} />)}
-    <td className={`${classes.readonlyCell} ${classes.calculatedAmount}`} data-align="right">{formatted(totalOf(row))}</td>
-    <ReadonlyTextCell field={DESCRIPTION_FIELD} value={row.description} />
-    <td className={classes.readonlyCell}>{dateOnly(row.processdate)}</td>
-    <ReadonlyAmountCell value={numeric(row.discountfee) > 0 ? row.discountfee : ''} />
+    {/* 처리일: 결제 · 할인 · 부도는 처리한 날, 배서는 넘겨준 지급 전표의 일자 */}
+    <td className={classes.readonlyCell}>{dateOnly(row.processdate || row.used_date)}</td>
+    <td className={`${classes.readonlyCell} ${PROCESSED_STATUSES.includes(row.instrumentstatus) ? classes[`status${row.instrumentstatus}`] || '' : ''}`}>{statusText(row, transactiontype)}</td>
+    {transactiontype === 'RECEIPT' && <ReadonlyTextCell field={ENDORSEE_COLUMN} value={row.used_customname || ''} />}
     <ReadonlyTextCell field={{ key: 'processmemo' }} value={row.processmemo} />
+    <ReadonlyAmountCell value={numeric(row.discountfee) > 0 ? row.discountfee : ''} />
+    <ReadonlyTextCell field={DESCRIPTION_FIELD} value={row.description} />
+    {transactiontype === 'PAYMENT' && <ReadonlyTextCell field={SOURCE_COLUMN} value={sourceText(row)} />}
   </tr>;
 });
 
-const ReceiptPaymentFilterPanel = memo(function ReceiptPaymentFilterPanel({ initialValues, transactionOptions, onSearch, onClose }) {
+const ReceiptPaymentFilterPanel = memo(function ReceiptPaymentFilterPanel({ initialValues, transactionOptions, onSearch, onDraftChange, onClose }) {
   const [draft, setDraft] = useState(initialValues);
   const draftRef = useRef(draft);
   const update = (key, value) => {
     const next = { ...draftRef.current, [key]: value };
     draftRef.current = next;
     setDraft(next);
+    onDraftChange?.(next); // 최상단 [조회]도 지금 입력한 조건으로 조회하도록 페이지에 알림
   };
   const submit = () => onSearch({ ...draftRef.current });
   const searchOnEnter = (event) => { if (event.key === 'Enter') submit(); };
@@ -431,7 +556,7 @@ const InstrumentProcessModal = memo(function InstrumentProcessModal({ request, t
             <td>{dateOnly(row.maturitydate)}</td><td data-align="right">{formatted(row.instrumentamt)}</td>
             {isCancel && <td>{statusText(row, transactiontype)}{row.processdate ? ` (${dateOnly(row.processdate)})` : ''}</td>}
             {action === 'DISCOUNT' && <td><NumberInput aria-label={`${row.lineno}행 할인료`} size="xs" value={fees[row.lineno] ?? ''} min={0} max={numeric(row.instrumentamt)}
-              allowNegative={false} decimalScale={3} thousandSeparator="," hideControls onChange={(value) => setFees((current) => ({ ...current, [row.lineno]: value }))} /></td>}
+              allowNegative={false} decimalScale={2} thousandSeparator="," hideControls onChange={(value) => setFees((current) => ({ ...current, [row.lineno]: value }))} /></td>}
           </tr>)}</tbody>
           <tfoot><tr><td colSpan={4}>합계</td><td data-align="right">{formatted(total)}</td>{isCancel && <td />}{action === 'DISCOUNT' && <td data-align="right">{formatted(feeTotal)}</td>}</tr></tfoot>
         </table>
@@ -661,7 +786,12 @@ export default function ReceiptPayment() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
   const [summaryColumnWidths, setSummaryColumnWidths] = useState(() => SUMMARY_COLUMNS.map((column) => column.width));
-  const [detailColumnWidths, setDetailColumnWidths] = useState(DETAIL_COLUMN_WIDTHS);
+  const [detailColumnWidths, setDetailColumnWidths] = useState(INSTRUMENT_COLUMN_WIDTHS);
+  // 탭: 기본(CASH, 한 줄 입력폼) / 어음·수표(INSTRUMENT, items 표). 전표 하나는 둘 중 한 가지만 입력한다.
+  const [activeTab, setActiveTab] = useState('CASH');
+  const [cashForm, setCashForm] = useState(emptyCashForm);
+  const [drafting, setDrafting] = useState(false); // 새 전표 입력 중
+  const [editBase, setEditBase] = useState(''); // 저장된 기본 전표를 불러왔을 때의 값 (수정 여부 비교)
   const [totalRows, setTotalRows] = useState(0);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -670,6 +800,8 @@ export default function ReceiptPayment() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const itemsRef = useRef(items);
   itemsRef.current = items;
+  const headerRef = useRef(header); // 어음번호 확인 때 지금 전표번호 (자기 전표는 중복에서 뺌)
+  headerRef.current = header;
   const documentsRef = useRef(documents);
   documentsRef.current = documents;
   const selectedReceiptRef = useRef('');
@@ -689,13 +821,31 @@ export default function ReceiptPayment() {
     setHeader((current) => ({ ...current, [field]: value }));
   }, []);
   const summaryTableWidth = summaryColumnWidths.reduce((sum, width) => sum + width, 0);
-  const detailTableWidth = detailColumnWidths.reduce((sum, width) => sum + width, 0);
   const isSavedDocument = Boolean(header.receiptno);
+  // 저장된 전표에서만 처리 결과 칸(처리일 · 할인료 · 처리메모)을 보인다
+  const showSourceColumn = header.transactiontype === 'PAYMENT';
+  const visibleDetailColumns = INSTRUMENT_COLUMN_SPECS.map((_, index) => index).filter((index) => {
+    const column = INSTRUMENT_COLUMN_SPECS[index];
+    return (!column.saved || isSavedDocument) && (!column.receipt || header.transactiontype === 'RECEIPT') && (!column.payment || showSourceColumn);
+  });
+  const visibleDetailWidths = visibleDetailColumns.map((index) => detailColumnWidths[index]);
+  const visibleDetailLabels = visibleDetailColumns.map((index) => INSTRUMENT_HEADER_LABELS[index]);
+  const detailTableWidth = visibleDetailWidths.reduce((sum, width) => sum + width, 0);
+  const cashHasInput = cashFormHasInput(cashForm);
+  const instrumentCount = items.filter(instrumentRowHasInput).length;
+  // 한 가지만 입력: 기본에 입력했으면 어음/수표를, 어음/수표에 입력했으면 기본을 잠근다
+  const cashLocked = instrumentCount > 0;
+  const instrumentLocked = cashHasInput;
   // 신규 전표는 추가 직후 저장 버튼을 활성화하고, 저장된 전표는 읽기 전용으로 표시한다.
-  const canSave = Boolean(!isSavedDocument && items.length > 0);
-  const canExport = header.receiptno ? items.length > 0 : documents.length > 0;
+  // 저장된 전표 중 기본(현금 등)만 있는 전표는 수정 가능. 어음/수표 전표는 처리 이력 · 배서 연결 때문에 읽기 전용.
+  const cashEditable = isSavedDocument && !detailLoading && instrumentCount === 0 && Boolean(editBase);
+  const readOnlyDocument = isSavedDocument && !cashEditable;
+  const editDirty = cashEditable && cashEditKey(header, cashForm) !== editBase;
+  const canSave = Boolean((!isSavedDocument && drafting) || editDirty);
+  const canExport = header.receiptno ? (items.length > 0 || cashHasInput) : documents.length > 0;
 
-  const startColumnResize = useCallback((event, index, startWidth, widths, setWidths, scope) => {
+  // visibleIndexes: 일부 칸을 숨긴 표(상세)에서 화면에 보이는 칸의 원래 번호 (DOM 칸 위치 · 표 너비 계산용)
+  const startColumnResize = useCallback((event, index, startWidth, widths, setWidths, scope, visibleIndexes = null) => {
     event.preventDefault();
     event.stopPropagation();
     const startX = event.clientX;
@@ -712,9 +862,10 @@ export default function ReceiptPayment() {
     const handleMove = (moveEvent) => {
       const nextWidth = Math.max(54, startWidth + moveEvent.clientX - startX);
       nextWidths[index] = nextWidth;
-      const totalWidth = nextWidths.reduce((sum, width) => sum + width, 0);
+      const totalWidth = (visibleIndexes ? visibleIndexes.map((visible) => nextWidths[visible]) : nextWidths).reduce((sum, width) => sum + width, 0);
+      const domIndex = visibleIndexes ? visibleIndexes.indexOf(index) : index;
       getTables().forEach((table) => {
-        const column = table.querySelectorAll('colgroup col')[index];
+        const column = table.querySelectorAll('colgroup col')[domIndex];
         if (column) column.style.width = `${nextWidth}px`;
         table.style.setProperty('--code-table-min-width', `${totalWidth}px`);
         if (scope === 'summary' && table === listSubtotalRef.current?.querySelector('table')) {
@@ -749,27 +900,18 @@ export default function ReceiptPayment() {
       ? [{ value: header.customcode, label: header.customname || header.customcode }, ...baseCustomerOptions]
       : baseCustomerOptions
   ), [baseCustomerOptions, header.customcode, header.customname]);
-  const issuerCompanyOptions = useMemo(() => [...new Map(customers
-    .map((customer) => ({ value: String(customer.customername || '').trim(), label: String(customer.customername || '').trim(), code: String(customer.customercode || '').trim() }))
-    .filter((option) => option.value)
-    .map((option) => [option.value, option])).values()], [customers]);
 
   useEffect(() => {
     let cancelled = false;
+    // 첫 쪽에서 전체 건수를 알면 나머지 쪽은 한꺼번에 받는다 (200건씩 차례로 기다리지 않게)
     const loadCustomers = async () => {
-      const loadedCustomers = [];
-      let pageNumber = 1;
-      let totalCount = 0;
-      do {
-        const { data } = await axios.get('/api/list', {
-          ...authConfig(),
-          params: { status: 'Y', page: pageNumber, page_size: 200, include_total: true },
-        });
-        loadedCustomers.push(...(data.data || []));
-        totalCount = data.total || 0;
-        pageNumber += 1;
-      } while (loadedCustomers.length < totalCount && pageNumber <= 100);
-      if (!cancelled) setCustomers(loadedCustomers);
+      const fetchPage = (pageNumber) => axios.get('/api/list', {
+        ...authConfig(), params: { status: 'Y', page: pageNumber, page_size: 200, include_total: pageNumber === 1 },
+      }).then(({ data }) => data);
+      const first = await fetchPage(1);
+      const pageCount = Math.min(100, Math.ceil((first.total || 0) / 200));
+      const rest = pageCount > 1 ? await Promise.all(Array.from({ length: pageCount - 1 }, (_, index) => fetchPage(index + 2))) : [];
+      if (!cancelled) setCustomers([first, ...rest].flatMap((data) => data.data || []));
     };
     void loadCustomers().catch((error) => {
       if (!cancelled) notifications.show({ title: '거래처 조회 실패', message: errorText(error), color: 'red' });
@@ -800,7 +942,8 @@ export default function ReceiptPayment() {
     return () => { cancelled = true; };
   }, [pageActivation]);
 
-  const loadDocuments = useCallback(async (nextPage = 1, query = filters, size = pageSize) => {
+  // focusReceiptno: 저장 직후 그 전표가 있는 쪽으로 이동 (서버가 쪽 번호를 정해 돌려준다)
+  const loadDocuments = useCallback(async (nextPage = 1, query = filters, size = pageSize, focusReceiptno = '') => {
     const request = ++listRequest.current;
     setLoading(true);
     try {
@@ -810,7 +953,7 @@ export default function ReceiptPayment() {
           page: nextPage, page_size: size,
           date_from: query.date_from || undefined, date_to: query.date_to || undefined,
           transactiontype: query.transactiontype || undefined, customer: query.customer || undefined,
-          receiptno: query.receiptno || undefined,
+          receiptno: query.receiptno || undefined, focus_receiptno: focusReceiptno || undefined,
         },
       });
       if (request !== listRequest.current) return;
@@ -827,6 +970,13 @@ export default function ReceiptPayment() {
   const loadInitialDocuments = useEffectEvent(() => { void loadDocuments(1, filters, pageSize); });
   useEffect(() => { loadInitialDocuments(); }, []);
 
+  const applyLoadedItems = useCallback((loaded) => {
+    const instrumentRows = loaded.filter(isInstrumentRow);
+    setItems(instrumentRows);
+    setCashForm(cashFormOf(loaded.filter((row) => !isInstrumentRow(row))));
+    setActiveTab(instrumentRows.length ? 'INSTRUMENT' : 'CASH');
+    setDrafting(false);
+  }, []);
   const openDocument = useCallback(async (receiptno) => {
     const cachedItems = detailCache.current.get(receiptno);
     if (selectedReceiptRef.current === receiptno) {
@@ -845,13 +995,22 @@ export default function ReceiptPayment() {
     }
     setSelectedRows([]);
     selectionAnchor.current = null;
+    setEditBase('');
     if (cachedItems) {
-      setItems(cachedItems);
+      applyLoadedItems(cachedItems);
+      if (summary && !cachedItems.some(isInstrumentRow)) {
+        setEditBase(cashEditKey({
+          receiptno: summary.receiptno, receiptdate: dateOnly(summary.receiptdate), transactiontype: summary.transactiontype,
+          customcode: summary.customcode || '', manager: summary.manager || '', description: summary.description || '',
+        }, cashFormOf(cachedItems)));
+      }
       detailLoadingRef.current = false;
       setDetailLoading(false);
       return;
     }
     setItems([]);
+    setCashForm(emptyCashForm());
+    setDrafting(false);
     detailLoadingRef.current = true;
     setDetailLoading(true);
     try {
@@ -865,7 +1024,11 @@ export default function ReceiptPayment() {
       });
       const nextItems = (doc.items || []).map((item) => makeDetail(item));
       detailCache.current.set(receiptno, nextItems);
-      setItems(nextItems);
+      applyLoadedItems(nextItems);
+      setEditBase(nextItems.some(isInstrumentRow) ? '' : cashEditKey({
+        receiptno: doc.receiptno, receiptdate: dateOnly(doc.receiptdate), transactiontype: doc.transactiontype,
+        customcode: doc.customcode, manager: doc.manager || '', description: doc.description || '',
+      }, cashFormOf(nextItems)));
     } catch (error) {
       if (request === detailRequest.current) notifications.show({ title: '상세 조회 실패', message: errorText(error), color: 'red' });
     } finally {
@@ -874,8 +1037,10 @@ export default function ReceiptPayment() {
         setDetailLoading(false);
       }
     }
-  }, []);
+  }, [applyLoadedItems]);
 
+  // 조회조건 칸에서 입력 중인 값 (다시 그리지 않고 기억만): 엔터와 최상단 [조회]가 같은 조건을 쓴다
+  const rememberFilterDraft = useCallback((draft) => { filterInputsRef.current = draft; }, []);
   const runSearch = useCallback((inputValues = filterInputsRef.current) => {
     const next = { ...inputValues };
     filterInputsRef.current = next;
@@ -887,11 +1052,16 @@ export default function ReceiptPayment() {
   const startNew = useCallback(() => {
     selectedReceiptRef.current = '';
     detailRequest.current += 1;
+    setEditBase('');
     setHeader(emptyHeader());
     setItems([makeDetail()]);
+    setCashForm(emptyCashForm());
+    setActiveTab('CASH');
+    setDrafting(true);
     setSelectedRows([]);
     selectionAnchor.current = null;
   }, []);
+  const updateCashForm = useCallback((key, value) => setCashForm((current) => ({ ...current, [key]: value })), []);
 
   const selectDocument = useCallback((receiptno) => { void openDocument(receiptno); }, [openDocument]);
 
@@ -908,15 +1078,43 @@ export default function ReceiptPayment() {
 
   // 발행구분은 입력한 그대로 둔다 (자동으로 채우지 않음, 빈값이면 빈값으로 저장)
   const updateDetail = useCallback((id, key, value) => {
+    if (key === 'instrumentno' || key === 'issuercompany') {
+      const rows = itemsRef.current;
+      const index = rows.findIndex((row) => row.id === id);
+      const next = index >= 0 ? { ...rows[index], [key]: value } : null;
+      const nextKey = next ? instrumentKey(next) : '';
+      if (nextKey) {
+        const sameIndex = rows.findIndex((row, rowIndex) => rowIndex !== index && !row.source_receiptno && instrumentKey(row) === nextKey);
+        if (sameIndex >= 0) {
+          notifications.show({ id: 'receipt-payment-instrumentno', title: '같은 어음 중복', message: `${sameIndex + 1}행에 어음번호 · 발행회사가 같은 어음(${next.instrumentno} · ${next.issuercompany || '발행회사 없음'})이 있습니다.`, color: 'orange' });
+        } else {
+          // 같은 구분(수금/지급)의 다른 전표에 이미 있는지 서버에 확인 (입력하자마자 알림, 저장은 서버가 다시 막는다)
+          void axios.get('/api/receipt-payment/instrument-numbers', { ...authConfig(), params: {
+            no: String(next.instrumentno).trim(), issuer: String(next.issuercompany || '').trim(),
+            transactiontype: headerRef.current.transactiontype || 'RECEIPT', exclude_receiptno: headerRef.current.receiptno || undefined,
+          } })
+            .then(({ data }) => {
+              const found = data.items?.[0];
+              if (!found) return;
+              notifications.show({
+                id: 'receipt-payment-instrumentno', title: '이미 등록된 어음', color: 'orange',
+                message: `어음번호 ${found.instrumentno} · 발행회사 ${found.issuercompany || '(없음)'} 어음은 이미 ${found.receiptno}(${found.transactiontype === 'PAYMENT' ? '지급' : '수금'} · ${found.customname || ''}) 전표에 있습니다. 저장할 수 없습니다.`,
+              });
+            })
+            .catch(() => {});
+        }
+      }
+    }
+    if (key === 'issuedate' || key === 'maturitydate') {
+      const index = itemsRef.current.findIndex((row) => row.id === id);
+      if (index >= 0 && maturityBeforeIssue({ ...itemsRef.current[index], [key]: value })) notifyMaturityBeforeIssue(index + 1);
+    }
     setItems((rows) => rows.map((row) => row.id === id ? { ...row, [key]: value } : row));
   }, []);
   const changeTransactionType = useCallback((value) => {
     setHeader((current) => ({ ...current, transactiontype: value || 'RECEIPT' }));
   }, []);
   const openDetailPicker = useCallback((rowId, field) => setDetailPicker({ rowId, field }), []);
-  const selectDetailCustomer = useCallback((customer) => {
-    if (detailPicker?.rowId) updateDetail(detailPicker.rowId, 'issuercompany', customer.customername || '');
-  }, [detailPicker, updateDetail]);
   const selectDetailBank = useCallback((bank) => {
     if (detailPicker?.rowId) updateDetail(detailPicker.rowId, 'custodybank', bank.name || '');
   }, [detailPicker, updateDetail]);
@@ -973,8 +1171,8 @@ export default function ReceiptPayment() {
       source_receiptno: source.receiptno, source_lineno: source.lineno,
     }));
     // 새 전표의 빈 첫 행은 불러온 증권으로 대체
-    setItems((rows) => [...rows.filter((row) => row.source_receiptno || totalOf(row) > 0
-      || ['offsetamt', 'lossamt', 'chargeamt'].some((key) => numeric(row[key]) > 0) || String(row.description || '').trim()), ...added]);
+    setItems((rows) => [...rows.filter(instrumentRowHasInput), ...added]);
+    setActiveTab('INSTRUMENT');
     setSelectedRows([]);
     notifications.show({ title: '보유증권 추가', message: `${added.length}장 · ${formatted(added.reduce((sum, row) => sum + numeric(row.instrumentamt), 0))}원을 지급 상세에 추가했습니다. 저장하면 원래 증권이 '배서'로 바뀝니다.`, color: 'teal' });
   }, []);
@@ -1003,7 +1201,7 @@ export default function ReceiptPayment() {
     const cell = input?.closest('[data-detail-row][data-detail-field]');
     if (!input || !cell || saving || isSavedDocument) return;
 
-    // While an autocomplete (발행회사·보관은행) shows suggestions, ↑/↓/Enter belong to that list:
+    // While an autocomplete (보관은행) shows suggestions, ↑/↓/Enter belong to that list:
     // moving to another row here would blur the input and close the list before a choice is made.
     const suggestionList = input.dataset.expanded !== undefined && input.getAttribute('aria-controls')
       ? document.getElementById(input.getAttribute('aria-controls'))
@@ -1096,11 +1294,11 @@ export default function ReceiptPayment() {
       const trimmed = value.trim();
       if (!numericKeys.has(field) || trimmed === '') return trimmed;
       const normalized = trimmed.replaceAll(',', '').replace(/\s/g, '');
-      if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized)) {
+      if (!/^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/.test(normalized)) { // 소수점 둘째 자리까지
         invalidNumericCount += 1;
         return null;
       }
-      const amount = Math.round(Number(normalized) * 1000) / 1000;
+      const amount = Math.round(Number(normalized) * 100) / 100;
       return Number.isFinite(amount) ? String(amount) : null;
     }));
 
@@ -1121,14 +1319,22 @@ export default function ReceiptPayment() {
     setSelectedRows([]);
     if (invalidNumericCount) notifications.show({
       title: '숫자 입력 확인',
-      message: '금액 칸에 숫자가 아닌 값은 붙여넣지 않았습니다.',
+      message: '금액 칸에 숫자가 아니거나 소수점 셋째 자리 이상인 값은 붙여넣지 않았습니다.',
       color: 'red',
     });
   }, [isSavedDocument, saving]);
   const handleAddAction = useCallback(() => {
-    if (!header.receiptno && items.length > 0) addDetail();
-    else startNew();
-  }, [header.receiptno, items.length, addDetail, startNew]);
+    if (header.receiptno || !drafting) { startNew(); return; }
+    if (activeTab !== 'INSTRUMENT') {
+      notifications.show({ title: '기본은 한 줄 입력입니다', message: '어음/수표 탭에서 추가를 누르면 증권 행이 추가됩니다.', color: 'orange' });
+      return;
+    }
+    if (instrumentLocked) {
+      notifications.show({ title: '어음/수표를 추가할 수 없습니다', message: '기본 탭에 입력한 내용이 있습니다. 전표 하나는 기본 또는 어음/수표 중 한 가지만 입력할 수 있습니다.', color: 'orange' });
+      return;
+    }
+    addDetail();
+  }, [header.receiptno, drafting, activeTab, instrumentLocked, addDetail, startNew]);
   const deleteSelected = useCallback(() => {
     if (isSavedDocument || !selectedRows.length) return false; // 저장된 전표의 선택은 결제·할인 처리용
     const selected = new Set(selectedRows);
@@ -1139,7 +1345,40 @@ export default function ReceiptPayment() {
   }, [isSavedDocument, selectedRows]);
 
   const copySelected = useCallback(() => {
-    if (isSavedDocument) return;
+    if (isSavedDocument) {
+      // 저장된 전표 → 같은 내용의 새 전표 (매입등록 복사와 같음): 수금/지급일은 오늘, 저장 전까지 새 전표
+      //  어음/수표는 처리 결과(상태 · 처리일 · 할인료 · 메모)를 비우고, '지급어음 선택'으로 넣은 행은 같은 증권을 두 번 쓸 수 없어 뺀다.
+      const sourceNo = header.receiptno;
+      const instrumentSource = items.filter(instrumentRowHasInput);
+      const usable = instrumentSource.filter((row) => !row.source_receiptno);
+      const skipped = instrumentSource.length - usable.length;
+      if (!cashHasInput && !usable.length) {
+        notifications.show({ title: '복사할 내용 없음', message: skipped ? '지급어음 선택으로 넣은 증권은 다시 쓸 수 없어 복사할 내용이 없습니다.' : '복사할 금액이 없는 전표입니다.', color: 'orange' });
+        return;
+      }
+      selectedReceiptRef.current = '';
+      detailRequest.current += 1;
+      setEditBase('');
+      setHeader({
+        ...emptyHeader(), transactiontype: header.transactiontype, customcode: header.customcode || '', customname: header.customname || '',
+        manager: header.manager || '', description: header.description || '',
+      });
+      setCashForm(cashHasInput ? { ...cashForm } : emptyCashForm());
+      setItems(usable.length ? usable.map((row) => makeDetail({
+        ...row, id: undefined, lineno: null, issuekind: '', instrumentstatus: '', processdate: '', discountfee: '', processmemo: '',
+        used_receiptno: '', used_customname: '', used_date: '', created_by: '', updated_by: '',
+      })) : [makeDetail()]);
+      setActiveTab(usable.length ? 'INSTRUMENT' : 'CASH');
+      setSelectedRows([]);
+      selectionAnchor.current = null;
+      setDrafting(true);
+      notifications.show({
+        title: '전표 복사 완료',
+        message: `${sourceNo} 전표를 새 ${typeName(header.transactiontype)} 전표로 복사했습니다 (수금/지급일 오늘).${skipped ? ` 지급어음 선택 증권 ${skipped}장은 다시 쓸 수 없어 뺐습니다.` : ''} 확인 후 저장해 주세요.`,
+        color: 'teal',
+      });
+      return;
+    }
     if (selectedRows.length !== 1) {
       notifications.show({ title: '복사할 행을 선택해 주세요', message: '상세에서 한 행을 선택한 뒤 복사할 수 있습니다.', color: 'orange' });
       return;
@@ -1151,13 +1390,17 @@ export default function ReceiptPayment() {
     }
     if (source) setItems((rows) => [...rows, makeDetail({ ...source, id: undefined })]);
     setSelectedRows([]);
-  }, [isSavedDocument, items, selectedRows]);
+  }, [isSavedDocument, items, selectedRows, header, cashHasInput, cashForm]);
 
-  const totals = useMemo(() => items.reduce((sum, row) => {
-    AMOUNT_KEYS.forEach((key) => { sum[key] += numeric(row[key]); });
-    sum.totalamt += totalOf(row);
-    return sum;
-  }, { ...Object.fromEntries(AMOUNT_KEYS.map((key) => [key, 0])), totalamt: 0 }), [items]);
+  // 자금 합계 = 수표/어음 + 현금, 전표 합계 = 자금 합계 + 상계 ± 잡손실 ± 잡이익 (거래처원장 반영액)
+  const totals = useMemo(() => {
+    const instrumentamt = items.reduce((sum, row) => sum + numeric(row.instrumentamt), 0);
+    const cashamt = numeric(cashForm.cashamt);
+    const offsetamt = numeric(cashForm.offsetamt);
+    const lossamt = numeric(cashForm.lossamt);
+    const totalamt = instrumentamt + cashamt;
+    return { instrumentamt, cashamt, offsetamt, lossamt, chargeamt: numeric(cashForm.chargeamt), totalamt, ledgeramt: totalamt + offsetamt + signedAdjust(lossamt, cashForm.chargeamt, header.transactiontype) };
+  }, [items, cashForm, header.transactiontype]);
 
   const [manualOtherConfirm, setManualOtherConfirm] = useState(null); // 지급 타수 직접 입력 확인
   const saveDocument = useCallback(async ({ confirmedManualOther = false } = {}) => {
@@ -1165,28 +1408,38 @@ export default function ReceiptPayment() {
       notifications.show({ title: '필수 항목을 확인해 주세요', message: '수금/지급일, 구분, 거래처를 선택해 주세요.', color: 'red' });
       return;
     }
-    if (!items.length) {
-      notifications.show({ title: '상세 행을 확인해 주세요', message: '금액 상세를 한 행 이상 추가해 주세요.', color: 'red' });
+    // 기본 또는 어음/수표 중 한 가지만 (서버도 같은 규칙으로 막는다)
+    const instrumentRows = items.filter(instrumentRowHasInput);
+    if (cashHasInput && instrumentRows.length) {
+      notifications.show({ title: '한 가지만 입력해 주세요', message: '전표 하나는 기본 또는 어음/수표 중 한 가지만 입력할 수 있습니다.', color: 'red' });
       return;
     }
-    const emptyRowIndex = items.findIndex((row) => !AMOUNT_KEYS.some((key) => numeric(row[key]) > 0));
+    if (cashHasInput && !CASH_KEYS.some((key) => numeric(cashForm[key]) > 0)) {
+      notifications.show({ title: '금액을 입력해 주세요', message: '기본 탭에 현금 · 상계 · 잡손실 · 잡이익 중 하나 이상의 금액을 입력해 주세요.', color: 'red' });
+      return;
+    }
+    if (!cashHasInput && !instrumentRows.length) {
+      notifications.show({ title: '금액을 입력해 주세요', message: '기본 탭 또는 어음/수표 탭에 금액을 입력해 주세요.', color: 'red' });
+      return;
+    }
+    const emptyRowIndex = instrumentRows.findIndex((row) => numeric(row.instrumentamt) <= 0);
     if (emptyRowIndex >= 0) {
-      notifications.show({ title: '금액을 입력해 주세요', message: `${emptyRowIndex + 1}행에 금액이 없습니다. 금액을 입력하거나 빈 행을 삭제해 주세요.`, color: 'red' });
+      notifications.show({ title: '어음/수표 금액을 입력해 주세요', message: `어음/수표 ${emptyRowIndex + 1}행에 금액이 없습니다. 금액을 입력하거나 빈 행을 삭제해 주세요.`, color: 'red' });
       return;
     }
-    // 종류를 골랐다면 증권 → 금액은 '수표/어음' 칸. 현금 수금은 종류를 비운다.
-    const misplacedIndex = items.findIndex((row) => row.instrumenttype && numeric(row.instrumentamt) <= 0);
-    if (misplacedIndex >= 0) {
-      notifications.show({
-        title: '수표/어음 금액 확인',
-        message: `${misplacedIndex + 1}행: 수표/어음 종류를 선택했으면 금액은 '수표/어음' 칸에 입력해 주세요. 현금으로 받았다면 종류를 비워 주세요.`,
-        color: 'orange', autoClose: 9000,
-      });
+    const duplicate = duplicateInstrumentRows(instrumentRows);
+    if (duplicate) {
+      notifications.show({ title: '같은 어음 중복', message: `${duplicate[0]}행과 ${duplicate[1]}행의 어음번호 · 발행회사(${duplicate[2]} · ${duplicate[3] || '발행회사 없음'})가 같습니다.`, color: 'red' });
+      return;
+    }
+    const badMaturityIndex = instrumentRows.findIndex(maturityBeforeIssue);
+    if (badMaturityIndex >= 0) {
+      notifyMaturityBeforeIssue(badMaturityIndex + 1);
       return;
     }
     // 지급에 타수 증권을 직접 입력: 받은 어음이면 보유증권 불러오기를 써야 원본이 '배서'로 바뀐다.
     if (!confirmedManualOther && header.transactiontype === 'PAYMENT') {
-      const manualOther = items.map((row, index) => ({ row, index }))
+      const manualOther = instrumentRows.map((row, index) => ({ row, index }))
         .filter(({ row }) => !row.source_receiptno && numeric(row.instrumentamt) > 0 && String(row.issuekind || '').toUpperCase() === 'OTHER');
       if (manualOther.length) {
         setManualOtherConfirm(manualOther.map(({ index }) => index + 1));
@@ -1197,32 +1450,40 @@ export default function ReceiptPayment() {
     try {
       const { data } = await axios.put('/api/receipt-payment/documents', {
         ...header,
-        items: items.map((row) => ({
-          cashamt: numeric(row.cashamt), instrumentamt: numeric(row.instrumentamt),
-          instrumenttype: row.instrumenttype || '', instrumentno: row.instrumentno || '',
-          issuedate: row.issuedate || null, issuercompany: row.issuercompany || '',
-          issuer: row.issuer || '', issuekind: row.issuekind || '', maturitydate: row.maturitydate || null,
-          custodyaccount: row.custodyaccount || '', custodybank: row.custodybank || '',
-          instrumentstatus: row.instrumentstatus || '',
-          bankamt: numeric(row.bankamt), cardamt: numeric(row.cardamt),
-          offsetamt: numeric(row.offsetamt), lossamt: numeric(row.lossamt),
-          chargeamt: numeric(row.chargeamt), description: row.description || '',
-          source_receiptno: row.source_receiptno || '', source_lineno: row.source_receiptno ? Number(row.source_lineno) : null,
-        })),
+        items: cashHasInput
+          // 기본: 한 줄 (은행예금 · 카드는 쓰지 않음)
+          ? [{
+            cashamt: numeric(cashForm.cashamt), instrumentamt: 0, instrumenttype: '', instrumentno: '', issuedate: null,
+            issuercompany: '', issuer: '', issuekind: '', maturitydate: null, custodyaccount: '', custodybank: '', instrumentstatus: '',
+            bankamt: 0, cardamt: 0, offsetamt: numeric(cashForm.offsetamt), lossamt: numeric(cashForm.lossamt),
+            chargeamt: numeric(cashForm.chargeamt), description: String(cashForm.description || '').trim(), source_receiptno: '', source_lineno: null,
+          }]
+          // 어음/수표: 증권 한 장 = 한 줄. 발행구분은 화면에서 받지 않으므로 수금 = 타수(받은 증권), 지급 = 자수(발행한 어음)로 정한다.
+          : instrumentRows.map((row) => ({
+            cashamt: 0, instrumentamt: numeric(row.instrumentamt),
+            instrumenttype: row.instrumenttype || '', instrumentno: row.instrumentno || '',
+            issuedate: row.issuedate || null, issuercompany: row.issuercompany || '',
+            issuer: row.issuer || '', issuekind: row.issuekind || (header.transactiontype === 'PAYMENT' ? 'OWN' : 'OTHER'),
+            maturitydate: row.maturitydate || null,
+            custodyaccount: row.custodyaccount || '', custodybank: row.custodybank || '',
+            instrumentstatus: row.instrumentstatus || '',
+            bankamt: 0, cardamt: 0, offsetamt: 0, lossamt: 0, chargeamt: 0, description: row.description || '',
+            source_receiptno: row.source_receiptno || '', source_lineno: row.source_receiptno ? Number(row.source_lineno) : null,
+          })),
       }, authConfig());
       notifications.show({ title: '저장 완료', message: `${data.receiptno} 전표를 저장했습니다.`, color: 'teal' });
       // 입력 중인 임시 상태를 비우고 목록을 갱신한 뒤, 저장된 전표를 다시 선택한다.
       // 다른 전표의 상세도 바뀌었을 수 있다 (보유증권 사용 → 원본 수금 증권 배서) → 기억해 둔 상세를 모두 비운다.
       detailCache.current.clear();
       startNew();
-      await loadDocuments(1, filters, pageSize);
+      await loadDocuments(1, filters, pageSize, data.receiptno);
       await openDocument(data.receiptno);
     } catch (error) {
       notifications.show({ title: '저장 실패', message: errorText(error), color: 'red' });
     } finally {
       setSaving(false);
     }
-  }, [filters, header, items, loadDocuments, openDocument, pageSize, startNew]);
+  }, [filters, header, items, cashForm, cashHasInput, loadDocuments, openDocument, pageSize, startNew]);
 
   const deleteDocument = useCallback(async () => {
     if (!header.receiptno) return;
@@ -1248,26 +1509,31 @@ export default function ReceiptPayment() {
   }, [deleteSelected, header.receiptno]);
 
   const exportExcel = useCallback(() => {
+    const documentRows = header.receiptno
+      ? (cashHasInput ? [{ ...makeDetail(cashForm), cashamt: cashForm.cashamt }] : items)
+      : [];
     const rows = header.receiptno
-      ? items.map((row, index) => ({
+      ? documentRows.map((row, index) => ({
         전표번호: header.receiptno, 수금지급일: header.receiptdate, 구분: typeName(header.transactiontype),
         거래처: header.customname, 순번: index + 1,
         수표어음종류: instrumentLabel('instrumenttype', row.instrumenttype), 수표어음번호: row.instrumentno, 수표어음: numeric(row.instrumentamt),
-        발행일: dateOnly(row.issuedate), 발행회사: row.issuercompany, 발행자: row.issuer,
-        발행구분: instrumentLabel('issuekind', row.issuekind), 만기일: dateOnly(row.maturitydate), 보관계좌: row.custodyaccount,
-        보관은행: row.custodybank, 어음처리상태: statusText(row, header.transactiontype),
-        처리일: dateOnly(row.processdate), 할인료: numeric(row.discountfee), 처리메모: row.processmemo || '',
-        현금: numeric(row.cashamt), 은행예금: numeric(row.bankamt), 카드: numeric(row.cardamt), '자금 합계': totalOf(row), 상계: numeric(row.offsetamt),
-        잡손실: numeric(row.lossamt), '전표 합계': totalOf(row) + numeric(row.offsetamt) + numeric(row.lossamt), 과금: numeric(row.chargeamt), 비고: row.description,
+        발행회사: row.issuercompany, 발행자: row.issuer, 발행일: dateOnly(row.issuedate), 만기일: dateOnly(row.maturitydate),
+        보관계좌: row.custodyaccount, 보관은행: row.custodybank,
+        처리일: dateOnly(row.processdate || row.used_date), 어음처리상태: row.instrumentamt ? statusText(row, header.transactiontype) : '',
+        ...(header.transactiontype === 'RECEIPT' ? { 배서처: row.used_customname || '' } : {}),
+        처리메모: row.processmemo || '', 할인료: numeric(row.discountfee), 비고: row.description,
+        현금: numeric(row.cashamt), '자금 합계': numeric(row.instrumentamt) + numeric(row.cashamt), 상계: numeric(row.offsetamt),
+        잡손실: numeric(row.lossamt), 잡이익: numeric(row.chargeamt),
+        '전표 합계': numeric(row.instrumentamt) + numeric(row.cashamt) + numeric(row.offsetamt) + signedAdjust(row.lossamt, row.chargeamt, header.transactiontype),
         등록자: row.created_by || '', 수정자: row.updated_by || '',
+        ...(header.transactiontype === 'PAYMENT' ? { '수금 원천 전표': sourceText(row) } : {}),
       }))
       : documents.map((row) => ({
-        수금지급일: dateOnly(row.receiptdate), 구분: typeName(row.transactiontype), 거래처: row.customname,
-        상세건수: row.line_count, 수표어음: numeric(row.instrumentamt), 현금: numeric(row.cashamt),
-        은행예금: numeric(row.bankamt), 카드: numeric(row.cardamt), '자금 합계': numeric(row.totalamt),
-        상계: numeric(row.offsetamt), 잡손실: numeric(row.lossamt), '상계·잡손실': numeric(row.settleamt), '전표 합계': numeric(row.ledgeramt),
-        과금: numeric(row.chargeamt), 전표번호: row.receiptno,
-        등록자: row.created_by || '', 수정자: row.updated_by || '',
+        '수금/지급일': dateOnly(row.receiptdate), 구분: typeName(row.transactiontype), 거래처: row.customname, 담당자: row.manager || '',
+        현금: numeric(row.cashamt), '수표/어음': numeric(row.instrumentamt), '자금 합계': numeric(row.totalamt),
+        상계: numeric(row.offsetamt), 잡손실: numeric(row.lossamt), 잡이익: numeric(row.chargeamt), 비고: row.description || '',
+        전표번호: row.receiptno, 등록일자: dateTimeText(row.created_at, true), 등록자: row.created_by || '',
+        수정일자: dateTimeText(row.updated_at, true), 수정자: row.updated_by || '',
       }));
     if (!rows.length) {
       notifications.show({ title: '엑셀 데이터 없음', message: '다운로드할 데이터가 없습니다.', color: 'orange' });
@@ -1278,14 +1544,15 @@ export default function ReceiptPayment() {
     applyExcelHeaderStyle(worksheet, Object.keys(rows[0] || {}).length);
     XLSX.utils.book_append_sheet(workbook, worksheet, '수금지급');
     XLSX.writeFile(workbook, `수금지급_${todayString()}.xlsx`);
-  }, [documents, header, items]);
+  }, [documents, header, items, cashForm, cashHasInput]);
 
   // 리본 버튼은 ref를 통해 최신 핸들러를 호출 → 행 추가처럼 핸들러만 바뀔 때는 리본(레이아웃 전체)을 다시 등록하지 않는다.
   const ribbonActions = useRef({});
   useLayoutEffect(() => {
     ribbonActions.current = { runSearch, handleAddAction, copySelected, exportExcel, saveDocument, deleteAction };
   });
-  const copyEnabled = !saving && !isSavedDocument && selectedRows.length === 1;
+  // 저장된 전표: 전표 통째로 새 전표로 복사 / 입력 중: 선택한 어음 행 한 개 복사
+  const copyEnabled = !saving && (isSavedDocument ? !detailLoading : selectedRows.length === 1);
   const deleteEnabled = !saving && Boolean(header.receiptno || selectedRows.length > 0);
   useEffect(() => {
     if (!registerRibbon) return undefined;
@@ -1307,10 +1574,9 @@ export default function ReceiptPayment() {
   }, [registerRibbon, closePage, loading, saving, copyEnabled, canExport, canSave, deleteEnabled]);
 
   const visibleTotals = useMemo(() => documents.reduce((sum, row) => {
-    sum.line_count += Number(row.line_count || 0);
     DOCUMENT_MONEY_KEYS.forEach((key) => { sum[key] += numeric(row[key]); });
     return sum;
-  }, { line_count: 0, ...Object.fromEntries(DOCUMENT_MONEY_KEYS.map((key) => [key, 0])) }), [documents]);
+  }, { ...Object.fromEntries(DOCUMENT_MONEY_KEYS.map((key) => [key, 0])) }), [documents]);
   const syncListScroll = (left) => {
     for (const element of [listTableRef.current, listSubtotalRef.current]) {
       if (element && Math.abs(element.scrollLeft - left) > 0.5) element.scrollLeft = left;
@@ -1375,9 +1641,8 @@ export default function ReceiptPayment() {
                   <colgroup>{SUMMARY_COLUMNS.map((column, index) => <col key={column.key} style={{ width: summaryColumnWidths[index] }} />)}</colgroup>
                   <Table.Tbody><Table.Tr>
                     {SUMMARY_COLUMNS.map((column, index) => <Table.Td key={column.key}
-                      className={`${inboundClasses.topReceiptSubtotalCell} ${column.key === 'line_count' || Object.hasOwn(visibleTotals, column.key) ? inboundClasses.topReceiptSubtotalNumber : ''}`}>
-                      {index === 0 ? '소계' : column.key === 'line_count' ? visibleTotals.line_count.toLocaleString()
-                        : Object.hasOwn(visibleTotals, column.key) ? formatted(visibleTotals[column.key]) : ''}
+                      className={`${inboundClasses.topReceiptSubtotalCell} ${Object.hasOwn(visibleTotals, column.key) ? inboundClasses.topReceiptSubtotalNumber : ''}`}>
+                      {index === 0 ? '소계' : Object.hasOwn(visibleTotals, column.key) ? formatted(visibleTotals[column.key]) : ''}
                     </Table.Td>)}
                   </Table.Tr></Table.Tbody>
                 </Table>
@@ -1396,80 +1661,108 @@ export default function ReceiptPayment() {
 
           <Paper className={`${sharedClasses.panel} ${inboundClasses.editorPanel} ${classes.detailPanel}`} withBorder>
             <Group className={classes.detailHeader} justify="space-between" wrap="wrap">
-              <Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>수금/지급 상세</Text><Badge variant="light" color="gray">{items.length}행</Badge>{header.receiptno && <Badge variant="light" color="gray">{header.receiptno}</Badge>}</Group>
+              <Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>수금/지급 상세</Text>{header.receiptno && <Badge variant="light" color="gray">{header.receiptno}</Badge>}</Group>
             </Group>
             <Box className={`${inboundClasses.sharedReceiptFields} ${classes.headerFields}`}>
-              <Box className={inboundClasses.sharedReceiptField}><Text className={classes.fieldLabel}>수금/지급일 <i>*</i></Text><ErpDateInput type="date" value={header.receiptdate} disabled={saving || isSavedDocument} onChange={(event) => { const { value: nextValue } = event.currentTarget; setHeader((v) => ({ ...v, receiptdate: nextValue })); }} /></Box>
-              <Box className={inboundClasses.sharedReceiptField}><Text className={classes.fieldLabel}>구분 <i>*</i></Text><Select data={TRANSACTION_OPTIONS} value={header.transactiontype} disabled={saving || isSavedDocument || hasHeldRows} title={hasHeldRows ? '보유증권 행이 있어 구분을 바꿀 수 없습니다.' : undefined} onChange={changeTransactionType} /></Box>
+              <Box className={inboundClasses.sharedReceiptField}><Text className={classes.fieldLabel}>수금/지급일 <i>*</i></Text><ErpDateInput type="date" value={header.receiptdate} disabled={saving || readOnlyDocument} onChange={(event) => { const { value: nextValue } = event.currentTarget; setHeader((v) => ({ ...v, receiptdate: nextValue })); }} /></Box>
+              <Box className={inboundClasses.sharedReceiptField}><Text className={classes.fieldLabel}>구분 <i>*</i></Text><Select data={TRANSACTION_OPTIONS} value={header.transactiontype} disabled={saving || readOnlyDocument || hasHeldRows} title={hasHeldRows ? '보유증권 행이 있어 구분을 바꿀 수 없습니다.' : undefined} onChange={changeTransactionType} /></Box>
               <Box className={`${inboundClasses.sharedReceiptField} ${classes.customerField}`}><Text className={classes.fieldLabel}>거래처 <i>*</i></Text>
-                <Box onDoubleClick={() => { if (!saving && !isSavedDocument) setCustomerPickerOpen(true); }}>
+                <Box onDoubleClick={() => { if (!saving && !readOnlyDocument) setCustomerPickerOpen(true); }}>
                   {/* 저장된 전표는 읽기 전용 → 거래처 목록(수백 건)을 그리지 않고 이름만 표시해 행 선택 반응을 빠르게 */}
-                  {isSavedDocument ? <TextInput aria-label="거래처" value={header.customname || header.customcode || ''} disabled readOnly />
+                  {readOnlyDocument ? <TextInput aria-label="거래처" value={header.customname || header.customcode || ''} disabled readOnly />
                     : <HeaderCustomerSelect options={customerOptions} value={header.customcode || null} disabled={saving} onChange={pickHeaderCustomer} />}
                 </Box>
               </Box>
-              <Box className={inboundClasses.sharedReceiptField}><Text className={classes.fieldLabel}>담당자</Text><ReceiptPaymentHeaderTextInput label="담당자" value={header.manager} maxLength={100} disabled={saving || isSavedDocument} onCommit={(value) => updateHeaderField('manager', value)} /></Box>
-              <Box className={`${inboundClasses.sharedReceiptField} ${classes.descriptionField}`}><Text className={classes.fieldLabel}>비고</Text><ReceiptPaymentHeaderTextInput label="비고" value={header.description} maxLength={500} disabled={saving || isSavedDocument} onCommit={(value) => updateHeaderField('description', value)} /></Box>
+              <Box className={inboundClasses.sharedReceiptField}><Text className={classes.fieldLabel}>담당자</Text><ReceiptPaymentHeaderTextInput label="담당자" value={header.manager} maxLength={100} disabled={saving || readOnlyDocument} onCommit={(value) => updateHeaderField('manager', value)} /></Box>
+              <Box className={`${inboundClasses.sharedReceiptField} ${classes.descriptionField}`}><Text className={classes.fieldLabel}>비고</Text><ReceiptPaymentHeaderTextInput label="비고" value={header.description} maxLength={500} disabled={saving || readOnlyDocument} onCommit={(value) => updateHeaderField('description', value)} /></Box>
             </Box>
-            <Group className={classes.detailToolbar} justify="space-between" wrap="nowrap">
-              <Group gap={8}><Text fw={700}>금액 상세</Text><Badge variant="light" color="gray">{items.length}행</Badge>{selectedRows.length > 0 && <Badge variant="light" color="gray">{selectedRows.length}개 선택</Badge>}</Group>
-              {isSavedDocument
-                ? <Group gap={6} wrap="nowrap">
-                  {processActionsFor(header.transactiontype).map((action) => {
-                    const enabled = !saving && selectedItems.length > 0 && selectedItems.every((row) => canProcess(row, header.transactiontype, action));
-                    return <Button key={action} size="xs" variant="light" color={PROCESS_ACTION_INFO[action].color} disabled={!enabled}
-                      title={selectedItems.length ? undefined : '처리할 증권 행을 선택해 주세요.'} onClick={() => openProcess(action)}>{PROCESS_ACTION_INFO[action].label}</Button>;
-                  })}
+            {/* 탭: 기본(한 줄 입력폼) / 어음·수표(표). 전표 하나는 둘 중 한 가지만 입력 */}
+            <Box className={outboundClasses.detailTabsBar} role="tablist" aria-label="수금/지급 입력 구분">
+              <button type="button" role="tab" aria-selected={activeTab === 'CASH'} className={activeTab === 'CASH' ? outboundClasses.detailTabActive : outboundClasses.detailTab}
+                onClick={() => setActiveTab('CASH')}>기본 {cashHasInput ? 1 : 0}건</button>
+              <button type="button" role="tab" aria-selected={activeTab === 'INSTRUMENT'} className={activeTab === 'INSTRUMENT' ? outboundClasses.detailTabActive : outboundClasses.detailTab}
+                onClick={() => setActiveTab('INSTRUMENT')}>어음/수표 {instrumentCount.toLocaleString()}건</button>
+            </Box>
+            {activeTab === 'CASH' ? <Box className={classes.cashPanel}>
+              {/* 어음/수표 탭과 같은 회색 안내 줄 */}
+              <Group className={classes.detailToolbar} justify="space-between" wrap="nowrap">
+                <Text className={classes.toolbarHint}>{cashLocked ? '어음/수표에 입력한 내용이 있어 기본은 입력할 수 없습니다.' : '상계는 미수·미지급 양쪽에서 함께 빠집니다.'}</Text>
+              </Group>
+              {(() => {
+                // 표 머리글은 항상 보이고, 입력 줄은 새 전표 작성 중이거나 저장된 기본 전표일 때만 보인다 (어음/수표 탭과 동일)
+                const showCashRow = !detailLoading && (isSavedDocument ? cashHasInput : (drafting || cashHasInput));
+                return <Box className={`${codeClasses.tableWrap} ${classes.detailTableWrap}`}>
+                  <CashEntryTable form={cashForm} readOnly={readOnlyDocument} showRow={showCashRow} disabled={saving || cashLocked} onChange={updateCashForm} />
+                  {!showCashRow && <Box className={classes.emptyDetailMessage}>{detailLoading ? <Loader size="sm" color="red" />
+                    : isSavedDocument ? '기본 입력이 없는 전표입니다.' : '상단의 추가를 눌러 수금/지급 전표를 등록하세요.'}</Box>}
+                </Box>;
+              })()}
+            </Box> : <>
+              <Group className={classes.detailToolbar} justify="space-between" wrap="nowrap">
+                <Group gap={8}>
+                  <Text className={classes.toolbarHint}>{isSavedDocument
+                    ? (processableIds?.size ? '처리할 행을 체크하면 결제·할인·부도·처리취소 버튼이 켜집니다.' : '결제·할인·부도로 처리할 수 있는 행이 없습니다.')
+                    : instrumentLocked ? '기본 탭에 입력한 내용이 있어 어음/수표는 입력할 수 없습니다.' : '어음/수표 금액은 수표·어음 합계에 자동 반영됩니다.'}</Text>
+                  {selectedRows.length > 0 && <Badge variant="light" color="gray">{selectedRows.length}개 선택</Badge>}
                 </Group>
-                : <Button size="xs" variant="filled" color="red" leftSection={<IconSearch size={14} />}
-                  disabled={saving || header.transactiontype !== 'PAYMENT'}
-                  title={header.transactiontype !== 'PAYMENT' ? '지급 전표에서 사용할 수 있습니다.' : undefined}
-                  onClick={() => setHeldPickerOpen(true)}>보유증권 불러오기</Button>}
-            </Group>
-            <Box ref={detailTableWrapRef} className={`${codeClasses.tableWrap} ${classes.detailTableWrap}`} onKeyDown={handleDetailTableKeyDown} onPaste={handleDetailTablePaste}>
-              <Table className={`${sharedClasses.table} ${codeClasses.codeTable} ${classes.table}`} withTableBorder withColumnBorders
-                style={{ width: 'max(100%, var(--code-table-min-width))', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed', '--code-table-min-width': `${detailTableWidth}px` }}>
-                <colgroup>{detailColumnWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
-                <Table.Thead><Table.Tr>
-                  {DETAIL_HEADER_LABELS.map((label, index) => <ResizableHeaderCell key={`${label}-${index}`} index={index} width={detailColumnWidths[index]}
-                    ta={index === 0 || index === 1 ? 'center' : undefined}
-                    onResize={(event, columnIndex, width) => startColumnResize(event, columnIndex, width, detailColumnWidths, setDetailColumnWidths, 'detail')}>
-                    {index === 0
-                      ? (isSavedDocument
-                        ? <input type="checkbox" aria-label="처리 가능한 행 전체 선택" checked={processableIds.size > 0 && selectedRows.length === processableIds.size}
-                          disabled={!processableIds.size || saving} onChange={(event) => setSelectedRows(event.currentTarget.checked ? [...processableIds] : [])} />
-                        : <input type="checkbox" aria-label="전체 행 선택" checked={items.length > 0 && selectedRows.length === items.length} disabled={!items.length || saving} onChange={(event) => setSelectedRows(event.currentTarget.checked ? items.map((row) => row.id) : [])} />)
-                      : label}
-                  </ResizableHeaderCell>)}
-                </Table.Tr></Table.Thead>
-                <Table.Tbody>{items.map((row, index) => isSavedDocument ? <ReceiptPaymentReadonlyRow key={row.id} row={row} index={index} transactiontype={header.transactiontype}
-                  selectable={!saving && processableIds.has(row.id)} selected={selectedRows.includes(row.id)} onToggle={toggleRow} /> : <ReceiptPaymentDetailRow
-                  key={row.id}
-                  row={row}
-                  index={index}
-                  selected={selectedRows.includes(row.id)}
-                  disabled={saving || isSavedDocument}
-                  issuerCompanyOptions={issuerCompanyOptions}
-                  bankOptions={bankOptions}
-                  onToggle={toggleRow}
-                  onUpdate={updateDetail}
-                  onOpenPicker={openDetailPicker}
-                />)}</Table.Tbody>
-              </Table>
-              {!items.length && <Box className={classes.emptyDetailMessage}>{detailLoading ? <Loader size="sm" color="red" /> : '상단의 추가를 눌러 수금/지급 전표를 등록하세요.'}</Box>}
-            </Box>
+                {isSavedDocument
+                  ? <Group gap={6} wrap="nowrap">
+                    {processActionsFor(header.transactiontype).map((action) => {
+                      const enabled = !saving && selectedItems.length > 0 && selectedItems.every((row) => canProcess(row, header.transactiontype, action));
+                      return <Button key={action} size="xs" variant="light" color={PROCESS_ACTION_INFO[action].color} disabled={!enabled}
+                        title={selectedItems.length ? undefined : '처리할 증권 행을 선택해 주세요.'} onClick={() => openProcess(action)}>{PROCESS_ACTION_INFO[action].label}</Button>;
+                    })}
+                  </Group>
+                  : <Button size="xs" variant="default" leftSection={<IconSearch size={14} />}
+                    disabled={saving || header.transactiontype !== 'PAYMENT' || instrumentLocked}
+                    title={header.transactiontype !== 'PAYMENT' ? '지급 전표에서 사용할 수 있습니다.' : undefined}
+                    onClick={() => setHeldPickerOpen(true)}>지급어음 선택</Button>}
+              </Group>
+              <Box ref={detailTableWrapRef} className={`${codeClasses.tableWrap} ${classes.detailTableWrap}`} onKeyDown={handleDetailTableKeyDown} onPaste={handleDetailTablePaste}>
+                <Table className={`${sharedClasses.table} ${codeClasses.codeTable} ${classes.table}`} withTableBorder withColumnBorders
+                  style={{ width: 'max(100%, var(--code-table-min-width))', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed', '--code-table-min-width': `${detailTableWidth}px` }}>
+                  <colgroup>{visibleDetailWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+                  <Table.Thead><Table.Tr>
+                    {visibleDetailLabels.map((label, index) => <ResizableHeaderCell key={`${label}-${index}`} index={visibleDetailColumns[index]} width={visibleDetailWidths[index]}
+                      ta={index === 0 || index === 1 ? 'center' : undefined}
+                      onResize={(event, columnIndex, width) => startColumnResize(event, columnIndex, width, detailColumnWidths, setDetailColumnWidths, 'detail', visibleDetailColumns)}>
+                      {index === 0
+                        ? (isSavedDocument
+                          ? <input type="checkbox" aria-label="처리 가능한 행 전체 선택" checked={processableIds.size > 0 && selectedRows.length === processableIds.size}
+                            disabled={!processableIds.size || saving} onChange={(event) => setSelectedRows(event.currentTarget.checked ? [...processableIds] : [])} />
+                          : <input type="checkbox" aria-label="전체 행 선택" checked={items.length > 0 && selectedRows.length === items.length} disabled={!items.length || saving || instrumentLocked} onChange={(event) => setSelectedRows(event.currentTarget.checked ? items.map((row) => row.id) : [])} />)
+                        : label}
+                    </ResizableHeaderCell>)}
+                  </Table.Tr></Table.Thead>
+                  <Table.Tbody>{items.map((row, index) => isSavedDocument ? <ReceiptPaymentReadonlyRow key={row.id} row={row} index={index} transactiontype={header.transactiontype}
+                    selectable={!saving && processableIds.has(row.id)} selected={selectedRows.includes(row.id)} onToggle={toggleRow} /> : <ReceiptPaymentDetailRow
+                    key={row.id}
+                    row={row}
+                    index={index}
+                    selected={selectedRows.includes(row.id)}
+                    disabled={saving || isSavedDocument || instrumentLocked}
+                    bankOptions={bankOptions}
+                    showSource={showSourceColumn}
+                    onToggle={toggleRow}
+                    onUpdate={updateDetail}
+                    onOpenPicker={openDetailPicker}
+                  />)}</Table.Tbody>
+                </Table>
+                {!items.length && <Box className={classes.emptyDetailMessage}>{detailLoading ? <Loader size="sm" color="red" />
+                  : isSavedDocument ? '어음/수표가 없는 전표입니다.' : '상단의 추가를 눌러 수금/지급 전표를 등록하세요.'}</Box>}
+              </Box>
+            </>}
             <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter} ${classes.detailFooter}`} justify="flex-end" wrap="wrap">
-              <Text size="xs" fw={700}>수표/어음 {formatted(totals.instrumentamt)} · 현금 {formatted(totals.cashamt)} · 은행예금 {formatted(totals.bankamt)} · 카드 {formatted(totals.cardamt)} · 자금 합계 {formatted(totals.totalamt)} · 상계 {formatted(totals.offsetamt)} · 잡손실 {formatted(totals.lossamt)} · 전표 합계 {formatted(totals.totalamt + totals.offsetamt + totals.lossamt)} · 과금 {formatted(totals.chargeamt)}</Text>
+              <Text size="xs" fw={700}>수표/어음 {formatted(totals.instrumentamt)} · 현금 {formatted(totals.cashamt)} · 자금 합계 {formatted(totals.totalamt)} · 상계 {formatted(totals.offsetamt)} · 잡손실 {formatted(totals.lossamt)} · 잡이익 {formatted(totals.chargeamt)} · 전표 합계 {formatted(totals.ledgeramt)}</Text>
             </Group>
           </Paper>
         </Box>
 
-        {filterOpen && <ReceiptPaymentFilterPanel initialValues={filterInputsRef.current} transactionOptions={TRANSACTION_FILTER_OPTIONS} onSearch={runSearch} onClose={closeFilter} />}
+        {filterOpen && <ReceiptPaymentFilterPanel initialValues={filterInputsRef.current} transactionOptions={TRANSACTION_FILTER_OPTIONS} onSearch={runSearch} onDraftChange={rememberFilterDraft} onClose={closeFilter} />}
       </Box>
       <ConfirmDeleteModal opened={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={() => void deleteDocument()} loading={saving}
         title="수금/지급 전표를 삭제할까요?" target={header.receiptno} message="전표와 상세 행이 모두 삭제되며" note="삭제한 전표는 복구할 수 없습니다." />
       <ReceiptCustomerPickerModal opened={customerPickerOpen} onClose={() => setCustomerPickerOpen(false)} onSelect={chooseCustomer} />
-      <ReceiptCustomerPickerModal opened={detailPicker?.field === 'issuercompany'} onClose={() => setDetailPicker(null)} onSelect={selectDetailCustomer} />
       <Modal opened={Boolean(manualOtherConfirm)} onClose={() => setManualOtherConfirm(null)} title="타수 증권 직접 입력 확인" centered size="md">
         <Stack gap="md">
           <Text size="sm">{manualOtherConfirm?.join(', ')}행은 <b>타수(받은) 증권</b>을 직접 입력했습니다.</Text>

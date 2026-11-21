@@ -3,6 +3,8 @@
 //  FilterBox       : 아이콘 · 라벨 | 입력칸들 | 조회 버튼
 //  KpiGrid/KpiCard : 색 띠 · 아이콘 · 큰 숫자 · 전월 대비 알약 · 보조 지표 2개
 //  TrendPill       : 증감 알약 (좋아지면 초록, 나빠지면 빨강, 중립이면 회색 · 화살표로도 방향 표시)
+//  KpiCard breakdown : 마우스를 올리면 그 숫자가 어떻게 나왔는지 (구성 항목 + 계산식) 보여 주는 작은 창
+import { HoverCard } from '@mantine/core';
 import { IconArrowDownRight, IconArrowUpRight, IconCalendar, IconSearch } from '@tabler/icons-react';
 import classes from '../../styles/components/DashboardKit.module.css';
 
@@ -78,10 +80,26 @@ export function KpiGrid({ count, children, label = '핵심 지표' }) {
   return <div className={classes.kpis} aria-label={label} style={{ '--kpi-count': count || 5 }}>{children}</div>;
 }
 
-export function KpiCard({ palette = KPI_PALETTE.blue, icon: Icon, label, basis, value, unit = '원', negative = false, trend, stats = [], onClick, title }) {
+// breakdown: { title, rows: [{ op: '' | '+' | '−' | '÷' | '=', label, hint, value, strong }], note }
+//  op '=' 줄은 위에 가는 선을 긋고 굵게 (소계 · 결과)
+export function KpiBreakdown({ breakdown, palette = KPI_PALETTE.blue }) {
+  return <div className={classes.breakdown} style={{ '--kpi-color': palette.color }}>
+    <div className={classes.breakdownTitle}>{breakdown.title}</div>
+    <div className={classes.breakdownRows}>
+      {breakdown.rows.map((row, index) => <div key={`${row.label}-${index}`} className={`${classes.breakdownRow} ${row.op === '=' ? classes.breakdownTotal : ''} ${row.strong ? classes.breakdownStrong : ''}`}>
+        <span className={classes.breakdownOp}>{row.op === '=' ? '' : row.op}</span>
+        <span className={classes.breakdownLabel}>{row.label}{row.hint && <small>{row.hint}</small>}</span>
+        <span className={classes.breakdownValue}>{row.value}</span>
+      </div>)}
+    </div>
+    {breakdown.note && <div className={classes.breakdownNote}>{breakdown.note}</div>}
+  </div>;
+}
+
+export function KpiCard({ palette = KPI_PALETTE.blue, icon: Icon, label, basis, value, unit = '원', negative = false, trend, stats = [], onClick, title, breakdown }) {
   const Tag = onClick ? 'button' : 'div';
-  return <Tag type={onClick ? 'button' : undefined} className={`${classes.kpi} ${onClick ? classes.kpiLink : ''}`} onClick={onClick}
-    style={{ '--kpi-color': palette.color, '--kpi-tint': palette.tint }} title={title || (onClick ? '누르면 상세 화면으로 이동' : undefined)}>
+  const card = <Tag type={onClick ? 'button' : undefined} className={`${classes.kpi} ${onClick ? classes.kpiLink : ''} ${breakdown ? classes.kpiHasBreakdown : ''}`} onClick={onClick}
+    style={{ '--kpi-color': palette.color, '--kpi-tint': palette.tint }} title={breakdown ? undefined : title || (onClick ? '누르면 상세 화면으로 이동' : undefined)}>
     <div className={classes.kpiHead}>
       <div className={classes.kpiTitle}><span className={classes.kpiLabel}>{label}</span>{basis && <span className={classes.kpiBasis}>{basis}</span>}</div>
       {Icon && <span className={classes.kpiIcon}><Icon size={19} stroke={1.9} /></span>}
@@ -90,6 +108,11 @@ export function KpiCard({ palette = KPI_PALETTE.blue, icon: Icon, label, basis, 
     <div className={classes.kpiTrend}>{trend}</div>
     {stats.length > 0 && <div className={classes.kpiStats}>{stats.map((stat) => <div key={stat.label} className={classes.kpiStat}><span>{stat.label}</span><b className={stat.warn ? classes.warn : stat.good ? classes.good : ''}>{stat.value}</b></div>)}</div>}
   </Tag>;
+  if (!breakdown) return card;
+  return <HoverCard width={300} position="bottom" withArrow shadow="md" openDelay={120} closeDelay={80} withinPortal>
+    <HoverCard.Target>{card}</HoverCard.Target>
+    <HoverCard.Dropdown p={0}><KpiBreakdown breakdown={breakdown} palette={palette} /></HoverCard.Dropdown>
+  </HoverCard>;
 }
 
 export const kitClasses = classes;

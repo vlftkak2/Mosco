@@ -21,8 +21,8 @@ const errorMessage = (error, fallback) => apiErrorMessage(error, fallback);
 const WORKTYPE_LABELS = { REGULAR: '정규직', CONTRACT: '계약직' };
 const STATUS_LABELS = { ACTIVE: '재직', RETIRED: '퇴사' };
 const USER_COLUMNS = [
-  { key: 'username', label: '이름', width: 90, minWidth: 60 },
   { key: 'empno', label: '사원번호', width: 90, minWidth: 60 },
+  { key: 'username', label: '이름', width: 90, minWidth: 60 },
   { key: 'team', label: '부서', width: 110, minWidth: 60 },
   { key: 'position', label: '직급', width: 80, minWidth: 50 },
   { key: 'worktype', label: '근무유형', width: 80, minWidth: 60 },
@@ -262,8 +262,8 @@ export default function UserInfo() {
               <Table.Tbody>
                 {pagedUsers.length ? pagedUsers.map((row) => (
                   <Table.Tr key={row.email} className={`${selectedEmail === row.email ? classes.selectedRow : ''} ${row.useyn === 'Y' && row.workstatus === 'ACTIVE' ? '' : own.inactiveRow}`} onClick={() => select(row)}>
-                    <Table.Td title={row.username}>{row.username}</Table.Td>
                     <Table.Td title={row.empno}>{row.empno}</Table.Td>
+                    <Table.Td title={row.username}>{row.username}</Table.Td>
                     <Table.Td title={row.team}>{row.team}</Table.Td>
                     <Table.Td title={row.position}>{row.position}</Table.Td>
                     <Table.Td>{WORKTYPE_LABELS[row.worktype] || ''}</Table.Td>

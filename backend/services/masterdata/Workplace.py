@@ -74,12 +74,13 @@ class WorkplaceInput(BaseModel):
     openingdate: date | None = None
     ledgerstartdate: date
     phone: str = Field(default="", max_length=30)
+    fax: str = Field(default="", max_length=30)
     zipcode: str = Field(default="", max_length=10)
     address1: str = Field(default="", max_length=300)
     address2: str = Field(default="", max_length=300)
 
     @field_validator("ceoname", "businessno", "corporationno", "businesstype", "industry",
-                     "phone", "zipcode", "address1", "address2", mode="before")
+                     "phone", "fax", "zipcode", "address1", "address2", mode="before")
     @classmethod
     def strip_text(cls, value):
         return str(value or "").strip()
@@ -114,7 +115,7 @@ class WorkplaceInput(BaseModel):
 
 
 FIELDS = ["ceoname", "ownertype", "businessno", "corporationno", "businesstype", "industry",
-          "openingdate", "ledgerstartdate", "phone", "zipcode", "address1", "address2"]
+          "openingdate", "ledgerstartdate", "phone", "fax", "zipcode", "address1", "address2"]
 
 
 def get_workplace(companyid: str) -> dict | None:

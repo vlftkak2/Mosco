@@ -100,6 +100,7 @@ def list_available_stock(
     item_search: str = "", warehouse_search: str = "", source_type: str = "",
     receiptno: str = "", date_from: date | None = None, date_to: date | None = None,
     thickness: str = "", width: str = "", length: str = "",
+    warehousecode: str = "",
 ):
     where = [
         "stock.companyid = %s",
@@ -115,6 +116,10 @@ def list_available_stock(
         pattern = f"%{warehouse_search.strip()}%"
         where.append("(stock.warehousecode ILIKE %s OR stock.warehousecodename ILIKE %s)")
         params.extend((pattern, pattern))
+    if warehousecode.strip():
+        # 재고이동등록에서 먼저 고른 출고 창고 (이름 일부가 겹치는 다른 창고가 섞이지 않게 코드로 정확히)
+        where.append("stock.warehousecode = %s")
+        params.append(warehousecode.strip())
     if source_type.strip():
         # 재고구분(기초/입고/가공/이동). 가공·이동 재고도 sourcetype 은 INBOUND 이므로 stockkind 로 거른다.
         where.append("stock.stockkind = %s")

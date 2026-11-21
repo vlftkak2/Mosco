@@ -50,11 +50,12 @@ def get_balances(
     date_to: date = Query(...),
     keyword: str = Query(default="", max_length=150),
     balance_only: bool = Query(default=False),
+    with_vat: bool = Query(default=False),
     user: dict = Depends(security_module.get_current_user),
 ):
     _check_period(date_from, date_to)
     try:
-        return {"success": True, **ledger_module.list_balances(user["companyid"], date_from, date_to, keyword, balance_only)}
+        return {"success": True, **ledger_module.list_balances(user["companyid"], date_from, date_to, keyword, balance_only, with_vat)}
     except Exception as error:
         raise HTTPException(status_code=500, detail="거래처별 잔액을 조회하지 못했습니다.") from error
 
@@ -64,10 +65,11 @@ def get_ledger(
     ckey: str = Query(..., min_length=1, max_length=200),
     date_from: date = Query(...),
     date_to: date = Query(...),
+    with_vat: bool = Query(default=False),
     user: dict = Depends(security_module.get_current_user),
 ):
     _check_period(date_from, date_to)
     try:
-        return {"success": True, **ledger_module.get_ledger(user["companyid"], ckey, date_from, date_to)}
+        return {"success": True, **ledger_module.get_ledger(user["companyid"], ckey, date_from, date_to, with_vat)}
     except Exception as error:
         raise HTTPException(status_code=500, detail="거래처원장을 조회하지 못했습니다.") from error

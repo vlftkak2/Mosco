@@ -2,7 +2,7 @@
 // 주문서 관리에서 보낸 "최적화 대기" 품목 → ① 발주·원자재 확인 → ② 원자재 후보 → ③ 원자재·가공방식 → ④ 추천조합
 // → 임시저장 / 계획 확정 (품목 계획확정, 원자재 현재고 예약) / 계획 취소 / 주문서 관리로 돌려보내기.
 // 계산은 서버(backend/services/ai/AIOrderOptimization.py)에서 하고 화면은 결과를 보여준다.
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ActionIcon, Box, Button, Group, Modal, NumberInput, Pagination, Paper, Popover, SegmentedControl, Select, Stack, Text, TextInput } from '@mantine/core';
@@ -144,11 +144,11 @@ const FORMULAS = {
     loss: '투입중량 − 생산중량',
     yield: '(생산중량 ÷ 투입중량) × 100',
   },
-  SHEET: {
-    input: '원판 1매 중량 × 필요 원판 매수',
-    production: 'Σ(절단제품 면적 × 생산수량) × 두께 × 7.85',
-    loss: '투입중량 − 생산중량',
-    yield: '(제품 면적 ÷ 원판 면적) × 100',
+  SHEET: {   // 시안 시트가공 v5
+    input: '원판 1매 단중 × 투입매수 = 투입중량',
+    production: 'Σ(절단제품 단중 × 생산수량) = 생산중량',
+    loss: '투입중량 − 생산중량 = 로스중량',
+    yield: '(생산중량 ÷ 투입중량) × 100 = 수율',
   },
 };
 
@@ -184,6 +184,12 @@ const CANDIDATE_COLUMNS = [
   { key: 'yield', label: '수율', width: 90, minWidth: 70, info: 'yield' },
   { key: 'sheets', label: '필요 원판', width: 110, minWidth: 80, sheetOnly: true },
 ];
+// 시트 ① 후보표: 시안 v5 순서 (재고 다음에 필요 원판 → 투입 · 생산 · 로스 · 수율)
+const SHEET_CANDIDATE_COLUMNS = (() => {
+  const list = CANDIDATE_COLUMNS.filter((column) => column.key !== 'sheets');
+  const at = list.findIndex((column) => column.key === 'input');
+  return [...list.slice(0, at), CANDIDATE_COLUMNS.find((column) => column.key === 'sheets'), ...list.slice(at)];
+})();
 
 function useColumnWidths() {
   const [widths, setWidths] = useState({});
@@ -314,40 +320,129 @@ function CoilFillLines({ plan }) {
   {(plan.issues || []).map((issue) => <span key={issue} className={`${classes.fill} ${classes.fillWarn}`}>⚠ {issue}</span>)}</>;
 }
 
-// 시트 2D 절단 배치 (원판 1매)
-const SheetViz = memo(function SheetViz({ plan, rawWidth, rawLength }) {
-  if (!plan || !rawWidth || !rawLength) return null;
+// 시트 색상 (시안 v5): 발주 품목은 순서대로 4색, 가공 후보 길이는 별도 3색
+const SHEET_COLORS = ['#cfe3f5', '#cfe9dd', '#f7e7bb', '#e6dbf6'];
+const SHEET_EXTRA_COLORS = ['#f6d7d2', '#d4e4f7', '#e2ecc9'];
+const sheetColor = (key) => (typeof key === 'number' ? SHEET_COLORS[key % SHEET_COLORS.length] : SHEET_EXTRA_COLORS[(Number(String(key).slice(1)) || 0) % SHEET_EXTRA_COLORS.length]);
+const sheetPatternOf = (plan, index) => {
+  const pats = plan?.sheet_patterns || [];
+  return pats.length ? pats[Math.min(Math.max(0, index || 0), pats.length - 1)] : null;
+};
+const perSheetOf = (sp, key) => (sp ? sp.columns.reduce((sum, col) => sum + col.pieces.filter(([k]) => k === key).length, 0) : 0);
+// 과부족 (매): 일치 / ▲ 초과 / ▼ 부족
+function SheetDelta({ value }) {
+  if (!value) return <span className={classes.ok}>일치</span>;
+  return value > 0 ? <span className={classes.over}>▲ {fmt(value, 0)}매 초과</span> : <span className={classes.under}>▼ {fmt(-value, 0)}매 부족</span>;
+}
+
+// 시트 2D 절단 배치 (원판 1매 · 패턴별). 원판을 열(제품 폭)로 가르고 열마다 제품 길이로 자른다 (2단 기요틴, 시안 v5 drawPattern)
+const SheetViz = memo(function SheetViz({ plan, rawWidth, rawLength, patIdx = 0, onPattern }) {
+  const hatchId = `sheetHatch${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
+  const sp = sheetPatternOf(plan, patIdx);
+  if (!sp || !rawWidth || !rawLength) return null;
+  const pats = plan.sheet_patterns;
+  const index = pats.indexOf(sp);
+  const normal = plan.orientation !== 'ROTATED';
   const sh = 170;
-  const sw = Math.max(300, Math.min(620, sh * rawLength / rawWidth));
-  const xr = sw / rawLength;
-  const yr = sh / rawWidth;
-  const colors = ['#cfe3f5', '#cfe9dd', '#f7e7bb', '#e6dbf6', '#f9d9cf'];
+  const sw = Math.max(320, Math.min(620, sh * rawLength / rawWidth));
+  const sx = sw / rawLength;
+  const sy = sh / rawWidth;
   const rects = [];
-  const itemW = plan.pieces[0]?.width || 0;
-  for (let strip = 0; strip < plan.strips; strip += 1) {
-    let cursor = 0;
-    plan.pieces.forEach((piece, i) => {
-      for (let n = 0; n < piece.per_strip; n += 1) {
-        const normal = plan.orientation !== 'ROTATED';
-        const x = (normal ? cursor : strip * itemW) * xr;
-        const y = (normal ? strip * itemW : cursor) * yr;
-        const w = (normal ? piece.length : itemW) * xr;
-        const h = (normal ? itemW : piece.length) * yr;
-        cursor += piece.length;
-        rects.push(<g key={`${strip}-${i}-${n}`}><rect x={x} y={y} width={w} height={h} fill={colors[i % colors.length]} stroke="#fff" strokeWidth="0.8" />
-          <text x={x + w / 2} y={y + h / 2} textAnchor="middle" dominantBaseline="middle" fontSize={Math.min(10, Math.max(7, Math.min(w, h) * 0.33))} fill="#34485d" fontWeight="700">{fmt(piece.length)}</text></g>);
-      }
-    });
-  }
-  return <svg className={classes.sheetSvg} viewBox={`0 0 ${sw} ${sh}`} role="img" aria-label="원판 절단 배치">
-    <defs><pattern id="sheetHatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="7" height="7" fill="#e5e9ed" /><rect width="2" height="7" fill="#cfd6dc" /></pattern></defs>
-    <rect x="0" y="0" width={sw} height={sh} fill="url(#sheetHatch)" />{rects}
-    <rect x=".5" y=".5" width={sw - 1} height={sh - 1} fill="none" stroke="#c5d1df" />
-  </svg>;
+  const across = sp.columns.reduce((start, col, ci) => {
+    col.pieces.reduce((along, [key, len], pi) => {
+      const x = (normal ? along : start) * sx;
+      const y = (normal ? start : along) * sy;
+      const w = (normal ? len : col.cw) * sx;
+      const h = (normal ? col.cw : len) * sy;
+      rects.push(<g key={`${ci}-${pi}`}><rect x={x} y={y} width={w} height={h} fill={sheetColor(key)} stroke="#fff" strokeWidth="0.6" />
+        {Math.min(w, h) >= 15 && <text x={x + w / 2} y={y + h / 2} textAnchor="middle" dominantBaseline="middle" fontSize={Math.min(10, Math.max(7, Math.min(w, h) * 0.33))} fill="#34485d" fontWeight="700">{fmt(len)}</text>}</g>);
+      return along + len;
+    }, 0);
+    return start + col.cw;
+  }, 0);
+  const remain = (normal ? rawWidth : rawLength) - across;
+  const remainPx = normal ? remain * sy : remain * sx;
+  const perTotal = sp.columns.reduce((sum, col) => sum + col.pieces.length, 0);
+  return <div>
+    <div className={classes.sheetMeta}>원판 {fmt(rawWidth)} × {fmt(rawLength)}mm · 열 {sp.columns.length}개 · 사용폭 {fmt(across)}mm · 잔여폭 {fmt(Math.max(0, (plan.sheet_w || 0) - across))}mm</div>
+    {pats.length > 1 && onPattern && <div className={classes.patTabs}>{pats.map((item, i) => <button key={i} type="button" className={`${classes.patTab} ${i === index ? classes.patTabOn : ''}`}
+      onClick={() => onPattern?.(i)}>패턴 {i + 1} · {fmt(item.sheets, 0)}매</button>)}</div>}
+    <div className={classes.dim}><div className={classes.dimMain}>
+      <div className={classes.dimTop}>↔ {fmt(rawLength)}<div className={classes.dimAxis} /></div>
+      <div className={classes.dimRow}>
+        <div className={classes.dimSide}>↕ {fmt(rawWidth)}</div>
+        <svg className={classes.sheetSvg} viewBox={`0 0 ${sw} ${sh}`} role="img" aria-label={`원판 ${fmt(rawWidth)} x ${fmt(rawLength)}mm, ${normal ? '기본' : '90도 회전'} 절단배치`}>
+          <defs><pattern id={hatchId} width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="7" height="7" fill="#e5e9ed" /><rect width="2" height="7" fill="#cfd6dc" /></pattern></defs>
+          <rect x="0" y="0" width={sw} height={sh} fill={`url(#${hatchId})`} />{rects}
+          {remain > 0.5 && remainPx >= 13 && (normal
+            ? <text x={sw / 2} y={sh - remainPx / 2} textAnchor="middle" dominantBaseline="middle" fontSize="8" fill="#34485d" fontWeight="700">잔여 {fmt(remain)}</text>
+            : <text x={sw - remainPx / 2} y={sh / 2} textAnchor="middle" dominantBaseline="middle" fontSize="8" fill="#34485d" fontWeight="700" transform={`rotate(-90 ${sw - remainPx / 2} ${sh / 2})`}>잔여 {fmt(remain)}</text>)}
+          <rect x=".5" y=".5" width={sw - 1} height={sh - 1} fill="none" stroke="#c5d1df" />
+        </svg>
+      </div>
+    </div></div>
+    <div className={classes.sheetFoot}>원판 1장당 제품 {perTotal}장 · {pats.length > 1 ? `패턴 ${index + 1}/${pats.length} : 원판 ${fmt(sp.sheets, 0)}매에 적용` : `원판 ${fmt(sp.sheets, 0)}매 모두 동일 패턴`} · 칸 안 숫자는 제품 길이(mm)</div>
+  </div>;
 });
 
+// 시트를 현재고 코일에서 길이로 자르는 경우 (코일 길이 샤링 · 최적화 없음): ③ 카드 / 오른쪽 결과
+const meter = (mm) => `${fmt((mm || 0) / 1000)}m`;
+function CoilShearCard({ plan, selected }) {
+  return <div className={`${classes.plan} ${selected ? classes.planSelected : ''}`} style={{ cursor: 'default' }}>
+    <span className={classes.planHead}><span>코일 길이 절단{plan.short_pcs > 0 ? <span className={classes.shortBadge}>{fmt(plan.short_pcs, 0)}매 부족</span> : null}</span>
+      <span>수율 <b>{fmt(plan.yield_rate, 2)}%</b></span></span>
+    <div className={classes.planPattern}>{plan.pieces.map((piece) => <span key={piece.key} style={{ display: 'block' }}>
+      {fmt(piece.width)} × {fmt(piece.length)}{piece.extra ? <span className={classes.tag}>후보</span> : null} : {fmt(piece.produced_qty, 0)}매 = {meter(piece.used_mm)}
+      {piece.short_qty > 0 ? <span className={classes.under}>▼ {fmt(piece.short_qty, 0)}매 부족</span> : null}</span>)}</div>
+    <span className={classes.planMeta}>{plan.short_pcs > 0 ? `코일을 다 쓰고도 ${plan.short_text} 부족`
+      : `남는 코일 ${meter(plan.remain_mm)} · ${fmt(plan.remain_kg, 2)}kg${plan.pieces.some((piece) => piece.extra) ? '' : ' · "가공 후보"로 남는 코일에 쓸 길이를 넣을 수 있습니다'}`}</span>
+  </div>;
+}
+function CoilShearResult({ plan, thickness }) {
+  const unit = (piece) => (Number(piece.width) * Number(piece.length) * Number(thickness || 0) * 7.85) / 1e6;
+  const orders = plan.pieces.filter((piece) => !piece.extra);
+  const extras = plan.pieces.filter((piece) => piece.extra);
+  const produced = plan.pieces.reduce((sum, piece) => sum + (piece.produced_qty || 0), 0);
+  const orderQty = orders.reduce((sum, piece) => sum + (piece.need_qty || 0), 0);
+  const orderKg = orders.reduce((sum, piece) => sum + unit(piece) * (piece.need_qty || 0), 0);
+  return <div className={classes.result}>
+    <div className={classes.flow}>
+      <span><small>코일 재고</small><b>{fmt(plan.coil_weight, 2)}kg</b></span>
+      <span><small>사용 · {meter(plan.used_mm)}</small><b>{fmt(plan.input_weight, 2)}kg</b></span>
+      <span><small>남는 코일 · {meter(plan.remain_mm)}</small><b>{fmt(plan.remain_kg, 2)}kg</b></span>
+      {plan.short_pcs > 0 && <span><small>부족 · {fmt(plan.short_pcs, 0)}매</small><b>{fmt(plan.short_kg, 2)}kg</b></span>}
+      {plan.loss_weight > 0.5 && <span><small>폭 로스</small><b>{fmt(plan.loss_weight, 2)}kg</b></span>}
+    </div>
+    <div className={classes.resultTitle}>품목별 절단 <small>규격은 폭 × 길이(mm) · 이론중량 = 폭 × 길이 × 두께 × 7.85</small></div>
+    <div className={classes.resultScroll}><table className={classes.resultTable}>
+      <thead><tr><th>제품 규격 (폭 × 길이)</th><th>소요 길이</th><th>발주</th><th>발주 이론중량</th><th>생산</th><th>생산 이론중량</th><th>과부족</th></tr></thead>
+      <tbody>
+        {orders.map((piece) => <tr key={`o-${piece.key}`}><td>{fmt(piece.width)} × {fmt(piece.length)}</td><td>{meter(piece.used_mm)}</td><td>{fmt(piece.need_qty, 0)}매</td>
+          <td>{fmt(unit(piece) * piece.need_qty)}kg</td><td>{fmt(piece.produced_qty, 0)}매</td><td>{fmt(unit(piece) * piece.produced_qty)}kg</td><td><SheetDelta value={piece.over_qty} /></td></tr>)}
+        {extras.map((piece) => <tr key={`x-${piece.key}`}><td>{fmt(piece.width)} × {fmt(piece.length)}<span className={classes.tag}>후보</span></td><td>{meter(piece.used_mm)}</td><td>잔량 활용</td>
+          <td>–</td><td>{fmt(piece.produced_qty, 0)}매</td><td>{fmt(unit(piece) * piece.produced_qty)}kg</td><td><span className={classes.muted}>후보 생산</span></td></tr>)}
+      </tbody>
+      <tfoot><tr><td>합계</td><td>{meter(plan.used_mm)}</td><td>{fmt(orderQty, 0)}매</td><td>{fmt(orderKg)}kg</td><td>{fmt(produced, 0)}매</td><td>{fmt(plan.production_weight)}kg</td><td /></tr></tfoot>
+    </table></div>
+    <p className={classes.estimate}>※ 코일 1mm당 중량 = 코일 폭 × 두께 × 7.85 ÷ 1,000,000. 발주 순서대로 코일 재고 안에서 채우며(최적화 없음), 폭 방향 줄 수 = (코일 폭 − 폭 여유 {fmt(plan.side_trim ?? 0)}mm) ÷ 제품 폭.</p>
+  </div>;
+}
+
+// ③ 추천안 카드 안 (시트): 품목별 과부족 · 가공 후보 생산
+function SheetFillLines({ plan }) {
+  const orders = (plan.pieces || []).filter((piece) => !piece.extra);
+  const diffs = orders.filter((piece) => piece.over_qty);
+  const extras = (plan.pieces || []).filter((piece) => piece.extra && piece.produced_qty > 0);
+  const single = plan.combo !== 'MIXED';
+  return <>
+    {diffs.length ? diffs.map((piece) => <span key={piece.key} className={classes.fill}>{single ? `${fmt(piece.width)} × ${fmt(piece.length)} ` : `${fmt(piece.length)}mm `}<SheetDelta value={piece.over_qty} /></span>)
+      : <span className={classes.fill}><span className={classes.ok} style={{ marginLeft: 0 }}>전 품목 발주수량과 일치</span></span>}
+    {extras.length > 0 && <span className={classes.fill}>가공 후보 {extras.map((piece) => `${fmt(piece.length)}mm ${fmt(piece.produced_qty, 0)}매`).join(' / ')} <span className={classes.muted}>후보 생산</span></span>}
+  </>;
+}
+
 // ④ 오른쪽 결과: 투입 = 생산 + 로스 띠 + 폭(길이)별 생산 표. 예전에 저장된 계획(과부족 값 없음)도 그대로 보인다.
-const PlanResult = memo(function PlanResult({ plan, material, notes }) {
+const PlanResult = memo(function PlanResult({ plan, material, notes, patIdx = 0 }) {
   if (!plan) return null;
   if (material === 'COIL') {
     const knives = plan.knives ?? plan.pieces.reduce((sum, piece) => sum + (piece.knives ?? piece.cuts), 0);
@@ -422,26 +517,47 @@ const PlanResult = memo(function PlanResult({ plan, material, notes }) {
       <p className={classes.estimate}>※ 차수 투입을 폭 비율로 kg 단위로 나눈 이론값입니다 (같은 폭에서 남는 kg 는 첫 줄). 생산 + 로스 = 투입이며, 실중량은 매출에서 조정합니다.</p>
     </div>;
   }
+  if (plan.coil) return <CoilShearResult plan={plan} thickness={plan.thickness} />;
+  // 시트 (시안 v5): 투입 → 생산 → 로스 → 수율 띠 + 한 줄 요약 + 품목별 생산 표 (원판 1장당은 선택한 패턴 기준)
+  const sp = sheetPatternOf(plan, patIdx);
+  const patCount = plan.sheet_patterns?.length || 0;
+  const perSheet = (piece) => (sp ? perSheetOf(sp, piece.key) : piece.per_sheet || 0);
   const orderPieces = plan.pieces.filter((piece) => !piece.extra);
+  const extraPieces = plan.pieces.filter((piece) => piece.extra);
   const producedTotal = plan.pieces.reduce((sum, piece) => sum + (piece.produced_qty || 0), 0);
   const needTotal = orderPieces.reduce((sum, piece) => sum + (piece.need_qty || 0), 0);
-  const deltaTotal = orderPieces.reduce((sum, piece) => sum + (piece.produced_qty - piece.need_qty), 0);
+  const orderProduced = orderPieces.reduce((sum, piece) => sum + (piece.produced_qty || 0), 0);
+  const deltaTotal = orderProduced - needTotal;
+  const perTotal = sp ? sp.columns.reduce((sum, col) => sum + col.pieces.length, 0) : plan.pieces.reduce((sum, piece) => sum + (piece.per_sheet || 0), 0);
+  const single = plan.combo !== 'MIXED' && orderPieces.length === 1;
+  const one = single ? orderPieces[0] : null;
+  const notesList = [plan.lb_text, plan.excess_weight > 0.005 ? `초과생산 ${fmt(plan.excess_weight, 2)}kg (로스에 포함하지 않음)` : '',
+    plan.side_trim !== undefined ? `폭 여유 ${fmt(plan.side_trim)}mm 반영` : ''].filter(Boolean);
+  const dot = (key) => <i className={classes.dot} style={{ background: sheetColor(key) }} />;
   return <div className={classes.result}>
     <div className={classes.flow}><span><small>투입 · 원판 {fmt(plan.sheets, 0)}매</small><b>{fmt(plan.input_weight, 2)}kg</b></span><span><small>생산 · {fmt(producedTotal, 0)}매</small><b>{fmt(plan.production_weight, 2)}kg</b></span>
       <span><small>로스</small><b>{fmt(plan.loss_weight, 2)}kg</b></span><span><small>수율</small><b>{fmt(plan.yield_rate, 2)}%</b></span></div>
-    <div className={classes.resultTitle}>품목별 생산 <small>제품폭 {fmt(plan.pieces[0]?.width)}mm</small></div>
-    <table className={classes.resultTable}>
-      <thead><tr><th>제품 길이</th><th>발주</th><th>생산</th><th>과부족</th></tr></thead>
-      <tbody>{plan.pieces.map((piece) => <tr key={`${piece.length}-${piece.lineno ?? 'x'}`}>
-        <td>{fmt(piece.length)}mm{piece.extra ? <span className={classes.tag}>후보</span> : null}</td>
-        <td>{piece.extra ? '가공 후보' : `${fmt(piece.need_qty, 0)}매`}</td><td>{fmt(piece.produced_qty, 0)}매</td>
-        <td>{piece.extra ? <span className={classes.muted}>후보 생산</span> : piece.over_qty > 0 ? <span className={classes.over}>▲ {fmt(piece.over_qty, 0)}매 초과</span>
-          : piece.over_qty < 0 ? <span className={classes.under}>▼ {fmt(-piece.over_qty, 0)}매 부족</span> : <span className={classes.ok}>일치</span>}</td>
-      </tr>)}</tbody>
-      <tfoot><tr><td>합계</td><td>{fmt(needTotal, 0)}매</td><td>{fmt(producedTotal, 0)}매</td><td>{deltaTotal > 0 ? <span className={classes.over}>▲ {fmt(deltaTotal, 0)}매</span> : deltaTotal < 0 ? <span className={classes.under}>▼ {fmt(-deltaTotal, 0)}매</span> : null}</td></tr></tfoot>
-    </table>
+    {one ? <div className={classes.sumLine}><b>{fmt(one.width)} × {fmt(one.length)}</b> : 원판 1장당 <b>{perSheet(one)}장</b> × 원판 <b>{fmt(plan.sheets, 0)}장</b> = {fmt(one.produced_qty, 0)}장 생산 <span>(발주 {fmt(one.need_qty, 0)}장{one.produced_qty > one.need_qty ? ` · 초과 ${fmt(one.produced_qty - one.need_qty, 0)}장` : ''})</span></div>
+      : <div className={classes.sumLine}>원판 <b>{fmt(plan.sheets, 0)}장</b> 투입 → 제품 <b>{fmt(producedTotal, 0)}장</b> 생산 <span>(원판 1장당 {perTotal}장 · 투입 원판은 품목이 공용으로 사용)</span></div>}
+    <div className={classes.resultTitle}>품목별 생산 <small>규격은 폭 × 길이(mm)</small></div>
+    <div className={classes.resultScroll}><table className={classes.resultTable}>
+      <thead><tr><th>제품 규격 (폭 × 길이)</th><th>원판 1장당{patCount > 1 ? <small> (패턴 {(plan.sheet_patterns.indexOf(sp)) + 1})</small> : null}</th><th>투입 원판</th><th>발주</th><th>생산</th><th>과부족</th></tr></thead>
+      <tbody>
+        {orderPieces.map((piece) => <tr key={`o-${piece.key ?? piece.length}`}>
+          <td>{dot(piece.key)}{fmt(piece.width)} × {fmt(piece.length)}</td><td><b>{perSheet(piece)}장</b></td><td><b>{fmt(piece.sheets_used ?? plan.sheets, 0)}장</b></td>
+          <td>{fmt(piece.need_qty, 0)}매</td><td>{fmt(piece.produced_qty, 0)}매</td><td><SheetDelta value={piece.over_qty} /></td>
+        </tr>)}
+        {extraPieces.map((piece) => <tr key={`x-${piece.key ?? piece.length}`}>
+          <td>{dot(piece.key)}{fmt(piece.width)} × {fmt(piece.length)}<span className={classes.tag}>후보</span></td><td><b>{perSheet(piece)}장</b></td><td>{fmt(piece.sheets_used ?? 0, 0)}장</td>
+          <td>가공 후보</td><td>{fmt(piece.produced_qty, 0)}매</td><td><span className={classes.muted}>후보 생산</span></td>
+        </tr>)}
+      </tbody>
+      <tfoot><tr><td>합계</td><td>{perTotal}장</td><td>{fmt(plan.sheets, 0)}장</td><td>{fmt(needTotal, 0)}매</td><td>{fmt(orderProduced, 0)}매</td>
+        <td>{deltaTotal > 0 ? <span className={classes.over}>▲ {fmt(deltaTotal, 0)}매</span> : deltaTotal < 0 ? <span className={classes.under}>▼ {fmt(-deltaTotal, 0)}매</span> : null}</td></tr></tfoot>
+    </table></div>
     {(notes || []).map((note) => <div key={note} className={classes.warn}>{note}</div>)}
-    <p className={classes.estimate}>※ 원판 폭×길이 비율로 계산한 이론값입니다. 절단날 간격·가공여유·설비제약은 빼고 계산하며, 원판마다 같은 패턴을 반복합니다.</p>
+    {notesList.length > 0 && <p className={classes.estimate}>{notesList.map((note) => <span key={note} style={{ display: 'block' }}>{note}</span>)}</p>}
+    <p className={classes.estimate}>※ 원판 폭 × 길이 × 두께 × 7.85로 계산한 이론 중량입니다. 절단날 간격 · 끝단 여유는 0으로 계산합니다.</p>
   </div>;
 });
 
@@ -456,7 +572,7 @@ export default function AIOrderOptimization() {
   function startGroup(group) {
     setMaterial(group.material);
     setActivePlan(null);
-    setPlanId('A');
+    setPlanId(null);
     setSelectedKeys(group.rows.map(keyOf));
     setGroupOff([]);
     setSettings({ ...DEFAULT_SETTINGS, combo: group.rows.length > 1 ? 'MIXED' : 'SINGLE' });
@@ -480,7 +596,7 @@ export default function AIOrderOptimization() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [analysis, setAnalysis] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [planId, setPlanId] = useState('A');
+  const [planId, setPlanId] = useState(null);   // null = 추천안 (코일은 A안, 시트는 로스가 적은 방향 안)
   const [activePlan, setActivePlan] = useState(null); // { planno, status, detail }
   const [saving, setSaving] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
@@ -579,11 +695,21 @@ export default function AIOrderOptimization() {
   }, [analyzeKeys, settings, runAnalyze, editingDraft, activePlan]);
   const shownAnalysis = analyzeKeys.length ? analysis : null;
   const plansList = shownAnalysis?.plans || [];
-  const chosenPlan = plansList.find((plan) => plan.id === planId) || plansList[0] || null;
+  const chosenPlan = plansList.find((plan) => plan.id === planId) || plansList.find((plan) => plan.recommended) || plansList[0] || null;
   const raw = shownAnalysis?.raw || null;
   const unit = material === 'COIL' ? 'kg' : '매';
+  // 시트 배치 패턴 탭: 고른 안이 바뀌면 패턴 1로
+  const [patPick, setPatPick] = useState({ key: '', index: 0 });
+  const patKey = chosenPlan ? `${chosenPlan.id}|${chosenPlan.sheets}|${chosenPlan.pattern_count}|${chosenPlan.combo}` : '';
+  const patIdx = patPick.key === patKey ? patPick.index : 0;
+  const pickPattern = (index) => setPatPick({ key: patKey, index });
+  // 시트: 안을 고르면 ② 절단방향도 그 안의 방향으로 (가공이력 안은 지금 절단방향 기준으로 계산됨)
+  const choosePlan = (plan) => {
+    setPlanId(plan.id);
+    if (material === 'SHEET' && plan.orientation && plan.orientation !== (settings.orientation || 'NORMAL')) updateSettings({ orientation: plan.orientation });
+  };
 
-  const resetWork = () => { setSelectedKeys([]); setGroupOff([]); setSettings(DEFAULT_SETTINGS); setActivePlan(null); setPlanId('A'); };
+  const resetWork = () => { setSelectedKeys([]); setGroupOff([]); setSettings(DEFAULT_SETTINGS); setActivePlan(null); setPlanId(null); };
   const changeMaterial = (value) => { setMaterial(value); resetWork(); };
   const updateSettings = (patch, delay = 0) => { delayRef.current = delay; setSettings((current) => ({ ...current, ...patch })); };
   const typeSettings = (patch) => updateSettings(patch, 400); // 숫자 입력: 입력이 멈추면 계산
@@ -641,7 +767,7 @@ export default function AIOrderOptimization() {
       setSelectedKeys((pattern.keys || []).map(([orderid, lineno]) => `${orderid}|${lineno}`));
       setGroupOff([]);
       setSettings({ ...DEFAULT_SETTINGS, ...(pattern.settings || {}), excluded_raw: [] });
-      setPlanId(pattern.plan?.id || 'A');
+      setPlanId(pattern.plan?.id || null);
     } catch (error) {
       notifications.show({ title: '계획 조회 실패', message: errorText(error, '계획을 불러오지 못했습니다.'), color: 'red' });
     }
@@ -754,7 +880,7 @@ export default function AIOrderOptimization() {
   const addProcessCandidate = (value) => {
     if (material === 'COIL') updateSettings({ extrawidths: [...new Set([...(settings.extrawidths || []), value])], combo: 'MIXED' });
     else updateSettings({ extralengths: [...new Set([...(settings.extralengths || []), value])], combo: 'MIXED' });
-    setPlanId('A');
+    setPlanId(null);
   };
   // 이력 창에서 여러 건 선택 → 한 번에 반영
   const applyHistory = (rows) => {
@@ -778,13 +904,13 @@ export default function AIOrderOptimization() {
     const merged = [...historyPatterns.filter((item) => !added.some((a) => a.source === item.source)), ...added];
     const mixed = list.some((row) => (material === 'COIL' ? row.mode === 'MIXED' : new Set((row.pattern || []).map((item) => item[1])).size > 1));
     updateSettings({ history_patterns: merged, history_pattern: undefined, ...(mixed ? { combo: 'MIXED' } : {}) });
-    setPlanId('A');
+    setPlanId(null);
   };
   const removeRef = (kind, value) => {
     if (kind === 'width') updateSettings({ extrawidths: (settings.extrawidths || []).filter((item) => item !== value) });
     else if (kind === 'length') updateSettings({ extralengths: (settings.extralengths || []).filter((item) => item !== value) });
     else updateSettings({ history_patterns: historyPatterns.filter((item) => item.source !== value), history_pattern: undefined });
-    setPlanId('A');
+    setPlanId(null);
   };
 
   // ---------------- 화면 조각 ----------------
@@ -795,7 +921,7 @@ export default function AIOrderOptimization() {
   const mainTargetColumns = [{ key: 'group', label: '계산', width: 46, minWidth: 40, align: 'center' }, ...targetColumns];
   const targetHead = (first) => <ResizableHead columns={targetColumns} {...targetWidths}
     labelOf={(column) => (column.key === 'mark' ? first : column.unit ? `${column.label}(${unit})` : column.label)} />;
-  const candidateColumns = CANDIDATE_COLUMNS.filter((column) => !column.sheetOnly || material === 'SHEET');
+  const candidateColumns = material === 'SHEET' ? SHEET_CANDIDATE_COLUMNS : CANDIDATE_COLUMNS.filter((column) => !column.sheetOnly);
   const candidateTableWidth = candidateColumns.reduce((sum, column) => sum + candidateWidths.widthOf(column), 0);
   // status = 상태 칸 (화면마다 다름). 주문번호는 맨 끝
   const lineCells = (row, status) => <>
@@ -895,8 +1021,8 @@ export default function AIOrderOptimization() {
 
   const summary = shownAnalysis?.summary;
   const confirmedDetail = viewingConfirmed ? activePlan.detail : null;
-  // 확정된 현재고 코일 계획 → 재고가공등록에서 차수별로 불러와 등록
-  const canGoProcess = activePlan?.status === 'CONFIRMED' && confirmedDetail?.header.rawkind === 'STOCK' && confirmedDetail?.header.materialtype === 'COIL';
+  // 확정된 현재고 계획(코일 · 시트) → 재고가공등록에서 전표 1장으로 불러와 등록
+  const canGoProcess = activePlan?.status === 'CONFIRMED' && confirmedDetail?.header.rawkind === 'STOCK' && ['COIL', 'SHEET'].includes(confirmedDetail?.header.materialtype);
   // 이력 창 · 가공 후보 창이 적합 여부를 판단하는 현재 값 (③ 입력값 우선)
   const baseRow = groupRows[0] || null;
   // 현재고(연결 포함) 원자재는 폭 · 중량(원판은 폭 · 길이)이 실물 값이라 수정 불가. 가공할 양은 가공방식(일부가공 · 등분)으로 정한다
@@ -925,7 +1051,7 @@ export default function AIOrderOptimization() {
       if (selectedKeys.filter((item) => !current.includes(item)).length <= 1) return current; // 최소 1개는 계산
       return [...current, key];
     });
-    setPlanId('A');
+    setPlanId(null);
   };
   const processWeight = Number(rawLocked ? raw?.raw_weight : settings.raw_weight ?? raw?.raw_weight) || 0;
   const targetTable = <div className={`${reg.tableScroll} ${classes.tableScroll}`}>
@@ -1005,7 +1131,7 @@ export default function AIOrderOptimization() {
               {material === 'SHEET' && <NumberInput size="xs" w={110} label="원판 길이" placeholder="mm" value={newLength} onChange={setNewLength} hideControls min={0} />}
               {material === 'COIL' && <NumberInput size="xs" w={130} label="예상 투입중량 (선택)" placeholder="비우면 필요중량" value={newWeight} onChange={setNewWeight} hideControls min={0} thousandSeparator="," />}
               <button type="button" className={btn('btnDark', 'btnSm')} style={{ alignSelf: 'flex-end' }} onClick={addNewCandidate}>후보 추가</button>
-              <span className={`${classes.muted} ${classes.toolsNote}`}>연결 원자재 → 현재고 → 신규(매입이력·직접 입력) 순, 수율 높은 순</span>
+              <span className={`${classes.muted} ${classes.toolsNote}`}>{material === 'COIL' ? '연결 원자재 → 현재고 → 신규(매입이력·직접 입력) 순, 수율 높은 순' : '코일 재고 → 시트 순, 같은 종류는 로스중량 적은 순 · 시트는 두 절단방향 중 유리한 쪽'}</span>
             </div>
             {shownAnalysis?.candidates?.length ? <div className={`${reg.tableScroll} ${classes.candidateScroll}`}><table className={`${reg.ordersTable} ${classes.candidateTable}`} style={{ width: `max(100%, ${candidateTableWidth}px)`, minWidth: `${candidateTableWidth}px` }}>
               <ResizableHead columns={candidateColumns} {...candidateWidths}
@@ -1013,14 +1139,18 @@ export default function AIOrderOptimization() {
                   : column.info ? <>{column.label}<Info text={FORMULAS[material][column.info]} /></> : column.label)} />
               <tbody>{shownAnalysis.candidates.map((c) => <tr key={c.id} className={(settings.raw_id ?? raw?.id) === c.id ? reg.selectedRow : ''} onClick={() => { if ((settings.raw_id ?? raw?.id) !== c.id) chooseRaw(c.id); }}>
                 <td>{c.rank}순위</td><td title={c.source || ''}>{c.label}</td><td>{c.itemname}</td>
-                <td>{fmt(c.thickness, 3)} × {fmt(c.width)}{material === 'SHEET' ? ` × ${fmt(c.length)}` : ' × C'}</td>
+                <td>{fmt(c.thickness, 3)} × {fmt(c.width)}{material === 'SHEET' && !c.coil ? ` × ${fmt(c.length)}` : ' × C'}</td>
                 <td>{c.kind === 'STOCK' ? c.warehouse : '–'}</td>
-                <td>{c.kind === 'STOCK' ? (material === 'COIL' ? `${fmt(c.weight)}kg` : `${fmt(c.qty, 0)}매`) : '신규'}</td>
-                {c.input_weight === null || c.input_weight === undefined
+                <td>{c.kind === 'STOCK' ? (material === 'COIL' || c.coil ? `${fmt(c.weight)}kg` : `${fmt(c.qty, 0)}매`) : '신규'}</td>
+                {material === 'SHEET' ? (c.placeable === false || c.input_weight === null || c.input_weight === undefined
+                  // 시트 (시안 v5): 두 절단방향 중 로스중량이 적은 쪽으로 계산 · 90° = 원판을 돌려 놓는 쪽이 유리
+                  ? <><td><span className={classes.shortTag} title="발주 규격을 배치할 수 없어 계산되지 않습니다">배치 불가</span></td><td>–</td><td>–</td><td>–</td><td>–</td></>
+                  : <><td>{c.coil ? <><b>{fmt(c.coil_length_m)}m</b><small className={classes.estTag} title="시트를 이 코일에서 길이로 잘라 만듭니다 (필요 코일 길이)">코일</small>{c.short_pcs > 0 ? <span className={classes.under}>부족 {c.short_pcs}매</span> : null}</> : <><b>{fmt(c.sheets, 0)}매</b>{c.orientation === 'ROTATED' ? <small className={classes.estTag} title="이 원판은 90도 회전 배치가 더 유리/가능합니다">90°</small> : null}{c.short_sheets > 0 ? <span className={classes.under}>부족 {c.short_sheets}</span> : null}</>}</td>
+                    <td>{fmt(c.input_weight, 2)}kg</td><td>{fmt(c.production_weight, 2)}kg</td><td>{fmt(c.loss_weight, 2)}kg</td><td><b>{fmt(c.yield_rate, 2)}%</b></td></>)
+                : c.input_weight === null || c.input_weight === undefined
                   ? <><td><span className={classes.shortTag} title="발주 폭을 배치할 수 없거나, 목표 중량이 없는 '나머지' 품목뿐이라 투입중량을 정할 수 없습니다">{c.placeable === false && c.kind === 'NEW' ? '중량 입력' : '배치 불가'}</span></td><td>–</td><td>–</td><td>–</td></>
                   : <><td>{fmt(c.input_weight)}kg{c.weight_tag ? <small className={classes.estTag} title={c.weight_tag === '필요' ? '발주 필요중량을 모두 채우는 최소 투입중량(계산값)' : '매입이력·직접 입력한 계산용 가정 중량'}>{c.weight_tag}</small> : null}</td>
                     <td>{fmt(c.production_weight)}kg</td><td>{fmt(c.loss_weight)}kg</td><td><b>{fmt(c.yield_rate, 2)}%</b></td></>}
-                {material === 'SHEET' && <td>{fmt(c.sheets, 0)}매{c.short_sheets > 0 ? <span className={classes.under}>부족 {c.short_sheets}</span> : null}</td>}
               </tr>)}</tbody>
             </table></div> : <div className={classes.empty}>{analyzing ? '후보를 찾는 중입니다.' : '후보가 없습니다. 원자재 규격을 직접 입력해 후보를 추가해 주세요.'}</div>}
           </Card>
@@ -1071,7 +1201,15 @@ export default function AIOrderOptimization() {
                   </div>
                 </div>;
               })()}
-            </> : <div className={classes.fields}>
+            </> : raw.coil ? <div className={`${classes.fields} ${classes.sheetFields}`}>
+              {/* 시트를 현재고 코일에서 길이로 자르는 경우: 코일은 실물 값 · 혼합/단독 · 절단방향 없음 */}
+              <TextInput label="코일 폭 (mm)" value={fmt(raw.raw_width)} readOnly title={STOCK_LOCK_TIP} />
+              <TextInput label="코일 재고 (kg)" value={fmt(raw.raw_weight)} readOnly title={STOCK_LOCK_TIP} />
+              <TextInput label="두께 (mm)" value={fmt(raw.thickness, 3)} readOnly />
+              <TextInput label="필요 코일 길이 (m)" value={chosenPlan ? fmt((chosenPlan.used_mm || 0) / 1000) : '–'} readOnly />
+              <NumberInput label="폭 여유 (mm · 양쪽 합)" value={settings.sidetrim ?? 0} onChange={(value) => typeSettings({ sidetrim: value === '' ? 0 : value })} hideControls min={0} step={0.5} />
+              <Select label="절단방향" value="NORMAL" disabled data={[{ value: 'NORMAL', label: '코일 길이 절단' }]} title="코일 길이 절단은 절단방향을 고르지 않습니다" />
+            </div> : <div className={`${classes.fields} ${classes.sheetFields}`}>
               {rawLocked ? <>
                 <TextInput label="원판 폭 (mm)" value={fmt(raw.raw_width)} readOnly title={STOCK_LOCK_TIP} />
                 <TextInput label="원판 길이 (mm)" value={fmt(raw.raw_length)} readOnly title={STOCK_LOCK_TIP} />
@@ -1080,9 +1218,14 @@ export default function AIOrderOptimization() {
                 <NumberInput label="원판 길이 (mm)" value={settings.raw_length ?? raw.raw_length} onChange={(value) => typeSettings({ raw_length: value === '' ? undefined : value })} hideControls min={1} />
               </>}
               <TextInput label="원판 두께 (mm)" value={fmt(raw.thickness, 3)} readOnly />
-              <TextInput label="원판 재고 (매)" value={raw.raw_sheets === null || raw.raw_sheets === undefined ? '신규' : fmt(raw.raw_sheets, 0)} readOnly />
-              <Select label="절단방향" value={settings.orientation} allowDeselect={false} onChange={(value) => updateSettings({ orientation: value })}
-                data={[{ value: 'NORMAL', label: '기본' }, { value: 'ROTATED', label: '90도 회전' }]} />
+              {/* 현재고 = 재고 매수, 신규 = 고른 안의 필요 매수 (시안 v5) */}
+              <TextInput label="원판 매수 (EA)" value={raw.raw_sheets === null || raw.raw_sheets === undefined ? (chosenPlan ? `${fmt(chosenPlan.sheets, 0)} (필요)` : '신규') : fmt(raw.raw_sheets, 0)} readOnly
+                title={raw.raw_sheets === null || raw.raw_sheets === undefined ? '신규 매입 후보 · 고른 안의 필요 원판 매수' : '현재고 원판 매수'} />
+              <NumberInput label="폭 여유 (mm · 양쪽 합)" value={settings.sidetrim ?? 0} onChange={(value) => typeSettings({ sidetrim: value === '' ? 0 : value })} hideControls min={0} step={0.5} />
+              {/* 절단방향 = 고른 안의 방향. 바꾸면 그 방향 대표안(A 기본 · B 90도 회전)을 고른다 */}
+              <Select label="절단방향" value={chosenPlan?.orientation || settings.orientation || 'NORMAL'} allowDeselect={false}
+                onChange={(value) => { updateSettings({ orientation: value }); setPlanId(value === 'ROTATED' ? 'B' : 'A'); }}
+                data={[{ value: 'NORMAL', label: '기본' }, { value: 'ROTATED', label: '90도 회전' }].map((item) => ({ ...item, disabled: (shownAnalysis?.bad || []).some((bad) => bad.orientation === item.value) }))} />
             </div> : <div className={classes.empty}>① 에서 원자재 후보를 선택해 주세요.</div>}
             {shownAnalysis?.warnings?.map((warning) => <div key={warning} className={classes.warn}>{warning}</div>)}
           </Card>
@@ -1091,13 +1234,30 @@ export default function AIOrderOptimization() {
             actions={historyButtons('processing')}>
             <div className={classes.box}>
               <div className={classes.methodRow}>
-                <SegmentedControl size="xs" color="red" value={settings.combo} onChange={(value) => { updateSettings({ combo: value }); setPlanId('A'); }}
-                  data={material === 'COIL' ? [{ value: 'SINGLE', label: '단독' }, { value: 'MIXED', label: '혼합' }] : [{ value: 'SINGLE', label: '단독절단' }, { value: 'MIXED', label: '혼합절단' }]} />
-                <span className={classes.muted}>{material === 'COIL' ? '주문 충족 → 부족·초과량 + 로스 → 수율 순' : '모든 원판에 선택 품목을 1개 이상 · 같은 패턴 반복'}</span>
+                <SegmentedControl size="xs" color="red" value={settings.combo} onChange={(value) => { updateSettings({ combo: value }); setPlanId(null); }} disabled={material === 'SHEET' && Boolean(raw?.coil)}
+                  data={material === 'COIL' ? [{ value: 'SINGLE', label: '단독' }, { value: 'MIXED', label: '혼합' }]
+                    // 시트 혼합절단은 품명·두께·폭이 같은 길이 2개 이상일 때만 (시안 v5)
+                    : [{ value: 'SINGLE', label: '단독절단' }, { value: 'MIXED', label: '혼합절단', disabled: groupRows.length < 2 && settings.combo !== 'MIXED' }]} />
+                <span className={classes.muted}>{material === 'COIL' ? '주문 충족 → 부족·초과량 + 로스 → 수율 순' : raw?.coil ? '코일 후보 · 발주 순서대로 길이 절단 (최적화 없음)' : 'A안 기본 방향 · B안 90도 회전 · 로스중량이 적은 안 추천'}</span>
               </div>
               {refs.length > 0 && <div className={classes.refs}>{refs.map((ref) => <span key={`${ref.kind}-${ref.value}`} className={classes.ref}>{ref.label}
                 <button type="button" aria-label={`${ref.label} 해제`} title="참고 해제" onClick={() => removeRef(ref.kind, ref.value)}>×</button></span>)}</div>}
-              <div className={classes.plans}>{plansList.length ? plansList.map((plan) => <button key={plan.id} type="button" className={`${classes.plan} ${chosenPlan?.id === plan.id ? classes.planSelected : ''}`} onClick={() => setPlanId(plan.id)}>
+              <div className={classes.plans}>{plansList.length ? plansList.map((plan) => (material === 'SHEET' && plan.coil
+                ? <CoilShearCard key={plan.id} plan={plan} selected={chosenPlan?.id === plan.id} />
+                : material === 'SHEET'
+                // 시트 추천안 (시안 v5): 방향 · 방식 · 태그 / 배치 설명 / 원판 1장당 구성 / 필요 원판 · 로스 · 초과생산 / 품목별 과부족
+                ? <button key={plan.id} type="button" className={`${classes.plan} ${chosenPlan?.id === plan.id ? classes.planSelected : ''}`} onClick={() => choosePlan(plan)}>
+                  <span className={classes.planHead}><span>{plan.id}안 · {plan.olabel} · {plan.combo === 'MIXED' ? '혼합절단' : '단독절단'}{plan.tag ? ` · ${plan.tag}` : ''}
+                    {plan.recommended ? <span className={classes.recBadge}>추천</span> : null}
+                    {plan.short_sheets > 0 ? <span className={classes.shortBadge}>원판 {plan.short_sheets}매 부족</span> : null}</span>
+                    <span>수율 <b>{fmt(plan.yield_rate, 2)}%</b></span></span>
+                  <div className={classes.orientNote}>{plan.odesc}</div>
+                  <div className={classes.planPattern}><span className={classes.planCaption}>원판 1장당 구성 · 길이 × 장수</span>{plan.pattern}
+                    {plan.pattern_count > 1 ? <span className={classes.muted}> 외 {plan.pattern_count - 1}개 패턴</span> : null}</div>
+                  <span className={classes.planMeta}>필요 원판 {fmt(plan.sheets, 0)}매{plan.lb_text ? ` (${plan.lb_text})` : ''} · 로스중량 {fmt(plan.loss_weight, 2)}kg{plan.excess_weight > 0.005 ? ` · 초과생산 ${fmt(plan.excess_weight, 2)}kg` : ''}</span>
+                  <SheetFillLines plan={plan} />
+                </button>
+                : <button key={plan.id} type="button" className={`${classes.plan} ${chosenPlan?.id === plan.id ? classes.planSelected : ''}`} onClick={() => setPlanId(plan.id)}>
                 <span className={classes.planHead}><span>{plan.id}안 · {plan.combo === 'MIXED' ? (material === 'COIL' ? '혼합가공' : '혼합절단') : (material === 'COIL' ? (plan.item_pass ? '품목별 차수' : '단독가공') : '단독절단')}
                   {plan.id === plansList[0].id ? <span className={classes.recBadge}>추천</span> : null}
                   {material === 'COIL' && plan.ok_all ? <span className={classes.okBadge}>주문 충족</span> : null}
@@ -1110,9 +1270,12 @@ export default function AIOrderOptimization() {
                 {material === 'COIL' && <CoilFillLines plan={plan} />}
                 {plan.source && <span className={classes.planMeta}>가공이력 {plan.source} 반영{plan.actual_loss ? ` · 당시 실적 로스 ${fmt(plan.actual_loss, 0)}kg` : ''}</span>}
                 {plan.candidate_widths?.length > 0 && <span className={classes.planMeta}>가공 후보 {plan.candidate_widths.map((v) => `${fmt(v)}mm`).join(', ')} 포함 (발주품목 아님)</span>}
-              </button>) : !analyzing && shownAnalysis?.no_combo
+              </button>)) : !analyzing && shownAnalysis?.no_combo
                 ? <div className={classes.noCombo}><strong>{shownAnalysis.no_combo.title}</strong><span>{shownAnalysis.no_combo.desc}</span></div>
-                : <div className={classes.empty}>{analyzing ? '조합을 계산하는 중입니다.' : '추천 가능한 조합이 없습니다.'}</div>}</div>
+                : <div className={classes.empty}>{analyzing ? '조합을 계산하는 중입니다.' : '추천 가능한 조합이 없습니다.'}</div>}
+                {material === 'SHEET' && (shownAnalysis?.bad || []).map((bad) => <div key={bad.orientation} className={classes.orientNote}>{bad.label} : 배치 불가 ({bad.why})</div>)}</div>
+              {material === 'SHEET' && chosenPlan?.coil && chosenPlan.short_pcs > 0 && <div className={`${classes.status} ${classes.statusWarn}`}>
+                코일 재고로 {chosenPlan.short_text} 부족 (약 {fmt(chosenPlan.short_kg)}kg) → 시트 재고 또는 신규 매입으로 보충</div>}
               {(shownAnalysis?.notes?.length > 0 || chosenPlan?.rec_weights) && material === 'COIL' && <div className={`${classes.status} ${shownAnalysis?.notes_warn ? classes.statusWarn : ''}`}>
                 {(shownAnalysis?.notes || []).map((note) => <div key={note}>{note}</div>)}
                 {chosenPlan?.rec_weights && <button type="button" className={classes.recButton}
@@ -1121,10 +1284,11 @@ export default function AIOrderOptimization() {
             </div>
             <div className={classes.box}>
               {chosenPlan && raw ? <>
-                <div className={classes.vizHead}><span className={classes.vizName}>선택안 · {chosenPlan.id}안</span>
-                  <span className={classes.muted}>{material === 'COIL' ? `원코일 ${fmt(raw.raw_width)}mm` : `원판 ${fmt(raw.raw_width)} × ${fmt(raw.raw_length)}mm · ${settings.orientation === 'ROTATED' ? '90도 회전' : '기본'}`}</span></div>
-                {material === 'COIL' ? <CoilViz plan={chosenPlan} rawWidth={raw.raw_width} /> : <SheetViz plan={chosenPlan} rawWidth={raw.raw_width} rawLength={raw.raw_length} />}
-                <PlanResult plan={chosenPlan} material={material} notes={material === 'SHEET' ? shownAnalysis?.notes : null} />
+                <div className={classes.vizHead}><span className={classes.vizName}>{chosenPlan.coil ? '코일 길이 절단' : `선택안 · ${chosenPlan.id}안`}</span>
+                  <span className={classes.muted}>{material === 'COIL' ? `원코일 ${fmt(raw.raw_width)}mm` : chosenPlan.coil ? `${raw.itemname || ''} COIL · 폭 ${fmt(raw.raw_width)}mm` : `${chosenPlan.combo === 'MIXED' ? '혼합절단' : '단독절단'} · ${chosenPlan.olabel || ''}`}</span></div>
+                {material === 'COIL' ? <CoilViz plan={chosenPlan} rawWidth={raw.raw_width} />
+                  : chosenPlan.coil ? <div className={classes.noViz}><b>표시할 시각화 자료가 없습니다</b><span>코일 길이 절단은 배치 그림 없이 아래 표로 확인합니다</span></div> : <SheetViz plan={chosenPlan} rawWidth={raw.raw_width} rawLength={raw.raw_length} patIdx={patIdx} onPattern={pickPattern} />}
+                <PlanResult plan={chosenPlan} material={material} notes={material === 'SHEET' ? shownAnalysis?.notes : null} patIdx={patIdx} />
               </> : <div className={classes.empty}>조합을 선택하면 배치가 표시됩니다.</div>}
             </div>
           </Card>

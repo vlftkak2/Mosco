@@ -22,6 +22,7 @@ def get_documents(
     receiptno: str = Query(default="", max_length=100),
     customer: str = Query(default="", max_length=150),
     transactiontype: str = Query(default="", max_length=10),
+    focus_receiptno: str = Query(default="", max_length=30),
     user: dict = Depends(security_module.get_current_user),
 ):
     if date_from and date_to and date_from > date_to:
@@ -33,7 +34,7 @@ def get_documents(
             "success": True,
             **receipt_payment_module.list_documents(
                 user["companyid"], page, page_size, date_from, date_to,
-                receiptno, customer, transactiontype,
+                receiptno, customer, transactiontype, focus_receiptno,
             ),
         }
     except Exception as error:
@@ -49,6 +50,23 @@ def get_customers(
         return {"success": True, "customers": receipt_payment_module.search_customers(user["companyid"], q)}
     except Exception as error:
         raise HTTPException(status_code=500, detail="거래처 목록을 조회하지 못했습니다.") from error
+
+
+@router.get("/instrument-numbers")
+def check_instrument_numbers(
+    no: str = Query(..., min_length=1, max_length=100),
+    issuer: str = Query(default="", max_length=150),
+    transactiontype: str = Query(default="RECEIPT", max_length=10),
+    exclude_receiptno: str = Query(default="", max_length=30),
+    user: dict = Depends(security_module.get_current_user),
+):
+    """입력한 '어음번호 + 발행회사'가 같은 구분의 다른 전표에 이미 있는지 (화면에서 입력하자마자 알림용)."""
+    if transactiontype not in {"RECEIPT", "PAYMENT"}:
+        raise HTTPException(status_code=422, detail="수금/지급 구분 값이 올바르지 않습니다.")
+    try:
+        return {"success": True, "items": receipt_payment_module.find_instrument_numbers(user["companyid"], [(no, issuer)], transactiontype, exclude_receiptno)}
+    except Exception as error:
+        raise HTTPException(status_code=500, detail="어음번호를 확인하지 못했습니다.") from error
 
 
 @router.get("/held-instruments")

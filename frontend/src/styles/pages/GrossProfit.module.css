@@ -55,3 +55,6 @@
 /* 간결 디자인에서 표 글자를 키우면 매출일자 칸이 잘려서, 이 화면 표만 반 단계 작게 */
 .page.page table tbody td, .page.page table tfoot td { font-size: 12.5px !important; letter-spacing: -.1px; }
 
+
+/* 정렬 중인 칼럼 표시 */
+.sortMark { color: #c9373d; font-size: 10px; }

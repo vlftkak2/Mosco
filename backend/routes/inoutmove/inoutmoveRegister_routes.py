@@ -33,6 +33,7 @@ def get_available_stock(
     thickness: str = Query(default="", max_length=30),
     width: str = Query(default="", max_length=30),
     length: str = Query(default="", max_length=30),
+    warehousecode: str = Query(default="", max_length=50),   # 출고 창고 (코드 일치)
     user: dict = Depends(security_module.get_current_user),
 ):
     if date_from and date_to and date_from > date_to:
@@ -41,6 +42,7 @@ def get_available_stock(
         return {"success": True, **transfer_module.list_available_stock(
             user["companyid"], page, page_size, item_search, warehouse_search,
             sourcetype, receiptno, date_from, date_to, thickness, width, length,
+            warehousecode=warehousecode,
         )}
     except Exception as error:
         raise HTTPException(status_code=500, detail="이전 가능한 현재고를 조회하지 못했습니다.") from error

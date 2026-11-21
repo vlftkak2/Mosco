@@ -19,7 +19,7 @@ import own from '../../styles/pages/Workplace.module.css';
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const EMPTY = {
   ceoname: '', ownertype: 'CORP', businessno: '', corporationno: '', businesstype: '', industry: '',
-  openingdate: '', ledgerstartdate: '', phone: '', zipcode: '', address1: '', address2: '',
+  openingdate: '', ledgerstartdate: '', phone: '', fax: '', zipcode: '', address1: '', address2: '',
 };
 const errorText = (error, fallback) => {
   const detail = error.response?.data?.detail;
@@ -293,6 +293,7 @@ export default function Workplace() {
 
         <WpSection title="연락처 · 주소" hint="증명서와 거래명세서에 표시됩니다.">
           <Field label="전화번호"><TextInput aria-label="전화번호" value={form.phone} onChange={set('phone')} placeholder="02-0000-0000" /></Field>
+          <Field label="팩스번호"><TextInput aria-label="팩스번호" value={form.fax} onChange={set('fax')} placeholder="02-0000-0000" /></Field>
           <Field label="주소" full>
             {/* 우편번호 · 주소는 카카오 주소 검색으로만 채운다 (칸을 눌러도 검색이 열림) */}
             <div className={own.addressLine}>

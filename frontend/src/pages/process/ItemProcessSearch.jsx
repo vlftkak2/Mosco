@@ -30,12 +30,12 @@ const EMPTY_SUMMARY = {
 };
 const COLUMNS = [
   ['no', 'No.', 48], ['processdate', '가공일자', 105], ['customname', '가공처', 150],
-  ['warehousecodename', '창고', 120], ['detail_count', '상세건수', 86], ['qty', '수량', 90],
+  ['warehousecodename', '창고', 120], ['qty', '수량', 90],
   ['weight', '중량(KG)', 100], ['supplyamt', '공급가', 115], ['vat', '부가세', 105],
   ['unitamt', '합계금액', 120], ['processno', '가공전표', 160],
   ['manager', '담당자', 100], ['description', '비고', 180],
-  ['createdat', '등록일자', 145], ['updatedat', '수정일자', 145],
-  ['created_by', '등록자', 90], ['updated_by', '수정자', 90],
+  ['createdat', '등록일자', 145], ['created_by', '등록자', 90],
+  ['updatedat', '수정일자', 145], ['updated_by', '수정자', 90],
 ].map(([key, label, width]) => ({ key, label, width, minWidth: Math.min(width, 68) }));
 
 const makeDefaultFilters = () => {
@@ -262,16 +262,15 @@ export default function ItemProcessSearch() {
                   <Table.Td ta="center" className={classes.rowNumber}>{(page - 1) * pageSize + index + 1}</Table.Td>
                   <Table.Td ta="center" className={classes.num}>{displayDate(item.processdate)}</Table.Td>
                   <Table.Td title={item.customname || undefined}>{item.customname}</Table.Td><Table.Td title={item.warehousecodename || undefined}>{item.warehousecodename}</Table.Td>
-                  <Table.Td ta="center"><span className={classes.countPill}>{displayNumber(item.detail_count, 0)}</span></Table.Td>
                   <Table.Td ta="right" className={classes.num}>{displayNumber(item.qty)}</Table.Td>
                   <Table.Td ta="right" className={classes.num}>{displayNumber(item.weight)}</Table.Td>
                   <Table.Td ta="right" className={classes.num}>{displayNumber(item.supplyamt, 0)}</Table.Td>
                   <Table.Td ta="right" className={classes.num}>{displayNumber(item.vat, 0)}</Table.Td>
-                  <Table.Td ta="right" fw={600} className={`${classes.num} ${classes.amount}`}>{displayNumber(item.unitamt, 0)}</Table.Td>
+                  <Table.Td ta="right" className={classes.num}>{displayNumber(item.unitamt, 0)}</Table.Td>
                   <Table.Td><span className={classes.docNo}>{item.processno}</span></Table.Td>
                   <Table.Td>{item.manager}</Table.Td><Table.Td title={item.description || undefined}>{item.description}</Table.Td>
-                  <Table.Td className={classes.meta}>{displayDateTime(item.createdat)}</Table.Td><Table.Td className={classes.meta}>{displayDateTime(item.updatedat)}</Table.Td>
-                  <Table.Td className={classes.meta}>{item.created_by || ''}</Table.Td><Table.Td className={classes.meta}>{item.updated_by || ''}</Table.Td>
+                  <Table.Td className={classes.meta}>{displayDateTime(item.createdat)}</Table.Td><Table.Td className={classes.meta}>{item.created_by || ''}</Table.Td>
+                  <Table.Td className={classes.meta}>{displayDateTime(item.updatedat)}</Table.Td><Table.Td className={classes.meta}>{item.updated_by || ''}</Table.Td>
                 </Table.Tr>)}</Table.Tbody>
               </Table>
             </Box> : !loading && <Box className={classes.emptyState}>

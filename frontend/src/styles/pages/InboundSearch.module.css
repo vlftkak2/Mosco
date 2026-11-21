@@ -169,6 +169,8 @@
   table-layout: fixed;
   color: #26364e;
 }
+/* 표 맨 위 선은 위 제목줄 아랫선 하나만 (등록 화면 목록과 같게): 표 윗테두리가 겹쳐 두 줄로 보이던 것 제거 */
+.statusTable { border-top: 0 !important; }
 .statusTable thead th {
   position: sticky;
   top: 0;
@@ -275,3 +277,12 @@
 
 .statusTable th:nth-child(18),
 .statusTable th:nth-child(19) { width: 145px; }
+
+/* 매입현황 조회조건 '비용 포함': 얇은 선 상자 안 체크박스 목록 (빨간 강조, 한 줄 32px) */
+.costCheckList { overflow: hidden; border: 1px solid #d8dfe8; border-radius: 6px; background: #fff; }
+.costCheckRow { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; cursor: pointer; user-select: none; }
+.costCheckRow + .costCheckRow { border-top: 1px solid #eef1f5; }
+.costCheckRow:hover { background: #fafbfd; }
+.costCheckRow, .costCheckRow * { cursor: pointer !important; }  /* 체크박스·글자 어디를 눌러도 손가락 포인터 */
+.costCheckLabel { flex: 0 0 auto; color: #26364e; font-size: 13px; font-weight: 600; line-height: 1.2; }
+.costCheckRowOn .costCheckLabel { color: #c9373d; }

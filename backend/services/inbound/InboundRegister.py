@@ -42,6 +42,7 @@ class InboundDetailInput(BaseModel):
     warehousecode: str = Field(min_length=1, max_length=50)
     warehousecodename: str = Field(min_length=1, max_length=50)
     unit: str = Field(min_length=1, max_length=20)
+    description: str = Field(default="", max_length=500)  # 상세 비고
 
     @field_validator("myrtle", "thickness", "width", "length", mode="before")
     @classmethod
@@ -53,7 +54,7 @@ class InboundDetailInput(BaseModel):
     def blank_amount_to_none(cls, value):
         return None if value is None or not str(value).strip() else value
 
-    @field_validator("customcode", "customname", "itemcode", "itemname", "productname", "materialcode", "materialname", "surfacecode", "surfacename", "qtyunit", "warehousecode", "warehousecodename", "unit")
+    @field_validator("customcode", "customname", "itemcode", "itemname", "productname", "materialcode", "materialname", "surfacecode", "surfacename", "qtyunit", "warehousecode", "warehousecodename", "unit", "description")
     @classmethod
     def strip_text(cls, value: str) -> str:
         return value.strip()
@@ -62,6 +63,8 @@ class InboundDetailInput(BaseModel):
     def require_item_fields(self):
         if not self.itemcode or not self.itemname or not self.unit or not self.qtyunit or not self.warehousecode:
             raise ValueError("상세의 품목코드, 품목명, 수량, 수량단위, 창고, 단가기준은 필수입니다.")
+        if not self.materialcode or not self.materialname:
+            raise ValueError("상세의 강종은 필수입니다.")
         return self
 
 
@@ -149,6 +152,7 @@ def list_receipts(
     customcode: str = "",
     customname: str = "",
     warehouse: str = "",
+    focus_receiptno: str = "",
 ):
     where = ["h.companyid = %s"]
     params: list = [companyid]
@@ -183,20 +187,33 @@ def list_receipts(
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(f"SELECT COUNT(*) FROM Inbound01t AS h WHERE {where_sql}", params)
         total = cursor.fetchone()[0]
+        if focus_receiptno.strip():
+            # 저장한 전표가 들어 있는 쪽: 목록과 같은 정렬(매입일자, 매입처명, 전표번호)에서 몇 번째인지. 조건에 안 맞으면 요청한 쪽 그대로
+            cursor.execute(
+                f"""SELECT position FROM (
+                        SELECT h.receiptno, ROW_NUMBER() OVER (ORDER BY h.receptdate ASC, h.customname ASC, h.receiptno ASC) AS position
+                        FROM Inbound01t AS h WHERE {where_sql}) AS ordered
+                    WHERE receiptno = %s""",
+                (*params, focus_receiptno.strip()),
+            )
+            found = cursor.fetchone()
+            if found:
+                page = (int(found[0]) - 1) // page_size + 1
         # 헤더만 먼저 정렬·페이징한 뒤 그 전표들의 상세·기타비용만 집계한다 (전체 전표 집계 후 자르지 않음).
         cursor.execute(
             f"""
             WITH page AS (
                 SELECT h.companyid, h.receiptno, h.receptdate, h.customcode, h.customname, h.manager,
-                       h.description, h.subulyn, h.created_at
+                       h.description, h.subulyn, h.created_at, h.created_by
                 FROM Inbound01t AS h
                 WHERE {where_sql}
                 ORDER BY h.receptdate ASC, h.customname ASC, h.receiptno ASC
                 LIMIT %s OFFSET %s
             )
             SELECT p.receiptno, p.receptdate, p.customcode, p.customname, p.manager,
-                   COALESCE(NULLIF(BTRIM(p.description), ''), d.description) AS description,
+                   p.description,
                    p.subulyn, p.created_at,
+                   COALESCE((SELECT u.username FROM user01t u WHERE u.email = p.created_by LIMIT 1), p.created_by) AS created_by,
                    d.line_count, d.warehousecode, d.warehousecodename, d.total_qty, d.qtyunit,
                    d.total_weight, d.unit, d.supply_amount, d.vat_amount,
                    (d.supply_amount + d.vat_amount)::numeric(15, 2) AS total_amount,
@@ -204,7 +221,6 @@ def list_receipts(
             FROM page AS p
             CROSS JOIN LATERAL (
                 SELECT COUNT(d.lineno)::integer AS line_count,
-                       STRING_AGG(DISTINCT NULLIF(d.description, ''), ', ') AS description,
                        STRING_AGG(DISTINCT NULLIF(d.warehousecode, ''), ', ') AS warehousecode,
                        STRING_AGG(DISTINCT NULLIF(d.warehousecodename, ''), ', ') AS warehousecodename,
                        COALESCE(SUM(d.qty), 0)::numeric(15, 3) AS total_qty,
@@ -233,11 +249,7 @@ def get_receipt(companyid: str, receiptno: str):
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             """SELECT h.companyid, h.companyname, h.receiptno, h.receptdate, h.customcode, h.customname, h.manager,
-                      COALESCE(NULLIF(BTRIM(h.description), ''), (
-                          SELECT STRING_AGG(DISTINCT NULLIF(d.description, ''), ', ')
-                          FROM Inbound02t AS d
-                          WHERE d.companyid = h.companyid AND d.receiptno = h.receiptno
-                      )) AS description,
+                      h.description,
                       COALESCE(h.subulyn, 'N') AS subulyn,
                       h.created_at, h.updated_at
                FROM Inbound01t AS h WHERE h.companyid = %s AND h.receiptno = %s""",
@@ -255,7 +267,7 @@ def get_receipt(companyid: str, receiptno: str):
                       d.thickness, d.width, d.length, d.qty, d.qtyunit,
                       d.weight, d.unit, d.unitprice, d.supplyamt, d.vat, d.unitamt,
                       d.warehousecode, d.warehousecodename, d.materialcode, d.materialname,
-                      d.surfacecode, d.surfacename, d.myrtle, h.manager AS manager,
+                      d.surfacecode, d.surfacename, d.myrtle, h.manager AS manager, d.description,
                       d.created_at, COALESCE(d.updated_at, h.updated_at) AS updated_at,
                       COALESCE((SELECT u.username FROM user01t u WHERE u.email = d.created_by LIMIT 1), d.created_by) AS created_by,
                       COALESCE((SELECT u.username FROM user01t u WHERE u.email = COALESCE(d.updated_by, h.updated_by) LIMIT 1),
@@ -555,6 +567,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
                         weight, item["unit"].strip(), unitprice, supplyamt, vat, unitamt,
                         (item.get("warehousecode") or "").strip() or None,
                         warehouse_names.get((item.get("warehousecode") or "").strip()) or None,
+                        (item.get("description") or "").strip() or None,
                         actor or None,
                     ))
                 execute_values(
@@ -563,7 +576,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
                        (companyid, companyname, receiptno, lineno, itemcode, itemname, productname,
                         thickness, width, length, materialcode, materialname, surfacecode,
                         surfacename, myrtle, qty, qtyunit, weight, unit, unitprice,
-                        supplyamt, vat, unitamt, warehousecode, warehousecodename, created_by)
+                        supplyamt, vat, unitamt, warehousecode, warehousecodename, description, created_by)
                        VALUES %s""",
                     detail_values,
                     page_size=1000,

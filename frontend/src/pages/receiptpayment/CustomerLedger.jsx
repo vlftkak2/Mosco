@@ -26,9 +26,14 @@ const won = (value) => Math.round(toNumber(value)).toLocaleString('ko-KR');
 const blankZero = (value) => (Math.round(toNumber(value)) === 0 ? '' : won(value));
 const dateText = (value) => (value ? String(value).slice(0, 10) : '');
 const localDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+// 기본 조회기간: 당월 1일 ~ 당월 말일 (매입등록 조회조건과 같음)
 const makeDefaultFilters = () => {
   const today = new Date();
-  return { date_from: localDate(new Date(today.getFullYear(), today.getMonth(), 1)), date_to: localDate(today), keyword: '', balance_only: false };
+  return {
+    date_from: localDate(new Date(today.getFullYear(), today.getMonth(), 1)),
+    date_to: localDate(new Date(today.getFullYear(), today.getMonth() + 1, 0)),
+    keyword: '', balance_only: false, with_vat: false,
+  };
 };
 const errorMessage = (error, fallback) => error.response?.data?.detail || fallback;
 
@@ -128,7 +133,7 @@ const LedgerTable = memo(function LedgerTable({ ledger, columns }) {
       </tr>
       {ledger.lines.map((line, index) => <tr key={`${line.kind}:${line.docno}:${index}`}>
         <td className={classes.center}>{dateText(line.entrydate)}</td>
-        <td className={classes.center}><span className={`${classes.kind} ${classes[`kind${line.kind}`] || ''}`}>{line.kindname}</span></td>
+        <td className={classes.center}><span className={`${classes.kind} ${classes[`kind${line.kind === 'COST' ? 'PURCHASE' : line.kind}`] || ''}`}>{line.kindname}</span></td>
         <td title={line.docno}>{line.docno}</td>
         <td title={line.summary}>{line.summary}</td>
         {['sales', 'receipt', 'recv_balance', 'purchase', 'payment', 'pay_balance'].map((key, offset) => {
@@ -152,7 +157,7 @@ const LedgerTable = memo(function LedgerTable({ ledger, columns }) {
   </table>;
 });
 
-const FilterSidebar = memo(function FilterSidebar({ filterInputs, setFilterInputs, onSearch, onClose, startDate, canEditStart, onSaveStart }) {
+const FilterSidebar = memo(function FilterSidebar({ filterInputs, setFilterInputs, onSearch, onToggleVat, onClose, startDate, canEditStart, onSaveStart }) {
   const [startInput, setStartInput] = useState(startDate || '');
   const [editingStart, setEditingStart] = useState(false);
   const [lastStart, setLastStart] = useState(startDate);
@@ -168,8 +173,21 @@ const FilterSidebar = memo(function FilterSidebar({ filterInputs, setFilterInput
       </Stack></Box>
       <TextInput label="거래처" placeholder="거래처코드 또는 거래처명" value={filterInputs.keyword} onKeyDown={onKeyDown}
         onChange={(event) => { const { value } = event.currentTarget; setFilterInputs((current) => ({ ...current, keyword: value })); }} />
-      <Checkbox size="xs" color="red" label="잔액이 남은 거래처만" checked={filterInputs.balance_only}
-        onChange={(event) => { const { checked } = event.currentTarget; setFilterInputs((current) => ({ ...current, balance_only: checked })); }} />
+      {/* 매입현황 '비용 포함'과 같은 체크 목록. 합계금액 기준은 켜면 바로 다시 계산 (기본은 공급가 기준) */}
+      <Box>
+        <Text className={searchClasses.filterGroupLabel}>표시 옵션</Text>
+        <Box className={searchClasses.costCheckList}>
+          <label className={`${searchClasses.costCheckRow} ${filterInputs.balance_only ? searchClasses.costCheckRowOn : ''}`} title="기말 미수금 또는 미지급금이 남은 거래처만 보기">
+            <Checkbox size="xs" color="red" checked={filterInputs.balance_only}
+              onChange={(event) => { const { checked } = event.currentTarget; setFilterInputs((current) => ({ ...current, balance_only: checked })); }} />
+            <span className={searchClasses.costCheckLabel}>잔액이 남은 거래처만</span>
+          </label>
+          <label className={`${searchClasses.costCheckRow} ${filterInputs.with_vat ? searchClasses.costCheckRowOn : ''}`} title="끄면 공급가 기준, 켜면 공급가 + 부가세 기준 (기타비용 포함)">
+            <Checkbox size="xs" color="red" checked={filterInputs.with_vat} onChange={(event) => onToggleVat(event.currentTarget.checked)} />
+            <span className={searchClasses.costCheckLabel}>합계금액 기준 (부가세 포함)</span>
+          </label>
+        </Box>
+      </Box>
     </Stack>
     <div className={classes.startBox}>
       <div className={classes.startHead}><span>원장 시작일</span>
@@ -218,6 +236,7 @@ export default function CustomerLedger() {
       const { data } = await axios.get('/api/customer-ledger/balances', { ...authConfig(), params: {
         date_from: requestFilters.date_from, date_to: requestFilters.date_to,
         keyword: requestFilters.keyword || undefined, balance_only: requestFilters.balance_only || undefined,
+        with_vat: requestFilters.with_vat || undefined,
       } });
       if (requestId !== balanceRequestRef.current) return;
       setBalances({ items: data.items || [], totals: data.totals || {}, ledgerstartdate: data.ledgerstartdate || null });
@@ -233,7 +252,7 @@ export default function CustomerLedger() {
     if (!ckey) { setLedger(null); setLoadingLedger(false); return; }
     setLoadingLedger(true);
     try {
-      const { data } = await axios.get('/api/customer-ledger/ledger', { ...authConfig(), params: { ckey, date_from: requestFilters.date_from, date_to: requestFilters.date_to } });
+      const { data } = await axios.get('/api/customer-ledger/ledger', { ...authConfig(), params: { ckey, date_from: requestFilters.date_from, date_to: requestFilters.date_to, with_vat: requestFilters.with_vat || undefined } });
       if (requestId !== ledgerRequestRef.current) return;
       setLedger({ ...data, date_from: requestFilters.date_from });
     } catch (error) {
@@ -259,6 +278,12 @@ export default function CustomerLedger() {
     }
     setFilters({ ...filterInputs, keyword: filterInputs.keyword.trim() });
   }, [filterInputs]);
+
+  // 금액 기준은 조회 버튼 없이 바로 반영 (기간 · 거래처 조건은 조회한 값 그대로)
+  const toggleVat = useCallback((checked) => {
+    setFilterInputs((current) => ({ ...current, with_vat: checked }));
+    setFilters((current) => ({ ...current, with_vat: checked }));
+  }, []);
 
   const saveStartDate = useCallback(async (value) => {
     try {
@@ -302,7 +327,7 @@ export default function CustomerLedger() {
         XLSX.utils.book_append_sheet(workbook, ledgerSheet, '거래처원장');
       }
       const name = ledger ? `_${String(ledger.customer.customname || '').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 40)}` : '';
-      XLSX.writeFile(workbook, `거래처원장${name}_${filters.date_from.replaceAll('-', '')}_${filters.date_to.replaceAll('-', '')}.xlsx`);
+      XLSX.writeFile(workbook, `거래처원장${name}_${filters.with_vat ? '합계금액' : '공급가'}_${filters.date_from.replaceAll('-', '')}_${filters.date_to.replaceAll('-', '')}.xlsx`);
     } catch {
       notifications.show({ title: '엑셀 다운로드 실패', message: '거래처원장을 파일로 저장하지 못했습니다.', color: 'red' });
     } finally {
@@ -351,6 +376,7 @@ export default function CustomerLedger() {
               <div className={classes.toolbarTitle}>
                 <Text className={searchClasses.sectionTitle} fw={700}>거래처별 잔액</Text>
                 <Badge color="gray" variant="light">{balances.items.length.toLocaleString()}곳</Badge>
+                <Text size="xs" c="dimmed">{filters.with_vat ? '합계금액 기준 (부가세 포함)' : '공급가 기준'}</Text>
               </div>
               <div className={classes.closingChips}>
                 <span className={`${classes.chip} ${classes.chipRecv}`}>미수금 합계<b>{won(balances.totals.recv_close)}</b></span>
@@ -382,7 +408,7 @@ export default function CustomerLedger() {
           </Paper>
         </div>
 
-        {filterOpen && <FilterSidebar filterInputs={filterInputs} setFilterInputs={setFilterInputs} onSearch={runSearch} onClose={() => setFilterOpen(false)}
+        {filterOpen && <FilterSidebar filterInputs={filterInputs} setFilterInputs={setFilterInputs} onSearch={runSearch} onToggleVat={toggleVat} onClose={() => setFilterOpen(false)}
           startDate={balances.ledgerstartdate ? dateText(balances.ledgerstartdate) : ''} canEditStart={canEditStart} onSaveStart={saveStartDate} />}
       </Box>
     </Box>

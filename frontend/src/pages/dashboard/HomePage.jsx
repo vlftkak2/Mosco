@@ -316,25 +316,61 @@ export default function HomePage() {
   const recentIn = useMemo(() => filterRows(data?.recent_inbound), [data, filterRows]);
   const recentOut = useMemo(() => filterRows(data?.recent_outbound), [data, filterRows]);
 
+  // 카드 마우스 올림: 숫자 구성 (각 메뉴와 같은 기준)
+  const breakdowns = {};
+  if (data) {
+    breakdowns.sales = { title: '매출 구성', rows: [
+      { op: '', label: '판매 (매출 공급가)', hint: '매출등록 품목 공급가', value: won(sales.total.sales_goods) },
+      { op: '+', label: '매출비용(+)', hint: "매출 기타비용 중 비용여부 '아니오' (매출처 부담)", value: won(sales.total.sales_plus) },
+      { op: '=', label: '매출', value: won(sales.total.sales), strong: true },
+      { op: '', label: '판매중량', value: tons(sales.total.weight) },
+      { op: '', label: '매출 전표', value: `${toNumber(sales.total.slips)}장` },
+    ], note: '부가세 제외 · 공급가 기준 · 누르면 매출현황' };
+    breakdowns.purchase = { title: '매입 구성', rows: [
+      { op: '=', label: '매입 (품목 공급가)', hint: '매입등록 품목 공급가', value: won(purchase.total.amount), strong: true },
+      { op: '', label: '매입 기타비용', hint: `${toNumber(purchase.total.expense?.count)}건 · 카드 금액과 별도 (재고 원가에 포함)`, value: won(purchase.total.expense?.amount) },
+      { op: '', label: '매입중량', value: tons(purchase.total.weight) },
+      { op: '', label: '매입 전표', value: `${toNumber(purchase.total.count)}장` },
+    ], note: '부가세 제외 · 누르면 매입현황' };
+    if (profit) breakdowns.profit = { title: '매출이익 계산', rows: [
+      { op: '', label: '매출', value: won(profit.total.sales) },
+      { op: '−', label: '매출원가', hint: `매입금액 ${won(profit.total.purchase_amt)} + 매입비용 ${won(profit.total.purchase_cost)} + 가공비 ${won(profit.total.process_amt)} + 원재료비 ${won(profit.total.material_amt)}`, value: won(profit.total.cost_of_goods) },
+      { op: '−', label: '판매비용', hint: "매출 기타비용 중 비용여부 '예'", value: won(profit.total.selling_cost) },
+      { op: '=', label: '매출이익', value: won(profit.total.profit), strong: true },
+      { op: '', label: '매출이익률', hint: '매출이익 ÷ 매출', value: pctText(profit.total.margin_rate) },
+    ], note: '누르면 매출이익요약' };
+    if (balance) breakdowns.recv = { title: '미수금 계산 (오늘 기준)', rows: [
+      { op: '=', label: '미수금 (채권)', hint: '기초 + 매출 − 수금 · 거래처원장 합계와 같음', value: won(balance.receivable), strong: true },
+      ...(toNumber(balance.advance_amount) ? [{ op: '·', label: '그중 선수금', hint: `미수금이 마이너스인 거래처 ${toNumber(balance.advance_count)}곳`, value: won(-toNumber(balance.advance_amount)) }] : []),
+      ...(balance.aging || []).filter((row) => toNumber(row.amount)).map((row) => ({ op: '·', label: row.label, value: won(row.amount) })),
+      { op: '', label: '미지급금 (참고)', value: won(balance.payable) },
+    ], note: '공급가 기준 · 누르면 채권채무요약' };
+    breakdowns.stock = { title: '현재고 구성 (오늘 기준)', rows: [
+      { op: '=', label: '재고 중량', hint: `${toNumber(stock.lots).toLocaleString('ko-KR')}개 로트`, value: tons(stock.total_weight), strong: true },
+      { op: '', label: '재고금액', hint: '남은 원가 (매입비용 · 가공원가 포함)', value: won(stock.total_amount) },
+      ...(stock.buckets || []).filter((row) => toNumber(row.weight)).map((row) => ({ op: '·', label: row.label, hint: won(row.amount), value: tons(row.weight) })),
+    ], note: '입고일(원전표) 기준 경과 · 누르면 현재고' };
+  }
+
   const kpis = [];
   if (data) {
-    kpis.push({ key: 'sales', tone: 'sales', icon: IconChartBar, label: '매출', basis: '조회기간 · 공급가액', value: Math.round(toNumber(sales.total.sales)).toLocaleString('ko-KR'),
+    kpis.push({ key: 'sales', tone: 'sales', icon: IconChartBar, label: '매출', basis: '판매 + 매출비용(+)', value: Math.round(toNumber(sales.total.sales)).toLocaleString('ko-KR'),
       trend: <Trend current={sales.total.sales} previous={sales.prev.sales} />,
       stats: [{ label: '판매중량', value: tons(sales.total.weight) }, { label: '매출 전표', value: `${toNumber(sales.total.slips)}장` }],
       onClick: go('OUTBOUND_SEARCH', '/OutboundSearchPage') });
-    kpis.push({ key: 'purchase', tone: 'purchase', icon: IconShoppingCart, label: '매입', basis: '조회기간 · 공급가액', value: Math.round(toNumber(purchase.total.amount)).toLocaleString('ko-KR'),
+    kpis.push({ key: 'purchase', tone: 'purchase', icon: IconShoppingCart, label: '매입', basis: '매입 공급가 합계', value: Math.round(toNumber(purchase.total.amount)).toLocaleString('ko-KR'),
       trend: <Trend current={purchase.total.amount} previous={purchase.prev.amount} neutral />,
       stats: [{ label: '매입중량', value: tons(purchase.total.weight) }, { label: '매입 전표', value: `${toNumber(purchase.total.count)}장` }],
       onClick: go('INBOUND_SEARCH', '/InboundSearchPage') });
-    if (profit) kpis.push({ key: 'profit', tone: 'profit', icon: IconTrendingUp, label: '매출이익', basis: '조회기간 · 매출 − 비용', value: Math.round(toNumber(profit.total.profit)).toLocaleString('ko-KR'),
+    if (profit) kpis.push({ key: 'profit', tone: 'profit', icon: IconTrendingUp, label: '매출이익', basis: '매출 − 비용', value: Math.round(toNumber(profit.total.profit)).toLocaleString('ko-KR'),
       trend: <Trend current={profit.total.profit} previous={profit.prev.profit} />,
       stats: [{ label: '매출이익률', value: pctText(profit.total.margin_rate) }, { label: '톤당 이익', value: toNumber(sales.total.weight) > 0 ? `${compact((toNumber(profit.total.profit) / toNumber(sales.total.weight)) * 1000)}원` : '–' }],
       onClick: go('GROSS_PROFIT_DASHBOARD', '/GrossProfitDashboard') });
-    if (balance) kpis.push({ key: 'recv', tone: 'recv', icon: IconCoins, label: '미수금', basis: '오늘 기준 · 받을 금액', value: Math.round(toNumber(balance.receivable)).toLocaleString('ko-KR'),
+    if (balance) kpis.push({ key: 'recv', tone: 'recv', icon: IconCoins, label: '미수금', basis: '채권 (오늘 기준)', value: Math.round(toNumber(balance.receivable)).toLocaleString('ko-KR'),
       trend: <PillNote>{balance.receivable_customers}곳에 남아 있음</PillNote>,
       stats: [{ label: '30일 넘은 미수금', value: toNumber(balance.late) > 0 ? `${compact(balance.late)}원` : '없음', warn: toNumber(balance.late) > 0 }, { label: '미지급금', value: `${compact(balance.payable)}원` }],
       onClick: go('CUSTOMER_BALANCE_DASHBOARD', '/CustomerBalanceDashboard') });
-    kpis.push({ key: 'stock', tone: 'stock', icon: IconBox, label: '현재고', basis: '오늘 기준 · 중량', value: (toNumber(stock.total_weight) / 1000).toLocaleString('ko-KR', { maximumFractionDigits: 1 }), unit: '톤',
+    kpis.push({ key: 'stock', tone: 'stock', icon: IconBox, label: '현재고', basis: '재고 중량 (오늘 기준)', value: (toNumber(stock.total_weight) / 1000).toLocaleString('ko-KR', { maximumFractionDigits: 1 }), unit: '톤',
       trend: <PillNote>재고금액 {compact(stock.total_amount)}원</PillNote>,
       stats: [{ label: '1년 넘은 재고', value: tons(stock.long_weight), warn: toNumber(stock.long_weight) > 0 }, { label: '장기재고 비중', value: toNumber(stock.total_weight) ? `${((toNumber(stock.long_weight) / toNumber(stock.total_weight)) * 100).toFixed(1)}%` : '–' }],
       onClick: go('STOCK_CURRENT', '/CurrentStockPage') });
@@ -355,7 +391,7 @@ export default function HomePage() {
 
       <div className={classes.scroll}>
         {data ? <KpiGrid count={kpis.length}>
-          {kpis.map(({ key, ...kpi }) => <Kpi key={key} {...kpi} />)}
+          {kpis.map(({ key, ...kpi }) => <Kpi key={key} breakdown={breakdowns[key]} {...kpi} />)}
         </KpiGrid> : <Empty loading={loading} />}
 
         <div className={classes.row2_1}>
