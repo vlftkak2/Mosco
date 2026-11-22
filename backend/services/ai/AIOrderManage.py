@@ -69,8 +69,43 @@ def as_dict(row):
     return result
 
 
+def orders_by_analysis(companyid, request_id):
+    """이 분석(발주서 파일)으로 저장된 주문 목록. 같은 파일을 [새 주문으로 저장]한 주문(복사한 분석 기록)도 함께 찾는다."""
+    with connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT o.orderid, o.created_at
+                FROM aiorder01t o
+                JOIN aiorderanalysis01t a ON a.request_id = o.analysis_request_id
+                WHERE o.companyid = %s
+                  AND a.file_sha256 = (SELECT file_sha256 FROM aiorderanalysis01t WHERE companyid = %s AND request_id = %s)
+                ORDER BY o.created_at DESC
+            """, (companyid, companyid, request_id))
+            return [{"orderid": row["orderid"], "created_at": row["created_at"].isoformat() if row["created_at"] else None} for row in cur.fetchall()]
+
+
+def _copy_analysis(cur, companyid, request_id):
+    """[새 주문으로 저장]: 주문 1건 = 분석 기록 1건(유니크)이라 같은 분석 결과를 새 번호로 복사한다.
+    토큰 · 비용은 0 (실제 분석을 다시 하지 않았으므로), 원래 분석 완료 시각을 그대로 둬 캐시 조회 순서도 바뀌지 않는다."""
+    cur.execute("""
+        INSERT INTO aiorderanalysis01t
+            (request_id, companyid, companyname, username, useremail, sourcefilename, file_sha256, model, status,
+             input_tokens, output_tokens, reasoning_tokens, cached_input_tokens, reserved_cost_usd, estimated_cost_usd,
+             extraction, error_type, completed_at)
+        SELECT gen_random_uuid(), companyid, companyname, username, useremail, sourcefilename, file_sha256, model, status,
+               0, 0, 0, 0, 0, 0, extraction, 'reorder_copy', completed_at
+        FROM aiorderanalysis01t WHERE companyid = %s AND request_id = %s
+        RETURNING request_id
+    """, (companyid, request_id))
+    row = cur.fetchone()
+    if not row:
+        raise ValueError("복사할 분석 결과를 찾을 수 없습니다.")
+    return str(row["request_id"])
+
+
 def confirm_order(companyid, companyname, username, email, payload):
     request_id = str(payload.analysis_request_id)
+    force_new = bool(getattr(payload, "force_new", False))
     with connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             # The analysis record proves that this file was analyzed for this tenant and user.
@@ -86,7 +121,8 @@ def confirm_order(companyid, companyname, username, email, payload):
                 WHERE companyid = %s AND analysis_request_id = %s
             """, (companyid, request_id))
             existing = cur.fetchone()
-            if existing:
+            if existing and not force_new:
+                # 저장하지 않고 알려 준다 → 화면에서 [기존 주문 열기] / [새 주문으로 저장] / [취소] 를 고른다
                 return {"orderid": existing["orderid"], "already_confirmed": True}
 
             # 주문서 관리 저장과 같은 필수값: 품명 · 강종 · 수량 · 중량 (숫자 또는 AI 원문 값)
@@ -115,8 +151,10 @@ def confirm_order(companyid, companyname, username, email, payload):
                 WHERE companyid = %s AND analysis_request_id = %s
             """, (companyid, request_id))
             existing = cur.fetchone()
-            if existing:
+            if existing and not force_new:
                 return {"orderid": existing["orderid"], "already_confirmed": True}
+            if existing:
+                request_id = _copy_analysis(cur, companyid, request_id)
             cur.execute("""
                 SELECT COALESCE(MAX(substring(orderid from %s)::integer), 0) AS last_number
                 FROM aiorder01t WHERE companyid = %s AND orderid ~ %s
@@ -150,7 +188,8 @@ def confirm_order(companyid, companyname, username, email, payload):
     return {"orderid": orderid, "already_confirmed": False}
 
 
-def list_orders(companyid, start_date=None, end_date=None, buyer=None, orderid=None, page=1, page_size=30, progress=None):
+def list_orders(companyid, start_date=None, end_date=None, buyer=None, orderid=None, page=1, page_size=30, progress=None, focus=None):
+    """focus = 보여 줄 주문번호: 같은 조건 · 정렬에서 그 주문이 있는 쪽(page)을 돌려준다 (저장 직후 전체 목록에서 그 주문에 포커스)."""
     clauses = ["h.companyid = %s"]
     args = [companyid]
     for condition, value in (
@@ -168,6 +207,14 @@ def list_orders(companyid, start_date=None, end_date=None, buyer=None, orderid=N
     with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(f"SELECT COUNT(*) AS total FROM aiorder01t h WHERE {where}", args)
         total = cur.fetchone()["total"]
+        if focus:
+            cur.execute(f"""SELECT COUNT(*) AS before FROM aiorder01t h, aiorder01t f
+                            WHERE {where} AND f.companyid = h.companyid AND f.orderid = %s
+                              AND (COALESCE(h.orderdate, DATE '9999-12-31'), h.orderid) < (COALESCE(f.orderdate, DATE '9999-12-31'), f.orderid)""", args + [focus])
+            before = cur.fetchone()
+            cur.execute(f"SELECT 1 FROM aiorder01t h WHERE {where} AND h.orderid = %s", args + [focus])
+            if cur.fetchone() and before:
+                page = int(before["before"]) // page_size + 1
         cur.execute(f"""
             SELECT h.orderid, h.buyer, h.recipient, h.orderdate, h.duedate, h.deliverylocation,
                    h.username, h.useremail, h.created_at, h.updated_at,
@@ -179,9 +226,10 @@ def list_orders(companyid, start_date=None, end_date=None, buyer=None, orderid=N
                     WHERE d.companyid=h.companyid AND d.orderid=h.orderid) AS total_weight,
                    {_PROGRESS_SQL} AS progress
             FROM aiorder01t h WHERE {where}
-            ORDER BY h.created_at DESC, h.orderid DESC LIMIT %s OFFSET %s
+            -- 주문일자 오름차순 (주문일자 없는 주문은 맨 뒤), 같은 날은 주문번호 순
+            ORDER BY COALESCE(h.orderdate, DATE '9999-12-31') ASC, h.orderid ASC LIMIT %s OFFSET %s
         """, args + [page_size, (page - 1) * page_size])
-        return {"total": total, "items": [as_dict(row) for row in cur.fetchall()]}
+        return {"total": total, "page": page, "items": [as_dict(row) for row in cur.fetchall()]}
 
 
 def get_order(companyid, orderid):
@@ -380,6 +428,31 @@ def cancel_order(companyid, orderid):
     return True
 
 
+def _fmt_mm(value) -> str:
+    return f"{float(value):,.1f}".rstrip("0").rstrip(".")
+
+
+def stock_fit_problem(item_width, item_length, stock_width, stock_length) -> str | None:
+    """시트 주문 품목에 이 재고(폭 × 길이)를 가공할 수 없으면 이유, 가능하면 None.
+    기본: 제품 폭 ≤ 재고 폭 · 제품 길이 ≤ 재고 길이 / 90도 회전: 제품 폭 ≤ 재고 길이 · 제품 길이 ≤ 재고 폭.
+    코일 주문(길이 없음)은 검사하지 않고, 코일 재고(길이 없음)는 폭만 본다 (길이로 잘라 씀)."""
+    iw, il = float(item_width or 0), float(item_length or 0)
+    sw, sl = float(stock_width or 0), float(stock_length or 0)
+    eps = 1e-6
+    if iw <= 0 or il <= 0:
+        return None
+    if sl <= 0:
+        return None if sw + eps >= iw else f"재고 폭 {_fmt_mm(sw)}mm가 제품 폭 {_fmt_mm(iw)}mm보다 좁아 가공할 수 없습니다"
+    if (iw <= sw + eps and il <= sl + eps) or (iw <= sl + eps and il <= sw + eps):
+        return None
+    parts = []
+    if iw > sw + eps:
+        parts.append(f"재고 폭 {_fmt_mm(sw)}mm가 제품 폭 {_fmt_mm(iw)}mm보다 좁아")
+    if il > sl + eps:
+        parts.append(f"재고 길이 {_fmt_mm(sl)}mm가 제품 길이 {_fmt_mm(il)}mm보다 짧아")
+    return (" · ".join(parts) or "90도 회전해도 제품이 들어가지 않아") + " 가공할 수 없습니다"
+
+
 def save_stock_matches(companyid, orderid, lineno, sources, actor=None):
     """Replace the stock links for one tenant-owned order line. Empty = 연결 초기화."""
     normalized = []
@@ -395,7 +468,7 @@ def save_stock_matches(companyid, orderid, lineno, sources, actor=None):
 
     with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("""
-            SELECT companyname, optimize_status FROM aiorder02t
+            SELECT companyname, optimize_status, width, length FROM aiorder02t
             WHERE companyid=%s AND orderid=%s AND lineno=%s FOR UPDATE
         """, (companyid, orderid, lineno))
         line = cur.fetchone()
@@ -410,7 +483,7 @@ def save_stock_matches(companyid, orderid, lineno, sources, actor=None):
             for source in normalized:
                 params.extend(source)
             cur.execute(f"""
-                SELECT sourcetype, sourceno, sourceline, warehousecode, warehousecodename
+                SELECT sourcetype, sourceno, sourceline, warehousecode, warehousecodename, width, length
                 FROM currentstock01t
                 WHERE companyid=%s AND (qty > 0 OR weight > 0)
                   AND (sourcetype, sourceno, sourceline) IN ({tuples_sql})
@@ -426,6 +499,11 @@ def save_stock_matches(companyid, orderid, lineno, sources, actor=None):
             if len(warehouses) > 1:
                 raise ValueError("한 품목에는 같은 창고의 재고만 연결할 수 있습니다. 선택한 창고: "
                                  + ", ".join(sorted(name or code or "창고 없음" for code, name in warehouses)))
+            # 제품이 들어가지 않는 재고는 연결하지 않는다 (기본 · 90도 회전 둘 다 불가)
+            for row in stock_rows:
+                problem = stock_fit_problem(line["width"], line["length"], row["width"], row["length"])
+                if problem:
+                    raise ValueError(f"{row['sourceno']}-{row['sourceline']}: {problem}.")
             # 다른 주문 품목과 같은 현재고를 함께 연결할 수 있다 (재고량은 주문 중량 비율로 배분: stock_links.stock_shares)
 
         cur.execute("DELETE FROM aiorder03t WHERE companyid=%s AND orderid=%s AND lineno=%s", (companyid, orderid, lineno))
@@ -511,7 +589,8 @@ def _like_pattern(text):
 
 
 def stock_candidates(companyid, orderid, lineno, thickness_from=None, thickness_to=None, page=1, page_size=50,
-                     itemname=None, surface=None, width=None, length=None, warehouse=None):
+                     itemname=None, surface=None, width=None, length=None, warehouse=None, productname=None, steelgrade=None,
+                     name_exact=False):
     """Current stock list for the matching modal; the person in charge chooses the rows.
 
     Optional filters entered in the modal: item name (LIKE %품명%; defaults to the order item
@@ -537,7 +616,11 @@ def stock_candidates(companyid, orderid, lineno, thickness_from=None, thickness_
     # Only fixed SQL fragments are added here; every value stays a bound parameter.
     filters = ["s.companyid=%(companyid)s", "(s.qty>0 OR s.weight>0)"]
     params = {"companyid": companyid}
-    if search_name:
+    if search_name and name_exact:
+        # 품명 일치 (대소문자 · 앞뒤 공백 무시): 'GI SHEET' 는 'EGI SHEET' 를 찾지 않는다
+        filters.append("(UPPER(BTRIM(s.itemname)) = UPPER(%(exact_name)s) OR UPPER(BTRIM(m.itemname)) = UPPER(%(exact_name)s))")
+        params["exact_name"] = search_name
+    elif search_name:
         filters.append("(s.itemname ILIKE %(pattern)s ESCAPE '\\' OR m.itemname ILIKE %(pattern)s ESCAPE '\\')")
         params["pattern"] = "%" + search_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
     if thickness_from is not None:
@@ -550,6 +633,15 @@ def stock_candidates(companyid, orderid, lineno, thickness_from=None, thickness_
     if surface_text:
         filters.append("(s.surfacename ILIKE %(surface)s ESCAPE '\\' OR s.surfacecode ILIKE %(surface)s ESCAPE '\\')")
         params["surface"] = _like_pattern(surface_text)
+    # 제품명 · 강종 (입력한 경우만, 포함 검색)
+    product_text = str(productname or "").strip()
+    if product_text:
+        filters.append("COALESCE(s.productname, '') ILIKE %(productname)s ESCAPE '\\'")
+        params["productname"] = _like_pattern(product_text)
+    grade_text = str(steelgrade or "").strip()
+    if grade_text:
+        filters.append("(s.materialname ILIKE %(steelgrade)s ESCAPE '\\' OR s.materialcode ILIKE %(steelgrade)s ESCAPE '\\')")
+        params["steelgrade"] = _like_pattern(grade_text)
     if width is not None:
         filters.append("s.width = %(width)s")
         params["width"] = width
@@ -585,13 +677,19 @@ def stock_candidates(companyid, orderid, lineno, thickness_from=None, thickness_
               ON m.companyid=s.companyid AND m.itemcode=s.itemcode
             WHERE {where_sql}
             ORDER BY
+              -- 가공 가능한 재고 먼저 (stock_fit_problem 과 같은 규칙: 기본 또는 90도 회전으로 제품이 들어감 · 코일 재고는 폭만 · 코일 주문은 검사 없음)
+              CASE WHEN %(ow)s::numeric IS NULL OR COALESCE(%(ol)s::numeric, 0) <= 0 THEN 0
+                   WHEN COALESCE(s.length, 0) <= 0 THEN CASE WHEN s.width >= %(ow)s::numeric THEN 0 ELSE 1 END
+                   WHEN (%(ow)s::numeric <= s.width AND %(ol)s::numeric <= s.length)
+                     OR (%(ow)s::numeric <= s.length AND %(ol)s::numeric <= s.width) THEN 0
+                   ELSE 1 END,
               CASE WHEN %(ot)s::numeric IS NOT NULL AND s.thickness = %(ot)s::numeric
                          AND (%(ow)s::numeric IS NULL OR s.width IS NULL OR s.width = %(ow)s::numeric)
                          AND (%(ol)s::numeric IS NULL OR s.length IS NULL OR s.length = %(ol)s::numeric) THEN 1
                    WHEN %(ot)s::numeric IS NOT NULL AND s.thickness = %(ot)s::numeric THEN 2
                    ELSE 3 END,
               ABS(s.thickness - COALESCE(%(ot)s::numeric, 0)),
-              s.qty DESC, s.width, s.itemcode, s.warehousecode, s.sourcetype, s.sourceno, s.sourceline
+              s.receiptdate ASC NULLS LAST, s.qty DESC, s.width, s.itemcode, s.warehousecode, s.sourcetype, s.sourceno, s.sourceline
             LIMIT %(limit)s OFFSET %(offset)s
         """, {**params, "orderid": orderid, "lineno": lineno,
               "ot": order_thick, "ow": order_width, "ol": order_length,

@@ -180,3 +180,42 @@
 .simple .footerActions :global(.mantine-Button-root) { height: 34px; min-width: 76px; border-radius: 4px; font-size: 13px; font-weight: 500; }
 .simple .footerActions :global(.mantine-Button-root[data-variant="default"]) { border-color: #cccccc; color: #333; }
 
+
+/* look="saas" (가공 최적화 대기 품목 · 계획 불러오기): 흰 바탕 · 옅은 선 · 둥근 모서리 · 진한 글자 */
+.content.saas { border-radius: 16px !important; box-shadow: 0 24px 60px rgba(15, 23, 42, .18) !important; }
+.saas .header { min-height: 80px !important; padding: 18px 24px !important; border-bottom-color: #eef1f4; background: #fff; }
+.saas .headingIcon { flex-basis: 40px; width: 40px; height: 40px; border: 0; border-radius: 12px; background: #fdecec; color: #e0434b; }
+.saas .headingLine strong { color: #0f172a; font-size: 17.5px; font-weight: 800; letter-spacing: -0.02em; }
+.saas .badge { border-color: #fecaca; background: #fef2f2; color: #c9353d; font-weight: 700; }
+.saas .heading p { color: #64748b; font-size: 12.5px; }
+.saas .workspace { gap: 14px; padding: 18px 24px; background: #f8fafc; }
+.saas .filters :global(.mantine-InputWrapper-label) { color: #475569; font-weight: 700; }
+.saas .filters :global(.mantine-Input-input) { border-color: #cbd5e1; border-radius: 8px; background: #fff; }
+.saas .filters :global(.mantine-Input-input:focus) { border-color: #e0434b; box-shadow: 0 0 0 3px #fef2f2; }
+.saas .filters :global(.mantine-Button-root) { border-radius: 8px; }
+.saas .guide { border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; color: #475569; font-size: 12.5px; }
+.saas .guide > svg { color: #94a3b8; }
+.saas .criteria { color: #0f172a; }
+.saas .criteria b { color: #64748b; }
+.saas .list { border-color: #e2e8f0; border-radius: 12px; box-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 1px 3px rgba(15, 23, 42, .06); }
+.saas .listHeader { border-bottom-color: #eef1f4; background: #fff; }
+.saas .listHeader strong { color: #0f172a; font-size: 13px; font-weight: 800; }
+.saas .listHeader > span { color: #94a3b8; }
+.saas .count { border-radius: 999px; background: #f1f5f9; color: #475569; font-weight: 700; }
+.saas .table th { border-right-color: transparent; border-bottom-color: #e2e8f0; background: #f8fafc; color: #64748b; font-size: 11.5px; font-weight: 700; }
+.saas .table td { border-right-color: transparent; border-bottom-color: #f1f5f9; color: #334155; }
+.saas .table tbody tr:nth-child(even) { background: #fff; }
+.saas .table tbody tr:hover { background: #f8fafc; }
+.saas .table tbody tr.selectedRow { background: #fef2f2; }
+.saas .table tbody tr.selectedRow td:first-child { box-shadow: inset 3px 0 #e0434b; }
+.saas .footer { border-top-color: #eef1f4; background: #fff; }
+.saas .footer :global(.mantine-Button-root) { height: 36px; border-radius: 8px; font-weight: 700; }
+.saas .footer :global(.mantine-Button-root[data-variant="filled"]) { background: #e0434b; box-shadow: none; }
+.saas .footer :global(.mantine-Button-root[data-variant="filled"]:hover) { background: #c9353d; }
+.saas .footer :global(.mantine-Button-root[data-disabled]) { background: #f1f5f9; box-shadow: none; color: #94a3b8; }
+.saas .tabs { gap: 6px; padding: 10px 24px; border-bottom-color: #eef1f4; }
+.saas .tabs > button { height: 32px; margin: 0; padding: 0 14px; border: 1px solid #e2e8f0; border-radius: 999px; color: #64748b; font-weight: 700; }
+.saas .tabs > button:hover { border-color: #cbd5e1; color: #0f172a; }
+.saas .tabs > button[aria-selected="true"] { border-color: #e0434b; background: #e0434b; color: #fff; }
+.saas .tabs > button small { background: #f1f5f9; color: #64748b; }
+.saas .tabs > button[aria-selected="true"] small { background: rgba(255, 255, 255, .22); color: #fff; }

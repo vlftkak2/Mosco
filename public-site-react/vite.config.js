@@ -5,5 +5,6 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: { host: '0.0.0.0', port: 5174, strictPort: true },
-  preview: { port: 4174, strictPort: true },
+  // Cloudflare quick tunnel(*.trycloudflare.com)로 외부 시연할 때 호스트 검사 통과
+  preview: { port: 4174, strictPort: true, allowedHosts: ['.trycloudflare.com'] },
 })

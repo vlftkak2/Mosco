@@ -4,9 +4,9 @@
 // 자유 입력은 막지 않는다. 품목 마스터에 없는 품명은 가공주문관리 저장 때 화면 · 서버에서 막는다.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Popover } from '@mantine/core';
+import { Autocomplete, Popover } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconPackages } from '@tabler/icons-react';
+import { IconPackages, IconSearch } from '@tabler/icons-react';
 import { SelectPickerModal } from '../../components/common/PickerModal';
 import itemMasterClasses from '../../styles/pages/ItemMaster.module.css';
 
@@ -238,4 +238,42 @@ export function CodeSuggestInput({ value, options, readOnly, onValueChange, onGr
       </div>
     </Popover.Dropdown>
   </Popover>;
+}
+
+// 조회조건 품명 칸 (재고매칭 · 과거 매입이력 · 과거 가공이력 공용): 입력하면 품목 마스터 품명을 추천.
+// 추천에서 고르면 '일치' 검색, 직접 고쳐 쓰면 '포함' 검색. onChange(value, exact)
+export function ItemNameAutocomplete({ value, exact, disabled, onChange, onKeyDown, width = 170, subject = '재고' }) {
+  const [options, setOptions] = useState([]);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const pickedRef = useRef(exact ? value : null);   // 일치 검색으로 정해진 품명 (자동완성 선택 직후 onChange 가 다시 와도 유지)
+  const pick = (picked) => { pickedRef.current = picked; onChange(picked, true); };
+  // Tab: 추천 목록이 열려 있으면 하이라이트된 품명(없으면 첫 번째)을 고르고 다음 칸으로 넘어간다 (Enter 와 같은 선택)
+  const handleKeyDown = (event) => {
+    if (event.key === 'Tab' && !event.shiftKey && dropdownOpen && !exact && options.length) {
+      const selected = document.querySelector('.mantine-Autocomplete-dropdown [data-combobox-selected]');
+      pick(String(selected?.textContent || options[0]).trim());
+      setDropdownOpen(false);
+    }
+    onKeyDown?.(event);
+  };
+  useEffect(() => { if (exact) pickedRef.current = value; }, [exact, value]);
+  const query = String(value || '').trim();
+  useEffect(() => {
+    if (!query || exact) return undefined;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const { data } = await axios.get('/api/item-master/items/suggest', { ...authConfig(), params: { q: query }, signal: controller.signal });
+        if (!controller.signal.aborted) setOptions([...new Set((data.items || []).map((item) => String(item.itemname || '').trim()).filter(Boolean))]);
+      } catch { /* 추천을 못 불러오면 목록 없이 둔다 */ }
+    }, 140);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [query, exact]);
+  return <Autocomplete size="sm" style={{ width }} disabled={disabled} value={value} data={exact ? [] : options} leftSection={<IconSearch size={14} />}
+    filter={({ options: list }) => list} limit={20} comboboxProps={{ zIndex: 500 }} onKeyDown={handleKeyDown}
+    onDropdownOpen={() => setDropdownOpen(true)} onDropdownClose={() => setDropdownOpen(false)}
+    label={<>품명 <span style={{ color: exact ? '#d94a54' : '#8292a9', fontWeight: 600 }}>{exact ? '· 일치' : '· 포함'}</span></>}
+    title={exact ? `이 품명과 똑같은 ${subject}만 찾습니다. 글자를 고치면 포함 검색으로 바뀝니다.` : `입력한 글자가 들어간 품명의 ${subject}를 모두 찾습니다. 추천 목록에서 고르면 일치 검색이 됩니다. 비우면 전체 품명.`}
+    onChange={(next) => onChange(next, next === pickedRef.current)}
+    onOptionSubmit={pick} />;
 }

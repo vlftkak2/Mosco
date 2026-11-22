@@ -9,7 +9,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { Button, NumberInput, Select, TextInput } from '@mantine/core';
-import { IconHistory } from '@tabler/icons-react';
+import { ItemNameAutocomplete } from './AIItemNameLookup';
+import { IconCheck, IconHistory, IconSearch } from '@tabler/icons-react';
 import PickerModal, { ColumnResizeHandle, PickerEmpty, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
 import classes from '../../styles/pages/AIOrderOptimization.module.css';
 import m from '../../styles/pages/AIOrderManage.module.css';
@@ -22,35 +23,88 @@ const same = (a, b) => Math.abs(Number(a) - Number(b)) < 1e-6;
 const FIELD_LOOK = { input: m.mInput, label: m.mLabel };
 const PERIODS = [{ value: '0', label: '전체 기간' }, { value: '3', label: '최근 3개월' }, { value: '6', label: '최근 6개월' }, { value: '12', label: '최근 12개월' }];
 
+// 이력 조회 캐시: 같은 조건은 1분 동안 다시 묻지 않고 바로 보여 준다 (진행 중인 요청도 함께 쓴다).
+// 가공최적화 화면이 품목을 담으면 미리 불러 두므로(prefetchHistory) 창을 열면 바로 목록이 나온다.
+const HISTORY_TTL = 60 * 1000;
+const historyCache = new Map();   // key → { at, rows } | { at, promise }
+// query: 검색어 문자열 또는 조회조건 객체 { q, name_exact, productname, steelgrade, surface, warehouse, thickness_from, thickness_to, width, length }
+const queryParams = (query) => (typeof query === 'string' || !query ? { q: query || '' } : query);
+const historyKey = (kind, material, itemname, months, query) => JSON.stringify([kind, material, itemname || '', String(months || 0), queryParams(query)]);
+function fetchHistory(kind, material, itemname, months, query) {
+  const key = historyKey(kind, material, itemname, months, query);
+  const hit = historyCache.get(key);
+  if (hit && Date.now() - hit.at < HISTORY_TTL) return hit.promise || Promise.resolve(hit.rows);
+  const promise = axios.get(`${API}/history`, { ...authConfig(), params: { kind, material, itemname: itemname || '', months, ...queryParams(query) } })
+    .then(({ data }) => { const rows = data.items || []; historyCache.set(key, { at: Date.now(), rows }); return rows; })
+    .catch((err) => { historyCache.delete(key); throw err; });
+  historyCache.set(key, { at: Date.now(), promise });
+  return promise;
+}
+const cachedHistory = (kind, material, itemname, months, query) => {
+  const hit = historyCache.get(historyKey(kind, material, itemname, months, query));
+  return hit && hit.rows && Date.now() - hit.at < HISTORY_TTL ? hit.rows : null;
+};
+// 이력 창 기본 조회조건 (창을 열 때 바로 쓰는 값): 기준 품목 품명 일치 + 두께
+export const defaultHistoryFilters = (context) => ({
+  ...EMPTY_HISTORY_FILTERS, name: context.itemname || '', nameExact: Boolean(context.itemname),
+  thicknessFrom: context.thickness ? String(Number(context.thickness)) : '', thicknessTo: context.thickness ? String(Number(context.thickness)) : '',
+});
+const EMPTY_HISTORY_FILTERS = { name: '', nameExact: false, productname: '', steelgrade: '', surface: '', warehouse: '', thicknessFrom: '', thicknessTo: '', width: '', length: '', q: '' };
+const historyQuery = (f) => {
+  const text = (value) => String(value ?? '').trim();
+  const query = { q: text(f.q) };
+  if (f.nameExact && text(f.name)) query.name_exact = true;
+  for (const [key, param] of [['productname', 'productname'], ['steelgrade', 'steelgrade'], ['surface', 'surface'], ['warehouse', 'warehouse'],
+    ['thicknessFrom', 'thickness_from'], ['thicknessTo', 'thickness_to'], ['width', 'width'], ['length', 'length']]) {
+    if (text(f[key])) query[param] = text(f[key]);
+  }
+  return query;
+};
+export function prefetchHistory(material, itemname, thickness) {
+  if (!itemname) return;
+  const query = historyQuery(defaultHistoryFilters({ itemname, thickness }));
+  ['purchase', 'processing'].forEach((kind) => { fetchHistory(kind, material, itemname, '0', query).catch(() => {}); });
+  fetchHistory('sales', material, itemname, '0', '').catch(() => {});
+}
+
 function useHistory(opened, kind, material, itemname, months, query) {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [state, setState] = useState({ key: '', rows: [], loading: false, error: '' });
+  const key = historyKey(kind, material, itemname, months, query);
   useEffect(() => {
     if (!opened) return undefined;
     let alive = true;
-    const timer = setTimeout(async () => {
-      setLoading(true);
-      setError('');
+    void (async () => {
+      if (!cachedHistory(kind, material, itemname, months, query)) setState({ key, rows: [], loading: true, error: '' });
       try {
-        const { data } = await axios.get(`${API}/history`, { ...authConfig(), params: { kind, material, itemname: itemname || '', months, q: query } });
-        if (alive) setRows(data.items || []);
+        const rows = await fetchHistory(kind, material, itemname, months, query);
+        if (alive) setState({ key, rows, loading: false, error: '' });
       } catch (err) {
-        if (alive) { setRows([]); setError(typeof err?.response?.data?.detail === 'string' ? err.response.data.detail : '이력을 불러오지 못했습니다.'); }
-      } finally {
-        if (alive) setLoading(false);
+        if (alive) setState({ key, rows: [], loading: false, error: typeof err?.response?.data?.detail === 'string' ? err.response.data.detail : '이력을 불러오지 못했습니다.' });
       }
-    }, 250);
-    return () => { alive = false; clearTimeout(timer); };
-  }, [opened, kind, material, itemname, months, query]);
-  return { rows, loading, error };
+    })();
+    return () => { alive = false; };
+  }, [opened, key, kind, material, itemname, months, query]);
+  // 캐시에 있으면 첫 화면부터 바로 (요청을 기다리지 않음)
+  const cached = opened ? cachedHistory(kind, material, itemname, months, query) : null;
+  if (cached && state.key !== key) return { rows: cached, loading: false, error: '' };
+  return state.key === key ? state : { rows: [], loading: opened, error: '' };
 }
 
 // 현재 ③ 값으로 본 적합 여부 { ok, label, reason }
 export function historyFit(kind, material, row, ctx) {
   if (kind === 'purchase') {
+    // 주문서 관리에서 연결해 ① 에 이미 연결 원자재로 있는 현재고는 다시 추가하지 않는다
+    if ((ctx.linkedKeys || []).includes(row.id)) {
+      return { ok: false, label: '연결 원자재', reason: '이 재고는 주문서 관리에서 연결한 원자재로 ① 후보에 이미 있습니다. 다시 추가할 필요가 없습니다.' };
+    }
+    // 슬리팅 · 절단으로 두께는 바뀌지 않는다 → 발주와 같은 두께의 매입이력만 원자재 후보로 추가할 수 있다
+    // 코일: 가장 넓은 제품 폭 + 기본 로스보다 좁은 원자재는 후보가 될 수 없다
+    const minWidth = Math.max(0, ...(ctx.orderValues || []).map(Number)) + (Number(ctx.trim) || 0);
+    if (material === 'COIL' && Number(row.width) < minWidth - 1e-6) {
+      return { ok: false, label: '폭 부족', reason: `원자재 폭 ${fmt(row.width)}mm는 가장 넓은 제품 폭 + 기본 로스 = ${fmt(minWidth)}mm 이상이어야 후보로 추가할 수 있습니다.` };
+    }
     return same(row.thickness, ctx.thickness) ? { ok: true, label: '두께 일치' }
-      : { ok: false, label: '두께 상이', reason: `발주 두께 ${fmt(ctx.thickness, 3)}T와 다른 이력입니다. 같은 두께의 매입이력만 후보로 추가할 수 있습니다.` };
+      : { ok: false, label: '두께 상이', reason: `이력 두께 ${fmt(row.thickness, 3)}T · 발주 두께 ${fmt(ctx.thickness, 3)}T. 같은 두께의 매입이력만 원자재 후보로 추가할 수 있습니다.` };
   }
   if (material === 'COIL') {
     const used = (row.pattern || []).reduce((sum, [w, n]) => sum + w * n, 0);
@@ -68,7 +122,9 @@ export function historyFit(kind, material, row, ctx) {
     if (n % strips) return { ok: false, label: '줄 수 상이', reason: `과거 패턴 ${fmt(n, 0)}매를 이번 원판 ${strips}줄로 똑같이 나눌 수 없습니다.` };
     usedLength += l * (n / strips);
   }
-  return usedLength <= cap + 1e-3 ? { ok: true, label: '적용 가능' } : { ok: false, label: '원판 초과', reason: '현재 원판 규격·절단방향에 과거 패턴이 들어가지 않습니다.' };
+  return usedLength <= cap + 1e-3 ? { ok: true, label: '적용 가능' } : { ok: false, label: '원판 초과',
+    reason: `과거 패턴에 원판 길이 ${fmt(usedLength)}mm가 필요한데 지금 고른 원판(${fmt(ctx.rawWidth)} × ${fmt(ctx.rawLength)}mm)은 ${fmt(cap)}mm입니다. `
+      + `[원자재 후보로 추가]로 이 이력의 원판(${fmt(row.raw_width)} × ${fmt(row.raw_length)}mm)을 ① 후보에 넣고 고른 뒤 다시 열면 반영할 수 있습니다.` };
 }
 
 const patternText = (material, row) => (material === 'COIL'
@@ -78,7 +134,7 @@ const rawText = (material, row) => (material === 'COIL' ? `${fmt(row.raw_width ?
 
 const TITLES = { purchase: '과거 매입이력', processing: '과거 가공이력' };
 const DESCRIPTIONS = {
-  purchase: '과거 입고(매입)한 원자재 규격을 조회해 ① 신규 원자재 후보로 추가합니다. 현재고가 아닙니다.',
+  purchase: '과거 입고(매입) · 기초재고로 등록한 원자재 규격을 조회해 ① 신규 원자재 후보로 추가합니다. 현재고가 아닙니다.',
   processing: { COIL: '가공등록에서 실제로 가공한 폭·칼수 조합을 조회하고, 현재 원자재 폭으로 검증해 ③ 추천에 반영합니다.', SHEET: '가공등록에서 실제로 절단한 패턴을 조회하고, 현재 원판에 들어가는지 검증해 ③ 추천에 반영합니다.' },
 };
 const APPLY_LABEL = { purchase: '후보로 추가', processing: '추천조합에 반영' };
@@ -93,9 +149,12 @@ const PROCESS_TABS = [
 // 이력 목록 열 (열 너비 조절)
 const HISTORY_COLUMNS = (kind, isCoil) => [
   { key: 'select', label: '선택', width: 52, align: 'center' },
-  { key: 'date', label: kind === 'purchase' ? '입고일' : '작업일', width: 100 },
-  { key: 'customer', label: '거래처', width: 160 },
-  { key: 'grade', label: '강종', width: 110 },
+  ...(kind === 'purchase' ? [{ key: 'origin', label: '구분', width: 64, align: 'center' }] : []),
+  { key: 'date', label: kind === 'purchase' ? '일자' : '작업일', width: 100 },
+  { key: 'customer', label: '거래처', width: 150 },
+  { key: 'itemname', label: '품명', width: 130 },
+  { key: 'grade', label: '강종', width: 100 },
+  { key: 'surface', label: '표면', width: 90 },
   { key: 'spec', label: kind === 'purchase' ? '매입 규격' : '사용 원자재', width: 160 },
   { key: 'amount', label: kind === 'purchase' ? (isCoil ? '중량' : '수량') : '가공패턴', width: 150, align: 'right' },
   { key: 'fit', label: '적합', width: 110 },
@@ -147,31 +206,38 @@ function useCandidates(active, material, context) {
 
 export function HistoryModal({ opened, kind, material, context, onClose, onApply, onAdd }) {
   const [tab, setTab] = useState('history');
-  const [query, setQuery] = useState('');
   const [months, setMonths] = useState('0');
-  const [grade, setGrade] = useState('ALL');
   const [chosenId, setChosenId] = useState(null);
   const [checked, setChecked] = useState([]);   // 반영할 이력 (여러 건)
   const [picked, setPicked] = useState(null);   // 가공매출이력에서 고른 출고 규격
   const [manual, setManual] = useState('');     // 직접 입력한 가공 후보
   const [salesQuery, setSalesQuery] = useState('');
   const [message, setMessage] = useState('');
+  // 매입이력: 기본은 기준 품목의 품명으로 찾고, 없으면 품명을 바꾸거나 비워(전체) 직접 찾는다
+  // 조회조건: 입력칸(input)은 [조회] · Enter 때 적용(applied). 기간은 바로 적용
+  const [filterInput, setFilterInput] = useState(() => defaultHistoryFilters(context));
+  const [appliedFilters, setAppliedFilters] = useState(() => defaultHistoryFilters(context));
+  const setField = (field) => (event) => { const { value } = event.currentTarget; setFilterInput((current) => ({ ...current, [field]: value })); };
+  const runSearch = () => { setAppliedFilters(filterInput); setChosenId(null); setChecked([]); };
+  const resetFilters = () => { const base = defaultHistoryFilters(context); setFilterInput(base); setAppliedFilters(base); setMonths('0'); setChosenId(null); setChecked([]); };
+  const onEnter = (event) => { if (event.key === 'Enter') runSearch(); };
   const isCoil = material === 'COIL';
   const historyColumnsDef = useMemo(() => HISTORY_COLUMNS(kind, isCoil), [kind, isCoil]);
   const salesColumnsDef = useMemo(() => SALES_COLUMNS(isCoil), [isCoil]);
   const historyColumns = useResizableColumns(historyColumnsDef);
   const salesColumns = useResizableColumns(salesColumnsDef);
-  const { rows, loading, error } = useHistory(opened && tab === 'history', kind, material, context.itemname, months, query.trim());
+  const searchName = appliedFilters.name.trim();
+  const historyParams = useMemo(() => historyQuery(appliedFilters), [appliedFilters]);
+  const { rows, loading, error } = useHistory(opened && tab === 'history', kind, material, searchName, months, historyParams);
   const candidates = useCandidates(opened && kind === 'processing' && tab === 'sales', material, context);
   const salesGroups = useMemo(() => {
     const q = salesQuery.trim().toLowerCase();
     return q ? candidates.groups.filter((group) => String(group.value).includes(q) || String(group.last.customer || '').toLowerCase().includes(q)) : candidates.groups;
   }, [candidates.groups, salesQuery]);
-  const grades = useMemo(() => [...new Set(rows.map((row) => row.steelgrade).filter(Boolean))], [rows]);
   // 적합한 이력이 먼저
-  const shown = useMemo(() => rows.filter((row) => grade === 'ALL' || row.steelgrade === grade)
+  const shown = useMemo(() => rows
     .map((row) => ({ row, fit: historyFit(kind, material, row, context) }))
-    .sort((a, b) => Number(b.fit.ok) - Number(a.fit.ok)), [rows, grade, kind, material, context]);
+    .sort((a, b) => Number(b.fit.ok) - Number(a.fit.ok) || (a.fit.rank || 0) - (b.fit.rank || 0)), [rows, kind, material, context]);
   const fitCount = shown.filter((item) => item.fit.ok).length;
   const chosen = shown.find((item) => item.row.id === chosenId) || shown[0] || null;
   const toggle = (item) => {
@@ -189,7 +255,7 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
         [isCoil ? '사용 가능 폭' : '원판', isCoil ? `${fmt(candidates.usable)}mm (원자재 ${fmt(context.rawWidth)} − 로스 ${fmt(context.trim)})` : `${fmt(context.rawWidth)} × ${fmt(context.rawLength)}mm · 제품 폭 ${fmt(context.itemWidth)}mm`],
         ...(context.extraValues.length ? [['추가된 가공 후보', context.extraValues.map((v) => `${fmt(v)}mm`).join(', ')]] : [])];
   const detail = (row) => (kind === 'purchase'
-    ? [['입고번호', row.id], ['입고일', String(row.date || '').slice(0, 10)], ['매입처', row.customer || '–'], ['품명', row.itemname],
+    ? [['구분', row.origin || '입고'], ['전표번호', row.id], ['일자', String(row.date || '').slice(0, 10)], ['매입처', row.customer || '–'], ['품명', row.itemname],
       ['강종 · 표면', [row.steelgrade, row.surface].filter(Boolean).join(' · ') || '–'], ['규격', `${fmt(row.thickness, 3)} × ${rawText(material, row)}`],
       [isCoil ? '중량' : '수량', isCoil ? `${fmt(row.weight)}kg` : `${fmt(row.qty, 0)}매 · ${fmt(row.weight)}kg`], ['매입단가', row.unitprice ? `${fmt(row.unitprice, 2)}원` : '–'], ['창고', row.warehouse || '–']]
     : [['가공번호', row.id], ['작업일', String(row.date || '').slice(0, 10)], ['거래처', row.customer || '–'], ['원자재', `${row.itemname} ${fmt(row.thickness, 3)}T × ${rawText(material, row)}`],
@@ -230,9 +296,20 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
   const lead = tab === 'history' ? (kind === 'purchase' ? DESCRIPTIONS.purchase : DESCRIPTIONS.processing[material])
     : tab === 'sales' ? `과거 출고(매출)한 제품 ${isCoil ? '폭' : '길이'}을 골라 가공 후보로 추가합니다. 추가하면 혼합으로 ③ 추천조합이 다시 계산됩니다.`
       : `주문에 없는 제품 ${isCoil ? '폭' : '길이'}을 직접 넣어 가공 후보로 추가합니다. 추가하면 혼합으로 ③ 추천조합이 다시 계산됩니다.`;
+  // 가공이력: 이력에서 쓴 원자재를 ① 원자재 후보로 (체크한 이력, 없으면 보고 있는 이력 1건 · 칼 배치 적합 여부와 무관)
+  // 두께가 발주와 같은 이력의 원자재만 (슬리팅 · 절단으로 두께는 바뀌지 않는다)
+  const rawRows = (pickedRows.length ? pickedRows : chosen ? [chosen.row] : []).filter((row) => same(row.thickness, context.thickness));
+  const processFooter = kind === 'processing' && tab === 'history' ? <>
+    <Button size="sm" variant="default" onClick={onClose}>취소</Button>
+    <Button size="sm" color="dark" disabled={!rawRows.length} onClick={() => { onApply(rawRows, 'raw'); onClose(); }}
+      title="이력에서 쓴 원자재 규격(원코일 폭 · 1개 중량 / 원판 폭 · 길이)을 ① 원자재 후보에 추가합니다. 체크한 이력이 없으면 보고 있는 이력 1건입니다.">
+      원자재 후보로 추가{rawRows.length > 1 ? ` (${rawRows.length})` : ''}</Button>
+    <Button size="sm" color="red" leftSection={<IconCheck size={15} />} disabled={!pickedRows.length} onClick={() => { onApply(pickedRows); onClose(); }}>
+      {APPLY_LABEL[kind]}{pickedRows.length ? ` (${pickedRows.length})` : ''}</Button>
+  </> : undefined;
   const frame = tab === 'history'
     ? { listTitle: '이력', count: shown.length, listHint: shown.length ? `적합 ${fmt(fitCount, 0)}건 · 적합한 이력이 위에 표시됩니다` : '', selectedCount: pickedRows.length,
-      onClearSelection: () => setChecked([]), onApply: () => { onApply(pickedRows); onClose(); }, applyLabel: APPLY_LABEL[kind], applyDisabled: !pickedRows.length }
+      onClearSelection: () => setChecked([]), onApply: () => { onApply(pickedRows); onClose(); }, applyLabel: APPLY_LABEL[kind], applyDisabled: !pickedRows.length, footerActions: processFooter }
     : tab === 'sales'
       ? { listTitle: '출고 규격', count: salesGroups.length, listHint: '행을 눌러 규격을 고르세요', selectedCount: picked ? 1 : 0,
         onClearSelection: () => setPicked(null), onApply: addCandidate, applyLabel: '가공 후보 추가', applyDisabled: !picked }
@@ -240,10 +317,20 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
         onApply: addCandidate, applyLabel: '가공 후보 추가', applyDisabled: !manual };
   // 검색 줄: 탭마다 같은 높이 (라벨 + 입력칸)
   const filters = tab === 'history' ? <>
-    <TextInput size="sm" label="검색" placeholder="거래처 · 전표번호 · 강종" style={{ width: 240 }} value={query} onChange={(event) => setQuery(event.currentTarget.value)} />
-    <Select size="sm" label="기간" value={months} allowDeselect={false} style={{ width: 140 }} onChange={setMonths} data={PERIODS} />
-    <Select size="sm" label="강종" value={grade} allowDeselect={false} style={{ width: 150 }} onChange={setGrade} data={[{ value: 'ALL', label: '전체 강종' }, ...grades.map((g) => ({ value: g, label: g }))]} />
-    <Button size="sm" variant="default" onClick={() => { setQuery(''); setMonths('0'); setGrade('ALL'); }}>초기화</Button>
+    <ItemNameAutocomplete value={filterInput.name} exact={filterInput.nameExact} onKeyDown={onEnter} width={150} subject="이력"
+      onChange={(value, exact) => setFilterInput((current) => ({ ...current, name: value, nameExact: exact }))} />
+    <TextInput size="sm" label="제품명" style={{ width: 100 }} value={filterInput.productname} onKeyDown={onEnter} onChange={setField('productname')} />
+    <TextInput size="sm" label="강종" style={{ width: 88 }} value={filterInput.steelgrade} onKeyDown={onEnter} onChange={setField('steelgrade')} />
+    <TextInput size="sm" label="표면" style={{ width: 76 }} value={filterInput.surface} onKeyDown={onEnter} onChange={setField('surface')} />
+    <TextInput size="sm" label="두께 시작" type="number" step="0.01" min="0" style={{ width: 76 }} value={filterInput.thicknessFrom} onKeyDown={onEnter} onChange={setField('thicknessFrom')} />
+    <TextInput size="sm" label="두께 끝" type="number" step="0.01" min="0" style={{ width: 76 }} value={filterInput.thicknessTo} onKeyDown={onEnter} onChange={setField('thicknessTo')} />
+    <TextInput size="sm" label="폭" type="number" step="0.1" min="0" style={{ width: 70 }} value={filterInput.width} onKeyDown={onEnter} onChange={setField('width')} />
+    {!isCoil && <TextInput size="sm" label="길이" type="number" step="0.1" min="0" style={{ width: 70 }} value={filterInput.length} onKeyDown={onEnter} onChange={setField('length')} />}
+    <TextInput size="sm" label="창고" style={{ width: 88 }} value={filterInput.warehouse} onKeyDown={onEnter} onChange={setField('warehouse')} />
+    <TextInput size="sm" label="거래처 · 전표" style={{ width: 110 }} value={filterInput.q} onKeyDown={onEnter} onChange={setField('q')} />
+    <Select size="sm" label="기간" value={months} allowDeselect={false} style={{ width: 112 }} onChange={setMonths} data={PERIODS} />
+    <Button size="sm" color="red" leftSection={<IconSearch size={14} />} onClick={runSearch}>조회</Button>
+    <Button size="sm" variant="default" onClick={resetFilters}>초기화</Button>
   </> : tab === 'sales' ? <>
     <TextInput size="sm" label="검색" placeholder={`제품 ${isCoil ? '폭' : '길이'} · 거래처`} style={{ width: 240 }} value={salesQuery} onChange={(event) => setSalesQuery(event.currentTarget.value)} />
     <Button size="sm" variant="default" onClick={() => setSalesQuery('')}>초기화</Button>
@@ -253,7 +340,7 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
     <span className={classes.hxFilterNote}>{isCoil ? `사용 가능 폭 ${fmt(candidates.usable)}mm 이하` : `제품 폭 ${fmt(context.itemWidth)}mm 기준 · 원판에 들어가는 길이`}</span>
   </>;
 
-  return <PickerModal opened={opened} onClose={onClose} title={TITLES[kind]} badge={isCoil ? '코일·스켈프' : '시트·판재'}
+  return <PickerModal look="saas" opened={opened} onClose={onClose} title={TITLES[kind]} badge={isCoil ? '코일·스켈프' : '시트·판재'}
     description={kind === 'purchase' ? '과거에 매입한 원자재 규격을 골라 신규 원자재 후보로 추가합니다.' : '과거 가공 실적 · 출고 규격으로 추천조합을 보강합니다.'}
     icon={<IconHistory size={22} stroke={1.7} />}
     tabs={tabs || null}
@@ -271,20 +358,23 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
             first={<input className={pickerClasses.checkbox} type="checkbox" aria-label="적합한 이력 모두 선택" checked={allChecked} disabled={!fitIds.length} onChange={() => setChecked(allChecked ? [] : fitIds)} />} />
           <tbody>{shown.map((item) => <tr key={item.row.id}
             className={`${checked.includes(item.row.id) ? pickerClasses.selectedRow : !item.fit.ok ? pickerClasses.disabledRow : ''} ${chosen?.row.id === item.row.id ? `${classes.hxFocusRow} ${checked.includes(item.row.id) ? '' : classes.hxFocusBg}` : ''}`}
-            onClick={() => setChosenId(item.row.id)}>
+            onClick={() => { setChosenId(item.row.id); toggle(item); }}>
             <td className={pickerClasses.center}><input className={pickerClasses.checkbox} type="checkbox" aria-label={`${item.row.id} 선택`} checked={checked.includes(item.row.id)} disabled={!item.fit.ok}
               onClick={(event) => event.stopPropagation()} onChange={() => toggle(item)} /></td>
+            {kind === 'purchase' && <td className={pickerClasses.center} title={item.row.origin === '기초' ? '기초재고로 등록한 원자재' : '입고(매입) 전표'}>{item.row.origin || '입고'}</td>}
             <td>{String(item.row.date || '').slice(0, 10)}</td>
             <td title={item.row.customer || ''}>{item.row.customer || '–'}</td>
+            <td title={item.row.itemname || ''}>{item.row.itemname || '–'}</td>
             <td title={item.row.steelgrade || ''}>{item.row.steelgrade || '–'}</td>
+            <td title={item.row.surface || ''}>{item.row.surface || '–'}</td>
             <td><b>{fmt(item.row.thickness, 3)} × {rawText(material, item.row)}</b></td>
             <td className={pickerClasses.right} title={kind === 'processing' ? patternText(material, item.row) : undefined}>
               {kind === 'purchase' ? (isCoil ? `${fmt(item.row.weight)}kg` : `${fmt(item.row.qty, 0)}매`) : patternText(material, item.row)}</td>
             <td><span className={item.fit.ok ? classes.hxFitOk : classes.hxFitNo} title={item.fit.reason || ''}>{item.fit.label}</span></td>
           </tr>)}
           {!shown.length && <tr><td colSpan={historyColumnsDef.length} className={pickerClasses.emptyCell}>
-            <PickerEmpty title={loading ? '이력을 불러오는 중입니다' : error || `"${context.itemname}" ${TITLES[kind]}이 없습니다`}
-              description={loading ? '' : kind === 'purchase' ? '같은 품명의 입고(매입) 기록을 찾습니다. 검색어 · 기간을 바꾸거나 ①에서 폭을 직접 입력해 주세요.' : '같은 품명을 원자재로 쓴 가공등록 기록을 찾습니다. 가공등록 실적이 쌓이면 여기에 표시됩니다.'} />
+            <PickerEmpty title={loading ? '이력을 불러오는 중입니다' : error || (searchName ? `"${searchName}" ${TITLES[kind]}이 없습니다` : `검색 조건에 맞는 ${TITLES[kind]}이 없습니다`)}
+              description={loading ? '' : kind === 'purchase' ? '위 [품명]을 바꾸거나 비우고 [조회]하면 다른 품명의 입고(매입) 기록도 찾을 수 있습니다. 없으면 ①에서 규격을 직접 입력해 주세요.' : '위 [품명]을 바꾸거나 비우고 [조회]하면 다른 품명을 원자재로 쓴 가공등록 기록도 찾을 수 있습니다.'} />
           </td></tr>}
           </tbody>
         </table>
@@ -298,8 +388,9 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
           {kind === 'processing' && isCoil && <PatternBar row={chosen.row} rawWidth={context.rawWidth} trim={context.trim} orderValues={context.orderValues} />}
           <dl className={`${classes.hxCard} ${classes.hxKeyvals}`}>{detail(chosen.row).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>
           {chosen.fit.ok
-            ? <p className={classes.hxApply}><b>적용하면</b>{applyText(chosen.row)}</p>
+            ? <p className={classes.hxApply}><b>적용하면</b>{applyText(chosen.row)}{chosen.fit.reason ? <><br />{chosen.fit.reason}</> : null}</p>
             : <p className={classes.hxReason}><b>적용할 수 없습니다</b>{chosen.fit.reason}</p>}
+          {kind === 'processing' && <p className={classes.hxApply}><b>원자재 후보로 추가하면</b>이 이력에서 쓴 원자재 {fmt(chosen.row.thickness, 3)} × {rawText(material, chosen.row)}{isCoil && chosen.row.raw_weight ? ` (1개 ${fmt(chosen.row.raw_weight / (chosen.row.raw_qty || 1))}kg)` : ''} 규격이 ① 원자재 후보에 신규로 추가됩니다. 칼 배치가 맞지 않아도 추가할 수 있습니다.{same(chosen.row.thickness, context.thickness) ? '' : ` 단, 이력 두께 ${fmt(chosen.row.thickness, 3)}T가 발주 두께 ${fmt(context.thickness, 3)}T와 달라 추가할 수 없습니다.`}</p>}
         </> : <div className={classes.hxDetailEmpty}><strong>선택한 이력이 없습니다</strong><span>목록에서 이력을 누르면 상세와 적용 결과를 확인할 수 있습니다.</span></div>}
       </aside>
     </div>}

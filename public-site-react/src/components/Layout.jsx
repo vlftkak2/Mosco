@@ -7,6 +7,28 @@ import { useReveal } from '../hooks';
 
 const KAKAO_PENDING = '카카오톡 채널 주소는 등록 후 연결됩니다.';
 
+// ERP 로그인 주소 우선순위:
+// 1) 빌드 시 VITE_ERP_URL  2) 실행 중 /erp-url.json (demo_start.bat 이 Cloudflare 터널 주소를 써 넣음)
+// 3) 지금 접속한 호스트의 4173 포트 (같은 네트워크 시연용)
+const FALLBACK_ERP_URL = import.meta.env.VITE_ERP_URL
+  || `${window.location.protocol}//${window.location.hostname}:4173/`;
+const erpUrlPromise = import.meta.env.VITE_ERP_URL
+  ? Promise.resolve(FALLBACK_ERP_URL)
+  : fetch('/erp-url.json', { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => (d && typeof d.url === 'string' && /^https?:\/\//.test(d.url) ? d.url : FALLBACK_ERP_URL))
+    .catch(() => FALLBACK_ERP_URL);
+
+function useErpUrl() {
+  const [url, setUrl] = useState(FALLBACK_ERP_URL);
+  useEffect(() => {
+    let alive = true;
+    erpUrlPromise.then((u) => { if (alive) setUrl(u); });
+    return () => { alive = false; };
+  }, []);
+  return url;
+}
+
 // 머리말 메뉴. current 는 지금 페이지에서 강조할 메뉴 (페이지 주소로 정한다)
 const GNB = [
   { to: '/company', label: '회사소개', page: '/company' },
@@ -19,6 +41,7 @@ const GNB = [
 function Header({ pathname }) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const erpUrl = useErpUrl();
   const linkRefs = useRef([]);
   const [ink, setInk] = useState({ opacity: 0 });
   const currentIndex = GNB.findIndex((item) => item.page === pathname);
@@ -70,9 +93,9 @@ function Header({ pathname }) {
           ))}
         </nav>
         <div className="hd-actions">
-          <PendingLink className="hbtn hbtn-line" msg="ERP 접속 주소는 확정 후 연결됩니다." onClickCapture={closeMenu}>
+          <a className="hbtn hbtn-line" href={erpUrl} onClick={closeMenu}>
             <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>ERP 로그인
-          </PendingLink>
+          </a>
           <Link className="hbtn hbtn-solid" to="/inquiry" onClick={closeMenu}>발주 문의<span className="ar">→</span></Link>
         </div>
         <button

@@ -50,6 +50,8 @@ class Line(BaseModel):
 class ConfirmRequest(BaseModel):
     analysis_request_id: UUID
     sourcefilename: str | None = Field(default=None, max_length=255)
+    # 같은 발주서(분석)로 이미 저장된 주문이 있어도 새 주문번호로 저장 (재발주 등)
+    force_new: bool = False
     header: Header
     items: list[Line] = Field(min_length=1, max_length=1000)
 
@@ -109,6 +111,13 @@ async def authorized_user(user: dict = Depends(get_current_user)):
     return user
 
 
+@router.get("/by-analysis/{request_id}")
+async def order_by_analysis(request_id: UUID, user: dict = Depends(authorized_user)):
+    """이 분석(발주서)으로 이미 저장된 주문 (AI 주문서인식에서 넘기기 전에 알려 주기용)."""
+    orders = await asyncio.to_thread(service.orders_by_analysis, user["companyid"], str(request_id))
+    return {"orders": orders}
+
+
 @router.post("")
 async def confirm(payload: ConfirmRequest, user: dict = Depends(authorized_user)):
     try:
@@ -130,9 +139,10 @@ async def list_confirmed(
     orderid: str | None = Query(default=None, max_length=100),
     page: int = Query(default=1, ge=1), page_size: int = Query(default=30, ge=1, le=100),
     progress: Literal["NONE", "PARTIAL", "SENT", "DONE"] | None = None,
+    focus: str | None = Query(default=None, max_length=100),
     user: dict = Depends(authorized_user),
 ):
-    return await asyncio.to_thread(service.list_orders, user["companyid"], start_date, end_date, buyer, orderid, page, page_size, progress)
+    return await asyncio.to_thread(service.list_orders, user["companyid"], start_date, end_date, buyer, orderid, page, page_size, progress, focus)
 
 
 @router.get("/{orderid}")
@@ -198,7 +208,10 @@ async def get_stock_candidates(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     itemname: str | None = Query(default=None, max_length=150),
+    name_exact: bool = Query(default=False),
     surface: str | None = Query(default=None, max_length=100),
+    productname: str | None = Query(default=None, max_length=150),
+    steelgrade: str | None = Query(default=None, max_length=100),
     width: Decimal | None = Query(default=None, ge=0, le=100000),
     length: Decimal | None = Query(default=None, ge=0, le=100000),
     warehouse: str | None = Query(default=None, max_length=100),
@@ -208,7 +221,7 @@ async def get_stock_candidates(
         raise HTTPException(400, "두께 시작값이 끝값보다 클 수 없습니다.")
     result = await asyncio.to_thread(
         service.stock_candidates, user["companyid"], orderid, lineno, thickness_from, thickness_to,
-        page, page_size, itemname, surface, width, length, warehouse,
+        page, page_size, itemname, surface, width, length, warehouse, productname, steelgrade, name_exact,
     )
     if result is None:
         raise HTTPException(404, "확정 주문 또는 품목을 찾을 수 없습니다.")

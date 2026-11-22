@@ -1,0 +1,15 @@
+/* ConfirmDeleteModal.module.css (공통 확인 창 틀) 위에 더하는 것: 요약 상자 · 주의 상자 · 어두운 버튼 · 주황 아이콘 */
+.body { display: flex; flex-direction: column; gap: 10px; padding: 0 22px 18px; }
+.summary { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 4px 14px; border-radius: 10px; background: #f6f7f9; }
+.summary > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px; }
+.summary > div + div { border-top: 1px solid #e9edf2; }
+.summary dt { flex: none; color: #6b7889; font-size: 12.5px; font-weight: 600; }
+.summary dd { min-width: 0; margin: 0; overflow: hidden; color: #1e2a3a; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.notice { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border: 1px solid #f6c9cc; border-radius: 10px; background: #fff5f5; text-align: left; }
+.notice strong { color: #c8323b; font-size: 12.5px; font-weight: 800; }
+.notice span { color: #6b7889; font-size: 12px; line-height: 1.55; word-break: keep-all; }
+.dark { background: #3b4a62; }
+.dark:hover:not(:disabled) { background: #27344a; box-shadow: 0 4px 12px #27344a33; }
+.iconOrange { background: #fff0dc; box-shadow: 0 0 0 7px #fff7ec; color: #e07b12; }
+/* 버튼 글자는 한 줄로 (넘치면 말줄임) */
+.oneLine { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
-import { ActionIcon, Box, Button, Group, Pagination, Paper, Popover, Select, Stack, Text, TextInput } from '@mantine/core';
+import { ActionIcon, Autocomplete, Box, Button, Group, Pagination, Paper, Popover, Select, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconCheck, IconFilter, IconHelpCircle, IconPackages, IconSearch, IconX } from '@tabler/icons-react';
+import { IconAlertTriangle, IconCheck, IconFilter, IconHelpCircle, IconPackages, IconSearch, IconX } from '@tabler/icons-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import PickerModal, { PickerEmpty, pickerClasses } from '../../components/common/PickerModal';
@@ -14,9 +14,10 @@ import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import classes from '../../styles/pages/AIOrderRegistry.module.css';
-import { CodePickerModal, CodeSuggestInput, ItemNameSuggestInput, ItemPickerModal, findMasterItemName, loadCodeOptions } from './AIItemNameLookup';
+import { CodePickerModal, CodeSuggestInput, ItemNameAutocomplete, ItemNameSuggestInput, ItemPickerModal, findMasterItemName, loadCodeOptions } from './AIItemNameLookup';
 import manageClasses from '../../styles/pages/AIOrderManage.module.css';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
+import ConfirmActionModal from '../../components/common/ConfirmActionModal';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' },
@@ -79,7 +80,8 @@ const STOCK_MATCH_PAGE_SIZE = 50;
 // Stock source type shown as 입고유형 (same wording as the outbound stock picker).
 const STOCK_SOURCE_LABELS = { OPENING: '기초', INBOUND: '입고', PROCESS: '가공' };
 // Stock matching modal search conditions (empty = not applied).
-const EMPTY_STOCK_FILTERS = { name: '', surface: '', thicknessFrom: '', thicknessTo: '', width: '', length: '', warehouse: '' };
+// nameExact: 품명 일치 검색 (창을 열 때 주문 품명 · 자동완성에서 고른 품명). 직접 고쳐 쓰면 포함 검색
+const EMPTY_STOCK_FILTERS = { name: '', nameExact: false, productname: '', steelgrade: '', surface: '', thicknessFrom: '', thicknessTo: '', width: '', length: '', warehouse: '' };
 const STOCK_MATCH_PAGE_OPTIONS = [
   { value: '25', label: '25개씩' }, { value: '50', label: '50개씩' }, { value: '100', label: '100개씩' },
 ];
@@ -121,6 +123,24 @@ const errorMessage = (error, fallback) => {
   return typeof detail === 'string' ? detail : fallback;
 };
 const stockKey = (source) => [source.sourcetype, source.sourceno, source.sourceline].join('|');
+// 시트 주문 품목에 이 재고를 가공할 수 없으면 이유 (서버 stock_fit_problem 과 같은 규칙)
+// 기본: 제품 폭 ≤ 재고 폭 · 제품 길이 ≤ 재고 길이 / 90도 회전: 제품 폭 ≤ 재고 길이 · 제품 길이 ≤ 재고 폭
+// 코일 주문(길이 없음)은 검사하지 않고, 코일 재고(길이 없음)는 폭만 본다
+const mmText = (value) => Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 1 });
+const stockFitProblem = (item, stock) => {
+  const iw = Number(item?.width) || 0;
+  const il = Number(item?.length) || 0;
+  const sw = Number(stock?.width) || 0;
+  const sl = Number(stock?.length) || 0;
+  const eps = 1e-6;
+  if (iw <= 0 || il <= 0) return null;
+  if (sl <= 0) return sw + eps >= iw ? null : `재고 폭 ${mmText(sw)}mm가 제품 폭 ${mmText(iw)}mm보다 좁아 가공할 수 없습니다`;
+  if ((iw <= sw + eps && il <= sl + eps) || (iw <= sl + eps && il <= sw + eps)) return null;
+  const parts = [];
+  if (iw > sw + eps) parts.push(`재고 폭 ${mmText(sw)}mm가 제품 폭 ${mmText(iw)}mm보다 좁아`);
+  if (il > sl + eps) parts.push(`재고 길이 ${mmText(sl)}mm가 제품 길이 ${mmText(il)}mm보다 짧아`);
+  return `${parts.join(' · ') || '90도 회전해도 제품이 들어가지 않아'} 가공할 수 없습니다`;
+};
 const stockSize = (source) => [source.thickness, source.width, source.length]
   .filter((value, index) => value !== null && value !== undefined && value !== '' && !(index === 2 && Number(value) === 0))
   .map(dimension)
@@ -417,8 +437,13 @@ export default function AIOrderManage() {
   const notify = useCallback((message, title, color = 'orange') => {
     notifications.show({ title, message, color });
   }, []);
+  // 저장 직후 보여 줄 주문: 전체 목록(조회조건 그대로)에서 그 주문이 있는 쪽으로 가서 선택 · 스크롤
+  const focusOrderRef = useRef('');
+  const scrollToOrderRef = useRef('');
   const loadOrders = useCallback(async () => {
     setLoading(true);
+    const focus = focusOrderRef.current;
+    focusOrderRef.current = '';
     try {
       const params = Object.fromEntries(Object.entries({
         start_date: applied.from,
@@ -428,11 +453,17 @@ export default function AIOrderManage() {
         progress: applied.progress && applied.progress !== 'ALL' ? applied.progress : '',
       }).filter(([, value]) => value));
       const { data } = await axios.get('/api/ai-order/confirmed', {
-        ...authConfig(), params: { ...params, page, page_size: pageSize },
+        ...authConfig(), params: { ...params, page, page_size: pageSize, ...(focus ? { focus } : {}) },
       });
       const rows = Array.isArray(data?.items) ? data.items : [];
       setOrders(rows);
       setTotal(Number(data?.total || 0));
+      if (focus && rows.some((row) => row.orderid === focus)) {
+        if (Number(data?.page) && Number(data.page) !== page) setPage(Number(data.page));
+        setSelectedId(focus);
+        scrollToOrderRef.current = focus;
+        return;
+      }
       setSelectedId((current) => (current === DRAFT_ID && readAIOrderDraft()) || rows.some((row) => row.orderid === current)
         ? current : (readAIOrderDraft() ? DRAFT_ID : (rows[0]?.orderid || '')));
     } catch (error) {
@@ -446,6 +477,13 @@ export default function AIOrderManage() {
   }, [applied, page, pageSize, notify]);
 
   useEffect(() => { void loadOrders(); }, [loadOrders]);
+  // 포커스할 주문 행이 그려지면 보이게 스크롤
+  useEffect(() => {
+    const target = scrollToOrderRef.current;
+    if (!target) return;
+    const row = document.querySelector(`tr[data-orderid="${CSS.escape(target)}"]`);
+    if (row) { row.scrollIntoView({ block: 'nearest' }); scrollToOrderRef.current = ''; }
+  }, [orders, selectedId]);
   // 다른 탭(가공 최적화 등)에서 상태가 바뀌었을 수 있으니 돌아오면 다시 불러온다
   usePageReactivated(() => {
     void loadOrders();
@@ -506,7 +544,10 @@ export default function AIOrderManage() {
     const filters = { ...EMPTY_STOCK_FILTERS, ...(query.filters || {}) };
     const text = (value) => String(value ?? '').trim();
     const params = { page, page_size: pageSize, itemname: text(filters.name) };
+    if (filters.nameExact && text(filters.name)) params.name_exact = true;
     // Optional filters are sent only when entered.
+    if (text(filters.productname)) params.productname = text(filters.productname);
+    if (text(filters.steelgrade)) params.steelgrade = text(filters.steelgrade);
     if (text(filters.surface)) params.surface = text(filters.surface);
     if (text(filters.thicknessFrom)) params.thickness_from = text(filters.thicknessFrom);
     if (text(filters.thicknessTo)) params.thickness_to = text(filters.thicknessTo);
@@ -540,10 +581,10 @@ export default function AIOrderManage() {
     if (!item.lineno) return notify('상세를 먼저 저장한 뒤 재고를 연결해 주세요.', '상세 저장 필요');
     // Selected sources are kept by key across pages (and include links saved earlier).
     const selectedSources = Object.fromEntries((item.stock_matches || []).map((match) => [stockKey(match), { ...match }]));
-    // 주문 품목 값으로 조회조건을 미리 채운다 (품명 · 두께 시작 · 폭 · 길이). 지우면 조건 없이 조회.
+    // 주문 품목 값으로 조회조건을 미리 채운다 (품명 · 두께만). 폭 · 길이는 비워 두어 다른 폭의 원자재도 보이게 한다.
     const filled = (value) => (value === null || value === undefined || value === '' || Number(value) === 0 ? '' : String(value));
-    const initialFilters = { ...EMPTY_STOCK_FILTERS, name: String(item.itemname || '').trim(),
-      thicknessFrom: filled(item.thickness), width: filled(item.width), length: filled(item.length) };
+    const initialFilters = { ...EMPTY_STOCK_FILTERS, name: String(item.itemname || '').trim(), nameExact: true,
+      thicknessFrom: filled(item.thickness), thicknessTo: filled(item.thickness) };
     setModal({
       type: 'stock-match', lineno: item.lineno, loading: true, saving: false, candidates: [],
       selectedKeys: Object.keys(selectedSources), selectedSources,
@@ -581,6 +622,12 @@ export default function AIOrderManage() {
 
   const toggleStockCandidate = (candidate) => {
     const key = stockKey({ sourcetype: candidate.stocksourcetype, sourceno: candidate.stocksourceno, sourceline: candidate.stocksourceline });
+    // 제품이 들어가지 않는 재고는 선택하지 않는다 (이미 연결된 것은 해제만 가능)
+    const fitProblem = stockFitProblem(itemDrafts.find((item) => item.lineno === modal?.lineno), candidate);
+    if (fitProblem && !modal?.selectedKeys?.includes(key)) {
+      notify(`${fitProblem}.`, '가공할 수 없습니다', 'red');
+      return;
+    }
     setModal((current) => {
       if (current?.type !== 'stock-match') return current;
       const selected = new Set(current.selectedKeys);
@@ -601,12 +648,39 @@ export default function AIOrderManage() {
     });
   };
 
+  // 주문 상세의 연결 재고 한 건 해제 (재고매칭 저장 API 그대로: 남은 연결만 다시 저장 → 서버의 잠금 · 재고 검사 동일)
+  const [unlinkingKey, setUnlinkingKey] = useState(null);
+  const unlinkStockMatch = async (item, match) => {
+    if (!selectedId || !item?.lineno || isLocked(item) || unlinkingKey !== null) return;
+    const removeKey = stockKey(match);
+    const remaining = (item.stock_matches || []).filter((row) => stockKey(row) !== removeKey);
+    setUnlinkingKey(removeKey);
+    try {
+      await axios.put(`/api/ai-order/confirmed/${encodeURIComponent(selectedId)}/items/${item.lineno}/stock-matches`, {
+        sources: remaining.map((row) => ({ sourcetype: row.sourcetype, sourceno: row.sourceno, sourceline: row.sourceline })),
+      }, authConfig());
+      const stockMatches = remaining.map((row, index) => ({ ...row, matchlineno: index + 1 }));
+      setItemDrafts((rows) => rows.map((row) => row.lineno === item.lineno ? { ...row, stock_matches: stockMatches } : row));
+      setDetail((current) => current ? ({ ...current, items: current.items.map((row) => row.lineno === item.lineno ? { ...row, stock_matches: stockMatches } : row) }) : current);
+      notify(`${match.itemname || match.sourceno}${stockSize(match) ? ` ${stockSize(match)}` : ''} 연결을 해제했습니다.`, '연결 해제 완료', 'teal');
+    } catch (error) {
+      notify(errorMessage(error, '연결 해제에 실패했습니다.'), '연결 해제 실패', 'red');
+    } finally {
+      setUnlinkingKey(null);
+    }
+  };
+
   // reset = 연결 초기화 (빈 목록 저장)
   const saveStockLinks = async (reset = false) => {
     if (modal?.type !== 'stock-match' || modal.saving) return;
     // Every selected source on any page (not only the rows of the current page).
     const selected = reset ? [] : modal.selectedKeys.map((key) => modal.selectedSources?.[key]).filter(Boolean);
     if (!reset && !selected.length) return notify('연결할 현재고를 선택해 주세요.', '재고 선택 확인');
+    if (!reset) {
+      const target = itemDrafts.find((item) => item.lineno === modal.lineno);
+      const bad = selected.find((source) => stockFitProblem(target, source));
+      if (bad) return notify(`${bad.sourceno}-${bad.sourceline}: ${stockFitProblem(target, bad)}. 선택을 해제해 주세요.`, '가공할 수 없습니다', 'red');
+    }
     setModal((current) => ({ ...current, saving: true }));
     try {
       await axios.put(`/api/ai-order/confirmed/${encodeURIComponent(selectedId)}/items/${modal.lineno}/stock-matches`, {
@@ -783,7 +857,8 @@ export default function AIOrderManage() {
     }
   };
 
-  const saveItemEdits = async () => {
+  // forceNew: 같은 발주서로 이미 저장된 주문이 있어도 새 주문번호로 저장 (중복 안내 창의 [새 주문으로 저장])
+  const saveItemEdits = async (forceNew = false) => {
     if (!selectedOrder || saving) return;
     const numericFields = ['thickness', 'width', 'length', 'quantity', 'weight_kg'];
     const rows = [];
@@ -834,6 +909,7 @@ export default function AIOrderManage() {
         const { data } = await axios.post('/api/ai-order/confirmed', {
           analysis_request_id: orderDraft.analysis_request_id,
           sourcefilename: orderDraft.sourcefilename,
+          force_new: forceNew,
           header: orderDraft.header,
           items: rows.map((row) => ({
             source_product_name: row.itemname || null, steel_grade: row.steelgrade || null, surface: row.surface || null,
@@ -842,14 +918,20 @@ export default function AIOrderManage() {
             notes: row.notes || null, quantity_raw: row.quantity_raw ?? null, weight_raw: row.weight_raw ?? null,
           })),
         }, authConfig());
+        // 같은 발주서로 이미 저장된 주문 → 저장하지 않고 고르게 한다 (고친 내용은 화면에 그대로 남음)
+        if (data.already_confirmed) {
+          setModal({ type: 'duplicate-order', orderid: data.orderid });
+          return;
+        }
         clearAIOrderDraft();
         setOrderDraft(null);
         setSelectedItemKeys([]);
-        notify(data.already_confirmed ? `이미 저장된 주문 ${data.orderid}을(를) 불러왔습니다.` : `${data.orderid} 주문과 상세 ${rows.length}건을 저장했습니다.`,
-          data.already_confirmed ? '이미 저장된 주문' : '주문 저장 완료', 'teal');
-        const filters = createDefaultOrderFilters(data.orderid, '');
+        setModal(null);
+        notify(`${data.orderid} 주문과 상세 ${rows.length}건을 저장했습니다.${forceNew ? ' (같은 발주서 · 새 주문)' : ''}`, '주문 저장 완료', 'teal');
+        // 조회조건에 주문번호를 넣지 않고 전체 목록에서 그 주문에 포커스
+        const filters = createDefaultOrderFilters('', '');
+        focusOrderRef.current = data.orderid;
         setDraftFilters(filters);
-        setPage(1);
         setSelectedId(data.orderid);
         setApplied(filters);
       } catch (error) {
@@ -943,7 +1025,7 @@ export default function AIOrderManage() {
     onSearch: () => applySearch(),
     onAdd: selectedOrder && !detailLoading ? addItemDraft : undefined,
     onDelete: selectedOrder && !saving ? requestDelete : undefined,
-    onSave: selectedOrder && !saving && !detailLoading ? saveItemEdits : undefined,
+    onSave: selectedOrder && !saving && !detailLoading ? () => saveItemEdits(false) : undefined,
   });
 
   const renderModal = () => {
@@ -973,8 +1055,12 @@ export default function AIOrderManage() {
       return <PickerModal opened onClose={() => setModal(null)} closeDisabled={modal.saving}
         title="재고 선택" description="주문 상세에 연결할 현재고를 고릅니다." icon={<IconPackages size={22} stroke={1.7} />}
         filters={<form style={{ display: 'contents' }} onSubmit={(event) => { event.preventDefault(); searchStockCandidates(); }}>
-          {filterInput('name', '품명', 180)}
-          {filterInput('surface', '표면', 130)}
+          <ItemNameAutocomplete value={modal.filters?.name ?? ''} exact={Boolean(modal.filters?.nameExact)} disabled={modal.saving}
+            onChange={(value, exact) => setModal((current) => current?.type === 'stock-match'
+              ? { ...current, filters: { ...(current.filters || EMPTY_STOCK_FILTERS), name: value, nameExact: exact } } : current)} />
+          {filterInput('productname', '제품명', 150)}
+          {filterInput('steelgrade', '강종', 110)}
+          {filterInput('surface', '표면', 110)}
           {filterInput('thicknessFrom', '두께 시작', 100, { type: 'number', step: '0.01', min: '0' })}
           {filterInput('thicknessTo', '두께 끝', 100, { type: 'number', step: '0.01', min: '0' })}
           {filterInput('width', '폭', 100, { type: 'number', step: '0.1', min: '0' })}
@@ -988,6 +1074,8 @@ export default function AIOrderManage() {
             <span className={manageClasses.matchSpecTitle}>주문 품목</span>
             {[['품명', targetItem?.itemname], ['두께', targetItem?.thickness ? `${dimension(targetItem.thickness)}mm` : ''],
               ['폭', targetItem?.width ? `${dimension(targetItem.width)}mm` : ''], ['길이', Number(targetItem?.length) > 0 ? `${dimension(targetItem.length)}mm` : 'C (코일)'],
+              // 수량: 주문 품목의 수량 (단위가 있으면 함께)
+              ['수량', targetItem?.quantity !== '' && targetItem?.quantity != null ? `${Number.isFinite(Number(targetItem.quantity)) ? dimension(targetItem.quantity) : targetItem.quantity}${targetItem.quantity_unit ? ` ${targetItem.quantity_unit}` : ''}` : ''],
               ['중량', targetItem?.weight_kg ? `${dimension(targetItem.weight_kg)}kg` : '']].map(([label, value]) => (
               <span key={label} className={manageClasses.matchSpecItem}><em>{label}</em><b>{value || '—'}</b></span>))}
             <span className={`${manageClasses.matchSpecItem} ${manageClasses.matchSpecWarehouse}`}><em>연결 창고</em><b>{selectedWarehouseName || '첫 재고를 고르면 정해집니다'}</b></span>
@@ -1020,13 +1108,16 @@ export default function AIOrderManage() {
             const sharedWith = Boolean(candidate.matched_elsewhere);
             const otherWarehouse = !checked && selectedWarehouse != null && isOtherWarehouse(candidate);
             const unavailable = otherWarehouse;
-            const rowClass = checked ? pickerClasses.selectedRow : unavailable ? pickerClasses.disabledRow : undefined;
+            // 제품이 들어가지 않는 재고 = 회색 + '가공 불가' (누르면 이유 안내, 연결 안 됨)
+            const fitProblem = stockFitProblem(targetItem, candidate);
+            const rowClass = unavailable || fitProblem ? pickerClasses.disabledRow : checked ? pickerClasses.selectedRow : undefined;
             const toggleCandidate = () => { if (!unavailable) toggleStockCandidate(candidate); };
-            const unavailableReason = otherWarehouse ? `다른 창고의 재고입니다. 이 품목은 ${selectedWarehouseName} 재고만 연결할 수 있습니다.`
+            const unavailableReason = fitProblem ? `${fitProblem}.`
+              : otherWarehouse ? `다른 창고의 재고입니다. 이 품목은 ${selectedWarehouseName} 재고만 연결할 수 있습니다.`
               : sharedWith ? '다른 주문 품목에도 연결된 재고입니다. 함께 연결하면 재고량을 주문 중량 비율로 나눠 씁니다.' : undefined;
             return <tr key={key} className={rowClass} title={unavailableReason} onClick={toggleCandidate}>
               <td className={pickerClasses.center}><input className={pickerClasses.checkbox} type="checkbox" checked={checked} disabled={unavailable} onChange={toggleCandidate} onClick={(event) => event.stopPropagation()} aria-label={`${candidate.master_itemname || candidate.itemname || key} 선택`} /></td>
-              <td title={candidate.master_itemname || candidate.itemname || ''}>{sharedWith && <span className={`${manageClasses.status} ${manageClasses.status_blue}`} style={{ height: 18, marginRight: 4, padding: '0 5px', fontSize: 11 }}>공유</span>}{candidate.master_itemname || candidate.itemname || ''}</td>
+              <td title={candidate.master_itemname || candidate.itemname || ''}>{fitProblem && <span className={`${manageClasses.status} ${manageClasses.status_gray}`} style={{ height: 18, marginRight: 4, padding: '0 5px', fontSize: 11 }}>가공 불가</span>}{sharedWith &&<span className={`${manageClasses.status} ${manageClasses.status_blue}`} style={{ height: 18, marginRight: 4, padding: '0 5px', fontSize: 11 }}>공유</span>}{candidate.master_itemname || candidate.itemname || ''}</td>
               <td title={candidate.productname || ''}>{candidate.productname || ''}</td>
               <td title={candidate.materialname || candidate.materialcode || ''}>{candidate.materialname || candidate.materialcode || ''}</td>
               <td title={candidate.surfacename || candidate.surfacecode || ''}>{candidate.surfacename || candidate.surfacecode || ''}</td>
@@ -1047,6 +1138,28 @@ export default function AIOrderManage() {
           </td></tr>}
           </tbody></table>
       </PickerModal>;
+    }
+    if (modal.type === 'duplicate-order') {
+      // 같은 발주서(AI 분석 결과)로 이미 저장된 주문이 있을 때
+      const openExisting = () => {
+        clearAIOrderDraft();
+        setOrderDraft(null);
+        setSelectedItemKeys([]);
+        setModal(null);
+        const filters = createDefaultOrderFilters('', '');
+        focusOrderRef.current = modal.orderid;
+        setDraftFilters(filters);
+        setSelectedId(modal.orderid);
+        setApplied(filters);
+      };
+      return <ConfirmActionModal opened onClose={() => setModal(null)} busy={saving} tone="orange"
+        icon={<IconAlertTriangle size={24} stroke={1.8} />} title="이미 저장된 발주서입니다" target={modal.orderid}
+        message="기존 주문을 열거나, 새 주문으로 저장할 수 있습니다."
+        actions={[
+          { label: '취소', kind: 'cancel', onClick: () => setModal(null) },
+          { label: '기존 주문', kind: 'dark', onClick: openExisting },
+          { label: '새로 저장', kind: 'confirm', autoFocus: true, loading: saving, onClick: () => void saveItemEdits(true) },
+        ]} />;
     }
     if (modal.type === 'edit') {
       const setField = (field) => (event) => { const { value } = event.target; setModal((current) => ({ ...current, [field]: value })); };
@@ -1099,7 +1212,7 @@ export default function AIOrderManage() {
             title={selectedOrder && !['PARTIAL', 'SENT'].includes(selectedOrder.progress) ? '가공 최적화로 보낸 품목이 없습니다' : '선택한 주문의 대기 품목으로 가공 최적화를 엽니다'}
             onClick={() => navigate(`/AIOrderOptimization?orderid=${encodeURIComponent(selectedOrder.orderid)}`)}>가공 최적화 이동</button></header>
         <div ref={ordersScrollRef} className={`${classes.tableScroll} ${classes.ordersScroll}`} onScroll={syncScrollbarFromOrders}><table className={classes.ordersTable} style={{ width: `max(100%, ${orderTableWidth}px)`, minWidth: `${orderTableWidth}px` }}><colgroup>{ORDER_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${orderColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{ORDER_COLUMNS.map((column) => <th key={column.key} className={classes.resizableHeader} style={{ width: orderColumnWidths[column.key] ?? column.width }}><span>{column.label}</span><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'orders', column)} role="separator" aria-label={`Resize ${column.label} column`} /></th>)}</tr></thead>
-          <tbody>{displayOrders.length ? displayOrders.map((order) => <tr key={order.orderid} className={order.orderid === selectedId ? classes.selectedRow : ''} onClick={() => setSelectedId(order.orderid)}>
+          <tbody>{displayOrders.length ? displayOrders.map((order) => <tr key={order.orderid} data-orderid={order.orderid} className={order.orderid === selectedId ? classes.selectedRow : ''} onClick={() => setSelectedId(order.orderid)}>
             <td>{dateText(order.orderdate)}</td><td>{order.isDraft ? <Badge value="저장 전" tone="orange" /> : order.orderid}</td><td>{order.buyer || ''}</td><td>{order.recipient || ''}</td><td>{dateText(order.duedate)}</td><td title={order.deliverylocation || ''}>{order.deliverylocation || ''}</td><td className={classes.center}>{number(order.item_count)}</td><td className={classes.numeric}>{number(order.total_weight)}</td><td><Badge value={(ORDER_PROGRESS[order.progress] || ORDER_PROGRESS.NONE).label} tone={(ORDER_PROGRESS[order.progress] || ORDER_PROGRESS.NONE).tone} /></td><td>{order.notes || ''}</td><td>{order.created_by || ''}</td><td>{order.updated_by || ''}</td></tr>
           ) : <tr><td colSpan={ORDER_COLUMNS.length} className={classes.empty}>{loading ? '주문을 불러오는 중입니다.' : '조회된 확정 주문이 없습니다.'}</td></tr>}</tbody></table></div>
         <div ref={ordersHorizontalScrollRef} className={classes.ordersHorizontalScroll} onScroll={syncOrdersFromScrollbar} aria-label="주문 기본 가로 스크롤">
@@ -1188,8 +1301,13 @@ export default function AIOrderManage() {
                       match.itemname || null,
                     ].filter(Boolean).join(' · ');
                     return <div className={classes.stockMatchItem} key={`${match.sourcetype}|${match.sourceno}|${match.sourceline}|${matchIndex}`}>
-                      <div className={classes.stockMatchNameLine}>
-                        <strong>{itemLabel}{sizeLabel ? ` ${sizeLabel}` : ''}</strong>
+                      <div className={classes.stockMatchNameLine} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <strong style={{ flex: 1, minWidth: 0 }}>{itemLabel}{sizeLabel ? ` ${sizeLabel}` : ''}</strong>
+                        {/* 연결 해제: 재고매칭과 같은 조건 (가공 최적화로 보낸 품목은 [보내기 취소] 후에만) */}
+                        <button type="button" className={manageClasses.matchUnlink} disabled={isLocked(item) || unlinkingKey !== null}
+                          aria-label={`${itemLabel} 연결 해제`}
+                          title={isLocked(item) ? '가공 최적화로 보낸 품목은 연결을 해제할 수 없습니다. [보내기 취소] 후 해제해 주세요.' : '이 재고 연결 해제'}
+                          onClick={() => void unlinkStockMatch(item, match)}>×</button>
                       </div>
                       <div className={classes.stockMatchMeta}>{meta || '품명 정보 없음'}</div>
                     </div>;

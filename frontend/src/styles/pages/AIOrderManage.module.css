@@ -183,3 +183,8 @@
 .matchSpecItem b { color: #1e2e45; font-weight: 800; font-variant-numeric: tabular-nums; }
 .matchSpecWarehouse { border-color: #b9d3f2; background: #eaf2fd; }
 .matchSpecWarehouse b { color: #1f5fae; }
+
+/* 주문 상세 연결 재고 팝오버: 연결 해제(×) */
+.matchUnlink { display: inline-flex; flex: none; width: 22px; height: 22px; align-items: center; justify-content: center; padding: 0; border: 1px solid #e4e8ee; border-radius: 6px; background: #fff; color: #8a96a3; font-size: 15px; line-height: 1; cursor: pointer; }
+.matchUnlink:hover:not(:disabled) { border-color: #ec9a9f; background: #fdeced; color: #c9353d; }
+.matchUnlink:disabled { opacity: .45; cursor: not-allowed; }

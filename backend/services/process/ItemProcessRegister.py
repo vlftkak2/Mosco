@@ -6,6 +6,7 @@ import json
 
 from services.ai.stock_links import _allocate, allocate_coil_run, ensure_not_linked, linked_orders_sql, plan_outstanding_sql
 import db as _shared_db
+from services.ai import sheet_alloc as SA
 from services.closing import MonthClose as month_close_module
 from services.inventory.CurrentStock import user_name_sql
 from services.inventory import stock_cost as stock_cost_module
@@ -636,6 +637,11 @@ def _load_plan(cursor, companyid: str, planno: str, editing_processno: str = "")
         raise ValueError(f"{planno} 계획은 이미 {taken[0]} 전표로 등록되어 있습니다.")
     plan["runs"] = runs
     plan["stock_key"] = (plan["stocksourcetype"], plan["stocksourceno"], int(plan["stocksourceline"]))
+    lots = None
+    if plan["materialtype"] == "SHEET" and not (plan.get("sheet") or {}).get("coil"):
+        lots = _plan_pattern(plan["pattern"]).get("lots") or None
+    plan["lots"] = [(str(x["sourcetype"]), str(x["sourceno"]), int(x["sourceline"])) for x in lots] if lots else [plan["stock_key"]]
+    plan["lot_keys"] = set(plan["lots"])
     return plan
 
 
@@ -686,7 +692,12 @@ def _ensure_plan_structure(plan: dict, source: dict) -> None:
 
 def _ensure_plan_stock_free(cursor, companyid: str, plan: dict) -> None:
     """계획 원자재에 걸린 다른 연결 확인. 이 계획 · 다른 확정 계획(중량으로 따로 검사) · 확정 계획에 들어간 주문 연결은 통과."""
-    t, n, l = plan["stock_key"]
+    for key in plan.get("lots") or [plan["stock_key"]]:
+        _ensure_lot_free(cursor, companyid, key)
+
+
+def _ensure_lot_free(cursor, companyid: str, key) -> None:
+    t, n, l = key
     cursor.execute(
         """SELECT string_agg(DISTINCT link.orderid || '-' || link.lineno, ', ')
              FROM aiorder03t link
@@ -789,6 +800,103 @@ def _rule_name(cursor, companyid: str, itemcode, processid):
     return found[0] if found and found[0] else None
 
 
+_STOCK_COLS = """sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
+                  itemcode, itemname, productname, materialcode, materialname, surfacecode,
+                  surfacename, myrtle, manager, thickness, width, length, qty, qtyunit,
+                  weight, unit, unitprice, warehousecode, warehousecodename, stockkind,
+                  CASE WHEN weight > 0 THEN ROUND(costamt / weight, 2) END AS costprice,
+                  costamt, feeamt"""
+
+
+def _plan_lot_rows(cursor, companyid: str, plan: dict) -> list[dict]:
+    """원판 계획 로트들의 현재고 (계획 순서 그대로). 없거나 원판이 아니면 ValueError."""
+    rows = []
+    for key in plan["lots"]:
+        cursor.execute(f"SELECT {_STOCK_COLS} FROM CurrentStock01t WHERE companyid=%s AND sourcetype=%s AND sourceno=%s AND sourceline=%s",
+                       (companyid, *key))
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError(f"계획 원판 로트 {key[1]}-{key[2]}를 현재고에서 찾을 수 없습니다. 가공최적화에서 계획을 다시 확정해 주세요.")
+        stock = _row_dict(cursor, row)
+        if not Decimal(str(stock.get("length") or 0)) > 0:
+            raise ValueError("계획 원자재의 형태(코일 · 원판)가 현재고와 다릅니다. 가공최적화에서 계획을 다시 확정해 주세요.")
+        rows.append(stock)
+    return rows
+
+
+def _sheet_factor(plan: dict, thickness: Decimal) -> Decimal:
+    """제품 이론중량 계수 = 두께 × 비중 + 도금상수 (계획 값 · 예전 계획은 두께 × 7.85)."""
+    sheet = plan["sheet"]
+    return Decimal(str(sheet["factor"])) if sheet.get("factor") else thickness * Decimal("7.85")
+
+
+def _sheet_lot_alloc(plan: dict, rows: list[dict]) -> dict:
+    sheet = plan["sheet"]
+    pieces = [{"key": x["key"], "width": x["width"], "length": x["length"]} for x in _sheet_products(sheet)]
+    lots = [{"sourcetype": r["sourcetype"], "sourceno": r["sourceno"], "sourceline": int(r["sourceline"]), "qty": r["qty"], "weight": r["weight"]}
+            for r in rows]
+    try:
+        alloc = SA.plan_allocation(sheet.get("sheet_patterns") or [], pieces, lots, _sheet_factor(plan, Decimal(str(rows[0].get("thickness") or plan.get("thickness") or 0))))
+    except ValueError:
+        need = int(Decimal(str(plan.get("rawsheets") or 0)))
+        have = sum(Decimal(str(r["qty"] or 0)) for r in rows)
+        raise ValueError(f"계획 원판 {need:,}매가 계획 로트 재고 {have:,.0f}매보다 많습니다. 재고를 확인하거나 계획을 다시 확정해 주세요.") from None
+    used = sum(part["use"] for part in alloc["parts"])
+    if used != int(Decimal(str(plan.get("rawsheets") or 0))):
+        raise ValueError(f"{plan['planno']} 계획의 원판 {plan.get('rawsheets')}매와 로트 배정 {used}매가 다릅니다. 계획을 다시 확정해 주세요.")
+    return alloc
+
+
+def _sheet_lots_draft(cursor, companyid: str, plan: dict) -> dict:
+    """원판 계획 → 가공전표 초안: 계획 로트마다 원소재 1줄 (입고 순), 그 아래 품목별 절단 1줄.
+    매수 · kg 는 sheet_alloc (가공최적화 ④ 와 같은 함수): 생산 = 이론중량 kg 정수, 로스 = 투입 − 생산."""
+    rows = _plan_lot_rows(cursor, companyid, plan)
+    alloc = _sheet_lot_alloc(plan, rows)
+    process = _process_code(cursor, companyid, "절단")
+    by_key = {(str(r["sourcetype"]), str(r["sourceno"]), int(r["sourceline"])): r for r in rows}
+    extra_keys = {x["key"] for x in _sheet_products(plan["sheet"]) if x.get("extra")}
+    sources = []
+    for i, part in enumerate(alloc["parts"]):
+        lot = part["lot"]
+        stock = by_key[(str(lot["sourcetype"]), str(lot["sourceno"]), int(lot["sourceline"]))]
+        name = _rule_name(cursor, companyid, stock["itemcode"], process[0]) or stock.get("itemname") or ""
+        thickness = float(stock.get("thickness") or plan.get("thickness") or 0)
+        products = [{"key": f"cut{i}_{j}", "parent": None, "processid": process[0], "processcodename": process[1], "productname": name,
+                     "thickness": thickness, "width": float(r["width"]), "length": float(r["length"]), "qty": int(r["qty"]),
+                     "qtyunit": stock.get("qtyunit") or "EA", "weight": float(r["weight"]), "lossweight": float(r["loss"]),
+                     "description": "가공 후보" if r["key"] in extra_keys else ""} for j, r in enumerate(part["rows"])]
+        sources.append({"stock": stock, "source": {"qty": part["use"], "weight": float(part["input"]),
+                                                   "left_weight": float(Decimal(str(stock["weight"] or 0)) - part["input"])},
+                        "products": products})
+    first = sources[0]
+    return {"planno": plan["planno"], "runs": 1, "processmode": None, "materialtype": "SHEET", "sheetkind": "SHEET",
+            "stock": first["stock"], "source": first["source"], "products": first["products"], "sources": sources,
+            "loss": float(alloc["loss"]), "keep": Decimal("0")}
+
+
+def _ensure_sheet_lots_structure(cursor, companyid: str, plan: dict, sources: list[dict]) -> None:
+    """원판 계획 전표: 원소재 = 계획 로트 전부, 로트마다 투입 매수 · 품목(폭 · 길이 · 매수)이 계획 배정과 같아야 한다."""
+    rows = _plan_lot_rows(cursor, companyid, plan)
+    alloc = _sheet_lot_alloc(plan, rows)
+    q3 = lambda v: Decimal(str(v or 0)).quantize(Decimal("0.001"))
+    expected = {(str(p["lot"]["sourcetype"]), str(p["lot"]["sourceno"]), int(p["lot"]["sourceline"])):
+                (p["use"], sorted((q3(r["width"]), q3(r["length"]), q3(r["qty"])) for r in p["rows"])) for p in alloc["parts"]}
+    for source in sources:
+        key = (str(source["stocksourcetype"]), str(source["stocksourceno"]), int(source["stocksourceline"]))
+        if key not in expected:
+            raise ValueError(f"{plan['planno']} 계획에 없는 원판 로트({key[1]}-{key[2]})는 원소재로 쓸 수 없습니다.")
+        use, items = expected[key]
+        products = source["products"]
+        if any(p.get("parent_clientid") for p in products) or sorted((q3(p.get("width")), q3(p.get("length")), q3(p.get("qty"))) for p in products) != items:
+            raise ValueError(f"{plan['planno']} 계획과 가공 줄 구성이 다릅니다 (로트 {key[1]}-{key[2]}). "
+                             "계획 전표는 행을 추가하거나 지울 수 없습니다. 다르게 가공하려면 가공최적화에서 계획을 다시 확정해 주세요.")
+        if q3(source["qty"]) != q3(use):
+            raise ValueError(f"{plan['planno']} 계획의 로트 {key[1]}-{key[2]}는 원판 {use}매를 투입해야 합니다 (입력 {Decimal(str(source['qty'])):,.0f}매).")
+    missing = set(expected) - {(str(s["stocksourcetype"]), str(s["stocksourceno"]), int(s["stocksourceline"])) for s in sources}
+    if missing:
+        raise ValueError(f"{plan['planno']} 계획의 원판 로트가 빠졌습니다: " + ", ".join(f"{k[1]}-{k[2]}" for k in sorted(missing)))
+
+
 def _sheet_plan_draft(cursor, companyid: str, plan: dict) -> dict:
     """시트 계획 → 가공전표 1장 초안 (저장은 하지 않음).
 
@@ -798,6 +906,8 @@ def _sheet_plan_draft(cursor, companyid: str, plan: dict) -> dict:
     planno = plan["planno"]
     sheet = plan["sheet"]
     coil = bool(sheet.get("coil"))
+    if not coil:
+        return _sheet_lots_draft(cursor, companyid, plan)
     cursor.execute(
         """SELECT sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
                   itemcode, itemname, productname, materialcode, materialname, surfacecode,
@@ -839,15 +949,12 @@ def _sheet_plan_draft(cursor, companyid: str, plan: dict) -> dict:
     name = _rule_name(cursor, companyid, stock["itemcode"], process[0]) or stock.get("itemname") or ""
     thickness = Decimal(str(stock.get("thickness") or plan.get("thickness") or 0))
     pieces = _sheet_products(sheet)
-    theory = [(Decimal(str(x["width"])) * Decimal(str(x["length"])) * thickness * Decimal("7.85") / Decimal("1000000")
+    # 코일 길이 샤링 계획은 계획의 (두께 × 비중 + 도금상수)로 이론중량을 낸다 (가공최적화 화면과 같은 값). 원판 계획은 두께 × 7.85
+    factor = Decimal(str(sheet["factor"])) if coil and sheet.get("factor") else thickness * Decimal("7.85")
+    theory = [(Decimal(str(x["width"])) * Decimal(str(x["length"])) * factor / Decimal("1000000")
                * int(x["produced_qty"])).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP) for x in pieces]
-    if sum(theory) > weight:
-        # 실제 투입중량이 이론중량 합보다 가벼우면 투입중량을 이론 비율로 나눈다 (로스 0)
-        weights = [Decimal(str(v)) for v in _allocate(weight, theory, "0.001")]
-        losses = [Decimal("0")] * len(pieces)
-    else:
-        weights = theory
-        losses = [Decimal(str(v)).quantize(Decimal("0.001")) for v in _allocate(weight - sum(theory), theory, "1")]
+    # 생산 = 이론중량 kg 정수, 로스 = 투입 − 생산 (가공최적화 ④ 와 같은 sheet_alloc.int_split)
+    weights, losses = SA.int_split(weight, theory)
     products = [{"key": f"cut{i}", "parent": None, "processid": process[0], "processcodename": process[1], "productname": name,
                  "thickness": float(thickness), "width": float(x["width"]), "length": float(x["length"]), "qty": int(x["produced_qty"]),
                  "qtyunit": stock.get("qtyunit") or "EA", "weight": float(weights[i]), "lossweight": float(losses[i]),
@@ -863,11 +970,12 @@ def plan_draft(companyid: str, planno: str):
     """계획 불러오기: 계획 전체를 가공전표 1장 초안으로 만든다 (저장은 하지 않음).
 
     원소재 (원코일)
-      ├ 등분  1차 가공 (차수 투입중량)      ← 등분 계획 · 일부가공일 때만 최상위에 둔다
+      ├ 등분  1차 가공 (차수 투입중량)      ← 등분 계획(차수 2개 이상)일 때만 최상위에 둔다
       │   └ 슬리팅  칼마다 1줄 (제품중량 + 배부 로스)
-      ├ 등분  2차 가공 …
-      └ 등분  보관분 (일부가공에서 남는 코일 → 새 재고)
-    원샷은 등분 없이 원소재 바로 아래 슬리팅."""
+      └ 등분  2차 가공 …
+    원샷 · 일부가공은 등분 없이 원소재 바로 아래 슬리팅.
+    원소재 투입중량 = 계획 가공중량 합계. 일부가공 · 등분에서 남는 코일은 투입하지 않고 원래 재고 줄에 그대로 남는다
+    (수량 1 유지 · 중량과 그 비율의 원가만 차감)."""
     with _connect() as connection, connection.cursor() as cursor:
         plan = _load_plan(cursor, companyid, planno)
         if plan["materialtype"] == "SHEET":
@@ -904,7 +1012,7 @@ def plan_draft(companyid: str, planno: str):
         raise ValueError(f"계획 가공중량 {total:,.3f}kg이 쓸 수 있는 현재고 {stock_weight - other:,.3f}kg보다 큽니다. 재고를 확인해 주세요.")
     partial = plan.get("processmode") == "PARTIAL"
     left = stock_weight - other - total
-    keep = left if partial and left > Decimal("0.001") else Decimal("0")          # 일부가공: 남는 코일 = 보관분
+    keep = Decimal("0")   # 남는 코일은 원래 재고 줄에 그대로 둔다 (예전: '보관분' 등분 줄로 전부 투입 후 새 재고로 입고)
     if not partial and other == 0 and Decimal("0") < left <= Decimal("1"):        # 반올림 자투리는 마지막 차수에 붙인다
         weights[-1] += left
         total = stock_weight
@@ -982,11 +1090,17 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
             raise ValueError("로스 배부는 가공계획에서 불러온 전표만 쓸 수 있습니다. 수기가공은 [중량 자동맞춤]으로 맞춰 주세요.")
         if plan:
             keys = {(s["stocksourcetype"], s["stocksourceno"], int(s["stocksourceline"])) for s in payload["sources"]}
-            if keys != {plan["stock_key"]}:
+            sheet_lots = plan["materialtype"] == "SHEET" and not plan["sheet"].get("coil")
+            if keys != plan["lot_keys"]:
+                if len(plan["lots"]) > 1:
+                    raise ValueError(f"{planno} 계획의 원판 로트 {len(plan['lots'])}개(" + ", ".join(f"{k[1]}-{k[2]}" for k in plan["lots"]) + ")를 모두 원소재로 써야 합니다.")
                 raise ValueError(f"{planno} 계획의 원자재({plan['stocksourceno']}-{plan['stocksourceline']}) 한 줄만 원소재로 쓸 수 있습니다.")
             _ensure_plan_stock_free(cursor, companyid, plan)
+            if sheet_lots:
+                _ensure_sheet_lots_structure(cursor, companyid, plan, payload["sources"])
             for source in payload["sources"]:
-                _ensure_plan_structure(plan, source)
+                if not sheet_lots:
+                    _ensure_plan_structure(plan, source)
                 _validate_weight_tree(source)
         # 주문서 관리에서 주문에 연결된 재고는 가공 원소재로 쓸 수 없다 (수정 중인 문서에 원래 있던 원소재는 허용)
         existing_sources = set()
@@ -998,7 +1112,7 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
             existing_sources = {(t, n, int(l)) for t, n, l in cursor.fetchall()}
         ensure_not_linked(cursor, companyid, {
             (source["stocksourcetype"], source["stocksourceno"], source["stocksourceline"]) for source in payload["sources"]
-        }, existing_sources | ({plan["stock_key"]} if plan else set()))
+        }, existing_sources | (plan["lot_keys"] if plan else set()))
         if processno:
             cursor.execute("SELECT created_by FROM Process01t WHERE companyid=%s AND processno=%s", (companyid, processno))
             original = cursor.fetchone()

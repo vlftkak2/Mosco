@@ -64,12 +64,18 @@ def ensure_not_linked(cursor, companyid: str, keys, allowed=frozenset(), action:
                   UNION
                   SELECT plan.stocksourcetype, plan.stocksourceno, plan.stocksourceline, plan.planno
                     FROM aiplan01t AS plan
-                   WHERE plan.companyid = %s AND plan.status = 'CONFIRMED' AND plan.rawkind = 'STOCK')
+                   WHERE plan.companyid = %s AND plan.status = 'CONFIRMED' AND plan.rawkind = 'STOCK'
+                  UNION
+                  -- 시트 계획이 여러 로트를 쓰면 pattern.lots 의 로트도 모두 잡힌 재고
+                  SELECT lot->>'sourcetype', lot->>'sourceno', (lot->>'sourceline')::integer, plan.planno
+                    FROM aiplan01t AS plan
+                    CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(plan.pattern->'lots') = 'array' THEN plan.pattern->'lots' ELSE '[]'::jsonb END) AS lot
+                   WHERE plan.companyid = %s AND plan.status = 'CONFIRMED' AND plan.rawkind = 'STOCK' AND plan.materialtype = 'SHEET')
            SELECT r.t, r.n, r.l, string_agg(DISTINCT r.ref, ', ' ORDER BY r.ref)
              FROM refs r JOIN target USING (t, n, l)
             GROUP BY 1, 2, 3
             ORDER BY 1, 2, 3""",
-        ([k[0] for k in targets], [k[1] for k in targets], [k[2] for k in targets], companyid, companyid),
+        ([k[0] for k in targets], [k[1] for k in targets], [k[2] for k in targets], companyid, companyid, companyid),
     )
     rows = cursor.fetchall()
     if rows:

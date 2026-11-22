@@ -5,6 +5,9 @@
 /* ---------- Wordmark logo ---------- */
 .logo { gap: 12px; }
 .logo img { width: 42px; height: auto; }
+/* 스틸119 전체 로고 (가로:세로 ≈ 3.4:1) */
+.logo img.logo-full { width: auto; height: 34px; object-fit: contain; }
+.ft .logo img.logo-full { height: 38px; }
 .wm { display: flex; flex-direction: column; line-height: 1; }
 .wm small { font-size: 9px; font-weight: 800; letter-spacing: .32em; color: var(--ink); margin: 0 0 3px 1px; }
 .wm strong { white-space: nowrap; font-size: 27px; font-weight: 900; letter-spacing: -0.035em; color: var(--navy-800); font-family: "Pretendard Variable", Pretendard, sans-serif; }

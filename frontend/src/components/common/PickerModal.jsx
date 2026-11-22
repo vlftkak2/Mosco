@@ -151,10 +151,12 @@ export default function PickerModal({
   onApply, applyLabel = '선택 반영', applyDisabled, applying = false,
   footerActions,
   simple = false, // 간결형(아이콘 없이 · 각진 회색 테두리) — 거래처관리 기초잔액 엑셀처럼 켠 곳에만
+  look = '', // 'saas': 깔끔한 SaaS 톤 (가공 최적화처럼 켠 곳에만 · 기본은 기존 모양)
 }) {
   const close = () => { if (!closeDisabled) onClose(); };
   return <Modal opened={opened} onClose={close} centered size="min(1440px, calc(100vw - 32px))" xOffset={16} yOffset={16}
-    classNames={simple ? { ...MODAL_CLASSES, content: `${classes.content} ${classes.simple}` } : MODAL_CLASSES} closeButtonProps={{ 'aria-label': `${title} 닫기` }}
+    classNames={simple ? { ...MODAL_CLASSES, content: `${classes.content} ${classes.simple}` }
+      : look === 'saas' ? { ...MODAL_CLASSES, content: `${classes.content} ${classes.saas}` } : MODAL_CLASSES} closeButtonProps={{ 'aria-label': `${title} 닫기` }}
     title={<div className={classes.heading}>
       {!simple && <span className={classes.headingIcon} aria-hidden="true">{icon}</span>}
       <div>

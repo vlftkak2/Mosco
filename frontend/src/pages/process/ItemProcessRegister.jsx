@@ -555,7 +555,7 @@ function PlanRunPicker({ opened, initialQuery, onClose, onPick }) {
         value={query} onChange={(e) => setQuery(e.currentTarget.value)} />
       <Button size="sm" variant="default" onClick={() => setQuery('')}>초기화</Button>
     </>}
-    guide={<p>계획 1개 = 가공전표 1장입니다. 코일은 원소재 아래 등분(차수 · 보관분)과 슬리팅(칼마다 1줄), 시트는 원소재(원판 · 코일) 아래 품목별 절단 1줄이 로스 배부와 함께 채워지며, 저장해야 현재고에 반영됩니다.</p>}
+    guide={<p>계획 1개 = 가공전표 1장입니다. 코일은 원소재 아래 등분(차수)과 슬리팅(칼마다 1줄) — 일부가공 · 등분에서 남는 코일은 투입하지 않고 원래 재고에 남습니다. 시트는 원소재(원판 · 코일) 아래 품목별 절단 1줄이 로스 배부와 함께 채워지며, 저장해야 현재고에 반영됩니다.</p>}
     listTitle="확정 계획" count={rows.length} loading={loading} listHint="행을 눌러 계획을 고르세요"
     selectedCount={chosen ? 1 : 0} onClearSelection={() => setPicked('')}
     applyLabel="불러오기" applyDisabled={!chosen} onApply={() => chosen && onPick(chosen.planno)}>
@@ -1129,25 +1129,29 @@ export default function ItemProcessRegister() {
       const { data } = await axios.get(`/api/item-process-register/plans/${encodeURIComponent(planno)}/draft`, authConfig());
       reset();
       const stock = data.stock;
-      const ids = new Map(data.products.map((product) => [product.key, uid()]));
       setHeader({ ...emptyHeader(), warehousecode: stock.warehousecode || '', warehousecodename: stock.warehousecodename || '',
         description: `가공계획 ${planno}` });
-      setSources([{
-        id: uid(), stock, qty: String(data.source.qty), weight: String(data.source.weight),
-        products: data.products.map((product) => ({
+      // 원판 계획은 로트마다 원소재 1줄 (data.sources) · 그 밖은 1줄
+      const draftSources = data.sources?.length ? data.sources : [{ stock, source: data.source, products: data.products }];
+      setSources(draftSources.map((draft) => {
+        const ids = new Map(draft.products.map((product) => [product.key, uid()]));
+        return {
+        id: uid(), stock: draft.stock, qty: String(draft.source.qty), weight: String(draft.source.weight),
+        products: draft.products.map((product) => ({
           id: ids.get(product.key), parentId: product.parent ? ids.get(product.parent) : null,
           processid: product.processid || '', processcodename: product.processcodename || '', productno: '',
           productname: product.productname || '', thickness: product.thickness ?? '', width: product.width ?? '', length: product.length ?? '',
           qty: String(product.qty), qtyunit: product.qtyunit || 'EA', weight: String(product.weight), lossweight: String(product.lossweight || 0),
           unit: 'KG', unitprice: '0', description: product.description || '',
         })),
-      }]);
+      };
+      }));
       setPlanLink({ planno, runs: data.runs });
       closePlanPicker();
       const slits = data.products.filter((product) => product.key.startsWith('slit')).length;
       // 시트 계획: 원판 N매(또는 코일 사용 중량) → 품목별 절단 1줄
       const message = data.materialtype === 'SHEET'
-        ? `${planno} · ${data.sheetkind === 'COIL' ? `코일 ${numberText(data.source.weight)}kg 길이 절단` : `원판 ${numberText(data.source.qty)}매 절단`} · 품목 ${data.products.length}줄 · 로스 ${numberText(data.loss)}kg 배부. 가공처를 고르고 저장해 주세요.`
+        ? `${planno} · ${data.sheetkind === 'COIL' ? `코일 ${numberText(data.source.weight)}kg 길이 절단` : `원판 ${numberText((data.sources || [data]).reduce((sum, s) => sum + Number(s.source.qty || 0), 0))}매 절단${data.sources?.length > 1 ? ` (로트 ${data.sources.length}개)` : ''}`} · 품목 ${(data.sources || [data]).reduce((sum, s) => sum + s.products.length, 0)}줄 · 로스 ${numberText(data.loss)}kg 배부. 가공처를 고르고 저장해 주세요.`
         : `${planno} · 슬리팅 ${slits}줄${Number(data.keep) > 0 ? ` · 보관분 ${numberText(data.keep)}kg` : ''} · 로스 ${numberText(data.loss)}kg 배부. 가공처를 고르고 저장해 주세요.`;
       notifications.show({ title: '계획 불러오기', message, color: 'teal' });
     } catch (error) {

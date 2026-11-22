@@ -315,3 +315,6 @@
 .confirmButton:focus-visible, .rowDeleteButton:focus-visible, .rowAddButton:focus-visible { outline: 2px solid #f0a3a7; outline-offset: 2px; }
 .btnSpinner { width: 14px; height: 14px; border: 2px solid #ffffff66; border-top-color: #fff; border-radius: 50%; animation: btnSpin .8s linear infinite; }
 @keyframes btnSpin { to { transform: rotate(360deg); } }
+/* 상세 품목 합계 줄: 셀 여백 (.resultGrid td 의 padding 0 을 덮음) · 합계 글자는 가운데, 수량 · 중량은 오른쪽에서 띄움 */
+.resultGrid tfoot td { padding: 0 14px !important; }
+.resultGrid tfoot td.subtotalLabel { text-align: center !important; }

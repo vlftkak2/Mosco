@@ -36,5 +36,14 @@ export default defineConfig({
       },
     },
   },
+  // vite preview(시연용 빌드 서버)도 터널 호스트 허용 + API 프록시
+  preview: {
+    host: '0.0.0.0',
+    allowedHosts: ['.trycloudflare.com'],
+    proxy: {
+      '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true },
+      '/passwordapi': { target: 'http://127.0.0.1:8000', changeOrigin: true },
+    },
+  },
   plugins: [react(), appVersionPlugin()],
 })

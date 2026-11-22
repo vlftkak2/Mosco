@@ -47,7 +47,8 @@
 .candidateTools :global(.mantine-Input-input) { min-height: 28px; height: 28px; font-size: 12px; }
 
 /* ③ 원자재·가공방식 */
-.fields { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: end; gap: 10px; }
+/* 칸 너비 = 최대 170px · 왼쪽부터 (넓은 화면에서 짧은 숫자 칸이 길게 늘어나지 않게). 줄마다 같은 열에 맞춰 정렬된다 */
+.fields { --field-w: 170px; display: grid; grid-template-columns: repeat(5, minmax(0, var(--field-w))); justify-content: start; align-items: end; gap: 10px 12px; }
 .fields :global(.mantine-InputWrapper-label), .runs :global(.mantine-InputWrapper-label) { margin-bottom: 3px; color: #4b5b70; font-size: 11px; font-weight: 650; }
 .fields :global(.mantine-Input-input) { min-height: 30px; height: 30px; font-size: 12px; }
 /* 수정 불가 칸 (현재고 폭·중량, 두께, 계산값) = 비활성 색 */
@@ -55,7 +56,7 @@
 .fields :global(.mantine-Input-input[readonly]:not(.mantine-Select-input):not([aria-haspopup])) { border-color: #e3e7ec; background: #f1f3f6; color: #8b95a3; cursor: not-allowed; }
 .fields :global(.mantine-Input-input[readonly]:not(.mantine-Select-input):not([aria-haspopup]):focus) { border-color: #e3e7ec; }
 .runs { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 10px; }
-.runs :global(.mantine-Input-input) { width: 130px; min-height: 28px; height: 28px; font-size: 12px; }
+.runs :global(.mantine-Input-input) { width: 170px; min-height: 28px; height: 28px; font-size: 12px; }
 
 /* ④ 추천조합 */
 .recommendBody { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 10px; padding: 10px 12px 12px; }
@@ -186,7 +187,7 @@
 
 @media (max-width: 1250px) {
   .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .fields { grid-template-columns: repeat(3, minmax(0, var(--field-w))); }
   .recommendBody { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -541,26 +542,45 @@
 .hxPreviewNote { margin: 0; color: #8290a5; font-size: 11.5px; }
 
 /* ── 시트 · 판재 (시안 STEEL119 시트가공 v5) ── */
-.sheetFields { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-@media (max-width: 1100px) { .sheetFields { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.sheetFields { grid-template-columns: repeat(5, minmax(0, var(--field-w))); }   /* 1줄: 폭 · 길이 · 두께 · 매수 · 절단방향 / 2줄: 비중 · 도금상수 · 폭 여유 · 길이 여유 */
+@media (max-width: 1100px) { .sheetFields { grid-template-columns: repeat(3, minmax(0, var(--field-w))); } }
 .orientNote { margin: 3px 0 5px; color: #6b7c8f; font-size: 11px; line-height: 1.45; }
 .planCaption { display: block; color: #8292a9; font-size: 10.5px; font-weight: 500; }
 .sheetMeta { margin-top: 4px; color: #66778a; font-size: 11px; line-height: 1.5; }
 .patTabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 7px 0 4px; }
 .patTab { height: 26px; padding: 0 10px; border: 1px solid #dbe2eb; border-radius: 5px; background: #fff; color: #66768a; font: inherit; font-size: 11.5px; font-weight: 650; cursor: pointer; }
 .patTabOn { border-color: #efc2c6; background: #fff0f0; color: #c72a36; font-weight: 750; }
-.dim { display: flex; justify-content: center; margin: 12px auto; }
-.dimMain { width: 480px; max-width: 100%; }
-.dimTop { margin-left: 54px; color: #405b75; font-size: 12px; font-weight: 800; text-align: center; }
-.dimAxis { position: relative; height: 8px; margin: 6px 0 4px; border-top: 1.5px solid #728aa6; }
-.dimAxis::before, .dimAxis::after { content: ""; position: absolute; top: -5px; height: 9px; border-left: 1.5px solid #728aa6; }
-.dimAxis::before { left: 0; }
-.dimAxis::after { right: 0; }
+.dim { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 16px; margin: 12px auto 18px; }
+.dimMain { flex: 1 1 360px; min-width: 0; max-width: 480px; }
+/* 치수선: 위쪽 = 원판 길이, 왼쪽 = 원판 폭. 제품 구간 · 잔여 구간으로 나눠 숫자를 모두 표시 */
+.dimTopLabel { margin-left: 70px; color: #66778a; font-size: 11px; font-weight: 700; text-align: center; }
+.dimSegs { display: flex; margin: 2px 0 6px 70px; }
+.dimSeg { position: relative; flex: none; height: 22px; border-bottom: 1.5px solid #728aa6; }
+.dimSeg::before, .dimSeg::after { content: ""; position: absolute; bottom: -5px; height: 9px; border-left: 1.5px solid #728aa6; }
+.dimSeg::before { left: 0; }
+.dimSeg::after { right: 0; }
+.dimSeg span { position: absolute; bottom: 4px; left: 50%; color: #405b75; font-size: 11.5px; font-weight: 800; white-space: nowrap; transform: translateX(-50%); }
+.dimSegRest { border-bottom-color: #a9b6c4; border-bottom-style: dashed; }
+.dimSegRest span { color: #7d8b9a; font-weight: 700; }
 .dimRow { display: flex; align-items: stretch; gap: 8px; }
-.dimSide { position: relative; display: flex; flex: 0 0 46px; align-items: center; justify-content: center; min-width: 46px; border-left: 1.5px solid #728aa6; color: #405b75; font-size: 12px; font-weight: 800; transform: rotate(180deg); writing-mode: vertical-rl; }
-.dimSide::before, .dimSide::after { content: ""; position: absolute; left: -5px; width: 9px; border-top: 1.5px solid #728aa6; }
-.dimSide::before { top: 0; }
-.dimSide::after { bottom: 0; }
+.dimSideWrap { display: flex; flex: 0 0 62px; align-items: stretch; }
+.dimSideLabel { display: flex; flex: 0 0 16px; align-items: center; justify-content: center; color: #66778a; font-size: 11px; font-weight: 700; transform: rotate(180deg); writing-mode: vertical-rl; text-orientation: sideways; }
+.dimSegsV { display: flex; flex: 1; flex-direction: column; }
+.dimSegV { position: relative; flex: none; border-right: 1.5px solid #728aa6; }
+.dimSegV::before, .dimSegV::after { content: ""; position: absolute; right: -5px; width: 9px; border-top: 1.5px solid #728aa6; }
+.dimSegV::before { top: 0; }
+.dimSegV::after { bottom: 0; }
+.dimSegV span { position: absolute; top: 50%; right: 6px; color: #405b75; font-size: 11.5px; font-weight: 800; white-space: nowrap; transform: translateY(-50%) rotate(180deg); writing-mode: vertical-rl; text-orientation: sideways; }
+.dimSegVShort span { font-size: 10.5px; transform: translateY(-50%); writing-mode: horizontal-tb; }
+.dimSegV.dimSegRest { border-bottom: 0; border-right-color: #a9b6c4; border-right-style: dashed; }
+.dimSegShort span { left: auto; right: 0; transform: none; }
+/* 구간보다 긴 치수 글씨(작은 잔여 등)는 한 줄 위 · 구간 오른쪽 끝에 맞춤 + 짧은 지시선 */
+.dimSegsRaised { margin-top: 14px; }
+.dimSegTiny span { bottom: 21px; left: auto; right: -2px; font-size: 10.5px; transform: none; }
+.dimSegTiny span::after { content: ""; position: absolute; right: 2px; bottom: -8px; height: 7px; border-left: 1px solid #a9b6c4; }
+.dimNote { display: flex; flex: none; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 8px; background: #f6f7f9; color: #4b5b70; font-size: 11.5px; line-height: 1.45; }
+.dimNote b { color: #33425a; font-size: 12px; font-weight: 800; }
+.dimNote small { color: #7d8b9a; font-size: 10.5px; }
 .dimRow .sheetSvg { flex: 1; min-width: 0; max-width: none; margin: 0; border-radius: 3px; background: #f1f3f5; }
 .sheetFoot { margin-top: 6px; color: #748396; font-size: 10.5px; line-height: 1.55; }
 .sumLine { margin: 10px 0 2px; padding: 9px 12px; border-radius: 6px; background: #f4f7fb; color: #263447; font-size: 12.5px; line-height: 1.5; }
@@ -568,3 +588,307 @@
 .dot { display: inline-block; width: 9px; height: 9px; margin-right: 7px; border: 1px solid #cbd5df; border-radius: 2px; vertical-align: 0; }
 .noViz { display: flex; min-height: 200px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; margin: 6px 0 4px; border: 1px dashed #d4dbe4; border-radius: 6px; color: #6d7b8d; font-size: 12px; line-height: 1.7; text-align: center; }
 .noViz b { color: #4f5f73; font-weight: 700; }
+.candRemove { margin-left: 5px; padding: 0 4px; border: 0; background: transparent; color: #8b95a3; font-size: 14px; line-height: 1; cursor: pointer; vertical-align: 0; }
+.candRemove:hover { color: #d94a54; }
+
+/* 주문서 관리 → 가공 최적화 이동: 작업할 품목 묶음 선택 창 */
+.ogList { display: flex; max-height: 44vh; flex-direction: column; gap: 8px; overflow-y: auto; padding: 0 22px 14px; }
+.ogCard { display: flex; width: 100%; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid #e4e8ee; border-radius: 12px; background: #fff; color: #1e2a3a; font: inherit; text-align: left; cursor: pointer; transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease; }
+.ogCard:hover { border-color: #f0a3a7; background: #fffafa; box-shadow: 0 4px 14px #e23d451a; }
+.ogCard:focus-visible { outline: 2px solid #f0a3a7; outline-offset: 2px; }
+.ogBadge { flex: none; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 800; }
+.ogBadgeCoil { background: #e7f0fb; color: #2f6db5; }
+.ogBadgeSheet { background: #eaf6ef; color: #2f7a55; }
+.ogMain { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
+.ogMain b { overflow: hidden; font-size: 14px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.ogMain b em { margin-left: 4px; color: #4b5b70; font-style: normal; font-weight: 700; }
+.ogMain small { overflow: hidden; color: #6b7889; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.ogPick { flex: none; padding: 7px 14px; border-radius: 8px; background: #ef444c; color: #fff; font-size: 12.5px; font-weight: 800; }
+.ogCard:hover .ogPick { background: #dc323a; }
+.ogEmpty { padding: 18px; border-radius: 10px; background: #f6f7f9; color: #6b7889; font-size: 13px; text-align: center; }
+.ogList .groupExcluded { margin-top: 2px; border-radius: 0 8px 8px 0; }
+.ogGuide { display: flex; flex-direction: column; gap: 4px; margin: 0 22px 14px; padding: 11px 13px; border-radius: 10px; background: #f6f7f9; color: #6b7889; font-size: 12px; line-height: 1.6; word-break: keep-all; }
+.ogGuide b { color: #33425a; font-size: 12.5px; font-weight: 800; }
+.ogFooter { display: grid; padding: 0 22px 22px; }
+
+/* 시트 단독절단(여러 품목) 결과 아래: 혼합절단 비교 한 줄 */
+.mixCompare { margin: 8px 0 2px; padding: 8px 12px; border-radius: 8px; background: #eef4fb; color: #2f5f93; font-size: 12.5px; font-weight: 700; }
+
+/* 계산 과정 보기: ④ 결과 띠 → [계산 보기] 모달 */
+.calcTarget { position: relative; cursor: pointer; border-radius: 10px; transition: box-shadow 120ms ease; }
+.calcTarget:hover { box-shadow: 0 0 0 2px #f0a3a7; }
+.calcTarget:focus-visible { outline: 2px solid #f0a3a7; outline-offset: 2px; }
+.calcHint { position: absolute; top: 6px; right: 8px; display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border: 1px solid #f0c6c8; border-radius: 999px; background: #fff; color: #c9353d; font-size: 11px; font-weight: 800; }
+.calcTarget:hover .calcHint { background: #ef444c; border-color: #ef444c; color: #fff; }
+.calcModalBody { padding: 0; }
+.calcModalHead { display: flex; align-items: center; gap: 12px; padding: 18px 20px 14px; border-bottom: 1px solid #eef1f4; }
+.calcModalHead h2 { margin: 0; color: #1e2a3a; font-size: 17px; font-weight: 800; }
+.calcModalHead p { margin: 2px 0 0; color: #6b7889; font-size: 12.5px; }
+.calcModalHead > div { flex: 1; min-width: 0; }
+.calcModalIcon { display: inline-flex; flex: none; width: 40px; height: 40px; align-items: center; justify-content: center; border-radius: 12px; background: #fdeced; color: #e23d45; }
+.calcClose { display: inline-flex; padding: 6px; border: 0; border-radius: 8px; background: transparent; color: #6b7889; cursor: pointer; }
+.calcClose:hover { background: #f1f3f6; color: #1e2a3a; }
+.calcModalScroll { max-height: 72vh; overflow-y: auto; padding: 16px 20px 18px; }
+.calcBody { display: flex; flex-direction: column; gap: 12px; font-size: 12.5px; }
+.calcSummary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.calcSummary > div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid #e4e8ee; border-radius: 10px; background: #f8f9fb; }
+.calcSummary small { color: #6b7889; font-size: 11.5px; font-weight: 700; }
+.calcSummary b { color: #1e2a3a; font-size: 16px; font-weight: 800; }
+.calcSummary .calcSumAccent { border-color: #f0c6c8; background: #fff6f6; }
+.calcSummary .calcSumAccent b { color: #c9353d; }
+.calcSection { padding: 12px 14px; border: 1px solid #e9edf2; border-radius: 12px; background: #fff; }
+.calcHead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.calcHead > div { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.calcHead b { color: #1e2a3a; font-size: 13.5px; font-weight: 800; }
+.calcHead small { color: #8a96a3; font-size: 11.5px; }
+.calcHead strong { color: #c9353d; font-size: 14px; font-weight: 800; white-space: nowrap; }
+.calcStep { display: inline-flex; flex: none; width: 22px; height: 22px; align-items: center; justify-content: center; border-radius: 50%; background: #1e2a3a; color: #fff; font-size: 11.5px; font-weight: 800; }
+.calcSection table { width: 100%; border-collapse: collapse; }
+.calcSection th { width: 112px; padding: 5px 8px 5px 0; color: #6b7889; font-weight: 700; text-align: left; vertical-align: top; white-space: nowrap; }
+.calcSection td { padding: 5px 0; border-top: 1px dashed #eef1f4; color: #33425a; vertical-align: top; }
+.calcSection tr:first-child td, .calcSection tr:first-child th { border-top: 0; }
+.calcSection th { border-top: 1px dashed #eef1f4; }
+.calcSection td:last-child { padding-left: 10px; color: #1e2a3a; font-weight: 700; text-align: right; white-space: nowrap; }
+.calcSection .calcTotal th, .calcSection .calcTotal td { border-top: 1px solid #dfe4ea; color: #1e2a3a; font-weight: 800; }
+.calcNote { margin: 0; color: #8a96a3; font-size: 11.5px; }
+
+/* 시트 탭 · 코일 길이 샤링: ② 입력 5칸 × 2줄 / ③ 코일 길이 바 */
+.coilShearFields { display: grid !important; grid-template-columns: repeat(5, minmax(0, var(--field-w))); gap: 10px 12px; }
+.coilBarWrap { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 14px; }
+.coilBar { display: flex; height: 46px; overflow: hidden; border: 1px solid #d5dde6; border-radius: 6px; background: #fff; }
+.coilSeg { display: flex; min-width: 0; align-items: center; justify-content: center; border-right: 1px solid #fff; color: #34485d; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.coilSeg:last-child { border-right: 0; }
+.coilSegHatch { background: repeating-linear-gradient(45deg, #eef1f4 0 5px, #d6dce2 5px 7px) !important; }
+.coilBarScale { display: flex; justify-content: space-between; color: #6b7889; font-size: 11.5px; }
+.coilLegend { display: flex; flex-wrap: wrap; gap: 6px 14px; color: #4b5b70; font-size: 12px; }
+.coilLegend span { display: inline-flex; align-items: center; gap: 5px; }
+.coilLegend i { display: inline-block; width: 11px; height: 11px; border: 1px solid #c5d1df; border-radius: 2px; }
+.coilBarSum { color: #33425a; font-size: 12.5px; }
+.coilBarSum b { color: #1e2a3a; }
+
+/* ================================================================
+   가공 최적화 테마 레이어 (SaaS 톤 · 이 화면 범위만 · 레이아웃은 그대로)
+   토큰: 글자(ink/text/sub/muted) · 선(line) · 바탕(soft) · 브랜드 빨강 · 보조 남색
+   ================================================================ */
+.optScope {
+  --o-ink: #0f172a; --o-text: #334155; --o-sub: #64748b; --o-muted: #94a3b8;
+  --o-line: #e2e8f0; --o-line-strong: #cbd5e1; --o-soft: #f8fafc; --o-soft-2: #f1f5f9;
+  --o-accent: #e0434b; --o-accent-strong: #c9353d; --o-accent-soft: #fef2f2; --o-accent-line: #fecaca;
+  --o-navy: #3b4a62; --o-green: #15803d; --o-green-soft: #ecfdf5; --o-blue: #2563eb;
+  --o-radius: 12px; --o-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 1px 3px rgba(15, 23, 42, .06);
+  color: var(--o-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 카드 (섹션) */
+.optScope .card { overflow: hidden; border: 1px solid var(--o-line) !important; border-radius: var(--o-radius) !important; background: #fff; box-shadow: var(--o-shadow); }
+.optScope .card > header { min-height: 48px; padding: 10px 14px !important; border-bottom: 1px solid var(--o-line) !important; background: #fff !important; }
+.optScope .card > header strong { color: var(--o-ink); font-size: 14.5px; font-weight: 750; letter-spacing: -0.01em; }
+.optScope .number { width: 22px; height: 22px; flex-basis: 22px; background: var(--o-accent); color: #fff; font-size: 11.5px; box-shadow: 0 0 0 3px var(--o-accent-soft); }
+.optScope .cardBody { padding: 14px 16px 16px; }
+.optScope .muted { color: var(--o-sub); }
+.optScope .toolsNote { padding: 4px 10px; border-radius: 999px; background: var(--o-soft-2); color: var(--o-sub); font-size: 11.5px; font-weight: 600; }
+
+/* 표 */
+.optScope table thead th { background: var(--o-soft) !important; color: var(--o-sub) !important; font-size: 11.5px !important; font-weight: 650 !important; letter-spacing: .01em; }
+.optScope table tbody td { color: var(--o-text); }
+.optScope .candidateTable tbody tr { transition: background-color 120ms ease; }
+.optScope .candidateTable tbody tr:hover td { background: var(--o-soft); }
+.optScope .candidateTable td:nth-child(4) b, .optScope .candidateTable td:nth-child(4) { color: var(--o-ink); }
+
+/* 입력 */
+.optScope .fields :global(.mantine-InputWrapper-label), .optScope .candidateTools :global(.mantine-InputWrapper-label) { color: var(--o-sub); font-weight: 650; }
+.optScope .fields :global(.mantine-Input-input), .optScope .candidateTools :global(.mantine-Input-input) { border-color: var(--o-line-strong); border-radius: 8px; color: var(--o-ink); transition: border-color 120ms ease, box-shadow 120ms ease; }
+.optScope .fields :global(.mantine-Input-input:focus), .optScope .candidateTools :global(.mantine-Input-input:focus) { border-color: var(--o-accent); box-shadow: 0 0 0 3px var(--o-accent-soft); }
+.optScope .fields :global(.mantine-Input-input[readonly]) { border-color: var(--o-line); background: var(--o-soft-2) !important; color: var(--o-sub) !important; }
+
+/* 추천조합: 박스 · 안 카드 */
+.optScope .box { padding: 14px; border-color: var(--o-line); border-radius: var(--o-radius); }
+.optScope .plans { gap: 10px; }
+.optScope .plan { padding: 12px 14px; border: 1px solid var(--o-line); border-radius: 10px; color: var(--o-text); transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease; }
+.optScope .plan:hover { border-color: var(--o-line-strong); box-shadow: 0 4px 14px rgba(15, 23, 42, .07); }
+.optScope .planSelected { padding: 11px 13px; border: 2px solid var(--o-accent); background: linear-gradient(180deg, #fff7f7 0%, #fff 70%); box-shadow: 0 6px 18px rgba(224, 67, 75, .12); }
+.optScope .planHead { color: var(--o-ink); font-size: 13px; font-weight: 750; }
+.optScope .planHead b { color: var(--o-accent-strong); font-size: 14px; }
+.optScope .planPattern { color: var(--o-ink); font-size: 13px; font-weight: 700; }
+.optScope .planMeta, .optScope .fill { color: var(--o-sub); }
+.optScope .recBadge { border-color: #bbf7d0 !important; background: var(--o-green-soft) !important; color: var(--o-green) !important; }
+.optScope .ok { color: var(--o-green); }
+.optScope .over, .optScope .shortTag { color: var(--o-accent-strong); }
+.optScope .under { color: var(--o-blue); }
+
+/* 시각화 머리 · 결과 */
+.optScope .vizHead { padding-bottom: 10px; border-bottom: 1px dashed var(--o-line); }
+.optScope .vizName { color: var(--o-ink); font-size: 13.5px; font-weight: 800; }
+.optScope .flow { border-color: var(--o-line); border-radius: 12px; background: #fff; box-shadow: var(--o-shadow); }
+.optScope .flow > span { padding: 11px 14px; }
+.optScope .flow > span + span { border-left-color: var(--o-line); }
+.optScope .flow small { color: var(--o-sub); font-size: 11.5px; font-weight: 600; }
+.optScope .flow b { color: var(--o-ink); font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
+.optScope .flow > span:last-child b { color: var(--o-accent-strong); }
+.optScope .sumLine { border: 1px solid var(--o-line); background: var(--o-soft); color: var(--o-text); }
+.optScope .resultTitle { color: var(--o-ink); font-size: 12.5px; }
+.optScope .resultTable th { background: var(--o-soft); color: var(--o-sub); }
+.optScope .resultTable td { color: var(--o-text); }
+.optScope .resultTable tfoot td { background: var(--o-soft-2); color: var(--o-ink); }
+.optScope .estimate { color: var(--o-muted); }
+.optScope .patTab { border-radius: 6px; border-color: var(--o-line-strong); color: var(--o-sub); transition: all 120ms ease; }
+.optScope .patTab:hover { border-color: var(--o-sub); color: var(--o-ink); }
+/* 선택 = 옅은 빨강 바탕 + 빨강 테두리 · 글자 (꽉 찬 빨강은 너무 강함) */
+.optScope .patTabOn, .optScope .patTabOn:hover { border-color: var(--o-accent); background: var(--o-accent-soft); color: var(--o-accent-strong); font-weight: 750; }
+.optScope .sheetMeta { color: var(--o-sub); }
+
+/* 코일 도면 (CoilViz) */
+.optScope .cvRun { margin-bottom: 14px; }
+.optScope .cvRunHead { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+.optScope .cvRunHead b { color: var(--o-ink); font-size: 12.5px; font-weight: 800; }
+.optScope .cvRunHead span { color: var(--o-sub); font-size: 11.5px; font-weight: 600; }
+.optScope .cvDimTop { position: relative; height: 18px; margin-bottom: 4px; border-bottom: 1.5px solid #728aa6; }
+.optScope .cvDimTop::before, .optScope .cvDimTop::after { content: ""; position: absolute; bottom: -5px; height: 9px; border-left: 1.5px solid #728aa6; }
+.optScope .cvDimTop::before { left: 0; }
+.optScope .cvDimTop::after { right: 0; }
+.optScope .cvDimTop span { position: absolute; bottom: 3px; left: 50%; color: #405b75; font-size: 11.5px; font-weight: 800; transform: translateX(-50%); }
+.optScope .coilBar { height: 50px; gap: 0; overflow: hidden; border: 1px solid var(--o-line-strong); border-radius: 6px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .6); }
+.optScope .coilBar .piece { border-right: 1.5px solid #fff; box-shadow: inset 0 -3px 0 rgba(15, 23, 42, .06); color: #1f3550; font-size: 11.5px; font-weight: 800; }
+.optScope .cvDimGroups { display: flex; margin-top: 4px; }
+.optScope .cvDimSeg { position: relative; flex: none; height: 20px; border-top: 1.5px solid #728aa6; }
+.optScope .cvDimSeg::before, .optScope .cvDimSeg::after { content: ""; position: absolute; top: -5px; height: 9px; border-left: 1.5px solid #728aa6; }
+.optScope .cvDimSeg::before { left: 0; }
+.optScope .cvDimSeg::after { right: 0; }
+.optScope .cvDimSeg span { position: absolute; top: 4px; left: 50%; color: #405b75; font-size: 11px; font-weight: 750; white-space: nowrap; transform: translateX(-50%); }
+.optScope .cvDimLoss { border-top-style: dashed; border-top-color: #a9b6c4; }
+.optScope .cvDimLoss span { right: 0; left: auto; color: var(--o-muted); transform: none; }
+.optScope .subMetric { margin-top: 6px; color: var(--o-sub); font-size: 11.5px; }
+.optScope .subMetric b { color: var(--o-ink); }
+
+/* 사용 안내 */
+.guideFlowBar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 10px 20px; border-bottom: 1px solid #eef1f4; background: #f8fafc; color: #475569; font-size: 12px; font-weight: 700; }
+.guideFlowBar span { display: inline-flex; align-items: center; gap: 6px; }
+.guideFlowBar i { color: #cbd5e1; font-style: normal; font-weight: 800; }
+.guideTabs { display: flex; gap: 4px; padding: 12px 20px 0; }
+.guideTabs button { height: 32px; padding: 0 14px; border: 1px solid #e2e8f0; border-radius: 999px; background: #fff; color: #64748b; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.guideTabs button:hover { border-color: #cbd5e1; color: #0f172a; }
+.guideTabs .guideTabOn, .guideTabs .guideTabOn:hover { border-color: #e0434b; background: #e0434b; color: #fff; }
+.guideList { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+.guideLines { display: flex; margin: 0; padding: 0 0 0 18px; flex-direction: column; gap: 4px; color: #334155; font-size: 12.5px; line-height: 1.6; }
+.guideLines b { color: #0f172a; }
+.guideList { font-size: 12.5px; }
+.guideList .calcSection th { width: 120px; font-size: 12px; }
+.guideList .calcSection td, .guideList .calcSection td:last-child { padding-left: 0; color: #0f172a; font-weight: 600; text-align: left; white-space: normal; }
+
+/* 버튼 (이 화면만): 주 동작 빨강 · 보조 슬레이트 남색 · 취소/닫기 연회색 — 둥근 모서리 · 같은 높이 */
+.optScope button[class*="_btn_"] { height: 32px; padding: 0 14px; border-radius: 8px; font-weight: 700; letter-spacing: -0.01em; transition: background-color 140ms ease, box-shadow 140ms ease, transform 80ms ease; }
+.optScope button[class*="_btn_"]:active:not(:disabled) { transform: translateY(1px); }
+.optScope button[class*="_btnSm_"] { height: 28px; padding: 0 12px; font-size: 12px; }
+.optScope button[class*="_btnBlock_"] { height: 40px; border-radius: 10px; font-size: 13.5px; }
+.optScope button[class*="_btnPrimary_"] { border-color: #e5484d; background: #e5484d; box-shadow: 0 1px 2px rgba(229, 72, 77, .35); }
+.optScope button[class*="_btnPrimary_"]:hover:not(:disabled) { border-color: #d43a40; background: #d43a40; box-shadow: 0 4px 12px rgba(229, 72, 77, .28); }
+.optScope button[class*="_btnDark_"], .optScope button[class*="_btnBlue_"], .optScope button[class*="_btnSoftBlue_"], .optScope button[class*="_btnSoftGray_"] {
+  border-color: #334155; background: #334155; color: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, .2); }
+.optScope button[class*="_btnDark_"]:hover:not(:disabled), .optScope button[class*="_btnBlue_"]:hover:not(:disabled),
+.optScope button[class*="_btnSoftBlue_"]:hover:not(:disabled), .optScope button[class*="_btnSoftGray_"]:hover:not(:disabled) { border-color: #1e293b; background: #1e293b; }
+.optScope button[class*="_btnGray_"], .optScope button[class*="_btnLine_"] { border-color: #e2e8f0; background: #eef2f6; color: #334155; box-shadow: none; }
+.optScope button[class*="_btnGray_"]:hover:not(:disabled), .optScope button[class*="_btnLine_"]:hover:not(:disabled) { border-color: #cbd5e1; background: #e2e8f0; color: #0f172a; }
+.optScope button[class*="_btn_"]:disabled { border-color: #e2e8f0; background: #f1f5f9; color: #94a3b8; box-shadow: none; }
+/* ① 대기 품목 · 계획 불러오기 (오른쪽) */
+.optScope button[class*="_btnBlock_"][class*="_btnDark_"] { box-shadow: 0 2px 6px rgba(15, 23, 42, .18); }
+
+/* ③ 단독 · 혼합 아래 설명: 읽기 편한 진회색 */
+.optScope .methodRow .muted, .optScope .orientNote { color: #475569; font-size: 12px; line-height: 1.55; }
+.optScope .planMeta, .optScope .fill { color: #475569; }
+.optScope .status { margin-top: 10px; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; color: #334155; font-size: 12.5px; line-height: 1.65; }
+.optScope .statusWarn { border-color: #fde68a; background: #fffbeb; color: #92400e; }
+.optScope .recButton { height: 30px; margin-top: 8px; border-color: #fecaca; border-radius: 8px; color: #c9353d; font-weight: 700; }
+
+/* 사용 안내: 본문은 회색 · 작게, 핵심어만 진하게 */
+.guideLines { gap: 3px; color: #64748b; font-size: 12px; line-height: 1.65; }
+.guideLines b { color: #334155; font-weight: 700; }
+.guideList .calcSection { padding: 12px 14px; }
+.guideList .calcHead b { font-size: 13px; }
+.guideList .calcSection th { color: #94a3b8; font-size: 11.5px; font-weight: 600; }
+.guideList .calcSection td, .guideList .calcSection td:last-child { color: #475569; font-size: 12px; font-weight: 600; }
+
+/* 계산 보기 모달 (다듬기): 단계 색 띠 · 식 칩 · 투입 = 생산 + 로스 막대 */
+.calcModalScroll { background: #f8fafc; }
+.calcSummary > div { position: relative; overflow: hidden; border-color: #e2e8f0; background: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+.calcSummary > div::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: #cbd5e1; }
+.calcSummary small { color: #64748b; }
+.calcSummary b { color: #0f172a; font-size: 17px; letter-spacing: -0.01em; }
+.calcSummary .calcSumAccent { border-color: #fecaca; background: #fff; }
+.calcBalance { padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; }
+.calcBalanceHead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin-bottom: 8px; font-size: 12.5px; }
+.calcBalanceHead b { color: #0f172a; font-weight: 800; }
+.calcBalanceHead span { color: #64748b; font-weight: 600; }
+.calcBalanceBar { display: flex; height: 26px; overflow: hidden; border-radius: 7px; background: #f1f5f9; }
+.calcBalanceBar > span { display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11.5px; font-weight: 800; white-space: nowrap; }
+.calcBalanceProd { background: linear-gradient(90deg, #22c55e, #16a34a); }
+.calcBalanceLoss { background: repeating-linear-gradient(45deg, #f87171 0 6px, #ef4444 6px 12px); }
+.calcBalanceLegend { display: flex; gap: 16px; margin-top: 7px; color: #475569; font-size: 11.5px; font-weight: 600; }
+.calcBalanceLegend span { display: inline-flex; align-items: center; gap: 6px; }
+.calcBalanceLegend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.calcSection { position: relative; overflow: hidden; padding: 12px 14px 12px 18px; border-color: #e2e8f0; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+.calcSection::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 4px; background: #cbd5e1; }
+.calcExpr { padding: 2px 7px; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; color: #334155; font-family: inherit; font-size: 11.5px; font-weight: 600; line-height: 1.7; }
+.calcSection td:last-child { color: #0f172a; font-size: 12.5px; }
+.calcSection .calcTotal td:last-child { color: #c9353d; }
+/* 단계별 색 (띠 · 번호 · 요약 카드 윗선) */
+.toneInput::before { background: #64748b !important; }
+.toneWidth::before { background: #2563eb !important; }
+.toneProd::before { background: #16a34a !important; }
+.toneLoss::before { background: #ef4444 !important; }
+.toneYield::before { background: #e0434b !important; }
+.toneInput .calcStep { background: #64748b; }
+.toneWidth .calcStep { background: #2563eb; }
+.toneProd .calcStep { background: #16a34a; }
+.toneLoss .calcStep { background: #ef4444; }
+.toneYield .calcStep { background: #e0434b; }
+
+/* 버튼 그림자 제거 */
+.optScope button[class*="_btn_"], .optScope button[class*="_btn_"]:hover:not(:disabled),
+.optScope button[class*="_btnPrimary_"], .optScope button[class*="_btnPrimary_"]:hover:not(:disabled),
+.optScope button[class*="_btnDark_"], .optScope button[class*="_btnBlue_"], .optScope button[class*="_btnSoftBlue_"], .optScope button[class*="_btnSoftGray_"],
+.optScope button[class*="_btnDark_"]:hover:not(:disabled), .optScope button[class*="_btnBlock_"][class*="_btnDark_"] { box-shadow: none; }
+
+/* ② 선택 상자(절단방향 · 가공방식 등)는 고를 수 있는 칸 → 흰 바탕 (읽기 전용 회색 칸과 구분) */
+.optScope .fields :global(.mantine-Select-input), .optScope .fields :global(.mantine-Select-input[readonly]) {
+  border-color: var(--o-line-strong) !important; background: #fff !important; color: var(--o-ink) !important; cursor: pointer; }
+.optScope .fields :global(.mantine-Select-input:disabled) { background: var(--o-soft-2) !important; color: var(--o-sub) !important; cursor: not-allowed; }
+
+/* 오른쪽 대기 품목 · 계획 불러오기: 작게 */
+.optScope button[class*="_btnBlock_"] { height: 32px; border-radius: 8px; font-size: 12.5px; }
+
+/* 사용 안내: 색 대신 회색 톤 (버튼 · 모달 강조) */
+.optScope button[class*="_guideTrigger_"] { border: 1px solid #e2e8f0 !important; background: #f1f5f9 !important; color: #475569 !important; border-radius: 8px; box-shadow: none !important; }
+.optScope button[class*="_guideTrigger_"]:hover { background: #e2e8f0 !important; color: #0f172a !important; }
+.guideModal .calcModalIcon { background: #f1f5f9; color: #64748b; }
+.guideModal .guideTabs .guideTabOn, .guideModal .guideTabs .guideTabOn:hover { border-color: #475569; background: #475569; color: #fff; }
+.guideModal .calcStep { background: #94a3b8; }
+.guideModal .guideFlowBar { color: #64748b; }
+
+/* 코일 띠 입체 그림자 제거 · 계산 보기 식은 칩 대신 일반 글씨 */
+.optScope .coilBar { box-shadow: none; }
+.optScope .coilBar .piece { box-shadow: none; }
+.calcExpr { padding: 0; border: 0; border-radius: 0; background: transparent; color: #475569; font-size: 12.5px; font-weight: 500; line-height: 1.6; }
+
+/* 계산 보기 식: 굵게 */
+.calcExpr { color: #334155; font-weight: 700; }
+.calcExprSub { color: #64748b; font-size: 11.5px; font-weight: 600; }
+
+/* 코일 도면: 띠 폭 = 원코일 대비 % (아래 치수선과 정확히 맞춤) · 테두리는 폭을 차지하지 않게 */
+.optScope .coilBar { border: 0; outline: 1px solid var(--o-line-strong); outline-offset: -1px; }
+.optScope .coilBar .piece { flex: none; box-sizing: border-box; min-width: 0; overflow: hidden; padding: 0; }
+
+/* ① 같은 규격 합친 줄: 펼치기 · 창고별 줄 */
+.candExpand { margin-left: 6px; padding: 1px 7px; border: 1px solid #e2e8f0; border-radius: 999px; background: #fff; color: #475569; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.candExpand:hover { border-color: #cbd5e1; color: #0f172a; }
+.candSubRow td { padding: 6px 12px 6px 48px !important; border-top: 0 !important; background: #f8fafc !important; color: #475569; font-size: 12px; text-align: left !important; cursor: pointer; }
+.candSubRow td > span { margin-right: 14px; }
+.candSubRow:hover td { background: #f1f5f9 !important; }
+.candSubOn td { background: #fef2f2 !important; }
+.candSubLabel { color: #0f172a; font-weight: 700; }
+.candSubPick { padding: 1px 8px; border-radius: 999px; background: #e0434b; color: #fff; font-size: 11px; font-weight: 700; }
+.candSubHint { color: #94a3b8; font-size: 11px; }
+/* ④ kg 정수 안내 */
+.intNote { margin: 6px 0 0; color: #475569; font-size: 11.5px; line-height: 1.55; }
+/* 조회조건 버튼 (매출등록 '현재고 조회'와 같은 모양 · 색은 그대로) */
+.optScope button[class*="_btnBlock_"] { height: 36px; border-radius: 6px; font-size: 13px; font-weight: 700; }

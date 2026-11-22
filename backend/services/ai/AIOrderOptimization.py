@@ -33,6 +33,7 @@ from psycopg2.extras import RealDictCursor
 import db as _shared_db
 from services.ai.stock_links import allocate_coil_run, plan_outstanding_sql, stock_shares
 from services.ai import sheet_engine as SE
+from services.ai import sheet_alloc as SA
 
 TRIM_LOSS_DEFAULT = 4.0            # 기본 로스(mm) - 회사 기본값
 STEEL_DENSITY = 7.85e-6            # kg / mm³
@@ -343,13 +344,33 @@ def _reserved_sql(alias: str) -> str:
                           AND pl.materialtype = 'SHEET' AND pl.planno <> %(planno)s
                           AND pl.stocksourcetype = {alias}.sourcetype AND pl.stocksourceno = {alias}.sourceno
                           AND pl.stocksourceline = {alias}.sourceline)
+             -- 시트 계획이 여러 로트를 쓰면 pattern.lots 의 로트도 모두 잡힌 재고
+             OR EXISTS (SELECT 1 FROM aiplan01t pl
+                          CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(pl.pattern->'lots') = 'array' THEN pl.pattern->'lots' ELSE '[]'::jsonb END) lot
+                        WHERE pl.companyid = {alias}.companyid AND pl.status = 'CONFIRMED' AND pl.rawkind = 'STOCK'
+                          AND pl.materialtype = 'SHEET' AND pl.planno <> %(planno)s
+                          AND lot->>'sourcetype' = {alias}.sourcetype AND lot->>'sourceno' = {alias}.sourceno
+                          AND (lot->>'sourceline')::integer = {alias}.sourceline)
              -- 코일 계획은 가공중량만 잡는다 → 남는 중량이 없을 때만 숨긴다
              OR {alias}.weight - {plan_outstanding_sql(alias, "%(planno)s")} <= 0.001)"""
 
 
-def _stock_candidates(cur, companyid, lines, material, min_width, min_length, linked_keys, planno="", warehouse=None):
+# 품명 일치 비교용 키: 형태 단어(SHEET·COIL·PLATE·시트·코일·판재)를 빼고 공백 정리 · 대문자
+# 'GI SHEET' = 'GI COIL' = 'GI' 이지만 'EGI COIL' 은 다른 품명 (포함 검색 X)
+_FORM_WORDS = r"\b(SHEET|COIL|PLATE)\b|시트|코일|판재"
+_NAME_KEY_SQL = r"""UPPER(BTRIM(regexp_replace(regexp_replace(s.itemname, '\m(SHEET|COIL|PLATE)\M|시트|코일|판재', ' ', 'gi'), '\s+', ' ', 'g')))"""
+
+
+def _name_key(name) -> str:
+    return " ".join(re.sub(_FORM_WORDS, " ", str(name or ""), flags=re.I).split()).upper()
+
+
+def _stock_candidates(cur, companyid, lines, material, min_width, min_length, linked_keys, planno="", warehouse=None, exact_name=False):
     base = lines[0]
+    # exact_name: 시트 탭 → 발주 품명과 같은 품명만 (코일 탭은 기존 포함 검색 그대로)
+    name_sql = f"{_NAME_KEY_SQL} = %(name_key)s" if exact_name else "s.itemname ILIKE %(name)s"
     params = {"companyid": companyid, "thick": base["thickness"], "name": f"%{str(base['itemname'] or '').strip()}%",
+              "name_key": _name_key(base["itemname"]),
               "minw": min_width, "minl": min_length or 0, "planno": planno or "", "wh": warehouse,
               "korders": [x["orderid"] for x in lines], "klines": [x["lineno"] for x in lines],
               "lt": [k[0] for k in linked_keys], "ln": [k[1] for k in linked_keys], "ll": [int(k[2]) for k in linked_keys]}
@@ -361,7 +382,7 @@ def _stock_candidates(cur, companyid, lines, material, min_width, min_length, li
                {plan_outstanding_sql('s', "%(planno)s")} AS plan_reserved
         FROM currentstock01t s
         WHERE s.companyid = %(companyid)s AND s.qty > 0 AND s.weight > 0
-          AND s.thickness = %(thick)s AND s.itemname ILIKE %(name)s
+          AND s.thickness = %(thick)s AND {name_sql}
           AND (s.width >= %(minw)s
                -- 주문서 관리에서 연결한 원자재는 폭이 모자라도 보여 준다 (② 표에 '배치 불가'로)
                OR (s.sourcetype, s.sourceno, s.sourceline) IN (SELECT * FROM unnest(%(lt)s::varchar[], %(ln)s::varchar[], %(ll)s::integer[])))
@@ -414,6 +435,12 @@ def _purchase_sizes(cur, companyid, base, material, min_width, min_length):
 def _w(value) -> float:
     """폭·길이 비교용 키 (소수 셋째 자리)."""
     return round(float(value), 3)
+
+
+def _new_label(source) -> str:
+    """신규 후보의 구분 표시 (계산에는 쓰지 않음): 직접 입력 / 신규 (매입이력) / 신규 (가공이력)."""
+    text = str(source or "")
+    return "직접 입력" if text == "직접 입력" else "신규 (가공이력)" if text.startswith("가공이력") else "신규 (매입이력)"
 
 
 def _new_candidates(settings: dict, material: str) -> list[dict]:
@@ -561,9 +588,11 @@ TOP_CANDIDATES = 5   # ① 원자재 후보 추천은 상위 5개까지만 보�
 
 
 def _top_candidates(candidates: list[dict], chosen: dict | None) -> list[dict]:
-    """상위 5개. 지금 고른 원자재가 5위 밖이면 맨 끝에 붙여서 표에서 사라지지 않게 한다."""
+    """상위 5개. 지금 고른 원자재와 사용자가 넣은 신규 후보(직접 입력 · 매입이력 · 가공이력)는
+    5위 밖이어도 순위대로 붙여서 표에서 사라지지 않게 한다 (신규 후보는 표의 × 로 뺀다)."""
     top = candidates[:TOP_CANDIDATES]
-    return top + [chosen] if chosen and all(c is not chosen for c in top) else top
+    keep = [c for c in candidates[TOP_CANDIDATES:] if c is chosen or (c["kind"] == "NEW" and c.get("source"))]
+    return top + keep
 
 
 def _drop_excluded(candidates: list[dict], settings: dict) -> list[dict]:
@@ -775,14 +804,40 @@ def _load_stocks(cur, companyid, lines, settings, planno, material) -> list[dict
         return []
     # 90도 회전으로도 놓을 수 있으니 원판 폭·길이 중 짧은 변 기준으로 넓게 읽고, 배치 가능 여부는 계산에서 가린다 (불가는 '배치 불가')
     min_side = min([item_w] + [_w(x["length"]) for x in lines])
-    sheets = _stock_candidates(cur, companyid, lines, "SHEET", min_side, min_side, _linked_keys(lines), planno, settings.get("_warehouse"))
+    # 후보 = 발주와 품명 · 두께가 같은 재고만 ('GI' 발주에 'EGI' 재고 X)
+    sheets = _stock_candidates(cur, companyid, lines, "SHEET", min_side, min_side, _linked_keys(lines), planno, settings.get("_warehouse"),
+                               exact_name=True)
     # 현재고 코일을 길이로 잘라 시트를 만드는 경우 (코일 길이 샤링): 제품 폭 이상인 같은 품명·두께 코일
-    # 품명은 형태 단어(SHEET·COIL·시트·코일·판재)를 뺀 이름으로 찾는다: 'CCGI SHEET' 주문 → 'CCGI COIL' 코일
-    base_name = re.sub(r"\b(SHEET|COIL|PLATE)\b|시트|코일|판재", " ", str(lines[0]["itemname"] or ""), flags=re.I)
-    base_name = " ".join(base_name.split()) or lines[0]["itemname"]
-    coil_lines = [{**lines[0], "itemname": base_name}, *lines[1:]]
-    coils = _stock_candidates(cur, companyid, coil_lines, "COIL", item_w, 0, _linked_keys(lines), planno, settings.get("_warehouse"))
+    # 품명은 형태 단어(SHEET·COIL·시트·코일·판재)를 뺀 이름으로 비교한다: 'CCGI SHEET' 주문 → 'CCGI COIL' 코일
+    coils = _stock_candidates(cur, companyid, lines, "COIL", item_w, 0, _linked_keys(lines), planno, settings.get("_warehouse"),
+                              exact_name=True)
+    settings["_purchase_sizes"] = _purchase_sheet_sizes(cur, companyid, lines[0], min_side)
+    # 강종 비중 (코드관리 강종 '비중') → ② 비중 기본값 (시트 원판 · 코일 길이 샤링 모두)
+    cur.execute("""SELECT code, code_name, property1 FROM codemaster01t
+                    WHERE companyid = %s AND groupcode = 'MATERIAL' AND COALESCE(property1, '') <> ''""", (companyid,))
+    settings["_sg_map"] = {str(k).strip().upper(): v for r in cur.fetchall() for k in (r["code"], r["code_name"])
+                           for v in [to_number(r["property1"])] if v}
     return sheets + [{**c, "length": None} for c in coils]
+
+
+def _purchase_sheet_sizes(cur, companyid, base, min_side) -> list[dict]:
+    """시트 ① 자동 신규 후보: 발주와 품명 · 두께가 같은 과거 매입이력(입고 + 기초재고)의 원판 규격. 같은 규격은 1줄 (최근 전표)."""
+    key_sql = lambda a: _NAME_KEY_SQL.replace("s.itemname", f"{a}.itemname")
+    cur.execute(f"""
+        SELECT width, length, MAX(no) AS no, MAX(day) AS lastdate, COUNT(*) AS cnt FROM (
+            SELECT d.width, d.length, h.receiptno AS no, h.receptdate AS day
+            FROM inbound02t d JOIN inbound01t h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
+            WHERE d.companyid = %(c)s AND d.thickness = %(t)s AND {key_sql('d')} = %(k)s AND COALESCE(d.length, 0) > 0
+            UNION ALL
+            SELECT d.width, d.length, '기초' AS no, d.standdate AS day
+            FROM standstock01t d
+            WHERE d.companyid = %(c)s AND d.thickness = %(t)s AND {key_sql('d')} = %(k)s AND COALESCE(d.length, 0) > 0
+        ) x
+        WHERE GREATEST(width, length) >= %(m)s
+        GROUP BY width, length ORDER BY MAX(day) DESC LIMIT 30
+    """, {"c": companyid, "t": base["thickness"], "k": _name_key(base["itemname"]), "m": min_side})
+    return [{"width": _round(r["width"]), "length": _round(r["length"]), "count": r["cnt"], "no": r["no"], "lastdate": r["lastdate"]}
+            for r in cur.fetchall()]
 
 
 def _analyze_coil(stocks, lines, settings):
@@ -810,7 +865,7 @@ def _analyze_coil(stocks, lines, settings):
         seen_new.add(size["width"])
         assumed = size.get("weight") or None
         m = _coil_candidate_metrics(size["width"], trim, cand_combo, demand, extras, assumed)
-        label = "직접 입력" if size.get("source") == "직접 입력" else "신규 (매입이력)"
+        label = _new_label(size.get("source"))
         candidates.append({"kind": "NEW", "linked": False, "width": size["width"], "length": None,
                            "itemname": base["itemname"], "steelgrade": base["steelgrade"], "surface": base["surface"],
                            "thickness": base["thickness"], "qty": None, "weight": None, "label": label,
@@ -927,10 +982,58 @@ def _sheet_hist_counts(hist: dict | None, item_w: float, scope: list[dict], extr
     return {"counts": counts, "source": hist.get("source"), "actual_loss": hist.get("actual_loss")} if counts else None
 
 
+def _turn_note(p: dict) -> str:
+    """단독절단에서 제품을 돌려 놓은 열이 있으면: 전부 돌림 / 일부 열만 돌림."""
+    if p.get("kind") != "single" or p.get("mode") == "A" or not p.get("y"):
+        return ""
+    return " · 일부 열은 제품 방향 전환" if p.get("x") else " · 제품을 90도 돌려 배치"
+
+
 def _sheet_lb_text(p: dict) -> str:
     if p.get("kind") == "mixed" and p.get("variant") != "manual" and p.get("lb_sheets"):
         return f"이론 하한 {p['lb_sheets']}매 달성" if p["sheets"] == p["lb_sheets"] else f"이론 하한 {p['lb_sheets']}매"
     return ""
+
+
+def _coat_default(itemname) -> float:
+    """코일 길이 샤링 도금상수 기본값 = 0 (담당자가 ② 에서 직접 입력)."""
+    return 0.0
+
+
+def _coil_shear_params(settings: dict, coil: dict, chosen: bool) -> dict:
+    """② 코일 길이 샤링 입력값 (비중 · 도금상수 · 길이 여유 · 원샷/일부 · 가공중량). 비중 기본 = 강종 코드 비중 → 7.85."""
+    sg_map = settings.get("_sg_map") or {}
+    sg_default = sg_map.get(str(coil.get("steelgrade") or "").strip().upper()) or 7.85
+    sg = to_number(settings.get("coil_sg"))
+    coat = to_number(settings.get("coil_coat"))
+    allow = to_number(settings.get("coil_len_allow"))
+    one = settings.get("coil_mode") != "PART"   # 기본 = 원샷 (코일 재고 전량 · 남는 길이는 마지막 규격 ▲ 초과). '일부'를 고를 때만 가공중량 입력
+    kg = to_number(settings.get("coil_process_kg"))
+    return {"sg": sg if sg and sg > 0 else sg_default, "coat": coat if coat is not None and coat >= 0 else _coat_default(coil.get("itemname")),
+            "allow": max(0.0, allow or 0.0), "one_shot": one, "process_kg": kg if chosen and not one and kg and kg > 0 else None,
+            "sg_default": sg_default, "coat_default": _coat_default(coil.get("itemname"))}
+
+
+def _sheet_params(settings: dict, line: dict) -> dict:
+    """② 시트 원판 입력값: 코일 길이 샤링과 같은 항목 · 같은 설정 키 (비중 · 도금상수 · 길이 여유).
+    비중 기본 = 발주 강종의 코드 비중 → 7.85 · 도금상수 기본 = 0 (담당자가 입력)."""
+    sg_map = settings.get("_sg_map") or {}
+    sg_default = sg_map.get(str(line.get("steelgrade") or "").strip().upper()) or 7.85
+    coat_default = _coat_default(line.get("itemname"))
+    sg = to_number(settings.get("coil_sg"))
+    coat = to_number(settings.get("coil_coat"))
+    allow = to_number(settings.get("coil_len_allow"))
+    return {"sg": sg if sg and sg > 0 else sg_default, "coat": coat if coat is not None and coat >= 0 else coat_default,
+            "allow": max(0.0, allow or 0.0), "sg_default": sg_default, "coat_default": coat_default}
+
+
+def _order_basis(yield_pct, rows, extra_area=0.0) -> dict:
+    """후보표 수율 = 발주 수량 기준 (초과 생산 · 가공 후보 생산은 제외). rows = [(제품 면적, 생산 매수, 발주 매수)].
+    같은 원판 · 같은 두께라 중량 비율 = 면적 비율 → 수율 × (발주분 면적 ÷ 전체 생산 면적)."""
+    total = sum(a * prod for a, prod, _ in rows) + (extra_area or 0.0)
+    ordered = sum(a * min(prod, q) for a, prod, q in rows)
+    return {"over_pcs": int(sum(max(0, prod - q) for _, prod, q in rows)),
+            "yield_total": _round(yield_pct, 2), "yield_rate": _round(yield_pct * ordered / total, 2) if total else 0.0}
 
 
 def _sheet_from_coil(result, chosen, r, lines, side):
@@ -939,30 +1042,55 @@ def _sheet_from_coil(result, chosen, r, lines, side):
     if not r:
         result["message"] = "가공그룹 제품 폭이 코일 사용 폭보다 넓어 이 코일로 자를 수 없습니다."
         return result
-    pieces = []
+    pieces, segments = [], []
     for row in r["rows"]:
         o, line = row["o"], lines[row["o"]["id"]]
         pieces.append({"key": o["id"], "width": o["w"], "length": o["l"], "need_qty": o["q"], "produced_qty": row["prod"],
-                       "over_qty": row["prod"] - o["q"], "short_qty": row["short"], "lanes": row["lanes"], "cuts": row["cuts"],
-                       "per_sheet": row["lanes"], "used_mm": row["len"], "extra": False, "orderid": line["orderid"], "lineno": line["lineno"]})
+                       "over_qty": row["over"], "short_qty": row["short"], "lanes": row["lanes"], "cuts": row["cuts"] + row["over_cuts"],
+                       "per_sheet": row["lanes"], "used_mm": (row["len_m"] + row["over_m"]) * 1000, "extra": False,
+                       "orderid": line["orderid"], "lineno": line["lineno"]})
+        if row["len_m"] > 0:
+            segments.append({"kind": "order", "key": o["id"], "label": f"{SE.fmt_num(o['w'])} × {SE.fmt_num(o['l'])}", "m": _round(row["len_m"], 1)})
     for row in r["ex_rows"]:
         e = row["e"]
         pieces.append({"key": e["id"], "width": e["w"], "length": e["l"], "need_qty": 0, "produced_qty": row["prod"], "over_qty": 0,
-                       "short_qty": 0, "lanes": row["lanes"], "cuts": row["cuts"], "per_sheet": row["lanes"], "used_mm": row["len"],
+                       "short_qty": 0, "lanes": row["lanes"], "cuts": row["cuts"], "per_sheet": row["lanes"], "used_mm": row["len_m"] * 1000,
                        "extra": True, "candidate": True, "orderid": None, "lineno": None})
+        segments.append({"kind": "extra", "key": e["id"], "label": f"후보 {SE.fmt_num(e['l'])}", "m": _round(row["len_m"], 1)})
+    over_m = sum(row["over_m"] for row in r["rows"])
+    if over_m > 0:
+        segments.append({"kind": "over", "label": "주문 초과 가공", "m": _round(over_m, 1)})
+    if r["tail_m"] > 0.05:
+        segments.append({"kind": "tail", "label": "끝 자투리", "m": _round(r["tail_m"], 1)})
+    if r["keep_m"] > 0.05:
+        segments.append({"kind": "keep", "label": "보관 코일", "m": _round(r["keep_m"], 1)})
     short_text = ", ".join(f"{SE.fmt_num(p['width'])} × {SE.fmt_num(p['length'])} {p['short_qty']}매" for p in pieces if p.get("short_qty"))
+    # kg 정수 (재고가공등록과 같은 sheet_alloc.int_split): 투입 = 가공중량(소수 셋째 자리), 남는 코일이 1kg 이하면 코일 전량
+    coil_kg = Decimal(str(chosen["weight"] or 0))
+    int_input = Decimal(str(_round(r["input_kg"], 2)))   # 계획에 저장되는 가공중량(input_weight)과 같은 값
+    if coil_kg - int_input <= 1:
+        int_input = coil_kg
+    made = [p for p in pieces if p["produced_qty"] > 0]
+    prods, losses = SA.int_split(int_input, [Decimal(str(p["width"])) * Decimal(str(p["length"])) * Decimal(str(r["factor"])) / Decimal(1_000_000) * p["produced_qty"] for p in made])
+    for p, w_, l_ in zip(made, prods, losses):
+        p["int_produced"], p["int_loss"] = float(w_), float(l_)
     result["plans"] = [{
+        "int_input": float(int_input), "int_production": float(sum(prods)), "int_loss": float(sum(losses)),
         "id": "A", "coil": True, "recommended": True, "combo": "COIL", "orientation": "NORMAL", "olabel": "코일 길이 절단", "tag": "",
         "source": None, "sheets": None, "short_sheets": 0, "side_trim": side,
         "input_weight": _round(r["input_kg"], 2), "production_weight": _round(r["produced_kg"], 2), "loss_weight": _round(r["scrap_kg"], 2),
         "excess_weight": 0, "yield_rate": _round(r["yield_pct"], 2),
-        "coil_width": float(chosen["width"]), "coil_weight": float(chosen["weight"] or 0), "thickness": chosen.get("thickness"), "used_mm": _round(r["used_mm"], 1),
-        "remain_mm": _round(r["remain_mm"], 1), "remain_kg": _round(r["remain_kg"], 2),
-        "short_mm": _round(r["short_mm"], 1), "short_kg": _round(r["short_kg"], 2), "short_pcs": r["short_pcs"], "short_text": short_text,
+        "coil_width": float(chosen["width"]), "coil_weight": float(chosen["weight"] or 0), "thickness": chosen.get("thickness"),
+        "sg": r["sg"], "coat": r["coat"], "len_allow": r["allow"], "factor": r["factor"], "one_shot": r["one_shot"],
+        "unit_kg_m": _round(r["per_m"], 4), "total_m": _round(r["total_m"], 1), "need_m": _round(r["need_m"], 1), "need_kg": _round(r["need_kg"], 1),
+        "process_m": _round(r["process_m"], 1), "used_mm": _round(r["process_m"] * 1000, 1),
+        "remain_mm": _round(r["keep_m"] * 1000, 1), "remain_kg": _round(r["keep_kg"], 2), "keep_m": _round(r["keep_m"], 1), "keep_kg": _round(r["keep_kg"], 2),
+        "short_mm": _round(r["short_m"] * 1000, 1), "short_kg": _round(r["short_kg"], 2), "short_pcs": r["short_pcs"], "short_text": short_text,
+        "segments": segments,
         "pattern": " / ".join(f"{SE.fmt_num(p['width'])} × {SE.fmt_num(p['length'])} : {p['produced_qty']}매 = {SE.fmt_num(p['used_mm'] / 1000)}m" for p in pieces),
         "pieces": pieces}]
     if r["short_pcs"]:
-        result["warnings"].append(f"코일 재고로 {short_text} 부족 (약 {SE.fmt_num(r['short_kg'])}kg) → 시트 재고 또는 신규 매입으로 보충")
+        result["warnings"].append(f"가공 길이로 {short_text} 부족 (약 {SE.fmt_num(r['short_kg'])}kg) → 가공중량을 늘리거나 시트 재고 · 신규 매입으로 보충")
     return result
 
 
@@ -978,14 +1106,15 @@ def _analyze_sheet(stocks, lines, settings):
     side = max(0.0, to_number(settings.get("sidetrim")) or 0.0)   # 폭 여유 (mm · 양쪽 합)
     orders = [{"id": i, "w": item_w, "l": order_lengths[i], "q": int(ceil(x["need_amount"]))} for i, x in enumerate(lines)]
     # 단독절단 = 기준 품목(첫 품목)만, 혼합절단 = 담은 품목 전부 + 가공 후보 길이
-    scope = orders if mode == "MIXED" else orders[:1]
+    scope = orders   # 단독절단도 담은 품목 전부 (품목마다 따로 계산해 합침 · sheet_engine.plan_single_multi)
     extra_lengths = [v for v in _extra_sizes(settings.get("extralengths"), MIN_EXTRA_LENGTH) if v not in order_lengths]
     extras = [{"id": f"x{k}", "w": item_w, "l": v, "q": 0} for k, v in enumerate(extra_lengths)] if mode == "MIXED" else []
     hists = _history_list(settings)
     cache: dict = {}   # 같은 원판 길이 · 품목이면 열 패턴 탐색 결과가 같다
+    sp = _sheet_params(settings, lines[0])   # 비중 · 도금상수 · 길이 여유 (후보표 · 추천조합 모두 같은 값)
 
     def run(raw_w, raw_l, orientation, hist=None):
-        env = SE.env_of(raw_w, raw_l, thick, orientation, side)
+        env = SE.env_of(raw_w, raw_l, thick, orientation, side, sp["allow"], sp["sg"], sp["coat"])
         h = _sheet_hist_counts(hist, item_w, scope, extras, SE.cols_fit(item_w, env)) if hist else None
         return env, SE.plans_for(env, mode, scope, extras, h, cache)
 
@@ -1004,6 +1133,26 @@ def _analyze_sheet(stocks, lines, settings):
 
     candidates = []
 
+    factor = Decimal(str(SE.env_of(1000, 1000, thick, "NORMAL", side, sp["allow"], sp["sg"], sp["coat"])["f"]))
+
+    def int_kg(p, lots=None):
+        """시트 안 생산 kg 정수 (재고가공등록과 같은 sheet_alloc). 투입 = 원중량(현재고 로트 = 실제 재고 중량 · 신규 = 이론 투입, 소수 유지), 로스 = 투입 − 생산."""
+        items = [{"key": x["id"], "width": x["w"], "length": x["l"]} for x in p.get("scope", [])] + \
+                [{"key": e["id"], "width": e["w"], "length": e["l"]} for e in p.get("extra_list") or []]
+        if lots:
+            try:
+                alloc = SA.plan_allocation(p["sheet_patterns"], items, lots, factor)
+                return {"input": alloc["input"], "production": alloc["production"], "loss": alloc["loss"],
+                        "by_item": alloc["by_item"], "parts": alloc["parts"]}
+            except ValueError:
+                pass   # 재고보다 많이 필요 (부족) → 이론 투입 기준
+        made = [x for x in items if p["produced"].get(x["key"], 0) > 0]
+        input_int = Decimal(str(p["input_kg"])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)   # 투입 = 원중량 (소수 유지) · 생산만 kg 정수
+        prods, losses = SA.int_split(input_int, [Decimal(str(x["width"])) * Decimal(str(x["length"])) * factor / Decimal(1_000_000)
+                                                 * p["produced"][x["key"]] for x in made])
+        return {"input": input_int, "production": sum(prods, Decimal(0)), "loss": sum(losses, Decimal(0)),
+                "by_item": {x["key"]: {"weight": w_, "loss": l_} for x, w_, l_ in zip(made, prods, losses)}, "parts": None}
+
     def add_candidate(base, raw_w, raw_l, stock_qty):
         found = best_of(raw_w, raw_l) if raw_w and raw_l else None
         if not found:
@@ -1011,24 +1160,78 @@ def _analyze_sheet(stocks, lines, settings):
                                "loss_weight": None, "yield_rate": None, "short_sheets": 0, "orientation": None})
             return
         p, o = found
+        orders_in = [x for x in p.get("scope", []) if not str(x["id"]).startswith("x")]
+        rows = [(x["w"] * x["l"], p["produced"].get(x["id"], 0), x["q"]) for x in orders_in]
+        extra_area = sum(e["w"] * e["l"] * p["produced"].get(e["id"], 0) for e in p.get("extra_list") or [])
+        if base.get("warehouses"):
+            base = {**base, "warehouses": [w for w in base["warehouses"] if w["qty"] >= p["sheets"] or w["chosen"]]}
+        kg = int_kg(p, base.get("lots"))
+        yield_int = float(kg["production"] / kg["input"] * 100) if kg["input"] else 0.0
         candidates.append({**base, **metrics(p), "placeable": True, "orientation": o,
+                           "input_weight": float(kg["input"]), "production_weight": float(kg["production"]), "loss_weight": float(kg["loss"]),
+                           **_order_basis(yield_int, rows, extra_area),
                            "short_sheets": max(0, p["sheets"] - stock_qty) if stock_qty is not None else 0})
 
     extras_all = [{"id": f"x{k}", "w": item_w, "l": v, "q": 0} for k, v in enumerate(extra_lengths)]
 
-    def shear_of(s):
-        return SE.coil_shear(float(s["width"]), float(s["weight"] or 0), thick, side, orders, extras_all)
+    def shear_of(s, is_chosen=False):
+        prm = _coil_shear_params(settings, s, is_chosen)
+        return SE.coil_shear(float(s["width"]), float(s["weight"] or 0), thick, side, orders, extras_all,
+                             sg=prm["sg"], coat=prm["coat"], allow=prm["allow"], one_shot=prm["one_shot"], process_kg=prm["process_kg"])
 
+    # 현재고 원판: 같은 규격(폭 · 길이)은 창고가 달라도 한 줄 (재고 = 전체 합계, 창고 '외 N곳').
+    # 계획은 창고 1곳에서만: 기본 = 재고가 가장 많은 창고 (② 펼친 창고 줄을 고르면 그 창고). 그 창고 로트를 입고 순으로 여러 개 쓸 수 있다.
+    # 연결 원자재 · 코일은 그대로 한 줄씩
+    groups, order = {}, []
+    for s in stocks:
+        if not s["length"] or s.get("linked"):
+            order.append(("one", s))
+            continue
+        key = (_w(s["width"]), _w(s["length"]))
+        if key not in groups:
+            groups[key] = []
+            order.append(("group", key))
+        groups[key].append(s)
+    lot_of = lambda x: {"sourcetype": x["sourcetype"], "sourceno": x["sourceno"], "sourceline": int(x["sourceline"]),
+                        "qty": float(x["qty"] or 0), "weight": float(x["weight"] or 0), "receiptdate": str(x.get("receiptdate") or "")}
+    stocks = []
+    for kind, item in order:
+        if kind == "one":
+            stocks.append({**item, "lots": [lot_of(item)] if item["length"] else None, "wh_qty": float(item["qty"] or 0)})
+            continue
+        w, l = item
+        group_id = f"SPEC|{w:g}x{l:g}"
+        by_wh: dict = {}
+        for s in groups[item]:
+            by_wh.setdefault(s.get("warehousecode") or "", []).append(s)
+        whs = []
+        for code, lots in by_wh.items():
+            lots.sort(key=lambda x: (str(x.get("receiptdate") or ""), x["sourceno"], int(x["sourceline"])))
+            whs.append({"code": code, "name": lots[0].get("warehouse") or code, "qty": sum(float(x["qty"] or 0) for x in lots),
+                        "lot_count": len(lots), "lots": lots})
+        whs.sort(key=lambda g: (-g["qty"], g["name"]))
+        pick = next((g for g in whs if settings.get("raw_id") == group_id and g["code"] == settings.get("raw_wh")), whs[0])
+        first = pick["lots"][0]
+        stocks.append({**first, "group_id": group_id, "qty": pick["qty"],
+                       "weight": sum(float(x["weight"] or 0) for x in pick["lots"]),
+                       "warehousecode": pick["code"], "warehouse": pick["name"],
+                       "wh_qty": pick["qty"], "wh_name": pick["name"], "lot_count": pick["lot_count"],
+                       "lots": [lot_of(x) for x in pick["lots"]],
+                       "warehouses": [{"code": g["code"], "name": g["name"], "qty": g["qty"], "lot_count": g["lot_count"],
+                                       "chosen": g is pick} for g in whs]})
     for s in stocks:
         if not s["length"]:
-            r = shear_of(s)
+            is_chosen = settings.get("raw_id") == f"STOCK|{s['sourcetype']}|{s['sourceno']}|{s['sourceline']}"
+            r = shear_of(s, is_chosen)
             if r:   # 가공그룹 제품 폭이 하나라도 코일 사용 폭보다 크면 후보에서 뺀다
                 candidates.append({**s, "label": "연결 원자재" if s["linked"] else "현재고", "coil": True, "placeable": True,
-                                   "orientation": "NORMAL", "sheets": None, "short_sheets": 0, "coil_length_m": _round(r["used_mm"] / 1000, 1),
+                                   "orientation": "NORMAL", "sheets": None, "short_sheets": 0, "coil_length_m": _round(r["need_m"], 1), "keep_kg": _round(r["keep_kg"], 2),
                                    "short_pcs": r["short_pcs"], "input_weight": _round(r["input_kg"], 2), "production_weight": _round(r["produced_kg"], 2),
-                                   "loss_weight": _round(r["scrap_kg"], 2), "yield_rate": _round(r["yield_pct"], 2)})
+                                   "loss_weight": _round(r["scrap_kg"], 2), "yield_rate": _round(r["yield_pct"], 2),
+                                   **_order_basis(r["yield_pct"], [(x["o"]["w"] * x["o"]["l"], x["prod"], x["o"]["q"]) for x in r["rows"]],
+                                                  sum(x["e"]["w"] * x["e"]["l"] * x["prod"] for x in r["ex_rows"]))})
             continue
-        add_candidate({**s, "label": "연결 원자재" if s["linked"] else "현재고"}, s["width"], s["length"], int(s["qty"]))
+        add_candidate({**s, "label": "연결 원자재" if s["linked"] else "현재고"}, s["width"], s["length"], int(s.get("wh_qty") or s["qty"]))
     seen = set()
     for size in _new_candidates(settings, "SHEET"):
         if (size["width"], size["length"]) in seen:
@@ -1037,37 +1240,63 @@ def _analyze_sheet(stocks, lines, settings):
         add_candidate({"kind": "NEW", "linked": False, "width": size["width"], "length": size["length"],
                        "itemname": lines[0]["itemname"], "steelgrade": lines[0]["steelgrade"], "surface": lines[0]["surface"],
                        "thickness": thick, "qty": None, "weight": None, "source": size.get("source"),
-                       "label": "직접 입력" if size.get("source") == "직접 입력" else "신규 (매입이력)"}, size["width"], size["length"], None)
-    # 순위: 로스중량 적은 순 (배치 불가는 맨 뒤) · 같으면 연결 원자재 → 현재고 → 신규
-    kind_rank = lambda c: 0 if c["linked"] else 1 if c["kind"] == "STOCK" else 2
-    candidates.sort(key=lambda c: (0 if c.get("coil") else 1, 0 if c["placeable"] else 1, c["loss_weight"] if c["placeable"] else 0, kind_rank(c)))
+                       "label": _new_label(size.get("source"))}, size["width"], size["length"], None)
+    stock_specs = {(_w(s["width"]), _w(s["length"])) for s in stocks if s["length"]}
+    for size in settings.get("_purchase_sizes") or []:
+        spec = (_w(size["width"]), _w(size["length"]))
+        if (size["width"], size["length"]) in seen or spec in stock_specs:
+            continue
+        seen.add((size["width"], size["length"]))
+        add_candidate({"kind": "NEW", "linked": False, "width": size["width"], "length": size["length"], "auto": True,
+                       "itemname": lines[0]["itemname"], "steelgrade": lines[0]["steelgrade"], "surface": lines[0]["surface"],
+                       "thickness": thick, "qty": None, "weight": None, "source": None,
+                       "source_note": f"과거 매입이력 {size['count']}건 · 최근 {size['no']}", "label": "신규"}, size["width"], size["length"], None)
+    # 배치 불가 후보는 목록에 넣지 않는다 (현재고 · 과거 매입이력 자동 후보). 연결 원자재 · 사용자가 직접 넣은 후보는 이유를 보이게 남긴다
+    candidates = [c for c in candidates if c["placeable"] or c.get("linked") or (c["kind"] == "NEW" and c.get("source"))]
+    # 정렬 (시트 탭 · 원판 · 코일 후보 공통): 로스중량 적은 순 (연결 원자재 · 현재고 · 신규 · 직접 입력 구분 없이)
+    # 같으면 연결 원자재 → 초과매수 적은 순 → 현재고 우선. 재고가 부족한 후보 · 배치 불가는 맨 뒤
+    allow_over = 0
+    for c in candidates:
+        c["over_eff"] = int(c.get("over_pcs") or 0)
+    short = lambda c: 1 if (c.get("short_sheets") or 0) > 0 or (c.get("short_pcs") or 0) > 0 else 0
+    candidates.sort(key=lambda c: (0 if c["placeable"] else 1, short(c) if c["placeable"] else 0,
+                                   round(c["loss_weight"] or 0, 2) if c["placeable"] else 0, 0 if c["linked"] else 1,
+                                   c["over_eff"] if c["placeable"] else 0, 0 if c["kind"] == "STOCK" else 1))
     for rank, c in enumerate(candidates, start=1):
         c["rank"] = rank
-        c["id"] = (f"STOCK|{c['sourcetype']}|{c['sourceno']}|{c['sourceline']}" if c["kind"] == "STOCK"
+        c["id"] = (c.get("group_id") or f"STOCK|{c['sourcetype']}|{c['sourceno']}|{c['sourceline']}" if c["kind"] == "STOCK"
                    else f"NEW|{c['width']:g}x{c['length']:g}")
     candidates = _drop_excluded(candidates, settings)
     chosen = (next((c for c in candidates if c["id"] == settings.get("raw_id")), None)
-              or next((c for c in candidates if c["placeable"] and c.get("linked")), None)   # 주문서 관리에서 연결한 원자재 우선
-              or next((c for c in candidates if c["placeable"] and not c.get("coil")), None)
-              or next((c for c in candidates if c["placeable"]), None) or (candidates[0] if candidates else None))
-    result = {"candidates": _top_candidates(candidates, chosen), "raw": None, "plans": [], "orientation": cur_orient,
-              "side_trim": side, "bad": [], "warnings": [], "notes": [], "notes_warn": False}
+              or next((c for c in candidates if c["placeable"]), None) or (candidates[0] if candidates else None))   # 정렬 1순위 (연결 원자재가 맨 위)
+    result = {"candidates": _top_candidates(candidates, chosen), "raw": None, "plans": [], "orientation": cur_orient, "allow_over": allow_over,
+              "side_trim": side, "sheet_params": sp, "bad": [], "warnings": [], "notes": [], "notes_warn": False}
     if not chosen:
-        result["message"] = f"폭 {item_w:g}mm · 길이 {min_len:g}mm 이상인 원판 후보가 없습니다. 원판 규격을 직접 입력해 주세요."
+        # 후보표 · ②③④ 모두 비움 (안내 문구는 ① 후보표 자리에 표시)
+        result["empty_message"] = "과거 매입이력이 없습니다. 원자재 후보 기본규격을 추가해 주세요."
         return result
     if chosen.get("coil"):
-        return _sheet_from_coil(result, chosen, shear_of(chosen), lines, side)
+        result["coil_params"] = _coil_shear_params(settings, chosen, True)
+        if mode == "SINGLE" and len(lines) > 1:
+            # 코일 길이 절단은 담은 품목을 묶어 한 번에 자른다 → 품목이 2개 이상이면 단독절단 안은 만들지 않는다 (③ 안내 · 계획 확정 불가)
+            warnings = list(result["warnings"])
+            result = _sheet_from_coil(result, chosen, shear_of(chosen, True), lines, side)
+            result.update({"plans": [], "warnings": warnings, "coil_single_blocked": True})
+            return result
+        return _sheet_from_coil(result, chosen, shear_of(chosen, True), lines, side)
     # 현재고 원판은 실물 규격 고정, 신규 후보만 화면 입력값 적용
     is_stock = chosen["kind"] == "STOCK"
     raw_w = float(chosen["width"] if is_stock else (settings.get("raw_width") or chosen["width"]))
     raw_l = float(chosen["length"] if is_stock else (settings.get("raw_length") or chosen["length"]))
-    stock_sheets = int(chosen["qty"]) if is_stock else None
+    stock_sheets = int(chosen.get("wh_qty") or chosen["qty"]) if is_stock else None   # 계획 창고 재고 (같은 규격 로트 합계)
     result["raw"] = {**chosen, "raw_width": raw_w, "raw_length": raw_l, "raw_sheets": stock_sheets}
 
     def plan_out(p, cid, orientation, env):
         pats = p["sheet_patterns"]
         first = pats[0]
-        per_first = lambda key: sum(1 for col in first["columns"] for x in col["pieces"] if x["id"] == key)
+        # 원판 1장당: 혼합 = 첫 패턴 기준 / 단독 여러 품목 = 그 품목 패턴 기준
+        per_first = lambda key: sum(1 for col in next((sp for sp in pats if any(x["id"] == key for c in sp["columns"] for x in c["pieces"])), first)["columns"]
+                                    for x in col["pieces"] if x["id"] == key)
         sheets_of = lambda key: sum(sp["sheets"] for sp in pats if any(x["id"] == key for col in sp["columns"] for x in col["pieces"]))
         pieces = []
         for o in p["scope"]:
@@ -1079,16 +1308,37 @@ def _analyze_sheet(stocks, lines, settings):
             pieces.append({"key": e["id"], "width": e["w"], "length": e["l"], "need_qty": 0, "produced_qty": p["produced"][e["id"]],
                            "over_qty": 0, "extra": True, "candidate": True, "per_sheet": per_first(e["id"]), "sheets_used": sheets_of(e["id"]),
                            "orderid": None, "lineno": None})
+        alloc = None
+        if is_stock and chosen.get("lots"):
+            try:
+                alloc = SA.plan_allocation(pats, [{"key": x["key"], "width": x["width"], "length": x["length"]} for x in pieces],
+                                           chosen["lots"], env["f"])
+            except ValueError:
+                alloc = None   # 재고보다 많이 필요 (부족) → 아래 이론 투입 기준 정수
+        if not alloc:
+            alloc = int_kg(p)   # 신규 원판 · 부족: 이론 투입을 kg 반올림 → 생산 kg 정수 · 로스 = 투입 − 생산
+        if alloc:
+            for x in pieces:
+                got = alloc["by_item"].get(x["key"])
+                x["int_produced"] = float(got["weight"]) if got else 0.0
+                x["int_loss"] = float(got["loss"]) if got else 0.0
         rotated = orientation == "ROTATED"
         odesc = (f"제품 폭 {SE.fmt_num(item_w)}mm를 원판 {'길이 ' + SE.fmt_num(raw_l) if rotated else '폭 ' + SE.fmt_num(raw_w)}mm 방향에 배치"
-                 + ("(원판을 돌려 가공)" if rotated else "") + (" · 일부 열은 제품 방향 전환" if p.get("kind") == "single" and p.get("mode") != "A" else ""))
+                 + ("(원판을 돌려 가공)" if rotated else "") + _turn_note(p))
         return {"id": cid, "combo": mode, "orientation": orientation, "olabel": SHEET_ORIENT_LABEL[orientation], "odesc": odesc,
                 "tag": p.get("tag") or "", "source": p.get("source"), "actual_loss": None,
                 "kind": p.get("kind"), "variant": p.get("variant") or p.get("mode"),
                 **metrics(p), "lb_sheets": p.get("lb_sheets"), "lb_text": _sheet_lb_text(p),
                 "short_sheets": max(0, p["sheets"] - stock_sheets) if stock_sheets is not None else 0,
+                "single_multi": p.get("kind") == "single_multi", "mixed_sheets": p.get("mixed_sheets"),
+                **({"int_input": float(alloc["input"]), "int_production": float(alloc["production"]), "int_loss": float(alloc["loss"]),
+                    "lots_used": [{"sourcetype": part["lot"]["sourcetype"], "sourceno": part["lot"]["sourceno"], "sourceline": part["lot"]["sourceline"],
+                                   "use": part["use"], "qty": part["lot"]["qty"], "receiptdate": part["lot"].get("receiptdate")} for part in alloc.get("parts") or []]}
+                   if alloc else {}),
+                "pattern_lengths": [next((x["len"] for c in sp["columns"] for x in c["pieces"]), None) for sp in pats] if p.get("kind") == "single_multi" else None,
                 "ncol": p.get("ncol"), "pattern_count": len(pats), "sheet_w": env["W"], "sheet_l": env["L"], "side_trim": side,
-                "pattern": SE.sp_desc(first),
+                "thickness": thick, "sg": sp["sg"], "coat": sp["coat"], "factor": env["f"], "len_allow": sp["allow"],
+                "pattern": " / ".join(SE.sp_desc(sp) for sp in pats) if p.get("kind") == "single_multi" else SE.sp_desc(first),
                 "sheet_patterns": [{"sheets": sp["sheets"], "desc": SE.sp_desc(sp),
                                     "columns": [{"cw": col["cw"], "orient": col["orient"], "pieces": [[x["id"], x["len"]] for x in col["pieces"]]}
                                                 for col in sp["columns"]]} for sp in pats],
@@ -1131,10 +1381,6 @@ def _analyze_sheet(stocks, lines, settings):
     rec = next((c for c in cards if c.get("recommended")), None)
     if rec and rec["short_sheets"] > 0:
         result["warnings"].append(f"필요 원판 {rec['sheets']}매 중 현재고는 {stock_sheets}매입니다. {rec['short_sheets']}매는 매입이 필요합니다.")
-    if mode == "SINGLE" and len(lines) > 1:
-        result["notes"] = ["단독절단은 기준 품목만 계산합니다. 미선택 발주품목(별도 가공): "
-                           + " / ".join(f"{x['length']:g}mm {int(ceil(x['need_amount']))}매" for x in lines[1:])]
-        result["notes_warn"] = True
     if not cards:
         why = result["bad"][0]["why"] if result["bad"] else "배치 가능한 조합이 없음"
         result["message"] = f"{why}. 원판 규격을 바꾸거나 다른 후보 원판을 선택해 주세요."
@@ -1234,10 +1480,12 @@ def save_plan(companyid: str, companyname: str, payload: dict, actor=None) -> di
     else:
         made = {(p["orderid"], p["lineno"]) for p in plan["pieces"] if not p.get("extra") and p["produced_qty"] > 0}
         unmade = [f"{x['orderid']}-{x['lineno']}" for x in result["lines"] if (x["orderid"], x["lineno"]) not in made]
-    # 현재고 원판 계획은 재고 매수 안에서만 확정 (넘으면 재고가공등록을 할 수 없다)
+    # 현재고 원판 계획: 계획 창고의 같은 규격 로트를 입고 순으로 쓴다 (재고 매수 안에서만 확정)
+    sheet_lots = plan.get("lots_used") if material == "SHEET" and raw["kind"] == "STOCK" and not plan.get("coil") else None
     if (status == "CONFIRMED" and material == "SHEET" and raw["kind"] == "STOCK" and not plan.get("coil")
-            and int(plan.get("sheets") or 0) > int(raw.get("qty") or 0)):
-        raise ValueError(f"필요 원판 {int(plan.get('sheets') or 0)}매가 현재고 {int(raw.get('qty') or 0)}매보다 많아 확정할 수 없습니다. "
+            and (not sheet_lots or int(plan.get("sheets") or 0) > int(raw.get("wh_qty") or raw.get("qty") or 0))):
+        raise ValueError(f"필요 원판 {int(plan.get('sheets') or 0)}매가 현재고 {int(raw.get('wh_qty') or raw.get('qty') or 0)}매"
+                         f"({raw.get('wh_name') or raw.get('warehouse') or ''})보다 많아 확정할 수 없습니다. "
                          "재고가 충분한 원판을 고르거나 신규 매입 후보로 계획해 주세요.")
     if status == "CONFIRMED" and unmade:
         raise ValueError("이 조합으로 생산되지 않는 품목이 있어 확정할 수 없습니다: " + ", ".join(unmade[:5])
@@ -1280,6 +1528,18 @@ def save_plan(companyid: str, companyname: str, payload: dict, actor=None) -> di
                 if float(found["used"] or 0) + float(plan.get("input_weight") or 0) > float(found["weight"] or 0) + 0.05:
                     raise ValueError(f"선택한 원자재는 다른 확정 계획({found['plans']})이 {float(found['used']):,.1f}kg을 잡고 있어 "
                                      f"남은 {max(0.0, float(found['weight']) - float(found['used'])):,.1f}kg로는 가공중량을 채울 수 없습니다.")
+            if sheet_lots:
+                # 쓰는 로트가 다른 확정 계획(대표 로트 또는 로트 목록)에 잡혀 있으면 확정 불가
+                cur.execute("""SELECT string_agg(DISTINCT pl.planno, ', ') AS plans
+                                 FROM aiplan01t pl
+                                 LEFT JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(pl.pattern->'lots') = 'array' THEN pl.pattern->'lots' ELSE '[]'::jsonb END) lot ON TRUE
+                                WHERE pl.companyid = %s AND pl.status = 'CONFIRMED' AND pl.rawkind = 'STOCK' AND pl.planno <> %s
+                                  AND ((pl.stocksourcetype, pl.stocksourceno, pl.stocksourceline) IN (SELECT * FROM unnest(%s::varchar[], %s::varchar[], %s::integer[]))
+                                       OR (lot->>'sourcetype', lot->>'sourceno', (lot->>'sourceline')::integer) IN (SELECT * FROM unnest(%s::varchar[], %s::varchar[], %s::integer[])))""",
+                            (companyid, planno, *([[x["sourcetype"] for x in sheet_lots], [x["sourceno"] for x in sheet_lots], [int(x["sourceline"]) for x in sheet_lots]] * 2)))
+                busy = cur.fetchone()
+                if busy and busy["plans"]:
+                    raise ValueError(f"선택한 원판 로트가 다른 확정 계획({busy['plans']})에 잡혀 있습니다. 다시 계산해 주세요.")
             cur.execute("""SELECT string_agg(planno, ', ') AS plans, COALESCE(SUM(rawweight), 0) AS used_weight, COALESCE(SUM(rawsheets), 0) AS used_sheets
                              FROM aiplan01t WHERE companyid = %s AND status = 'CONFIRMED' AND rawkind = 'STOCK' AND materialtype = 'SHEET'
                              AND stocksourcetype = %s AND stocksourceno = %s AND stocksourceline = %s AND planno <> %s""",
@@ -1303,9 +1563,10 @@ def save_plan(companyid: str, companyname: str, payload: dict, actor=None) -> di
             planno = _next_planno(cur, companyid)
         header = {
             "materialtype": material, "status": status, "rawkind": raw["kind"],
-            "stocksourcetype": raw.get("sourcetype") if raw["kind"] == "STOCK" else None,
-            "stocksourceno": raw.get("sourceno") if raw["kind"] == "STOCK" else None,
-            "stocksourceline": raw.get("sourceline") if raw["kind"] == "STOCK" else None,
+            # 원판 여러 로트 계획은 첫 로트가 대표 (나머지는 pattern.lots)
+            "stocksourcetype": (sheet_lots[0]["sourcetype"] if sheet_lots else raw.get("sourcetype")) if raw["kind"] == "STOCK" else None,
+            "stocksourceno": (sheet_lots[0]["sourceno"] if sheet_lots else raw.get("sourceno")) if raw["kind"] == "STOCK" else None,
+            "stocksourceline": (sheet_lots[0]["sourceline"] if sheet_lots else raw.get("sourceline")) if raw["kind"] == "STOCK" else None,
             "itemname": raw.get("itemname"), "steelgrade": raw.get("steelgrade"), "surface": raw.get("surface"),
             "thickness": raw.get("thickness"),
             "width": raw.get("raw_width"), "length": raw.get("raw_length") if material == "SHEET" else None,
@@ -1316,7 +1577,8 @@ def save_plan(companyid: str, companyname: str, payload: dict, actor=None) -> di
             "combo": plan.get("combo"), "orientation": plan.get("orientation") if material == "SHEET" else None,
             "inputweight": plan.get("input_weight"), "productweight": plan.get("production_weight"),
             "lossweight": plan.get("loss_weight"), "yieldrate": plan.get("yield_rate"),
-            "pattern": json.dumps({"plan": plan, "settings": settings, "keys": keys, "raw_id": raw.get("id")}, ensure_ascii=False, default=str),
+            "pattern": json.dumps({"plan": plan, "settings": settings, "keys": keys, "raw_id": raw.get("id"),
+                                   **({"lots": sheet_lots} if sheet_lots else {})}, ensure_ascii=False, default=str),
             "description": payload.get("description") or None,
         }
         cur.execute("DELETE FROM aiplan01t WHERE companyid = %s AND planno = %s", (companyid, planno))
@@ -1442,7 +1704,31 @@ def cancel_plan(companyid: str, planno: str, actor=None) -> bool:
 HISTORY_KINDS = ("purchase", "sales", "processing")
 
 
-def history(companyid: str, kind: str, material: str, itemname: str = "", months: int = 0, q: str = "", limit: int = 200) -> dict:
+def _history_filter_sql(alias: str, warehouse_col: str, filters: dict, params: dict) -> str:
+    """이력 창 조회조건 (재고매칭과 같은 항목). 입력한 것만 · 값은 모두 바인딩 파라미터.
+    name_exact: 품명 일치(대소문자 · 앞뒤 공백 무시) · 제품명 · 강종 · 표면 · 창고는 포함 검색 · 두께는 범위 · 폭 · 길이는 일치."""
+    parts = []
+    text = lambda key: str(filters.get(key) or "").strip()
+    if filters.get("name_exact") and str(filters.get("itemname") or "").strip():
+        parts.append(f"UPPER(BTRIM({alias}.itemname)) = UPPER(%(exact_name)s)")
+        params["exact_name"] = str(filters["itemname"]).strip()
+    for key, sql in (("productname", f"COALESCE({alias}.productname, '') ILIKE %(f_productname)s"),
+                     ("steelgrade", f"(COALESCE({alias}.materialname, '') ILIKE %(f_steelgrade)s OR COALESCE({alias}.materialcode, '') ILIKE %(f_steelgrade)s)"),
+                     ("surface", f"(COALESCE({alias}.surfacename, '') ILIKE %(f_surface)s OR COALESCE({alias}.surfacecode, '') ILIKE %(f_surface)s)"),
+                     ("warehouse", f"COALESCE({warehouse_col}, '') ILIKE %(f_warehouse)s")):
+        if text(key):
+            parts.append(sql)
+            params[f"f_{key}"] = f"%{text(key)}%"
+    for key, sql in (("thickness_from", f"{alias}.thickness >= %(f_thickness_from)s"), ("thickness_to", f"{alias}.thickness <= %(f_thickness_to)s"),
+                     ("width", f"{alias}.width = %(f_width)s"), ("length", f"COALESCE({alias}.length, 0) = %(f_length)s")):
+        if filters.get(key) is not None:
+            parts.append(sql)
+            params[f"f_{key}"] = filters[key]
+    return "".join(f" AND {p}" for p in parts)
+
+
+def history(companyid: str, kind: str, material: str, itemname: str = "", months: int = 0, q: str = "", limit: int = 200,
+            filters: dict | None = None) -> dict:
     """같은 품명의 과거 기록. 적합 여부(두께·폭)는 화면이 현재 ③ 값으로 판단하고, 적용 후 서버가 다시 검증한다.
 
     purchase   : 입고(Inbound01t/02t) 한 줄 = 매입한 원자재 규격 → ② 신규 후보
@@ -1455,36 +1741,52 @@ def history(companyid: str, kind: str, material: str, itemname: str = "", months
     params = {"companyid": companyid, "name": f"%{str(itemname or '').strip()}%", "months": max(0, int(months or 0)),
               "q": f"%{str(q or '').strip()}%", "limit": max(1, min(500, int(limit)))}
     has_q = bool(str(q or "").strip())
+    filters = {**(filters or {}), "itemname": itemname}
+    if filters.get("name_exact") and str(itemname or "").strip():
+        params["name"] = "%"   # 품명 일치 검색은 아래 조건으로 (포함 검색 끔)
     length_sql = "COALESCE({a}.length, 0) = 0" if material == "COIL" else "COALESCE({a}.length, 0) > 0"
     with _connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         if kind in ("purchase", "sales"):
             head, body = ("inbound01t", "inbound02t") if kind == "purchase" else ("outbound01t", "outbound02t")
-            cur.execute(f"""
-                SELECT h.receiptno, d.lineno, h.receptdate, h.customname, d.itemname, d.materialname, d.surfacename,
+            inout_sql = f"""
+                SELECT '{'입고' if kind == 'purchase' else '출고'}' AS origin, h.receiptno, d.lineno, h.receptdate, h.customname, d.itemname, d.materialname, d.surfacename,
                        d.thickness, d.width, COALESCE(d.length, 0) AS length, d.qty, d.weight, d.unit, d.unitprice, d.warehousecodename
                 FROM {body} d JOIN {head} h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
-                WHERE d.companyid = %(companyid)s AND d.itemname ILIKE %(name)s AND {length_sql.format(a='d')}
+                WHERE d.companyid = %(companyid)s AND d.itemname ILIKE %(name)s AND {length_sql.format(a='d')}{_history_filter_sql('d', 'd.warehousecodename', filters, params)}
                   AND (%(months)s = 0 OR h.receptdate >= (CURRENT_DATE - make_interval(months => %(months)s)))
-                  {"AND (h.customname ILIKE %(q)s OR h.receiptno ILIKE %(q)s OR d.itemname ILIKE %(q)s OR d.materialname ILIKE %(q)s)" if has_q else ""}
-                ORDER BY h.receptdate DESC, h.receiptno DESC, d.lineno LIMIT %(limit)s
+                  {"AND (h.customname ILIKE %(q)s OR h.receiptno ILIKE %(q)s OR d.itemname ILIKE %(q)s OR d.materialname ILIKE %(q)s)" if has_q else ""}"""
+            # 매입이력 = 입고 + 기초재고(StandStock01t · 현재고 원천 OPENING / 기초 전표 ST…). 기초 전표번호가 없으면 '기초'
+            opening_sql = f"""
+                UNION ALL
+                SELECT '기초' AS origin, COALESCE(cs.sourceno, '기초') AS receiptno, d.lineno, d.standdate AS receptdate, d.customname, d.itemname,
+                       d.materialname, d.surfacename, d.thickness, d.width, COALESCE(d.length, 0) AS length, d.qty, d.weight, d.unit, d.unitprice,
+                       d.warehousecodename
+                FROM standstock01t d
+                LEFT JOIN currentstock01t cs ON cs.companyid = d.companyid AND cs.sourcetype = 'OPENING' AND cs.sourceline = d.lineno
+                WHERE d.companyid = %(companyid)s AND d.itemname ILIKE %(name)s AND {length_sql.format(a='d')}{_history_filter_sql('d', 'd.warehousecodename', filters, params)}
+                  AND (%(months)s = 0 OR d.standdate >= (CURRENT_DATE - make_interval(months => %(months)s)))
+                  {"AND (d.customname ILIKE %(q)s OR COALESCE(cs.sourceno, '') ILIKE %(q)s OR d.itemname ILIKE %(q)s OR d.materialname ILIKE %(q)s)" if has_q else ""}""" if kind == "purchase" else ""
+            cur.execute(f"""
+                SELECT * FROM ({inout_sql}{opening_sql}) x
+                ORDER BY x.receptdate DESC, x.receiptno DESC, x.lineno LIMIT %(limit)s
             """, params)
             rows = [{"id": f"{r['receiptno']}-{r['lineno']}", "no": r["receiptno"], "date": r["receptdate"], "customer": r["customname"],
-                     "itemname": r["itemname"], "steelgrade": r["materialname"], "surface": r["surfacename"],
+                     "origin": r["origin"], "itemname": r["itemname"], "steelgrade": r["materialname"], "surface": r["surfacename"],
                      "thickness": _round(r["thickness"]), "width": _round(r["width"]), "length": _round(r["length"]) or None,
                      "qty": _f(r["qty"]), "weight": _f(r["weight"]), "unit": r["unit"], "unitprice": _f(r["unitprice"]),
                      "warehouse": r["warehousecodename"]} for r in cur.fetchall()]
             return {"kind": kind, "material": material, "items": rows}
         cur.execute(f"""
-            SELECT h.processno, h.processdate, h.customname, s.lineno, s.itemname, s.materialname, s.thickness, s.width,
+            SELECT h.processno, h.processdate, h.customname, s.lineno, s.itemname, s.materialname, s.surfacename, s.thickness, s.width,
                    COALESCE(s.length, 0) AS length, s.qty, s.weight,
                    json_agg(json_build_object('width', p.width, 'length', COALESCE(p.length, 0), 'qty', p.qty, 'weight', p.weight) ORDER BY p.lineno) AS products
             FROM process01t h
             JOIN process02t s ON s.companyid = h.companyid AND s.processno = h.processno AND s.linetype = 'SOURCE'
             JOIN process02t p ON p.companyid = s.companyid AND p.processno = s.processno AND p.linetype = 'PRODUCT' AND p.parentlineno = s.lineno
-            WHERE h.companyid = %(companyid)s AND s.itemname ILIKE %(name)s AND {length_sql.format(a='s')}
+            WHERE h.companyid = %(companyid)s AND s.itemname ILIKE %(name)s AND {length_sql.format(a='s')}{_history_filter_sql('s', 's.sourcewarehousecodename', filters, params)}
               AND (%(months)s = 0 OR h.processdate >= (CURRENT_DATE - make_interval(months => %(months)s)))
               {"AND (h.customname ILIKE %(q)s OR h.processno ILIKE %(q)s OR s.itemname ILIKE %(q)s)" if has_q else ""}
-            GROUP BY h.processno, h.processdate, h.customname, s.lineno, s.itemname, s.materialname, s.thickness, s.width, s.length, s.qty, s.weight
+            GROUP BY h.processno, h.processdate, h.customname, s.lineno, s.itemname, s.materialname, s.surfacename, s.thickness, s.width, s.length, s.qty, s.weight
             ORDER BY h.processdate DESC, h.processno DESC, s.lineno LIMIT %(limit)s
         """, params)
         rows = []
@@ -1510,7 +1812,7 @@ def history(companyid: str, kind: str, material: str, itemname: str = "", months
             if not pattern:
                 continue
             row = {"id": f"{r['processno']}-{r['lineno']}", "no": r["processno"], "date": r["processdate"], "customer": r["customname"],
-                   "itemname": r["itemname"], "steelgrade": r["materialname"], "thickness": _round(r["thickness"]),
+                   "itemname": r["itemname"], "steelgrade": r["materialname"], "surface": r["surfacename"], "thickness": _round(r["thickness"]),
                    "raw_width": _round(r["width"]), "raw_length": _round(r["length"]) or None,
                    "raw_qty": _f(r["qty"]), "raw_weight": src_weight}
             if material == "COIL":

@@ -19,6 +19,7 @@ import outboundTableClasses from '../../styles/pages/CodeMasterPage.module.css';
 import classes from '../../styles/pages/AIOrder.module.css';
 import { aiOrderPageSession } from './AIOrderPageSession';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
+import ConfirmActionModal, { ConfirmNotice, ConfirmSummary } from '../../components/common/ConfirmActionModal';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import { CodePickerModal, CodeSuggestInput, ItemNameSuggestInput, ItemPickerModal, loadCodeOptions } from './AIItemNameLookup';
 
@@ -232,11 +233,29 @@ const AIOrderVirtualRow = ({ item, className, ...props }) => (
   />
 );
 
+// 상세 표 맨 아래 고정 합계 줄 (매출·입고등록 소계 줄과 같은 모양): 앞 두 칸(선택 · No.)을 합쳐 '합계', 수량 · 중량만 숫자
+const AIOrderSubtotalFoot = (props) => <Table.Tfoot {...props} className={inboundClasses.detailSubtotalFoot} />;
+const sumOf = (items, key) => items.reduce((total, item) => {
+  const value = Number(item?.[key]);
+  return Number.isFinite(value) ? total + value : total;
+}, 0);
+const AIOrderSubtotalRow = memo(function AIOrderSubtotalRow({ columns, items }) {
+  const values = {
+    quantity: sumOf(items, 'quantity').toLocaleString(undefined, { maximumFractionDigits: 3 }),
+    weight_kg: sumOf(items, 'weight_kg').toLocaleString(undefined, { maximumFractionDigits: 3 }),
+  };
+  return <Table.Tr>
+    <Table.Td colSpan={2} className={`${inboundClasses.detailSubtotalCell} ${classes.subtotalLabel}`}>합계</Table.Td>
+    {columns.slice(2).map((column) => <Table.Td key={column.key} className={`${inboundClasses.detailSubtotalCell} ${values[column.key] != null ? inboundClasses.detailSubtotalNumber : ''}`}>{values[column.key] ?? ''}</Table.Td>)}
+  </Table.Tr>;
+});
+
 const aiOrderTableComponents = {
   Table: ({ style, ...props }) => <Table {...props} className={`${sharedClasses.table} ${outboundTableClasses.codeTable} ${classes.resultGrid}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0} style={{ ...style, width: '100%', tableLayout: 'fixed' }} />,
   TableHead: Table.Thead,
   TableBody: Table.Tbody,
   TableRow: AIOrderVirtualRow,
+  TableFoot: AIOrderSubtotalFoot,
 };
 
 function scorePageRotation(canvas, angle) {
@@ -868,6 +887,7 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
                   {column.key === '__select' ? <input type="checkbox" aria-label="상세 전체 선택" checked={extraction.items.length > 0 && selectedRows.length === extraction.items.length} onChange={(event) => { setSelectedRows(event.currentTarget.checked ? extraction.items.map((_, index) => index) : []); rowSelectionAnchor.current = null; }} /> : column.label}
                   <span className={outboundTableClasses.columnResizeHandle} role="separator" aria-label={`${column.label || '선택'} 열 너비 조절`} onPointerDown={(event) => startColumnResize(event, column)} />
                 </Table.Th>)}</Table.Tr>}
+                fixedFooterContent={() => <AIOrderSubtotalRow columns={tableColumns} items={extraction.items} />}
                 itemContent={(index, item) => <OrderLineCells item={item} index={index} selected={selectedRows.includes(index)} onToggle={toggleRowSelection} onChange={updateLine} onPaste={pasteLineRange} onOpenItemPicker={setItemPickerIndex} codeOptions={codeOptions} onOpenCodePicker={openCodePicker} />}
               />
             </Box>}
@@ -910,6 +930,8 @@ export default function AIOrderPage() {
   const [uploadProgress, setUploadProgress] = useState(null);
   const [confirmingId, setConfirmingId] = useState(null);
   const [orderConfirmTargetId, setOrderConfirmTargetId] = useState(null);
+  // 넘기기 전에: 같은 발주서(분석)로 이미 저장된 주문 { docId, loading, orders: [{ orderid }] }
+  const [savedOrders, setSavedOrders] = useState(null);
   const updateDocument = useCallback((id, updater) => setDocuments((current) => current.map((doc) => doc.id === id ? (typeof updater === 'function' ? updater(doc) : { ...doc, ...updater }) : doc)), [setDocuments]);
   const selectedDoc = documents.find((doc) => doc.id === selectedId) || documents[0] || null;
   const orderConfirmTarget = documents.find((doc) => doc.id === orderConfirmTargetId) || null;
@@ -920,6 +942,11 @@ export default function AIOrderPage() {
       return;
     }
     setOrderConfirmTargetId(doc.id);
+    if (!doc.analysisRequestId) { setSavedOrders(null); return; }
+    setSavedOrders({ docId: doc.id, loading: true, orders: [] });
+    void axios.get(`/api/ai-order/confirmed/by-analysis/${encodeURIComponent(doc.analysisRequestId)}`, authConfig())
+      .then(({ data }) => setSavedOrders((current) => (current?.docId === doc.id ? { docId: doc.id, loading: false, orders: data.orders || [] } : current)))
+      .catch(() => setSavedOrders((current) => (current?.docId === doc.id ? { docId: doc.id, loading: false, orders: [] } : current)));
   };
   const confirmDocument = async () => {
     const doc = orderConfirmTarget;
@@ -1281,43 +1308,35 @@ export default function AIOrderPage() {
         </Group>
       </Stack>
     </Modal>
-    <Modal opened={Boolean(orderConfirmTarget)} onClose={() => !confirmingId && setOrderConfirmTargetId(null)} title="주문서 관리로 넘기기" size="sm" centered radius="md" overlayProps={{ backgroundOpacity: 0.5, blur: 2 }}>
-      <Stack gap="md">
-        <Stack gap={3}>
-          <Text size="sm" c="dimmed">검토한 발주서와 상세 품목을 주문서 관리로 넘깁니다.</Text>
-          <Text size="sm" c="dimmed">아직 저장되지 않으며, 주문서 관리에서 확인·수정 후 [저장]해야 주문이 저장됩니다.</Text>
-        </Stack>
-        <Paper withBorder p="sm" radius="sm" className={classes.analysisCostNotice}>
-          <Group justify="space-between" gap="md"><Text size="sm" fw={700}>발주처</Text><Text size="sm">{orderConfirmTarget?.extraction?.header?.buyer || '미입력'}</Text></Group>
-          <Group justify="space-between" gap="md" mt={6}><Text size="sm" fw={700}>수신처</Text><Text size="sm">{orderConfirmTarget?.extraction?.header?.recipient || '미입력'}</Text></Group>
-          <Group justify="space-between" gap="md" mt={6}><Text size="sm" fw={700}>상세 품목</Text><Text size="sm">{(orderConfirmTarget?.extraction?.items || []).length.toLocaleString()}행</Text></Group>
-        </Paper>
-        <Group justify="flex-end">
-          <Button variant="default" onClick={() => setOrderConfirmTargetId(null)} disabled={Boolean(confirmingId)}>취소</Button>
-          <Button color="red" leftSection={<IconPlayerPlay size={15} />} onClick={() => void confirmDocument()} loading={confirmingId === orderConfirmTargetId}>주문서 관리로 이동</Button>
-        </Group>
-      </Stack>
-    </Modal>
-    <Modal opened={Boolean(analysisConfirm)} onClose={() => setAnalysisConfirm(null)} title="AI 분석 실행 확인" size="md" centered radius="md" overlayProps={{ backgroundOpacity: 0.5, blur: 2 }}>
-      <Box className={classes.analysisConfirmBody}>
-        <Group align="flex-start" gap="md" wrap="nowrap">
-          <ThemeIcon size={44} radius="xl" variant="light" color="red"><IconPlayerPlay size={21} /></ThemeIcon>
-          <Box>
-            <Text fw={700} size="md">선택한 파일 분석을 시작할까요?</Text>
-            <Text size="sm" c="dimmed" mt={5}>{`${analysisConfirm?.ids.length || 0}개 파일을 분석 대기열에 추가합니다.`}</Text>
-          </Box>
-        </Group>
-        <Box className={classes.analysisCostNotice}>
-          <>
-            <Text size="sm" fw={600}>이전에 분석한 주문서는 자동으로 불러옵니다.</Text>
-            <Text size="sm" c="dimmed" mt={3}>동일한 주문서를 다시 등록하면 기존 분석 결과를 불러옵니다. 분석에 실패한 파일만 다시 분석할 수 있습니다.</Text>
-          </>
-        </Box>
-        <Group justify="flex-end" mt="lg">
-          <Button variant="default" onClick={() => setAnalysisConfirm(null)}>취소</Button>
-          <Button color="red" leftSection={<IconPlayerPlay size={15} />} onClick={confirmAnalysis}>AI 분석 실행</Button>
-        </Group>
-      </Box>
-    </Modal>
+    {/* 주문확정 → 주문서 관리로 넘기기 (공통 확인 창 디자인) */}
+    {(() => {
+      const duplicate = savedOrders?.docId === orderConfirmTargetId && savedOrders.orders.length > 0;
+      const checking = savedOrders?.docId === orderConfirmTargetId && savedOrders.loading;
+      const openExisting = () => { const orderid = savedOrders.orders[0].orderid; setOrderConfirmTargetId(null); navigate(`/AIOrderManage?orderid=${encodeURIComponent(orderid)}`); };
+      return <ConfirmActionModal opened={Boolean(orderConfirmTarget)} onClose={() => setOrderConfirmTargetId(null)} busy={Boolean(confirmingId)}
+        icon={<IconCircleCheck size={24} stroke={1.8} />} title="주문서 관리로 넘길까요?" target={orderConfirmTarget?.file?.name}
+        message="주문서 관리에서 [저장]해야 주문이 저장됩니다."
+        actions={[
+          { label: '취소', kind: 'cancel', onClick: () => setOrderConfirmTargetId(null) },
+          ...(duplicate ? [{ label: '기존 주문', kind: 'dark', onClick: openExisting }] : []),
+          { label: duplicate ? '그래도 넘기기' : '넘기기', kind: 'confirm', autoFocus: true, disabled: checking,
+            loading: confirmingId === orderConfirmTargetId, onClick: () => void confirmDocument() },
+        ]}>
+        <ConfirmSummary rows={[
+          ['발주처', orderConfirmTarget?.extraction?.header?.buyer || '미입력'],
+          ['수신처', orderConfirmTarget?.extraction?.header?.recipient || '미입력'],
+          ['상세 품목', `${(orderConfirmTarget?.extraction?.items || []).length.toLocaleString()}행`],
+        ]} />
+        {duplicate && <ConfirmNotice title={`이미 저장된 발주서 · ${savedOrders.orders.map((order) => order.orderid).join(', ')}`} />}
+      </ConfirmActionModal>;
+    })()}
+    {/* AI 일괄 분석 실행 확인 (공통 확인 창 디자인) */}
+    <ConfirmActionModal opened={Boolean(analysisConfirm)} onClose={() => setAnalysisConfirm(null)}
+      icon={<IconSparkles size={24} stroke={1.8} />} title="AI 분석을 시작할까요?" target={`${(analysisConfirm?.ids.length || 0).toLocaleString()}개 파일`}
+      message="이미 분석한 주문서는 기존 결과를 불러옵니다."
+      actions={[
+        { label: '취소', kind: 'cancel', onClick: () => setAnalysisConfirm(null) },
+        { label: 'AI 분석 실행', kind: 'confirm', autoFocus: true, onClick: confirmAnalysis },
+      ]} />
   </Box>;
 }

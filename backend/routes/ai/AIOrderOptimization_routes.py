@@ -76,8 +76,16 @@ async def analyze(payload: AnalyzeRequest, user: dict = Depends(require_access))
 @router.get("/history")
 async def history(kind: Literal["purchase", "sales", "processing"], material: Literal["COIL", "SHEET"] = "COIL",
                   itemname: str = Query(default="", max_length=150), months: int = Query(default=0, ge=0, le=120),
-                  q: str = Query(default="", max_length=100), user: dict = Depends(require_access)):
-    return await _call(service.history, user["companyid"], kind, material, itemname, months, q, fail="이력을 불러오지 못했습니다.")
+                  q: str = Query(default="", max_length=100),
+                  name_exact: bool = Query(default=False),
+                  productname: str = Query(default="", max_length=150), steelgrade: str = Query(default="", max_length=100),
+                  surface: str = Query(default="", max_length=100), warehouse: str = Query(default="", max_length=100),
+                  thickness_from: Decimal | None = Query(default=None, ge=0, le=1000), thickness_to: Decimal | None = Query(default=None, ge=0, le=1000),
+                  width: Decimal | None = Query(default=None, ge=0, le=100000), length: Decimal | None = Query(default=None, ge=0, le=100000),
+                  user: dict = Depends(require_access)):
+    filters = {"name_exact": name_exact, "productname": productname, "steelgrade": steelgrade, "surface": surface, "warehouse": warehouse,
+               "thickness_from": thickness_from, "thickness_to": thickness_to, "width": width, "length": length}
+    return await _call(service.history, user["companyid"], kind, material, itemname, months, q, 200, filters, fail="이력을 불러오지 못했습니다.")
 
 
 @router.get("/plans")
