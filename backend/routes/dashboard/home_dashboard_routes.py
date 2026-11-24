@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException, Query
 
 from services.dashboard import home_dashboard as home_dashboard_module
 from services.dashboard import HomeOverview as home_overview_module
+from services.receiptpayment import CustomerLedger as ledger_module
 import security as security_module
 
 
@@ -20,6 +21,7 @@ router = APIRouter(
 def dashboard_overview(
     date_from: date = Query(...),
     date_to: date = Query(...),
+    customcode: str | None = Query(default=None, max_length=50),
     user: dict = Depends(security_module.get_current_user),
 ):
     """대시보드: 기간 실적 · 최근 전표 · 장기재고 · 미수금 (실제 전표 기준)."""
@@ -27,7 +29,8 @@ def dashboard_overview(
         raise HTTPException(status_code=400, detail="조회 기간을 확인해 주세요.")
     today = datetime.now(ZoneInfo("Asia/Seoul")).date()
     try:
-        return home_overview_module.overview(user, date_from, date_to, today, security_module.has_platform_admin_role(user))
+        return home_overview_module.overview(user, date_from, date_to, today, security_module.has_platform_admin_role(user),
+                                            (customcode or "").strip() or None)
     except HTTPException:
         raise
     except Exception as error:
@@ -39,3 +42,15 @@ def dashboard_today(user: dict = Depends(security_module.get_current_user)):
     """대시보드 '오늘' 칸: 서울 날씨 · 철강 뉴스."""
     del user
     return home_dashboard_module.get_today_info()
+
+
+@router.get("/dashboard/customers")
+def dashboard_customers(
+    keyword: str = Query(default="", max_length=100),
+    user: dict = Depends(security_module.get_current_user),
+):
+    """거래처 조건 자동완성 (이 메뉴 권한만으로 쓸 수 있게 따로 둔다)."""
+    try:
+        return {"items": ledger_module.search_customers(user["companyid"], keyword)}
+    except Exception as error:
+        raise HTTPException(status_code=500, detail="거래처를 찾지 못했습니다.") from error

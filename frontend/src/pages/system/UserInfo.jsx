@@ -21,13 +21,13 @@ const errorMessage = (error, fallback) => apiErrorMessage(error, fallback);
 const WORKTYPE_LABELS = { REGULAR: '정규직', CONTRACT: '계약직' };
 const STATUS_LABELS = { ACTIVE: '재직', RETIRED: '퇴사' };
 const USER_COLUMNS = [
-  { key: 'empno', label: '사원번호', width: 90, minWidth: 60 },
-  { key: 'username', label: '이름', width: 90, minWidth: 60 },
-  { key: 'team', label: '부서', width: 110, minWidth: 60 },
-  { key: 'position', label: '직급', width: 80, minWidth: 50 },
-  { key: 'worktype', label: '근무유형', width: 80, minWidth: 60 },
-  { key: 'workstatus', label: '상태', width: 64, minWidth: 50 },
-  { key: 'useyn', label: '계정사용', width: 76, minWidth: 60 },
+  { key: 'empno', label: '사원번호', width: 72, minWidth: 60 },
+  { key: 'username', label: '이름', width: 72, minWidth: 60 },
+  { key: 'team', label: '부서', width: 82, minWidth: 60 },
+  { key: 'position', label: '직급', width: 60, minWidth: 50 },
+  { key: 'worktype', label: '근무유형', width: 68, minWidth: 60 },
+  { key: 'workstatus', label: '상태', width: 52, minWidth: 50 },
+  { key: 'useyn', label: '계정사용', width: 64, minWidth: 60 },
 ];
 const USEYN_FILTER = [{ value: '', label: '전체' }, { value: 'Y', label: '사용' }, { value: 'N', label: '중지' }];
 const PAGE_SIZE_OPTIONS = [15, 20, 50, 100].map((value) => ({ value: String(value), label: `${value}개씩` }));
@@ -227,7 +227,7 @@ export default function UserInfo() {
   return (
     <Box className={`${simpleTheme.simple} ${simpleTheme.noIcons} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
-        <Text component="span" className={classes.breadcrumbParent}>운영관리</Text>
+        <Text component="span" className={classes.breadcrumbParent}>기준정보</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
         <Text component="span" className={classes.breadcrumbCurrent}>직원관리</Text>
       </Box>
@@ -246,7 +246,7 @@ export default function UserInfo() {
             <Select className={own.useynSelect} data={USEYN_FILTER} value={useynFilter} allowDeselect={false}
               onChange={(value) => { filterRef.current = { ...filterRef.current, useyn: value || '' }; setUseynFilter(value || ''); void load(selectedEmail); }} />
           </div>
-          <ScrollArea className={classes.tableWrap} type="auto" scrollbars="xy">
+          <ScrollArea className={`${classes.tableWrap} ${own.userScroll}`} type="auto" scrollbars="xy">
             <Table ref={tableRef} className={`${sharedClasses.table} ${classes.table} ${own.userTable}`} style={{ '--user-table-width': `${tableWidth}px` }}>
               <colgroup>{USER_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${widthOf(column)}px` }} />)}</colgroup>
               <Table.Thead>

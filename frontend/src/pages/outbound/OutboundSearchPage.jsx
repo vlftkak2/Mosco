@@ -55,7 +55,7 @@ const makeDefaultFilters = () => {
   return {
     date_from: `${year}-${pad(month + 1)}-01`,
     date_to: `${year}-${pad(month + 1)}-${pad(new Date(year, month + 1, 0).getDate())}`,
-    receiptno: '', customer: '', warehouse: '', iteminfo: '',
+    receiptno: '', customer: '', warehouse: '', iteminfo: '', thickness: '', width: '', length: '',
   };
 };
 
@@ -93,6 +93,9 @@ const FILTERS = [
   { key: 'warehouse', label: '창고', placeholder: '창고코드 또는 창고명' },
   { key: 'receiptno', label: '출고전표번호', placeholder: '전표번호' },
   { key: 'iteminfo', label: '품목정보', placeholder: '품목코드 또는 품목명' },
+  { key: 'thickness', label: '두께', placeholder: '두께 검색' },
+  { key: 'width', label: '폭', placeholder: '폭 검색' },
+  { key: 'length', label: '길이', placeholder: '길이 검색' },
 ];
 
 const periodText = (from, to) => (from || to ? `${from || '처음'} ~ ${to || '끝'}` : '전체 기간');

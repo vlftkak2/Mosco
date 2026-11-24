@@ -229,7 +229,7 @@ export default function Board() {
   const pages = Math.max(1, Math.ceil(result.total / PAGE_SIZE));
 
   return <div className={`${simpleTheme.simple} ${shared.pageShell} ${searchClasses.page} ${classes.page}`}>
-    <ErpBreadcrumb parent="상담관리" current="상담게시판" />
+    <ErpBreadcrumb parent="게시판" current="상담게시판" />
 
     <div className={classes.workspace}>
       {/* ── 목록 ── */}

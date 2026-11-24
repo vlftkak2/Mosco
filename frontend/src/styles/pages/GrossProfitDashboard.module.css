@@ -188,3 +188,7 @@
 .dropRates b { color: #15233a; font-weight: 700; }
 .dropArrow { margin: 0 6px; color: #b4bdca; }
 .dropPill { padding: 2px 8px; border-radius: 999px; background: #fdeaea; color: #c4363f; font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* 차트 패널: 본문이 남는 높이를 채우고 차트가 늘어난다 (옆 패널과 높이 맞춤) */
+.chartPanel { display: flex !important; flex-direction: column !important; }
+.chartPanel .panelBody { display: flex; flex: 1 1 auto; flex-direction: column; }

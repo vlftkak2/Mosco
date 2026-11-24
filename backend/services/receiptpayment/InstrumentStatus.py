@@ -36,7 +36,7 @@ def list_instruments(companyid: str, page: int = 1, page_size: int = 50, kind: s
     base = ["d.companyid = %s", "d.instrumentamt > 0",
             "NOT (h.transactiontype = 'PAYMENT' AND d.source_receiptno IS NOT NULL)"]
     base_params: list = [companyid]
-    # customer / type / keyword also narrow the summary cards and the maturity chart
+    # 거래처 · 종류 · 검색어 · 만기일 기간은 목록과 함께 요약 카드 · 만기 구간에도 건다
     if customer.strip():
         base.append("(h.customcode ILIKE %s OR h.customname ILIKE %s)"); base_params += [f"%{customer.strip()}%"] * 2
     if instrumenttype.strip():
@@ -44,6 +44,10 @@ def list_instruments(companyid: str, page: int = 1, page_size: int = 50, kind: s
     if keyword.strip():
         base.append("(d.instrumentno ILIKE %s OR d.issuercompany ILIKE %s OR d.issuer ILIKE %s OR d.receiptno ILIKE %s)")
         base_params += [f"%{keyword.strip()}%"] * 4
+    if maturity_from:
+        base.append("d.maturitydate >= %s"); base_params.append(maturity_from)
+    if maturity_to:
+        base.append("d.maturitydate <= %s"); base_params.append(maturity_to)
     inner = f"""SELECT d.*, h.receiptdate, h.transactiontype, h.customcode, h.customname,
                        {_INSTRUMENT_KIND_SQL} AS kind, {_EFFECTIVE_STATUS_SQL} AS status
                 FROM ReceiptPayment02t d
@@ -60,10 +64,6 @@ def list_instruments(companyid: str, page: int = 1, page_size: int = 50, kind: s
         where.append("x.status = %s"); params.append(status)
     if bucket in MATURITY_BUCKETS:
         where.append(MATURITY_BUCKETS[bucket].replace("d.", "x."))
-    if maturity_from:
-        where.append("x.maturitydate >= %s"); params.append(maturity_from)
-    if maturity_to:
-        where.append("x.maturitydate <= %s"); params.append(maturity_to)
     where_sql = " AND ".join(where)
 
     with _connect() as connection, connection.cursor() as cursor:
@@ -91,7 +91,7 @@ def list_instruments(companyid: str, page: int = 1, page_size: int = 50, kind: s
         )
         items = [_row_dict(cursor, row) for row in cursor.fetchall()]
 
-        # 요약 카드 · 카드 마우스 올림 · 만기 구간 (거래처·종류·검색어만 반영, 구분·상태·만기 조건과 무관한 현재 기준)
+        # 요약 카드 · 카드 마우스 올림 · 만기 구간 (거래처·종류·검색어·만기일 기간 반영. 구분·상태·만기 구간은 카드/구간이 고르는 조건이라 걸지 않음)
         #  속도: 증권 목록(inner)을 한 번만 읽고(MATERIALIZED), 배서 연결은 지급 행 묶음과 한 번에 붙인다 (행마다 찾지 않음).
         bucket_case = "CASE " + " ".join(f"WHEN {sql.replace('d.', 'x.')} THEN '{name}'" for name, sql in MATURITY_BUCKETS.items()) + " END"
         stats_cte = f"""

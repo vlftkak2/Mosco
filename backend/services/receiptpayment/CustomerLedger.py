@@ -444,43 +444,50 @@ def _add_months(value: date, months: int) -> date:
     return date(index // 12, index % 12 + 1, 1)
 
 
+# 채권채무요약 거래처 조건: ckey 가 없으면 전체 (ENTRIES 의 거래처 키와 같은 식)
+def _ckey_filter(code: str, name: str) -> str:
+    return f"AND (%(ckey)s::varchar IS NULL OR {_KEY.format(code=code, name=name)} = %(ckey)s::varchar)"
+
+
 # 채권채무요약 카드 마우스 올림: 기간 합계를 어디서 왔는지 나눠서 (ENTRIES 와 같은 규칙 · 같은 금액 기준)
-_PERIOD_PARTS_SQL = """
+_PERIOD_PARTS_SQL = f"""
 WITH rp AS (
     SELECT h.transactiontype AS t,
            COALESCE(d.cashamt, 0) + COALESCE(d.bankamt, 0) + COALESCE(d.cardamt, 0) AS cash,
            COALESCE(d.instrumentamt, 0) AS inst, COALESCE(d.offsetamt, 0) AS offs,
            COALESCE(d.lossamt, 0) AS loss, COALESCE(d.chargeamt, 0) AS gain
     FROM ReceiptPayment02t d JOIN ReceiptPayment01t h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
-    WHERE d.companyid = %(companyid)s AND h.receiptdate BETWEEN %(pf)s AND %(as_of)s
+    WHERE d.companyid = %(companyid)s AND h.receiptdate BETWEEN %(pf)s AND %(as_of)s {_ckey_filter('h.customcode', 'h.customname')}
 ),
 dish AS (
     SELECT h.transactiontype AS t, COALESCE(d.instrumentamt, 0) AS amt
     FROM ReceiptPayment02t d JOIN ReceiptPayment01t h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
     WHERE d.companyid = %(companyid)s AND d.instrumentstatus = 'DISHONORED' AND d.instrumentamt > 0
-      AND d.processdate BETWEEN %(pf)s AND %(as_of)s
+      AND d.processdate BETWEEN %(pf)s AND %(as_of)s {_ckey_filter('h.customcode', 'h.customname')}
 )
 SELECT
   (SELECT COALESCE(SUM(COALESCE(d.supplyamt, 0) + CASE WHEN %(with_vat)s THEN COALESCE(d.vat, 0) ELSE 0 END), 0)
      FROM Outbound02t d JOIN Outbound01t h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
-    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s) AS sales_goods,
+    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s {_ckey_filter('h.customcode', 'h.customname')}) AS sales_goods,
   (SELECT COALESCE(SUM(CASE WHEN %(with_vat)s THEN COALESCE(x.totalamt, 0) ELSE COALESCE(x.supplyamt, 0) END), 0)
      FROM Outbound03t x JOIN Outbound01t h ON h.companyid = x.companyid AND h.receiptno = x.receiptno
-    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s AND UPPER(COALESCE(x.purchaseyn, 'N')) <> 'Y') AS sales_plus,
+    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s AND UPPER(COALESCE(x.purchaseyn, 'N')) <> 'Y' {_ckey_filter('h.customcode', 'h.customname')}) AS sales_plus,
   (SELECT COALESCE(SUM(COALESCE(d.supplyamt, 0) + CASE WHEN %(with_vat)s THEN COALESCE(d.vat, 0) ELSE 0 END), 0)
      FROM Inbound02t d JOIN Inbound01t h ON h.companyid = d.companyid AND h.receiptno = d.receiptno
-    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s) AS purchase_goods,
+    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s {_ckey_filter('h.customcode', 'h.customname')}) AS purchase_goods,
   (SELECT COALESCE(SUM(CASE WHEN %(with_vat)s THEN COALESCE(x.totalamt, 0) ELSE COALESCE(x.supplyamt, 0) END), 0)
      FROM Inbound03t x JOIN Inbound01t h ON h.companyid = x.companyid AND h.receiptno = x.receiptno
-    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s) AS purchase_exp,
+    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s {_ckey_filter('h.customcode', 'h.customname')}) AS purchase_exp,
   (SELECT COALESCE(SUM(CASE WHEN %(with_vat)s THEN COALESCE(x.totalamt, 0) ELSE COALESCE(x.supplyamt, 0) END), 0)
      FROM Outbound03t x JOIN Outbound01t h ON h.companyid = x.companyid AND h.receiptno = x.receiptno
     WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s AND UPPER(COALESCE(x.purchaseyn, 'N')) = 'Y'
-      AND (NULLIF(BTRIM(x.customcode), '') IS NOT NULL OR NULLIF(BTRIM(x.customname), '') IS NOT NULL)) AS purchase_cost,
+      AND (NULLIF(BTRIM(x.customcode), '') IS NOT NULL OR NULLIF(BTRIM(x.customname), '') IS NOT NULL)
+      {_ckey_filter('x.customcode', 'x.customname')}) AS purchase_cost,
   (SELECT COALESCE(SUM(COALESCE(d.supplyamt, 0) + CASE WHEN %(with_vat)s THEN COALESCE(d.vat, 0) ELSE 0 END), 0)
      FROM Process02t d JOIN Process01t p ON p.companyid = d.companyid AND p.processno = d.processno
     WHERE p.companyid = %(companyid)s AND p.processdate BETWEEN %(pf)s AND %(as_of)s
-      AND (NULLIF(BTRIM(p.customcode), '') IS NOT NULL OR NULLIF(BTRIM(p.customname), '') IS NOT NULL)) AS purchase_process,
+      AND (NULLIF(BTRIM(p.customcode), '') IS NOT NULL OR NULLIF(BTRIM(p.customname), '') IS NOT NULL)
+      {_ckey_filter('p.customcode', 'p.customname')}) AS purchase_process,
   (SELECT COALESCE(SUM(cash), 0) FROM rp WHERE t = 'RECEIPT') AS r_cash,
   (SELECT COALESCE(SUM(inst), 0) FROM rp WHERE t = 'RECEIPT') AS r_inst,
   (SELECT COALESCE(SUM(offs), 0) FROM rp WHERE t = 'RECEIPT') AS r_offset,
@@ -505,13 +512,15 @@ def _months_between(first: date, last: date) -> int:
     return (last.year - first.year) * 12 + last.month - first.month + 1
 
 
-def dashboard(companyid: str, as_of: date, top_n: int = 10, with_vat: bool = False, date_from: date | None = None) -> dict:
+def dashboard(companyid: str, as_of: date, top_n: int = 10, with_vat: bool = False, date_from: date | None = None,
+              ckey: str | None = None) -> dict:
     """회사 전체 받을 돈 / 줄 돈 현황.
 
     - 잔액(미수금 · 미지급금 · 순잔액 · 상위 거래처 · 경과 기간): 종료일(as_of) 시점
     - 기간 합계(매출 · 수금 · 매입 · 지급): date_from ~ as_of (date_from 이 없으면 종료일이 속한 달 1일부터 = 예전 '이번 달')
     - 비교 기준: 시작일 전날 잔액 (summary.open_*)
     - 월말 잔액 추이: 기간의 월 (최소 6개월, 최대 36개월). date_from 이 없으면 최근 12개월 (홈 화면)
+    - ckey 가 있으면 그 거래처 하나만 (거래처원장의 그 거래처와 같은 숫자)
     전표를 한 줄씩 가져오지 않고 SQL 에서 (거래처 x 월 x 기간 전/후) 합계와 선입선출 미수 잔여분만 계산해 가져온다.
     """
     start = get_settings(companyid)["ledgerstartdate"]
@@ -528,7 +537,7 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10, with_vat: bool = Fal
         elif span > TREND_MAX_MONTHS:
             month_from = _add_months(end_month, -(TREND_MAX_MONTHS - 1))
     params = {"companyid": companyid, "start": start, "as_of": as_of, "month_from": month_from, "period_from": period_from,
-              "with_vat": bool(with_vat)}
+              "with_vat": bool(with_vat), "ckey": ckey or None}
     with _connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             DASHBOARD_ENTRIES_SQL + """,
@@ -536,6 +545,7 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10, with_vat: bool = Fal
                 SELECT ckey, customcode, customname, entrydate, kindorder, docno, sales, receipt, purchase, payment
                 FROM entries
                 WHERE (%(start)s::date IS NULL OR entrydate >= %(start)s::date) AND entrydate <= %(as_of)s
+                  AND (%(ckey)s::varchar IS NULL OR ckey = %(ckey)s::varchar)
             ),
             -- 미수금 선입선출: 기초미수 -> 매출(일자·종류·전표순) 순으로 쌓고, 그 거래처의 수금 합계만큼 앞에서부터 지운다
             debits AS (
@@ -543,6 +553,7 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10, with_vat: bool = Fal
                        openingreceivable AS amt
                 FROM customer01t
                 WHERE companyid = %(companyid)s AND COALESCE(openingreceivable, 0) > 0
+                  AND (%(ckey)s::varchar IS NULL OR customercode = %(ckey)s::varchar)
                 UNION ALL
                 SELECT ckey, entrydate, 1, kindorder, docno::varchar, sales FROM scoped WHERE sales <> 0
             ),
@@ -576,10 +587,12 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10, with_vat: bool = Fal
                FROM customer01t WHERE companyid = %s""",
             (companyid,),
         )
-        customers = {code: {"name": name, "recv": _num(recv), "pay": _num(pay)} for code, name, recv, pay in cursor.fetchall()}
+        customers = {code: {"name": name, "recv": _num(recv), "pay": _num(pay)} for code, name, recv, pay in cursor.fetchall()
+                     if not ckey or code == ckey}
         # 기간 합계 구성 (원장 시작일 이전 전표는 원장과 같이 뺀다)
         part_from = max(start, period_from) if start else period_from
-        cursor.execute(_PERIOD_PARTS_SQL, {"companyid": companyid, "pf": part_from, "as_of": as_of, "with_vat": bool(with_vat)})
+        cursor.execute(_PERIOD_PARTS_SQL, {"companyid": companyid, "pf": part_from, "as_of": as_of, "with_vat": bool(with_vat),
+                                           "ckey": ckey or None})
         parts = {key: _num(value) for key, value in zip((column[0] for column in cursor.description), cursor.fetchone())}
 
     book = {}
@@ -736,6 +749,8 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10, with_vat: bool = Fal
 
     return {
         "as_of": as_of, "date_from": period_from, "ledgerstartdate": start, "with_vat": bool(with_vat),
+        "customer": ({"ckey": ckey, "customname": (customers.get(ckey) or {}).get("name") or (book.get(ckey) or {}).get("customname") or ""}
+                     if ckey else None),
         "summary": {
             "receivable": recv_pos, "payable": pay_pos, "net": recv_pos - pay_pos,
             "receivable_customers": sum(1 for a in accounts if a["recv"] > 0),
@@ -755,3 +770,21 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10, with_vat: bool = Fal
         "overdue": sorted(overdue, key=lambda r: r["over30"], reverse=True)[:top_n],
         "attention": sorted(attention_rows, key=lambda r: (r["kind"], -abs(r["recv"] or r["pay"])))[:30],
     }
+
+
+def search_customers(companyid: str, keyword: str, limit: int = 10) -> list[dict]:
+    """채권채무요약 거래처 자동완성: 거래처명 · 코드에 글자가 들어간 거래처 (이름이 같은 것 → 앞이 같은 것 → 이름순)."""
+    text = (keyword or "").strip()
+    if not text:
+        return []
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT customercode, customername
+               FROM customer01t
+               WHERE companyid = %(companyid)s AND (customername ILIKE %(like)s OR customercode ILIKE %(like)s)
+               ORDER BY (customername = %(text)s) DESC, (customername ILIKE %(prefix)s) DESC, customername, customercode
+               LIMIT %(limit)s""",
+            {"companyid": companyid, "like": f"%{escaped}%", "prefix": f"{escaped}%", "text": text, "limit": limit},
+        )
+        return [{"ckey": code, "customcode": code, "customname": name or ""} for code, name in cursor.fetchall()]

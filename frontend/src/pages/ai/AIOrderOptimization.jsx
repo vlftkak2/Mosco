@@ -312,6 +312,16 @@ function SheetDelta({ value }) {
 // 시트 2D 절단 배치 (원판 1매 · 패턴별). 원판을 열(제품 폭)로 가르고 열마다 제품 길이로 자른다 (2단 기요틴, 시안 v5 drawPattern)
 const SheetViz = memo(function SheetViz({ plan, rawWidth, rawLength, patIdx = 0, onPattern }) {
   const hatchId = `sheetHatch${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
+  // 그림이 화면에 실제로 그려진 폭 (글자를 화면 기준 같은 크기로 쓰려고)
+  const svgRef = useRef(null);
+  const [drawnW, setDrawnW] = useState(400);
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(([entry]) => { const w = Math.round(entry.contentRect.width); if (w > 0) setDrawnW(w); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const sp = sheetPatternOf(plan, patIdx);
   if (!sp || !rawWidth || !rawLength) return null;
   const pats = plan.sheet_patterns;
@@ -328,18 +338,25 @@ const SheetViz = memo(function SheetViz({ plan, rawWidth, rawLength, patIdx = 0,
     const piece = (plan.pieces || []).find((item) => item.key === key);
     return piece ? [piece.width, piece.length] : [cw, len];
   };
+  // 그림 안 글씨는 화면 기준 12px 로 통일 (그림 배율과 관계없이 같은 크기). 칸이 좁으면 두 줄 → 길이만 → 생략
+  const unit = sw / Math.max(160, drawnW);   // 화면 1px = 그림 좌표 unit
+  const fs = 11 * unit;
+  const textW = (text) => String(text).length * 0.6 * fs + 10 * unit;   // 양옆 5px 여유
+  const fits = (w, h, text) => w >= textW(text) && h >= fs * 2;
   const pieceLabel = (x, y, w, h, key, cw, len) => {
     const [pw, pl] = sizeOf(key, cw, len);
     const one = `${fmt(pw)} × ${fmt(pl)}`;
     const cx = x + w / 2;
     const cy = y + h / 2;
-    const common = { textAnchor: 'middle', dominantBaseline: 'middle', fill: '#34485d', fontWeight: 700 };
-    const fs1 = Math.min(10, w / (one.length * 0.6), h * 0.42);
-    if (fs1 >= 6.5) return <text x={cx} y={cy} fontSize={fs1} {...common}>{one}</text>;
-    const fs2 = Math.min(10, w / (`× ${fmt(pl)}`.length * 0.6), h / 2.7);
-    if (fs2 >= 6) return <text x={cx} y={cy} fontSize={fs2} {...common}><tspan x={cx} dy={-fs2 * 0.6}>{fmt(pw)}</tspan><tspan x={cx} dy={fs2 * 1.2}>× {fmt(pl)}</tspan></text>;
-    return Math.min(w, h) >= 15 ? <text x={cx} y={cy} fontSize={Math.min(10, Math.max(7, Math.min(w, h) * 0.33))} {...common}>{fmt(len)}</text> : null;
+    const common = { textAnchor: 'middle', dominantBaseline: 'middle', fill: '#1f3550', fontWeight: 600, fontSize: fs };
+    // 한 그림 안에서는 같은 방식으로: 모든 칸에 '폭 × 길이'가 들어가면 그렇게, 아니면 길이만
+    if (labelMode === 'full' && fits(w, h, one)) return <text x={cx} y={cy} {...common}>{one}</text>;
+    return fits(w, h, fmt(pl)) ? <text x={cx} y={cy} {...common}>{fmt(pl)}</text> : null;
   };
+  const labelMode = sp.columns.every((col) => col.pieces.every(([key, len]) => {
+    const [pw, pl] = sizeOf(key, col.cw, len);
+    return fits((normal ? len : col.cw) * sx, (normal ? col.cw : len) * sy, `${fmt(pw)} × ${fmt(pl)}`);
+  })) ? 'full' : 'length';
   const across = sp.columns.reduce((start, col, ci) => {
     const usedAlong = col.pieces.reduce((along, [key, len], pi) => {
       const x = (normal ? along : start) * sx;
@@ -354,11 +371,11 @@ const SheetViz = memo(function SheetViz({ plan, rawWidth, rawLength, patIdx = 0,
     const restAlong = fullAlong - usedAlong;
     const restW = (normal ? restAlong : col.cw) * sx;
     const restH = (normal ? col.cw : restAlong) * sy;
-    if (restAlong > 0.5 && Math.min(restW, restH) >= 13) {
+    if (restAlong > 0.5 && Math.min(restW, restH) >= fs * 1.4) {
       const cx = (normal ? usedAlong + restAlong / 2 : start + col.cw / 2) * sx;
       const cy = (normal ? start + col.cw / 2 : usedAlong + restAlong / 2) * sy;
-      const vertical = restW < 46 && restH > restW;   // 좁고 길면 세로 글씨
-      rects.push(<text key={`rest-${ci}`} x={cx} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize="8" fill="#34485d" fontWeight="700"
+      const vertical = restW < textW(`잔여 ${fmt(restAlong)}`) && restH > restW;   // 가로로 안 들어가면 세로 글씨
+      rects.push(<text key={`rest-${ci}`} x={cx} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize={fs} fill="#64748b" fontWeight="700"
         transform={vertical ? `rotate(-90 ${cx} ${cy})` : undefined}>잔여 {fmt(restAlong)}</text>);
     }
     return start + col.cw;
@@ -368,7 +385,11 @@ const SheetViz = memo(function SheetViz({ plan, rawWidth, rawLength, patIdx = 0,
   const perTotal = sp.columns.reduce((sum, col) => sum + col.pieces.length, 0);
   // 치수선 구간 (계산 결과 그대로): 열 방향 = 열 폭들 + 잔여, 열 안 방향 = 첫 열의 제품 길이들 + 잔여
   const withRest = (values, full) => {
-    const segs = values.map((value) => ({ value, rest: false }));
+    const segs = [];
+    for (const value of values) {   // 이어지는 같은 길이는 한 구간 (겹치지 않게)
+      const last = segs[segs.length - 1];
+      if (last && Math.abs(last.each - value) < 1e-6) { last.count += 1; last.value += value; } else segs.push({ value, each: value, count: 1, rest: false });
+    }
     const rest = full - values.reduce((sum, value) => sum + value, 0);
     if (rest > 0.5) segs.push({ value: rest, rest: true });
     return segs;
@@ -377,7 +398,7 @@ const SheetViz = memo(function SheetViz({ plan, rawWidth, rawLength, patIdx = 0,
   const pieceSegs = withRest((sp.columns[0]?.pieces || []).map(([, len]) => len), fullAlong);
   const topSegs = normal ? pieceSegs : colSegs;   // 위쪽 = 원판 길이
   const sideSegs = normal ? colSegs : pieceSegs;  // 왼쪽 = 원판 폭
-  const segLabel = (seg) => (seg.rest ? `잔여 ${fmt(seg.value)}` : fmt(seg.value));
+  const segLabel = (seg) => (seg.rest ? `잔여 ${fmt(seg.value)}` : seg.count > 1 ? `${fmt(seg.each)} × ${seg.count}` : fmt(seg.value));
   // 위쪽 치수 글씨 폭(약 7px/글자)이 구간 폭(그림 폭 약 340px 기준)보다 넓으면 위로 올림
   const topTiny = topSegs.map((seg) => segLabel(seg).length * 7 + 8 > 340 * (seg.value / rawLength));
   const anyTopTiny = topTiny.some(Boolean);
@@ -402,12 +423,12 @@ const SheetViz = memo(function SheetViz({ plan, rawWidth, rawLength, patIdx = 0,
               <span>{segLabel(seg)}</span></div>)}
           </div>
         </div>
-        <svg className={classes.sheetSvg} viewBox={`0 0 ${sw} ${sh}`} role="img" aria-label={`원판 ${fmt(rawWidth)} x ${fmt(rawLength)}mm, ${normal ? '기본' : '90도 회전'} 절단배치`}>
+        <svg ref={svgRef} className={classes.sheetSvg} viewBox={`0 0 ${sw} ${sh}`} role="img" aria-label={`원판 ${fmt(rawWidth)} x ${fmt(rawLength)}mm, ${normal ? '기본' : '90도 회전'} 절단배치`}>
           <defs><pattern id={hatchId} width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="7" height="7" fill="#e5e9ed" /><rect width="2" height="7" fill="#cfd6dc" /></pattern></defs>
           <rect x="0" y="0" width={sw} height={sh} fill={`url(#${hatchId})`} />{rects}
-          {remain > 0.5 && remainPx >= 13 && (normal
-            ? <text x={sw / 2} y={sh - remainPx / 2} textAnchor="middle" dominantBaseline="middle" fontSize="8" fill="#34485d" fontWeight="700">잔여 {fmt(remain)}</text>
-            : <text x={sw - remainPx / 2} y={sh / 2} textAnchor="middle" dominantBaseline="middle" fontSize="8" fill="#34485d" fontWeight="700" transform={`rotate(-90 ${sw - remainPx / 2} ${sh / 2})`}>잔여 {fmt(remain)}</text>)}
+          {remain > 0.5 && remainPx >= fs * 1.4 && (normal
+            ? <text x={sw / 2} y={sh - remainPx / 2} textAnchor="middle" dominantBaseline="middle" fontSize={fs} fill="#64748b" fontWeight="700">잔여 {fmt(remain)}</text>
+            : <text x={sw - remainPx / 2} y={sh / 2} textAnchor="middle" dominantBaseline="middle" fontSize={fs} fill="#64748b" fontWeight="700" transform={`rotate(-90 ${sw - remainPx / 2} ${sh / 2})`}>잔여 {fmt(remain)}</text>)}
           <rect x=".5" y=".5" width={sw - 1} height={sh - 1} fill="none" stroke="#c5d1df" />
         </svg>
       </div>
@@ -418,7 +439,7 @@ const SheetViz = memo(function SheetViz({ plan, rawWidth, rawLength, patIdx = 0,
       <span>제품 길이 → 원판 {normal ? '길이' : '폭'} 방향</span>
       <small>빗금 = 남는 구간</small>
     </div></div>
-    <div className={classes.sheetFoot}>원판 1장당 제품 {perTotal}장 · {pats.length > 1 ? `패턴 ${index + 1}/${pats.length} : 원판 ${fmt(sp.sheets, 0)}매에 적용` : `원판 ${fmt(sp.sheets, 0)}매 모두 동일 패턴`} · 칸 안 숫자는 제품 폭 × 길이(mm){sp.columns.length > 1 && sp.columns.some((col) => col.pieces.map(([, len]) => len).join() !== sp.columns[0].pieces.map(([, len]) => len).join()) ? ` · ${normal ? '위쪽' : '왼쪽'} 치수는 첫 열 기준` : ''}</div>
+    <div className={classes.sheetFoot}>원판 1장당 제품 {perTotal}장 · {pats.length > 1 ? `패턴 ${index + 1}/${pats.length} : 원판 ${fmt(sp.sheets, 0)}매에 적용` : `원판 ${fmt(sp.sheets, 0)}매 모두 동일 패턴`}{labelMode === 'full' ? ' · 칸 안 숫자는 제품 폭 × 길이(mm)' : ` · 칸 안 숫자는 제품 길이(mm) · 제품 폭 ${fmt(sp.columns[0]?.cw)}mm`}{sp.columns.length > 1 && sp.columns.some((col) => col.pieces.map(([, len]) => len).join() !== sp.columns[0].pieces.map(([, len]) => len).join()) ? ` · ${normal ? '위쪽' : '왼쪽'} 치수는 첫 열 기준` : ''}</div>
   </div>;
 });
 
@@ -1213,7 +1234,7 @@ export default function AIOrderOptimization() {
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${reg.page} ${classes.optScope}`}>
     <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
       <Group className={inboundClasses.breadcrumbTrail} gap={7}>
-        <Text component="span" className={inboundClasses.breadcrumbParent}>AI가공솔루션</Text>
+        <Text component="span" className={inboundClasses.breadcrumbParent}>가공관리</Text>
         <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
         <Text component="span" className={inboundClasses.breadcrumbCurrent}>가공최적화</Text>
       </Group>
@@ -1263,7 +1284,7 @@ export default function AIOrderOptimization() {
               {material === 'SHEET' && <NumberInput size="xs" w={110} label="원판 길이" placeholder="mm" value={newLength} onChange={setNewLength} hideControls min={0} />}
               {material === 'COIL' && <NumberInput size="xs" w={130} label="예상 투입중량 (선택)" placeholder="비우면 필요중량" value={newWeight} onChange={setNewWeight} hideControls min={0} thousandSeparator="," />}
               <button type="button" className={btn('btnDark', 'btnSm')} style={{ alignSelf: 'flex-end' }} onClick={addNewCandidate}>후보 추가</button>
-              <span className={`${classes.muted} ${classes.toolsNote}`}>{material === 'COIL' ? '연결 원자재 → 현재고 → 신규(매입이력·직접 입력) 순, 수율 높은 순' : '로스중량 적은 순 (동률 시 연결 원자재 우선)'}</span>
+              <span className={`${classes.muted} ${classes.toolsNote}`}>{material === 'COIL' ? '연결 원자재 → 현재고 → 신규(매입이력·직접 입력) 순, 수율 높은 순' : (shownAnalysis?.candidates || []).some((c) => c.coil) ? '코일 후보: 수율 높은 순 · 원판 후보: 로스중량 적은 순 (동률 시 연결 원자재 우선)' : '로스중량 적은 순 (동률 시 연결 원자재 우선)'}</span>
             </div>
             {shownAnalysis?.candidates?.length ? <div className={`${reg.tableScroll} ${classes.candidateScroll}`}><table className={`${reg.ordersTable} ${classes.candidateTable}`} style={{ width: `max(100%, ${candidateTableWidth}px)`, minWidth: `${candidateTableWidth}px` }}>
               <ResizableHead columns={candidateColumns} {...candidateWidths}

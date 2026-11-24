@@ -143,3 +143,7 @@
 /* 경과 구간 줄: 마우스를 올리면 거래처 목록 */
 .agingRowHover { cursor: help; border-radius: 6px; }
 .agingRowHover:hover { background: #f3f6fa; }
+
+/* 차트 패널: 본문이 남는 높이를 채우고 차트가 늘어난다 (옆 패널과 높이 맞춤) */
+.chartPanel { display: flex !important; flex-direction: column !important; }
+.chartPanel .panelBody { display: flex; flex: 1 1 auto; flex-direction: column; }

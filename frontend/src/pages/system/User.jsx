@@ -17,7 +17,6 @@ import {
   TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { modals } from '@mantine/modals';
 import { IconRefresh,
   IconBuilding,
   IconInbox,
@@ -29,6 +28,7 @@ import { IconRefresh,
 } from '@tabler/icons-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import { ColumnResizeHandle, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
@@ -101,6 +101,7 @@ export default function User() {
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null); // 삭제 확인 창에 띄운 계정
   const selectedEmailRef = useRef(selectedEmail);
   const isNewRef = useRef(isNew);
   const companyDropdownWasOpen = useRef(false);
@@ -268,7 +269,7 @@ export default function User() {
       return;
     }
     if (isNew && !canCreateUser) {
-      notifications.show({ title: '계정 등록 불가', message: '고객사 상태와 허용 계정 수를 확인해 주세요.', color: 'orange' });
+      notifications.show({ title: '계정 등록 불가', message: '고객사 이용 상태와 라이선스 개수를 확인해 주세요.', color: 'orange' });
       return;
     }
     if (saveInProgressRef.current) return;
@@ -338,39 +339,34 @@ export default function User() {
       return;
     }
 
-    modals.openConfirmModal({
-      title: '고객사 계정 삭제 확인',
-      centered: true,
-      children: (
-        <Text size="sm">
-          <Text span fw={700} c="red">{target.username} ({target.email})</Text> 계정을 삭제하시겠습니까?
-          <br />삭제한 계정은 로그인할 수 없으며 복구할 수 없습니다.
-        </Text>
-      ),
-      labels: { confirm: '삭제', cancel: '취소' },
-      confirmProps: { color: 'red' },
-      onConfirm: async () => {
-        setDeleting(true);
-        try {
-          await axios.delete('/api/company-users', {
-            ...authConfig(),
-            params: { companyid, email: selectedEmail },
-          });
-          selectedEmailRef.current = '';
-          isNewRef.current = false;
-          setSelectedEmail('');
-          setIsNew(false);
-          setDraft({ ...emptyUser(), companyid });
-          notifications.show({ title: '계정 삭제 완료', message: `${target.username} 계정을 삭제했습니다.`, color: 'teal' });
-          await Promise.all([loadUsers(companyid, ''), loadCompanies()]);
-        } catch (error) {
-          notifications.show({ title: '삭제 실패', message: errorMessage(error, '고객사 계정을 삭제하지 못했습니다.'), color: 'red' });
-        } finally {
-          setDeleting(false);
-        }
-      },
-    });
-  }, [companyid, currentEmail, isNew, isSubmaster, loadCompanies, loadUsers, selectedEmail, users]);
+    setDeleteTarget(target);
+  }, [companyid, currentEmail, isNew, isSubmaster, selectedEmail, users]);
+
+  // 삭제 확인 창(매입등록과 같은 공통 디자인)에서 '삭제'를 눌렀을 때
+  const confirmDelete = useCallback(async () => {
+    const target = deleteTarget;
+    if (!target || !companyid) return;
+    setDeleting(true);
+    try {
+      await axios.delete('/api/company-users', {
+        ...authConfig(),
+        params: { companyid, email: target.email },
+      });
+      selectedEmailRef.current = '';
+      isNewRef.current = false;
+      setSelectedEmail('');
+      setIsNew(false);
+      setDraft({ ...emptyUser(), companyid });
+      setDeleteTarget(null);
+      notifications.show({ title: '계정 삭제 완료', message: `${target.username} 계정을 삭제했습니다.`, color: 'teal' });
+      await Promise.all([loadUsers(companyid, ''), loadCompanies()]);
+    } catch (error) {
+      setDeleteTarget(null);
+      notifications.show({ title: '삭제 실패', message: errorMessage(error, '고객사 계정을 삭제하지 못했습니다.'), color: 'red' });
+    } finally {
+      setDeleting(false);
+    }
+  }, [companyid, deleteTarget, loadCompanies, loadUsers]);
 
   useErpPageRibbon({
     onSearch: () => loadUsers(companyid),
@@ -395,7 +391,7 @@ export default function User() {
   return (
     <Box className={`${simpleTheme.simple} ${simpleTheme.noIcons} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
-        <Text component="span" className={classes.breadcrumbParent}>고객사관리</Text>
+        <Text component="span" className={classes.breadcrumbParent}>어드민</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
         <Text component="span" className={classes.breadcrumbCurrent}>고객계정관리</Text>
       </Box>
@@ -416,7 +412,7 @@ export default function User() {
                 <i className={classes.seatDivider} aria-hidden="true" />
                 활성 계정 <b>{Number(companyInfo.active_users || 0).toLocaleString('ko-KR')}</b>명
                 <i className={classes.seatDivider} aria-hidden="true" />
-                허용 계정 <b>{Number(companyInfo.licensed_seats || 0).toLocaleString('ko-KR')}</b>명
+                라이선스 <b>{Number(companyInfo.licensed_seats || 0).toLocaleString('ko-KR')}</b>개
               </span>
             )}
           </Group>
@@ -660,6 +656,10 @@ export default function User() {
           </ScrollArea>
         </Paper>
       </div>
+
+      <ConfirmDeleteModal opened={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} onConfirm={confirmDelete} loading={deleting}
+        title="계정을 삭제할까요?" target={deleteTarget ? `${deleteTarget.username} (${deleteTarget.email})` : ''}
+        message="삭제한 계정은 더 이상 로그인할 수 없으며" note="삭제한 계정은 복구할 수 없습니다." />
     </Box>
   );
 }

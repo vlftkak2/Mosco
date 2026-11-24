@@ -174,3 +174,7 @@
 .addressSearchButton.addressSearchButton { height: 32px; border-radius: 4px !important; border-color: #cccccc !important; color: #333 !important; font-weight: 500 !important; }
 .addressSearchButton.addressSearchButton:hover { border-color: #e0434b !important; background: #fff !important; color: #e0434b !important; }
 
+
+/* 라이선스 (고객사등록) */
+.numCell { text-align: right; font-variant-numeric: tabular-nums; }
+.licenseSection :global(.mantine-Input-input)::placeholder { color: #a8b1bd; font-size: 11px; font-weight: 400; letter-spacing: 0; }

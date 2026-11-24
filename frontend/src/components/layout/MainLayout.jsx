@@ -1,5 +1,5 @@
 
-import { AppShell, Burger, Group, Text, Box, Modal, PasswordInput, Menu } from '@mantine/core';
+import { AppShell, Burger, Text, Box, Modal, PasswordInput, Menu } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { SidebarNav } from './MainLayoutLink';
 import classes from '../../styles/layout/MainLayout.module.css';
@@ -8,13 +8,14 @@ import { useNavigate, useLocation, useOutlet, UNSAFE_LocationContext as Location
 import { clearAIOrderPageSession } from '../../pages/ai/AIOrderPageSession';
 import { clearAIOrderDraft } from '../../pages/ai/AIOrderDraft';
 import {
-  IconBox, IconCash, IconChevronDown, IconClipboardText, IconCpu, IconHome, IconLayoutSidebar, IconLogout, IconPackageExport, IconPackageImport, IconSettings, IconShieldLock,
+  IconAdjustmentsHorizontal, IconBox, IconChevronDown, IconClipboardText, IconCreditCard, IconHome, IconKey, IconLayoutSidebar, IconLogout,
+  IconMoon, IconSearch, IconShieldLock, IconShoppingBag, IconStack2, IconTrendingUp, IconUserCircle, IconUsers,
 } from '@tabler/icons-react';
 import '@mantine/notifications/styles.css';
 import { notifications } from '@mantine/notifications';
 import axios from 'axios'; // axios 추가
 import { IconCheck, IconX } from '@tabler/icons-react'; // 아이콘 추가
-import steel119Logo from '../../assets/img/logolast.png';
+import Steel119Logo from './Steel119Logo';
 
 export const PageRibbonContext = createContext(null);
 
@@ -47,128 +48,104 @@ const KeepAlivePage = memo(function KeepAlivePage({ path, active, activation, el
 });
 export const MenuAccessContext = createContext({ menuids: [], loaded: false, authority: 'USER', fallbackPath: null });
 
-// 메뉴 구성: 대메뉴 > 섹션(links 가 있는 항목) > 화면. 이름·순서는 디자인 고도화 시안 기준.
+// 메뉴 구성: 대메뉴 > 화면 (네비 디자인 최종 시안 기준, 소제목 없음). 대시보드는 하위 없이 바로 열린다.
 // 이름을 바꾸면 backend/sql/menu_catalog_seed.sql 의 menuname 도 같이 맞춘다.
-const ic = { size: 18, stroke: 1.7 };
+const ic = { size: 20, stroke: 1.5 };
 // 어드민: 시안과 같은 방패 + 체크 (Tabler 기본 방패보다 둥근 모양, 선 굵게)
 const AdminShieldIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M12 2.8C9.7 4.8 6.8 5.5 4 6v5.5c0 4.6 3.2 8.2 8 10 4.8-1.8 8-5.4 8-10V6c-2.8-.5-5.7-1.2-8-3.2Z" />
     <path d="m8.4 12 2.4 2.4 4.8-5" />
   </svg>
 );
 const mockdata = [
+  { label: '대시보드', icon: <IconHome {...ic} />, link: '/HomePage', MenuID: 'HOME' },
   {
-    label: '홈',
-    icon: <IconHome {...ic} />,
+    label: '매입관리',
+    icon: <IconShoppingBag {...ic} />,
     links: [
-      { label: 'Home', links: [
-        { label: '대시보드', link: '/HomePage', MenuID: 'HOME' },
-      ] },
+      { label: '매입등록', link: '/InboundRegisterPage', MenuID: 'INBOUND_REGISTER' },
+      { label: '매입현황', link: '/InboundSearchPage', MenuID: 'INBOUND_SEARCH' },
     ],
   },
   {
-    label: '매입',
-    icon: <IconPackageImport {...ic} />,
+    label: '매출관리',
+    icon: <IconTrendingUp {...ic} />,
     links: [
-      { label: '매입관리', links: [
-        { label: '매입등록', link: '/InboundRegisterPage', MenuID: 'INBOUND_REGISTER' },
-        { label: '매입현황', link: '/InboundSearchPage', MenuID: 'INBOUND_SEARCH' },
-      ] },
+      { label: '매출등록', link: '/OutboundRegisterPage', MenuID: 'OUTBOUND_REGISTER' },
+      { label: '매출현황', link: '/OutboundSearchPage', MenuID: 'OUTBOUND_SEARCH' },
+      { label: '매출이익분석', link: '/GrossProfit', MenuID: 'GROSS_PROFIT' },
+      { label: '매출이익요약', link: '/GrossProfitDashboard', MenuID: 'GROSS_PROFIT_DASHBOARD' },
     ],
   },
   {
-    label: '매출',
-    icon: <IconPackageExport {...ic} />,
-    links: [
-      { label: '매출관리', links: [
-        { label: '매출등록', link: '/OutboundRegisterPage', MenuID: 'OUTBOUND_REGISTER' },
-        { label: '매출현황', link: '/OutboundSearchPage', MenuID: 'OUTBOUND_SEARCH' },
-        { label: '매출이익분석', link: '/GrossProfit', MenuID: 'GROSS_PROFIT' },
-        { label: '매출이익요약', link: '/GrossProfitDashboard', MenuID: 'GROSS_PROFIT_DASHBOARD' },
-      ] },
-    ],
-  },
-  {
-    label: '가공',
-    icon: <IconCpu {...ic} />,
-    links: [
-      { label: 'AI 가공솔루션', links: [
-        { label: 'AI 주문서인식', link: '/AIOrderPage', MenuID: 'AI_ORDER_RECOGNITION' },
-        { label: '가공주문관리', link: '/AIOrderManage', MenuID: 'AI_ORDER_MANAGEMENT' },
-        { label: '가공최적화', link: '/AIOrderOptimization', MenuID: 'AI_OPTIMIZATION' },
-      ] },
-      { label: '재고가공', links: [
-        { label: '가공공정관리', link: '/ItemProcessMaster', MenuID: 'ITEM_PROCESS_MASTER' },
-        { label: '재고가공등록', link: '/ItemProcessRegister', MenuID: 'ITEM_PROCESS_REGISTER' },
-        { label: '재고가공현황', link: '/ItemProcessSearch', MenuID: 'ITEM_PROCESS_SEARCH' },
-      ] },
-    ],
-  },
-  {
-    label: '재고',
+    label: '재고관리',
     icon: <IconBox {...ic} />,
     links: [
-      { label: '재고관리', links: [
-        { label: '기초재고등록', link: '/StockStandPage', MenuID: 'STOCK_INITIAL' },
-        { label: '현재고현황', link: '/CurrentStockPage', MenuID: 'STOCK_CURRENT' },
-        { label: '재고수불현황', link: '/IniopStockPage', MenuID: 'STOCK_HISTORY' },
-      ] },
-      { label: '재고이동', links: [
-        { label: '재고이동등록', link: '/InoutmoveRegister', MenuID: 'INOUTMOVE_REGISTER' },
-        { label: '재고이동현황', link: '/InoutmoveSearch', MenuID: 'INOUTMOVE_SEARCH' },
-      ] },
+      { label: '기초재고등록', link: '/StockStandPage', MenuID: 'STOCK_INITIAL' },
+      { label: '현재고현황', link: '/CurrentStockPage', MenuID: 'STOCK_CURRENT' },
+      { label: '재고수불현황', link: '/IniopStockPage', MenuID: 'STOCK_HISTORY' },
+      { label: '재고이동등록', link: '/InoutmoveRegister', MenuID: 'INOUTMOVE_REGISTER' },
+      { label: '재고이동현황', link: '/InoutmoveSearch', MenuID: 'INOUTMOVE_SEARCH' },
     ],
   },
   {
-    label: '자금',
-    icon: <IconCash {...ic} />,
+    label: '가공관리',
+    icon: <IconStack2 {...ic} />,
     links: [
-      { label: '자금관리', links: [
-        { label: '수금/지급등록', link: '/ReceiptPayment', MenuID: 'RECEIPT_PAYMENT' },
-        { label: '수금/지급현황', link: '/ReceiptPaymentSearch', MenuID: 'RECEIPT_PAYMENT_SEARCH' },
-        { label: '수표/어음관리', link: '/InstrumentStatus', MenuID: 'INSTRUMENT_STATUS' },
-      ] },
-      { label: '장부관리', links: [
-        { label: '거래처원장', link: '/CustomerLedger', MenuID: 'CUSTOMER_LEDGER' },
-        { label: '채권채무요약', link: '/CustomerBalanceDashboard', MenuID: 'CUSTOMER_BALANCE_DASHBOARD' },
-      ] },
+      { label: 'AI 주문서인식', link: '/AIOrderPage', MenuID: 'AI_ORDER_RECOGNITION' },
+      { label: '가공주문관리', link: '/AIOrderManage', MenuID: 'AI_ORDER_MANAGEMENT' },
+      { label: '가공최적화', link: '/AIOrderOptimization', MenuID: 'AI_OPTIMIZATION' },
+      { label: '가공공정관리', link: '/ItemProcessMaster', MenuID: 'ITEM_PROCESS_MASTER' },
+      { label: '재고가공등록', link: '/ItemProcessRegister', MenuID: 'ITEM_PROCESS_REGISTER' },
+      { label: '재고가공현황', link: '/ItemProcessSearch', MenuID: 'ITEM_PROCESS_SEARCH' },
+    ],
+  },
+  {
+    label: '거래처관리',
+    icon: <IconUsers {...ic} />,
+    links: [
+      { label: '거래처등록', link: '/CustomerPage', MenuID: 'DATA_CUSTOMER' },
+      { label: '거래처원장', link: '/CustomerLedger', MenuID: 'CUSTOMER_LEDGER' },
+      { label: '채권채무요약', link: '/CustomerBalanceDashboard', MenuID: 'CUSTOMER_BALANCE_DASHBOARD' },
+    ],
+  },
+  {
+    label: '자금관리',
+    icon: <IconCreditCard {...ic} />,
+    links: [
+      { label: '수금/지급등록', link: '/ReceiptPayment', MenuID: 'RECEIPT_PAYMENT' },
+      { label: '수금/지급현황', link: '/ReceiptPaymentSearch', MenuID: 'RECEIPT_PAYMENT_SEARCH' },
+      { label: '수표/어음관리', link: '/InstrumentStatus', MenuID: 'INSTRUMENT_STATUS' },
+    ],
+  },
+  {
+    label: '기준정보',
+    icon: <IconAdjustmentsHorizontal {...ic} />,
+    links: [
+      { label: '공통코드관리', link: '/CodeMasterPage', MenuID: 'DATA_CODE' },
+      { label: '품목코드관리', link: '/ItemMasterPage', MenuID: 'DATA_ITEM' },
+      { label: '사업장관리', link: '/Workplace', MenuID: 'WORKPLACE_MANAGEMENT' },
+      { label: '월마감관리', link: '/MonthClose', MenuID: 'MONTH_CLOSING' },
+      { label: '직원관리', link: '/UserInfo', MenuID: 'USER_MANAGEMENT' },
     ],
   },
   {
     label: '게시판',
     icon: <IconClipboardText {...ic} />,
     links: [
-      { label: '상담관리', links: [
-        { label: '상담게시판', link: '/CustomerSupport', MenuID: 'CUSTOMER_SUPPORT' },
-      ] },
-    ],
-  },
-  {
-    label: '설정',
-    icon: <IconSettings {...ic} />,
-    links: [
-      { label: '정보관리', links: [
-        { label: '공통코드관리', link: '/CodeMasterPage', MenuID: 'DATA_CODE' },
-        { label: '품목코드관리', link: '/ItemMasterPage', MenuID: 'DATA_ITEM' },
-        { label: '거래처관리', link: '/CustomerPage', MenuID: 'DATA_CUSTOMER' },
-      ] },
-      { label: '운영관리', links: [
-        { label: '사업장관리', link: '/Workplace', MenuID: 'WORKPLACE_MANAGEMENT' },
-        { label: '월마감관리', link: '/MonthClose', MenuID: 'MONTH_CLOSING' },
-        { label: '직원관리', link: '/UserInfo', MenuID: 'USER_MANAGEMENT' },
-      ] },
+      { label: '상담게시판', link: '/CustomerSupport', MenuID: 'CUSTOMER_SUPPORT' },
     ],
   },
   {
     label: '어드민',
     icon: <AdminShieldIcon />,
     links: [
-      { label: '고객사관리', links: [
-        { label: '고객사등록', link: '/Company', MenuID: 'COMPANY_REGISTRATION' },
-        { label: '고객계정관리', link: '/User', MenuID: 'COMPANY_USER_MANAGEMENT' },
-        { label: '메뉴권한관리', link: '/UserMenu', MenuID: 'USER_MENU_PERMISSION' },
-      ] },
+      { label: '고객사등록', link: '/Company', MenuID: 'COMPANY_REGISTRATION' },
+      { label: '고객계정관리', link: '/User', MenuID: 'COMPANY_USER_MANAGEMENT' },
+      { label: '메뉴권한관리', link: '/UserMenu', MenuID: 'USER_MENU_PERMISSION' },
+      { label: '라이선스 매출현황', link: '/LicenseRevenue', MenuID: 'LICENSE_REVENUE' },
+      { label: '타사 재고현황', link: '/SharedStock', MenuID: 'SHARED_STOCK' },
     ],
   },
 ];
@@ -211,6 +188,29 @@ export default function MainLayout({ children }) {
     }
   });
   const [pwModalOpened, { open: openPwModal, close: closePwModal }] = useDisclosure(false);
+  // 네비 · 헤더 색: 다크(기본) / 라이트 (이 브라우저에 기억)
+  const [navTheme, setNavTheme] = useState(() => {
+    try { return localStorage.getItem('steel119-nav-theme') === 'light' ? 'light' : 'dark'; } catch { return 'dark'; }
+  });
+  const toggleNavTheme = () => setNavTheme((current) => {
+    const next = current === 'light' ? 'dark' : 'light';
+    try { localStorage.setItem('steel119-nav-theme', next); } catch { /* 기억 못 해도 지금 화면은 바뀐다 */ }
+    return next;
+  });
+  // 메뉴 검색 (헤더 검색칸 → 왼쪽 메뉴를 거름, Ctrl+K 로 바로 이동)
+  const [menuQuery, setMenuQuery] = useState('');
+  const menuSearchRef = useRef(null);
+  useEffect(() => {
+    const onKey = (event) => {
+      if ((event.ctrlKey || event.metaKey) && String(event.key).toLowerCase() === 'k') {
+        event.preventDefault();
+        menuSearchRef.current?.focus();
+        menuSearchRef.current?.select();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   const [pwdForm, setPwdForm] = useState({
     current: '',
@@ -237,7 +237,7 @@ export default function MainLayout({ children }) {
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
     '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage',
     '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/itemprocessmaster', '/itemprocessregister', '/itemprocesssearch', '/customersupport', '/board',
-    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/instrumentstatus', '/customerledger', '/customerbalancedashboard', '/grossprofit', '/grossprofitdashboard', '/company', '/user', '/usermenu', '/workplace', '/monthclose', '/userinfo',
+    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/instrumentstatus', '/customerledger', '/customerbalancedashboard', '/grossprofit', '/grossprofitdashboard', '/company', '/licenserevenue', '/sharedstock', '/user', '/usermenu', '/workplace', '/monthclose', '/userinfo',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
   // 탭별 화면 / 리본 보관 (key = 경로)
   const [pageCache, setPageCache] = useState({});
@@ -308,6 +308,17 @@ export default function MainLayout({ children }) {
     setRibbons((current) => { const next = { ...current }; delete next[path]; return next; });
     if (pathname === path) navigate(remaining[remaining.length - 1].path);
   }, [pageTabs, pathname, navigate]);
+  // 탭 모두 닫기: 대시보드만 남기고 나머지 화면과 리본을 지운다 (각 탭을 닫을 때와 같은 정리)
+  const closeAllTabs = useCallback(() => {
+    const paths = pageTabs.map((tab) => String(tab.path || '').replace(/\/+$/, '').toLowerCase());
+    if (paths.includes('/aiorderpage')) clearAIOrderPageSession();
+    if (paths.includes('/aiordermanage')) clearAIOrderDraft();
+    const home = pageTabs.find((tab) => isHomePath(tab.path)) || { path: '/HomePage', label: findMenuLabel(mockdata, '/HomePage') };
+    setTabState({ pathname, tabs: [home] });
+    setPageCache((current) => (current[home.path] ? { [home.path]: current[home.path] } : {}));
+    setRibbons((current) => (current[home.path] ? { [home.path]: current[home.path] } : {}));
+    if (!isHomePath(pathname)) navigate(home.path);
+  }, [pageTabs, pathname, navigate]);
   // 화면별 리본의 [닫기]가 항상 최신 closePageTab 을 쓰도록
   const closeTabRef = useRef(closePageTab);
   useLayoutEffect(() => { closeTabRef.current = closePageTab; }, [closePageTab]);
@@ -321,16 +332,12 @@ export default function MainLayout({ children }) {
     String(localStorage.getItem('user_company') || '')
   );
 
-  const [userInfo] = useState(() => {
-    
-    const name = localStorage.getItem('user_name');
-    const email = localStorage.getItem('user_email');
-    // 초기값이 있으면 그 값을 사용하고, 없으면 빈 문자열을 반환합니다.
-    return { 
-      name: name || '', 
-      email: email || '' 
-    };
-  });
+  const [userInfo] = useState(() => ({
+    // 초기값이 있으면 그 값을 사용하고, 없으면 빈 문자열
+    name: localStorage.getItem('user_name') || '',
+    email: localStorage.getItem('user_email') || '',
+    companyname: localStorage.getItem('user_companyname') || '',
+  }));
 
   // 메뉴 즐겨찾기 (사용자별, 서버 usermenufavorite01t 에 저장). 첫 화면을 바로 그리려고 이 브라우저에도 사본을 둔다.
   const favoriteCacheKey = `steel119-menu-favorites:${localStorage.getItem('user_company') || ''}:${userInfo.email}`.toLowerCase();
@@ -536,7 +543,10 @@ const handlePasswordChange = async (e) => {
 
 const isPlatformMaster = currentCompanyId === '001' && currentAuthority === 'MASTER';
 const canSeeMenu = (link) => {
-  if (link.link === '/Company') return isPlatformMaster;
+  // 고객사등록 · 라이선스 매출현황: 플랫폼 운영사(001 MASTER)만
+  if (link.link === '/Company' || link.link === '/LicenseRevenue') return isPlatformMaster;
+  // 타사 재고현황: 모스코(001) 계정이면 권한과 상관없이, 다른 고객사는 숨김
+  if (link.link === '/SharedStock') return currentCompanyId === '001';
   // 고객사관리 · 고객사 메뉴권한: 플랫폼 관리자(001 MASTER)와 고객사 관리자(001 이외 SUBMASTER)만 (서버 규칙과 같게)
   if (link.link === '/User' || link.link === '/UserMenu') return isPlatformMaster || (currentAuthority === 'SUBMASTER' && currentCompanyId !== '001');
   // 사용자관리: 관리자(고객사 관리자 · 플랫폼 관리자)는 항상, 그 밖에는 메뉴 권한을 받은 계정만
@@ -621,10 +631,10 @@ const menuAccessContextValue = useMemo(() => ({
       layout="alt"
       transitionDuration={220}
       transitionTimingFunction="ease"
-      className={`${isInboundWorkspace || isDashboard ? classes.appShellInbound : ''} ${sidebarCollapsed ? `${classes.sidebarCollapsed} steel119-sidebar-collapsed` : ''}`}
-      header={{ height: 54 }}
+      className={`${classes.shell} ${navTheme === 'light' ? classes.themeLight : classes.themeDark} ${isInboundWorkspace || isDashboard ? classes.appShellInbound : ''} ${sidebarCollapsed ? `${classes.sidebarCollapsed} steel119-sidebar-collapsed` : ''}`}
+      header={{ height: 52 }}
       navbar={{
-        width: sidebarCollapsed ? 62 : 232,
+        width: sidebarCollapsed ? 76 : 224,
         breakpoint: 'sm',
         collapsed: { mobile: !opened },
       }}
@@ -633,29 +643,38 @@ const menuAccessContextValue = useMemo(() => ({
       <AppShell.Header className={classes.appHeader}>
         <Burger className={classes.mobileBurger} opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
 
-        <Box className={classes.headerActions}>
-          {ribbons[pathname] ?? null}
-        </Box>
+        <label className={classes.hsearch}>
+          <IconSearch size={18} stroke={1.5} />
+          <input ref={menuSearchRef} type="text" placeholder="메뉴 검색" autoComplete="off" aria-label="메뉴 검색" value={menuQuery}
+            onChange={(event) => { setMenuQuery(event.target.value); if (sidebarCollapsed && event.target.value) expandSidebar(); }}
+            onKeyDown={(event) => { if (event.key === 'Escape') { setMenuQuery(''); event.currentTarget.blur(); } }} />
+          <kbd>Ctrl K</kbd>
+        </label>
 
-        <Group className={classes.headerUser} gap={6} wrap="nowrap">
-          <Group
-            className={classes.userIdentity}
-            gap={8}
-            wrap="nowrap"
-            onClick={openPwModal}
-            title="비밀번호 변경"
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') openPwModal(); }}
-          >
-            <span className={classes.userName}>{userInfo.name ? `${userInfo.name}님` : '사용자'}</span>
-          </Group>
-          <span className={classes.userDivider} aria-hidden="true" />
-          <button type="button" className={classes.logoutButton} onClick={handleLogout}>
-            <IconLogout size={16} stroke={1.8} />
-            <span>로그아웃</span>
-          </button>
-        </Group>
+        <div className={classes.hright}>
+          <Box className={classes.headerActions}>
+            {ribbons[pathname] ?? null}
+          </Box>
+          <span className={classes.hsep} aria-hidden="true" />
+          <Menu position="bottom-end" offset={8} width={248} shadow="md" withinPortal classNames={{ dropdown: classes.umenu }}>
+            <Menu.Target>
+              <button type="button" className={classes.ubtn} aria-label="사용자 메뉴">
+                <IconUserCircle className={classes.uav} size={24} stroke={1.5} />
+                <span>{userInfo.name ? `${userInfo.name}님` : '사용자'}</span>
+                <IconChevronDown className={classes.uchev} size={14} stroke={1.8} />
+              </button>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <div className={classes.uh}>
+                <b>{userInfo.name ? `${userInfo.name}님` : '사용자'}</b>
+                {userInfo.email && <span>{userInfo.email}</span>}
+                {userInfo.companyname && <span>{userInfo.companyname}</span>}
+              </div>
+              <Menu.Item className={classes.ui} leftSection={<IconKey size={18} stroke={1.7} />} onClick={openPwModal}>비밀번호 변경</Menu.Item>
+              <Menu.Item className={`${classes.ui} ${classes.uiDanger}`} leftSection={<IconLogout size={18} stroke={1.7} />} onClick={handleLogout}>로그아웃</Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
+        </div>
 
         <Modal opened={pwModalOpened} onClose={closePwModal} centered size={380} withCloseButton={false} padding={0} radius={16}
           overlayProps={{ backgroundOpacity: 0.2 }} classNames={{ content: classes.pwModal }}>
@@ -686,29 +705,40 @@ const menuAccessContextValue = useMemo(() => ({
       <AppShell.Navbar className={classes.navBar} p={0}>
         <AppShell.Section className={classes.sideHead}>
           <div className={classes.logoSlot}>
-            <img src={steel119Logo} alt="스틸119" />
+            <Steel119Logo className={classes.brandLockup} redClass={classes.lgRed} inkClass={classes.lgInk} />
           </div>
           <button
             type="button"
             className={classes.sidebarToggle}
             onClick={toggleSidebar}
-            aria-label={sidebarCollapsed ? '네비게이션 펼치기' : '네비게이션 접기'}
-            title={sidebarCollapsed ? '네비게이션 펼치기' : '네비게이션 접기'}
+            aria-label={sidebarCollapsed ? '사이드바 펼치기' : '사이드바 접기'}
+            title={sidebarCollapsed ? '사이드바 펼치기' : '사이드바 접기'}
           >
-            <IconLayoutSidebar size={19} stroke={1.7} />
+            <IconLayoutSidebar size={20} stroke={1.5} />
           </button>
         </AppShell.Section>
         <AppShell.Section grow className={classes.navScroll}>
-          <SidebarNav items={visibleMockdata} pathname={pathname} collapsed={sidebarCollapsed} onExpand={expandSidebar}
+          <SidebarNav items={visibleMockdata} pathname={pathname} collapsed={sidebarCollapsed} onExpand={expandSidebar} query={menuQuery}
             favoriteIds={favoriteIds} onToggleFavorite={toggleFavorite} onReorderFavorites={reorderFavorites} />
+        </AppShell.Section>
+        <AppShell.Section className={classes.sFoot}>
+          <div className={classes.thm}>
+            <IconMoon className={classes.thmIcon} size={20} stroke={1.5} />
+            <span className={classes.thmText}>라이트 모드</span>
+            <button type="button" className={classes.sw} role="switch" aria-checked={navTheme === 'light'} aria-label="라이트 모드 전환"
+              title={navTheme === 'light' ? '다크 모드로' : '라이트 모드로'} onClick={toggleNavTheme} />
+          </div>
+          <button type="button" className={classes.lo} onClick={handleLogout} title="로그아웃">
+            <IconLogout size={20} stroke={1.5} /><span className={classes.thmText}>로그아웃</span>
+          </button>
         </AppShell.Section>
       </AppShell.Navbar>
 
       <AppShell.Main className={`${classes.appMain} ${isDashboard ? classes.appMainDashboard : isInboundWorkspace ? classes.appMainInbound : ''}`}>
         <div className={classes.pageTabs} role="tablist" aria-label="열린 메뉴">
-          <button type="button" className={`${classes.pinnedHome} ${isDashboard ? classes.pinnedHomeActive : ''}`}
+          <button type="button" className={`${classes.pageTab} ${classes.homeTab} ${isDashboard ? classes.pageTabActive : ''}`}
             title="대시보드" aria-label="대시보드" aria-current={isDashboard ? 'page' : undefined} onClick={() => navigate('/HomePage')}>
-            <IconHome size={17} stroke={1.7} />
+            <IconHome size={14} stroke={1.6} /><span className={classes.pageTabLabel}>대시보드</span>
           </button>
           {visiblePageTabs.map((tab) => {
             const label = findMenuLabel(mockdata, tab.path);
@@ -726,26 +756,30 @@ const menuAccessContextValue = useMemo(() => ({
               </div>
             );
           })}
-          {overflowPageTabs.length > 0 && <Menu position="bottom-end" withinPortal shadow="sm">
+          <Menu position="bottom-end" withinPortal shadow="sm">
             <Menu.Target>
-              <button type="button" className={classes.moreTabsButton} aria-label={`나머지 열린 화면 ${overflowPageTabs.length}개`}>
-                더보기 <span>{overflowPageTabs.length}</span><IconChevronDown className={classes.moreTabsChevron} size={14} stroke={2} aria-hidden="true" />
+              <button type="button" className={classes.moreTabsButton} aria-label={overflowPageTabs.length ? `탭 메뉴 · 나머지 열린 화면 ${overflowPageTabs.length}개` : '탭 메뉴'}>
+                ···{overflowPageTabs.length > 0 && <span>{overflowPageTabs.length}</span>}
               </button>
             </Menu.Target>
             <Menu.Dropdown className={classes.moreTabsDropdown}>
-              <div className={classes.moreTabsHeading}>열린 화면 {workTabs.length}개</div>
-              {overflowPageTabs.map((tab) => {
-                const label = findMenuLabel(mockdata, tab.path);
-                return <div className={classes.moreTabRow} key={tab.path}>
-                  <button type="button" className={classes.moreTabOpen} title={label} onClick={() => navigate(tab.path)}>
-                    <span>{label}</span>
-                  </button>
-                  <button type="button" className={classes.moreTabClose} aria-label={`${label} 닫기`}
-                    onClick={(event) => closePageTab(event, tab.path)}>×</button>
-                </div>;
-              })}
+              {overflowPageTabs.length > 0 && <>
+                <div className={classes.moreTabsHeading}>열린 화면 {workTabs.length}개</div>
+                {overflowPageTabs.map((tab) => {
+                  const label = findMenuLabel(mockdata, tab.path);
+                  return <div className={classes.moreTabRow} key={tab.path}>
+                    <button type="button" className={classes.moreTabOpen} title={label} onClick={() => navigate(tab.path)}>
+                      <span>{label}</span>
+                    </button>
+                    <button type="button" className={classes.moreTabClose} aria-label={`${label} 닫기`}
+                      onClick={(event) => closePageTab(event, tab.path)}>×</button>
+                  </div>;
+                })}
+                <div className={classes.moreTabsDivider} />
+              </>}
+              <Menu.Item className={classes.closeAllItem} onClick={closeAllTabs} disabled={!workTabs.length}>탭 모두 닫기</Menu.Item>
             </Menu.Dropdown>
-          </Menu>}
+          </Menu>
         </div>
         {/* 클래스 적용 */}
         <div className={`${classes.contentCard} ${isDashboard ? classes.dashboardContentCard : isInboundWorkspace ? classes.inboundContentCard : ''}`}>

@@ -30,6 +30,7 @@ import {
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
+import ErpDateInput from '../../components/common/ErpDateInput';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import { ColumnResizeHandle, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
@@ -45,26 +46,30 @@ const COMPANY_COLUMNS = [
   { key: 'companyname', label: '고객사명', width: 150 },
   { key: 'plan_code', label: '서비스유형', width: 90 },
   { key: 'company_status', label: '이용상태', width: 90 },
-  { key: 'licensed_seats', label: '허용계정', width: 80 },
+  { key: 'licensed_seats', label: '라이선스', width: 80 },
+  { key: 'license_fee', label: '월 라이선스', width: 100 },
   { key: 'createdat', label: '등록일자', width: 150 },
   { key: 'created_by', label: '등록자', width: 80 },
   { key: 'updatedat', label: '수정일자', width: 150 },
   { key: 'updated_by', label: '수정자', width: 80 },
 ];
-const PLAN_OPTIONS = [
+// 서비스 유형: 지금은 기본형만 판매 (확장형은 이름표만 남겨 이미 확장형인 고객사가 그대로 보이게)
+const PLAN_LABELS = [
   { value: 'BASIC', label: '기본형' },
   { value: 'EXTENDED', label: '확장형' },
 ];
+const PLAN_OPTIONS = PLAN_LABELS.filter((item) => item.value === 'BASIC');
 const STATUS_OPTIONS = [
   { value: 'PENDING', label: '승인대기' },
   { value: 'ACTIVE', label: '이용중' },
   { value: 'SUSPENDED', label: '이용정지' },
   { value: 'CLOSED', label: '종료' },
 ];
+const STOCK_OPEN_OPTIONS = [{ value: 'N', label: '비공개' }, { value: 'Y', label: '공개' }];
 const PLAN_FILTER_OPTIONS = [{ value: 'ALL', label: '전체' }, ...PLAN_OPTIONS];
 const STATUS_FILTER_OPTIONS = [{ value: 'ALL', label: '전체' }, ...STATUS_OPTIONS];
 const STATUS_LABEL = Object.fromEntries(STATUS_OPTIONS.map((item) => [item.value, item.label]));
-const PLAN_LABEL = Object.fromEntries(PLAN_OPTIONS.map((item) => [item.value, item.label]));
+const PLAN_LABEL = Object.fromEntries(PLAN_LABELS.map((item) => [item.value, item.label]));
 const PLAN_COLOR = { BASIC: 'gray', EXTENDED: 'violet' };
 
 const authConfig = () => ({
@@ -101,6 +106,11 @@ const emptyCompany = () => ({
   plan_code: 'BASIC',
   company_status: 'PENDING',
   licensed_seats: 0,
+  license_start: '',
+  license_end: '',
+  stock_open_yn: 'N',
+  stock_open_date: '',
+  license_unit_price: 0,
   active_users: 0,
   total_users: 0,
 });
@@ -118,6 +128,12 @@ const normalizeCompany = (row = {}) => ({
   address1: String(row.address1 ?? ''),
   address2: String(row.address2 ?? ''),
   licensed_seats: Number(row.licensed_seats || 0),
+  license_fee: Number(row.license_fee || 0),
+  license_unit_price: Number(row.license_unit_price || 0),
+  license_start: String(row.license_start ?? '').slice(0, 10),
+  license_end: String(row.license_end ?? '').slice(0, 10),
+  stock_open_yn: row.stock_open_yn === 'Y' ? 'Y' : 'N',
+  stock_open_date: String(row.stock_open_date ?? '').slice(0, 10),
   active_users: Number(row.active_users || 0),
   total_users: Number(row.total_users || 0),
 });
@@ -257,6 +273,25 @@ export default function Company() {
     setDraft((current) => ({ ...current, [field]: value }));
   }, []);
 
+  // 재고 공개: 공개로 바꾸면 동의일을 오늘(KST)로 채우고(고칠 수 있음), 비공개면 동의일을 비운다
+  const changeStockOpen = useCallback((value) => {
+    const next = value === 'Y' ? 'Y' : 'N';
+    const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date());
+    setDraft((current) => ({ ...current, stock_open_yn: next, stock_open_date: next === 'Y' ? (current.stock_open_date || today) : '' }));
+  }, []);
+
+  // 이용 상태: 이용정지 · 종료로 바꾸면 과금 종료일 = 오늘(KST), 이용중 · 승인대기로 바꾸면 과금 종료일을 비운다
+  const changeStatus = useCallback((value) => {
+    const next = value || 'PENDING';
+    setDraft((current) => {
+      if (next === current.company_status) return current;
+      const stopped = (status) => status === 'SUSPENDED' || status === 'CLOSED';
+      const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date());
+      if (stopped(next)) return { ...current, company_status: next, license_end: stopped(current.company_status) && current.license_end ? current.license_end : today };
+      return { ...current, company_status: next, license_end: '' };
+    });
+  }, []);
+
   const embedPostcode = useCallback(() => {
     if (!addressOpen) return;
     loadPostcodeService()
@@ -290,10 +325,18 @@ export default function Company() {
       notifications.show({ title: '필수값 확인', message: '고객사 코드와 고객사명을 입력해 주세요.', color: 'red' });
       return;
     }
+    if (Number(draft.licensed_seats || 0) * Number(draft.license_unit_price || 0) > 0 && !draft.license_start) {
+      notifications.show({ title: '과금 시작일 확인', message: '라이선스 비용을 넣으면 과금 시작일도 입력해 주세요.', color: 'red' });
+      return;
+    }
+    if (draft.license_start && draft.license_end && draft.license_end < draft.license_start) {
+      notifications.show({ title: '과금 기간 확인', message: '과금 종료일은 과금 시작일보다 앞설 수 없습니다.', color: 'red' });
+      return;
+    }
     if (draft.licensed_seats < draft.active_users) {
       notifications.show({
-        title: '허용 계정 수 확인',
-        message: `현재 활성 계정 ${draft.active_users}명보다 작게 설정할 수 없습니다.`,
+        title: '라이선스 개수 확인',
+        message: `라이선스 개수는 현재 활성 계정 ${draft.active_users}명보다 작게 설정할 수 없습니다.`,
         color: 'red',
       });
       return;
@@ -313,6 +356,11 @@ export default function Company() {
         plan_code: draft.plan_code,
         company_status: draft.company_status,
         licensed_seats: Number(draft.licensed_seats || 0),
+        license_start: draft.license_start || null,
+        license_end: draft.license_end || null,
+        stock_open_yn: draft.stock_open_yn === 'Y' ? 'Y' : 'N',
+        stock_open_date: draft.stock_open_yn === 'Y' ? (draft.stock_open_date || null) : null,
+        license_unit_price: Number(draft.license_unit_price || 0),
       };
       const request = creating
         ? axios.post('/api/companies', payload, authConfig())
@@ -382,7 +430,7 @@ export default function Company() {
   return (
     <Box className={`${simpleTheme.simple} ${simpleTheme.noIcons} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
-        <Text component="span" className={classes.breadcrumbParent}>고객사관리</Text>
+        <Text component="span" className={classes.breadcrumbParent}>어드민</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
         <Text component="span" className={classes.breadcrumbCurrent}>고객사등록</Text>
       </Box>
@@ -461,6 +509,7 @@ export default function Company() {
                     </Table.Td>
                     <Table.Td><Badge size="sm" variant="light" color={company.company_status === 'ACTIVE' ? 'teal' : company.company_status === 'SUSPENDED' ? 'orange' : 'gray'}>{STATUS_LABEL[company.company_status] || company.company_status}</Badge></Table.Td>
                     <Table.Td>{Number(company.licensed_seats || 0).toLocaleString('ko-KR')}</Table.Td>
+                    <Table.Td className={classes.numCell}>{company.license_fee ? Number(company.license_fee).toLocaleString('ko-KR') : '-'}</Table.Td>
                     <Table.Td className={classes.mutedCell} title={formatDateTime(company.createdat)}>{formatListDateTime(company.createdat)}</Table.Td>
                     <Table.Td title={company.created_by_name || company.created_by || ''}>{company.created_by_name || company.created_by || ''}</Table.Td>
                     <Table.Td className={classes.mutedCell} title={formatDateTime(company.updatedat)}>{formatListDateTime(company.updatedat)}</Table.Td>
@@ -534,15 +583,34 @@ export default function Company() {
                 </div>
               </section>
 
-              <section className={classes.formSection}>
+              <section className={`${classes.formSection} ${classes.licenseSection}`}>
                 <div className={classes.formSectionHead}><IconSettings size={15} />서비스 이용</div>
                 <div className={classes.formGrid}>
                   <div className={classes.compactRow}>
-                    <Select className={classes.compactField} label="서비스 유형" withAsterisk data={PLAN_OPTIONS} value={draft.plan_code} onChange={(value) => updateDraft('plan_code', value || 'BASIC')} allowDeselect={false} comboboxProps={{ width: 'max-content', position: 'bottom-start' }} />
-                    <Select className={classes.compactField} label="이용 상태" withAsterisk data={STATUS_OPTIONS} value={draft.company_status} onChange={(value) => updateDraft('company_status', value || 'PENDING')} allowDeselect={false} comboboxProps={{ width: 'max-content', position: 'bottom-start' }} />
-                    <NumberInput className={classes.compactField} label="허용 계정 수" withAsterisk min={0} allowDecimal={false} thousandSeparator="," value={draft.licensed_seats} onChange={(value) => updateDraft('licensed_seats', Number(value || 0))} />
+                    <Select className={classes.compactField} label="서비스 유형" withAsterisk data={PLAN_OPTIONS.some((item) => item.value === draft.plan_code) ? PLAN_OPTIONS : [...PLAN_OPTIONS, PLAN_LABELS.find((item) => item.value === draft.plan_code) || { value: draft.plan_code, label: draft.plan_code }]} value={draft.plan_code} onChange={(value) => updateDraft('plan_code', value || 'BASIC')} allowDeselect={false} comboboxProps={{ width: 'max-content', position: 'bottom-start' }} />
+                    <Select className={classes.compactField} label="이용 상태" withAsterisk data={STATUS_OPTIONS} value={draft.company_status} onChange={changeStatus} allowDeselect={false} comboboxProps={{ width: 'max-content', position: 'bottom-start' }} />
+                    <NumberInput className={classes.compactField} label="라이선스 개수" withAsterisk min={0} allowDecimal={false} thousandSeparator="," suffix="개" value={draft.licensed_seats} onChange={(value) => updateDraft('licensed_seats', Number(value || 0))} />
                   </div>
-                  <TextInput label="현재 활성 계정" value={usageText} readOnly disabled />
+                  <div className={classes.compactRow}>
+                    <ErpDateInput className={classes.compactField} label="과금 시작일" value={draft.license_start}
+                      onChange={(event) => updateDraft('license_start', event.currentTarget.value)} />
+                    <ErpDateInput className={classes.compactField} label="과금 종료일" value={draft.license_end}
+                      onChange={(event) => updateDraft('license_end', event.currentTarget.value)} />
+                    <NumberInput className={classes.compactField} label="라이선스 비용" min={0} allowDecimal={false} allowNegative={false} thousandSeparator="," suffix="원"
+                      value={draft.license_unit_price} onChange={(value) => updateDraft('license_unit_price', Number(value || 0))} />
+                  </div>
+                  <div className={classes.compactRow}>
+                    <TextInput className={classes.compactField} label="현재 활성 계정" value={usageText} readOnly disabled />
+                    <TextInput className={classes.compactField} label="월 청구액" readOnly disabled
+                      value={`${(Number(draft.licensed_seats || 0) * Number(draft.license_unit_price || 0)).toLocaleString('ko-KR')}원`} />
+                  </div>
+                  {/* 재고 공개 (서면 계약으로 동의받은 고객사만 '공개'): 모스코(001)가 타사 재고현황에서 본다. 001 자신은 대상 아님 */}
+                  {draft.companyid !== '001' && <div className={classes.compactRow}>
+                    <Select className={classes.compactField} label="재고 공개" data={STOCK_OPEN_OPTIONS} value={draft.stock_open_yn} onChange={changeStockOpen}
+                      allowDeselect={false} comboboxProps={{ width: 'max-content', position: 'bottom-start' }} />
+                    <ErpDateInput className={classes.compactField} label="공개 동의일" value={draft.stock_open_date} disabled={draft.stock_open_yn !== 'Y'}
+                      onChange={(event) => updateDraft('stock_open_date', event.currentTarget.value)} />
+                  </div>}
                   <div className={classes.usage}>
                     <span>계정 사용률</span>
                     <Progress className={classes.usageBar} value={usagePercent} size="sm" radius="xl" color={usagePercent >= 100 ? 'red' : usagePercent >= 80 ? 'orange' : 'teal'} />

@@ -28,6 +28,9 @@ def export_inbound_details(
     itemcode: str = Query(default="", max_length=100),
     itemname: str = Query(default="", max_length=150),
     iteminfo: str = Query(default="", max_length=150),
+    thickness: str = Query(default="", max_length=30),
+    width: str = Query(default="", max_length=30),
+    length: str = Query(default="", max_length=30),
     include_sales_cost: bool = Query(default=False),     # 매출 비용 포함 (매출 기타비용 중 비용여부 '예')
     include_process_cost: bool = Query(default=False),   # 가공 비용 포함 (가공 전표별 가공금액)
     user: dict = Depends(security_module.get_current_user),
@@ -49,7 +52,7 @@ def export_inbound_details(
             customname=customname,
             itemcode=itemcode,
             itemname=itemname,
-            iteminfo=iteminfo,
+            iteminfo=iteminfo, thickness=thickness, width=width, length=length,
             include_sales_cost=include_sales_cost,
             include_process_cost=include_process_cost,
         )
@@ -80,6 +83,9 @@ def get_inbound_details(
     itemcode: str = Query(default="", max_length=100),
     itemname: str = Query(default="", max_length=150),
     iteminfo: str = Query(default="", max_length=150),
+    thickness: str = Query(default="", max_length=30),
+    width: str = Query(default="", max_length=30),
+    length: str = Query(default="", max_length=30),
     include_sales_cost: bool = Query(default=False),     # 매출 비용 포함 (매출 기타비용 중 비용여부 '예')
     include_process_cost: bool = Query(default=False),   # 가공 비용 포함 (가공 전표별 가공금액)
     summary: bool = Query(default=True),   # false = 쪽 넘김: 요약(건수·합계) 계산 생략
@@ -101,7 +107,7 @@ def get_inbound_details(
                 customname=customname,
                 itemcode=itemcode,
                 itemname=itemname,
-                iteminfo=iteminfo,
+                iteminfo=iteminfo, thickness=thickness, width=width, length=length,
                 include_sales_cost=include_sales_cost,
                 include_process_cost=include_process_cost,
                 with_summary=summary,

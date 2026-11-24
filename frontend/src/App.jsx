@@ -28,12 +28,14 @@ const OutboundRegisterPage = lazy(() => import("./pages/outbound/OutboundRegiste
 const OutboundSearchPage = lazy(() => import("./pages/outbound/OutboundSearchPage"));
 const StockStandPage = lazy(() => import("./pages/inventory/StockStandPage"));
 const CurrentStockPage = lazy(() => import("./pages/inventory/CurrentStockPage"));
+const SharedStock = lazy(() => import("./pages/inventory/SharedStock"));
 const IniopStockPage = lazy(() => import("./pages/inventory/IniopStockPage"));
 const AIOrderPage = lazy(() => import("./pages/ai/AIOrderPage"));
 const AIOrderOptimization = lazy(() => import("./pages/ai/AIOrderOptimization"));
 const AIOrderManage = lazy(() => import("./pages/ai/AIOrderManage"));
 const Board = lazy(() => import("./pages/system/Board"));
 const Company = lazy(() => import("./pages/system/Company"));
+const LicenseRevenue = lazy(() => import("./pages/system/LicenseRevenue"));
 const Workplace = lazy(() => import("./pages/system/Workplace"));
 const MonthClose = lazy(() => import("./pages/system/MonthClose"));
 const UserInfo = lazy(() => import("./pages/system/UserInfo"));
@@ -77,6 +79,13 @@ const RequireUserManagement = ({ children }) => {
 
 const menuPage = (menuid, element) => <RequireMenuAccess menuid={menuid}>{element}</RequireMenuAccess>;
 
+// 타사 재고현황: 플랫폼 운영사(001 · 모스코) 계정만 (서버 require_platform_company 와 같은 규칙)
+const RequirePlatformCompany = ({ children }) => {
+  const access = useContext(MenuAccessContext);
+  if (!access.loaded) return null;
+  return access.companyid === '001' ? children : <Navigate to={access.fallbackPath || '/login'} replace />;
+};
+
 function App() {
   return (
     <MantineProvider defaultColorScheme="light">
@@ -111,6 +120,7 @@ function App() {
           <Route path="/OutboundSearchPage" element={menuPage('OUTBOUND_SEARCH', <OutboundSearchPage />)} />
           <Route path="/StockStandPage" element={menuPage('STOCK_INITIAL', <StockStandPage />)} />
           <Route path="/CurrentStockPage" element={menuPage('STOCK_CURRENT', <CurrentStockPage />)} />
+          <Route path="/SharedStock" element={<RequirePlatformCompany><SharedStock /></RequirePlatformCompany>} />
           <Route path="/IniopStockPage" element={menuPage('STOCK_HISTORY', <IniopStockPage />)} />
           <Route path="/InoutmoveRegister" element={menuPage('INOUTMOVE_REGISTER', <InoutmoveRegister />)} />
           <Route path="/InoutmoveSearch" element={menuPage('INOUTMOVE_SEARCH', <InoutmoveSearch />)} />
@@ -130,6 +140,7 @@ function App() {
           <Route path="/MonthClose" element={menuPage('MONTH_CLOSING', <MonthClose />)} />
           <Route path="/UserInfo" element={<RequireUserManagement><UserInfo /></RequireUserManagement>} />
           <Route path="/Company" element={<RequireAuthority allowed={['MASTER']}><Company /></RequireAuthority>} />
+          <Route path="/LicenseRevenue" element={<RequireAuthority allowed={['MASTER']}><LicenseRevenue /></RequireAuthority>} />
 
           </Route>
         </Routes>

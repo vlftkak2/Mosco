@@ -17,11 +17,11 @@ from services.receiptpayment import CustomerLedger as customer_ledger
 
 ZERO = Decimal("0")
 STOCK_AGING = [
-    ("m6", "6개월 미만", 0, 182),
-    ("y1", "6개월~1년", 183, 365),
-    ("y2", "1~2년", 366, 730),
-    ("y3", "2~3년", 731, 1095),
-    ("over3", "3년 이상", 1096, None),
+    ("m3", "3개월 이내", 0, 91),
+    ("m6", "3~6개월", 92, 182),
+    ("m9", "6~9개월", 183, 273),
+    ("y1", "9개월~1년", 274, 365),
+    ("over1", "1년 초과", 366, None),
 ]
 LONG_TERM_DAYS = 366  # 1년 넘으면 장기재고
 
@@ -60,12 +60,13 @@ FROM CurrentStock01t s
 LEFT JOIN CurrentStock01t o
   ON s.originno IS NOT NULL AND o.companyid = s.companyid
  AND o.sourcetype = s.origintype AND o.sourceno = s.originno AND o.sourceline = s.originline
-WHERE s.companyid = %s AND COALESCE(s.weight, 0) > 0
+WHERE s.companyid = %(companyid)s AND COALESCE(s.weight, 0) > 0
+  AND (%(cust)s::varchar IS NULL OR COALESCE(o.customcode, s.customcode) = %(cust)s::varchar)
 """
 
 
-def _stock_aging(cursor, companyid: str, today: date) -> dict:
-    lots = _rows(cursor, _STOCK_SQL, (companyid,))
+def _stock_aging(cursor, companyid: str, today: date, customcode: str | None = None) -> dict:
+    lots = _rows(cursor, _STOCK_SQL, {"companyid": companyid, "cust": customcode})
     buckets = {key: {"key": key, "label": label, "weight": ZERO, "amount": ZERO, "lots": 0} for key, label, *_ in STOCK_AGING}
     unknown = {"key": "unknown", "label": "날짜 없음", "weight": ZERO, "amount": ZERO, "lots": 0}
     oldest = []
@@ -98,7 +99,7 @@ def _stock_aging(cursor, companyid: str, today: date) -> dict:
     }
 
 
-def _purchase_trend(cursor, companyid: str, months: list[str]) -> list[dict]:
+def _purchase_trend(cursor, companyid: str, months: list[str], customcode: str | None = None) -> list[dict]:
     """매출이익 현황 추이와 같은 12개월(YYYY-MM)의 월별 매입 공급가액 · 중량."""
     if not months:
         return []
@@ -108,32 +109,36 @@ def _purchase_trend(cursor, companyid: str, months: list[str]) -> list[dict]:
     cursor.execute(
         """SELECT TO_CHAR(h.receptdate, 'YYYY-MM') AS month, COALESCE(SUM(d.supplyamt), 0), COALESCE(SUM(d.weight), 0)
            FROM Inbound01t h JOIN Inbound02t d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
-           WHERE h.companyid = %s AND h.receptdate >= %s AND h.receptdate < %s
+           WHERE h.companyid = %(companyid)s AND h.receptdate >= %(first)s AND h.receptdate < %(after)s
+             AND (%(cust)s::varchar IS NULL OR h.customcode = %(cust)s::varchar)
            GROUP BY 1""",
-        (companyid, first, after),
+        {"companyid": companyid, "first": first, "after": after, "cust": customcode},
     )
     found = {month: (amount, weight) for month, amount, weight in cursor.fetchall()}
     return [{"month": month, "amount": found.get(month, (ZERO, ZERO))[0], "weight": found.get(month, (ZERO, ZERO))[1]} for month in months]
 
 
-def _purchase(cursor, companyid: str, date_from: date, date_to: date, head: str = "Inbound01t", line: str = "Inbound02t") -> dict:
+def _purchase(cursor, companyid: str, date_from: date, date_to: date, head: str = "Inbound01t", line: str = "Inbound02t",
+              customcode: str | None = None) -> dict:
     cursor.execute(
         f"""SELECT COALESCE(SUM(d.supplyamt), 0), COALESCE(SUM(d.weight), 0), COUNT(DISTINCT h.receiptno)
            FROM {head} h JOIN {line} d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
-           WHERE h.companyid = %s AND h.receptdate BETWEEN %s AND %s""",
-        (companyid, date_from, date_to),
+           WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(date_from)s AND %(date_to)s
+             AND (%(cust)s::varchar IS NULL OR h.customcode = %(cust)s::varchar)""",
+        {"companyid": companyid, "date_from": date_from, "date_to": date_to, "cust": customcode},
     )
     amount, weight, count = cursor.fetchone()
     return {"amount": amount, "weight": weight, "count": count}
 
 
-def _purchase_expense(cursor, companyid: str, date_from: date, date_to: date):
+def _purchase_expense(cursor, companyid: str, date_from: date, date_to: date, customcode: str | None = None):
     """기간 매입 기타비용 공급가 (매입 카드 마우스 올림: 매입 공급가와 따로 보여 준다)."""
     cursor.execute(
         """SELECT COALESCE(SUM(x.supplyamt), 0), COUNT(*)
            FROM Inbound03t x JOIN Inbound01t h ON h.companyid = x.companyid AND h.receiptno = x.receiptno
-           WHERE h.companyid = %s AND h.receptdate BETWEEN %s AND %s""",
-        (companyid, date_from, date_to),
+           WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(date_from)s AND %(date_to)s
+             AND (%(cust)s::varchar IS NULL OR h.customcode = %(cust)s::varchar)""",
+        {"companyid": companyid, "date_from": date_from, "date_to": date_to, "cust": customcode},
     )
     amount, count = cursor.fetchone()
     return {"amount": amount, "count": count}
@@ -147,43 +152,51 @@ SELECT h.receiptno, h.receptdate, h.customname,
                           NULLIF(TRIM(TO_CHAR(NULLIF(d.width, 0), 'FM999990.###')), ''),
                           NULLIF(TRIM(TO_CHAR(NULLIF(d.length, 0), 'FM9999990.###')), '')))
          FILTER (WHERE d.lineno = first.lineno) AS spec,
+       MIN(d.thickness) FILTER (WHERE d.lineno = first.lineno) AS thickness,
+       MIN(d.width) FILTER (WHERE d.lineno = first.lineno) AS width,
+       MIN(d.length) FILTER (WHERE d.lineno = first.lineno) AS length,
        COUNT(d.lineno)::integer AS line_count,
        COALESCE(SUM(d.weight), 0) AS weight,
        COALESCE(SUM(d.supplyamt), 0) AS amount
 FROM {head} h
 JOIN {line} d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
 JOIN LATERAL (SELECT MIN(x.lineno) AS lineno FROM {line} x WHERE x.companyid = h.companyid AND x.receiptno = h.receiptno) first ON TRUE
-WHERE h.companyid = %s AND h.receptdate BETWEEN %s AND %s
+WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(date_from)s AND %(date_to)s
+  AND (%(cust)s::varchar IS NULL OR h.customcode = %(cust)s::varchar)
 GROUP BY h.receiptno, h.receptdate, h.customname
 ORDER BY h.receptdate DESC, h.receiptno DESC
-LIMIT %s
+LIMIT %(limit)s
 """
 
 
-def _recent(cursor, head: str, line: str, companyid: str, date_from: date, date_to: date, limit: int = 30):
-    return _rows(cursor, _RECENT_SQL.format(head=head, line=line), (companyid, date_from, date_to, limit))
+def _recent(cursor, head: str, line: str, companyid: str, date_from: date, date_to: date, limit: int = 30,
+            customcode: str | None = None):
+    params = {"companyid": companyid, "date_from": date_from, "date_to": date_to, "limit": limit, "cust": customcode}
+    return _rows(cursor, _RECENT_SQL.format(head=head, line=line), params)
 
 
-def overview(user: dict, date_from: date, date_to: date, today: date, is_admin: bool) -> dict:
+def overview(user: dict, date_from: date, date_to: date, today: date, is_admin: bool, customcode: str | None = None) -> dict:
+    """customcode 가 있으면 모든 숫자를 그 거래처 하나로 (재고는 그 거래처에서 매입한 재고)."""
     companyid = user["companyid"]
+    cust = customcode or None
     menus = set(user.get("menuids") or [])
     can_profit = is_admin or bool(menus & PROFIT_MENUS)
     can_balance = is_admin or bool(menus & BALANCE_MENUS)
 
     with _db.connect() as connection, connection.cursor() as cursor:
-        purchase = _purchase(cursor, companyid, date_from, date_to)
-        purchase["expense"] = _purchase_expense(cursor, companyid, date_from, date_to)
+        purchase = _purchase(cursor, companyid, date_from, date_to, customcode=cust)
+        purchase["expense"] = _purchase_expense(cursor, companyid, date_from, date_to, customcode=cust)
         # 비교: 매출이익 현황과 같은 '전월 같은 기간'
         prev_from, prev_to = gross_profit_dashboard.previous_period(date_from, date_to)
-        purchase_prev = _purchase(cursor, companyid, prev_from, prev_to)
-        sales_slips = _purchase(cursor, companyid, date_from, date_to, "Outbound01t", "Outbound02t")["count"]
-        stock = _stock_aging(cursor, companyid, today)
-        recent_inbound = _recent(cursor, "Inbound01t", "Inbound02t", companyid, date_from, date_to)
-        recent_outbound = _recent(cursor, "Outbound01t", "Outbound02t", companyid, date_from, date_to)
+        purchase_prev = _purchase(cursor, companyid, prev_from, prev_to, customcode=cust)
+        sales_slips = _purchase(cursor, companyid, date_from, date_to, "Outbound01t", "Outbound02t", customcode=cust)["count"]
+        stock = _stock_aging(cursor, companyid, today, cust)
+        recent_inbound = _recent(cursor, "Inbound01t", "Inbound02t", companyid, date_from, date_to, customcode=cust)
+        recent_outbound = _recent(cursor, "Outbound01t", "Outbound02t", companyid, date_from, date_to, customcode=cust)
 
-    profit = gross_profit_dashboard.dashboard(companyid, date_from, date_to)
+    profit = gross_profit_dashboard.dashboard(companyid, date_from, date_to, cust)
     with _db.connect() as connection, connection.cursor() as cursor:
-        purchase_trend = _purchase_trend(cursor, companyid, [row["month"] for row in profit["trend"]])
+        purchase_trend = _purchase_trend(cursor, companyid, [row["month"] for row in profit["trend"]], cust)
     sales = {
         "total": {**{key: profit["total"].get(key) for key in ("sales", "sales_goods", "sales_plus", "weight", "line_count")}, "slips": sales_slips},
         "prev": {key: profit["prev_total"].get(key) for key in ("sales", "weight")},
@@ -210,7 +223,7 @@ def overview(user: dict, date_from: date, date_to: date, today: date, is_admin: 
             "loss_count": len(losers),
         }
     if can_balance:
-        ledger = customer_ledger.dashboard(companyid, today, top_n=5)
+        ledger = customer_ledger.dashboard(companyid, today, top_n=5, ckey=cust)
         late = sum((row["amount"] for row in ledger["aging"] if row["key"] in ("d60", "d90", "over90")), ZERO)
         over90 = sum((row["amount"] for row in ledger["aging"] if row["key"] == "over90"), ZERO)
         prepaid = [row for row in ledger["attention"] if row["kind"] == "선급금"]

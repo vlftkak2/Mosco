@@ -221,7 +221,7 @@ export default function ItemProcessSearch() {
     <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>재고가공</Text>
+          <Text component="span" className={classes.breadcrumbParent}>가공관리</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
           <Text component="span" className={classes.breadcrumbCurrent}>재고가공현황</Text>
         </Group>

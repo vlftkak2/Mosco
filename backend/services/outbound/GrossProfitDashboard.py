@@ -59,7 +59,8 @@ def _finish(entry: dict) -> dict:
 _EMPTY = {"sales": 0, "profit": 0, "cost_of_goods": 0, "selling_cost": 0, "weight": 0, "line_count": 0}
 
 
-def dashboard(companyid: str, date_from: date, date_to: date):
+def dashboard(companyid: str, date_from: date, date_to: date, customcode: str | None = None):
+    """customcode 가 있으면 그 거래처 하나만 (매출이익분석의 그 거래처와 같은 숫자)."""
     prev_from, prev_to = previous_period(date_from, date_to)
     yoy_from, yoy_to = previous_period(date_from, date_to, 12)
     trend_from = _shift_month(date(date_to.year, date_to.month, 1), -11, False)
@@ -73,11 +74,11 @@ def dashboard(companyid: str, date_from: date, date_to: date):
         table = gross_profit.materialize(cursor, {"companyid": companyid, "date_from": span_from, "date_to": date_to})
 
         def fetch(sql, start, end):
-            cursor.execute(sql, {"start": start, "end": end})
+            cursor.execute(sql, {"start": start, "end": end, "cust": customcode or None})
             columns = [column[0] for column in cursor.description]
             return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-        period = "receptdate BETWEEN %(start)s AND %(end)s"
+        period = "receptdate BETWEEN %(start)s AND %(end)s AND (%(cust)s::varchar IS NULL OR customcode = %(cust)s::varchar)"
         # 현재 기간: 거래처 / 전체 (한 번에)
         current = fetch(f"""
             SELECT CASE WHEN GROUPING(customcode) = 0 THEN 'customer' ELSE 'total' END AS dim,

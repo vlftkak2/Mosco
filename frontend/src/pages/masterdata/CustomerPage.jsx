@@ -1464,9 +1464,9 @@ export default function CustomerPage() {
     <Box className={`${sharedClasses.pageShell} ${classes.page} ${classes.simple}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>정보관리</Text>
+          <Text component="span" className={classes.breadcrumbParent}>거래처관리</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-          <Text component="span" className={classes.breadcrumbCurrent}>거래처관리</Text>
+          <Text component="span" className={classes.breadcrumbCurrent}>거래처등록</Text>
         </Group>
       </Box>
 

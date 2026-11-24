@@ -11,8 +11,7 @@ import {
 import {
   Bar, BarChart, Cell, CartesianGrid, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
-import ErpDateInput from '../../components/common/ErpDateInput';
-import { DashboardHeader, FilterBox, FilterTilde, KPI_PALETTE, KpiBreakdown, KpiCard, KpiGrid, PillNote, TrendPill } from '../../components/common/DashboardKit';
+import { CustomerPicker, DashboardHeader, FillChart, HOVER_PROPS, KPI_PALETTE, KpiBreakdown, KpiCard, KpiGrid, PeriodFilter, PillNote, TrendPill, useCustomerPicker } from '../../components/common/DashboardKit';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
@@ -89,7 +88,7 @@ const BalanceTrend = memo(function BalanceTrend({ trend }) {
     recvLabel: index === last && toNumber(row.recv_balance) > 0 ? compact(row.recv_balance) : '',
     payLabel: index === last && toNumber(row.pay_balance) > 0 ? compact(row.pay_balance) : '',
   }));
-  return <ResponsiveContainer width="100%" height={232}>
+  return <FillChart><ResponsiveContainer width="100%" height="100%">
     <BarChart data={data} margin={{ top: 20, right: 8, bottom: 0, left: 0 }} barGap={2} barCategoryGap="26%">
       <CartesianGrid vertical={false} stroke="#eef1f5" />
       <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#d5dbe3' }} tickLine={false} />
@@ -104,7 +103,7 @@ const BalanceTrend = memo(function BalanceTrend({ trend }) {
         <LabelList dataKey="payLabel" position="top" style={{ fontSize: 10.5, fill: '#b5481c', fontWeight: 700 }} />
       </Bar>
     </BarChart>
-  </ResponsiveContainer>;
+  </ResponsiveContainer></FillChart>;
 });
 
 // 거래처 TOP 10: 한 가지 색의 순위 막대 + 전체 대비 비중
@@ -120,10 +119,12 @@ const TopBars = memo(function TopBars({ rows, total, color, label, onPick }) {
       <Bar dataKey="amount" name={label} fill={color} maxBarSize={14} radius={[0, 4, 4, 0]} isAnimationActive={false} cursor="pointer"
         background={{ fill: '#f3f5f8', radius: 4 }} onClick={(entry) => onPick(entry.payload?.ckey ?? entry.ckey)}>
         <LabelList dataKey="amount" position="right" offset={8}
-          content={({ x, y, width, height, index }) => {
-            const row = data[index];
-            return <text x={x + width + 8} y={y + height / 2} dy={4} fontSize={11} fill="#26364e">
-              <tspan fontWeight={700}>{compact(row.amount)}</tspan><tspan fill="#8290a5">{`  ${pct(row.share, 0)}`}</tspan>
+          content={({ x, y, width, height, value }) => {
+            // recharts 가 index 없이 부르는 경우가 있어(막대 1개일 때 등) 줄 대신 막대 값(value)으로 그린다
+            if (value === undefined || value === null || x === undefined) return null;
+            const amount = toNumber(value);
+            return <text x={toNumber(x) + toNumber(width) + 8} y={toNumber(y) + toNumber(height) / 2} dy={4} fontSize={11} fill="#26364e">
+              <tspan fontWeight={700}>{compact(amount)}</tspan><tspan fill="#8290a5">{`  ${pct(total ? (amount / total) * 100 : 0, 0)}`}</tspan>
             </text>;
           }} />
       </Bar>
@@ -148,7 +149,7 @@ const agingBreakdown = (row, total) => ({
     : '오래된 매출부터 수금된 것으로 계산 (선입선출)',
 });
 const AgingHover = ({ row, total, children }) => (toNumber(row.amount) > 0
-  ? <HoverCard width={320} position="bottom-start" withArrow shadow="md" openDelay={120} closeDelay={80} withinPortal>
+  ? <HoverCard width={320} position="bottom-start" {...HOVER_PROPS}>
     <HoverCard.Target>{children}</HoverCard.Target>
     <HoverCard.Dropdown p={0}><KpiBreakdown breakdown={agingBreakdown(row, total)} palette={KPI_PALETTE.blue} /></HoverCard.Dropdown>
   </HoverCard>
@@ -185,7 +186,7 @@ function AgingBar({ aging }) {
 const FlowBars = memo(function FlowBars({ trend, side }) {
   const isRecv = side === 'recv';
   const data = trend.map((row) => ({ name: monthLabel(row.month), fullName: row.month, plus: toNumber(isRecv ? row.sales : row.purchase), minus: toNumber(isRecv ? row.receipt : row.payment) }));
-  return <ResponsiveContainer width="100%" height={230}>
+  return <FillChart><ResponsiveContainer width="100%" height="100%">
     <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }} barGap={2} barCategoryGap="28%">
       <CartesianGrid vertical={false} stroke="#eef1f5" />
       <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#d5dbe3' }} tickLine={false} />
@@ -195,7 +196,7 @@ const FlowBars = memo(function FlowBars({ trend, side }) {
       <Bar dataKey="plus" name={isRecv ? '매출' : '매입'} fill={isRecv ? COLOR.sales : COLOR.purchase} maxBarSize={12} radius={[4, 4, 0, 0]} isAnimationActive={false} />
       <Bar dataKey="minus" name={isRecv ? '수금' : '지급'} fill={isRecv ? COLOR.receipt : COLOR.payment} maxBarSize={12} radius={[4, 4, 0, 0]} isAnimationActive={false} />
     </BarChart>
-  </ResponsiveContainer>;
+  </ResponsiveContainer></FillChart>;
 });
 
 function FlowTable({ trend, side }) {
@@ -328,6 +329,8 @@ export default function CustomerBalanceDashboard() {
   const [loading, setLoading] = useState(false);
   const [flowSide, setFlowSide] = useState('recv');
   const [flowView, setFlowView] = useState('chart');
+  // 거래처 조건 (period.customer 가 실제 조회 조건)
+  const picker = useCustomerPicker('/api/customer-balance-dashboard/customers');
   const requestRef = useRef(0);
 
   // 금액은 공급가 기준 (거래처원장 기본과 같음)
@@ -335,7 +338,7 @@ export default function CustomerBalanceDashboard() {
     const requestId = ++requestRef.current;
     setLoading(true);
     try {
-      const response = await axios.get('/api/customer-balance-dashboard', { ...authConfig(), params: { date_from: range.date_from, as_of: range.date_to } });
+      const response = await axios.get('/api/customer-balance-dashboard', { ...authConfig(), params: { date_from: range.date_from, as_of: range.date_to, ckey: range.customer?.ckey || undefined } });
       if (requestId === requestRef.current) setData(response.data);
     } catch (error) {
       if (requestId === requestRef.current) notifications.show({ title: '거래처 잔액 현황 조회 실패', message: error.response?.data?.detail || '현황을 불러오지 못했습니다.', color: 'red' });
@@ -346,17 +349,29 @@ export default function CustomerBalanceDashboard() {
   useEffect(() => { void load(period); }, [load, period]);
   usePageReactivated(() => { void load(period); });
 
-  const search = useCallback(() => {
-    if (!inputs.date_from || !inputs.date_to) {
+  // 조회: 기간 + 거래처 (같은 조건이어도 새로 불러온다)
+  const apply = useCallback((range, customer) => {
+    if (!range.date_from || !range.date_to) {
       notifications.show({ title: '조회기간 확인', message: '시작일과 종료일을 입력해 주세요.', color: 'orange' });
       return;
     }
-    if (inputs.date_from > inputs.date_to) {
+    if (range.date_from > range.date_to) {
       notifications.show({ title: '조회기간 확인', message: '시작일은 종료일보다 뒤일 수 없습니다.', color: 'orange' });
       return;
     }
-    if (inputs.date_from === period.date_from && inputs.date_to === period.date_to) void load(period); else setPeriod({ ...inputs });
-  }, [inputs, period, load]);
+    setInputs({ date_from: range.date_from, date_to: range.date_to });
+    setPeriod({ date_from: range.date_from, date_to: range.date_to, customer: customer || null });
+  }, []);
+  const search = useCallback(async () => {
+    const result = await picker.resolve();
+    if (result.ok) apply(inputs, result.customer);
+  }, [picker, inputs, apply]);
+  const pickCustomer = useCallback((item) => { picker.choose(item); apply(inputs, item); }, [picker, inputs, apply]);
+  const clearCustomer = useCallback(() => {
+    picker.clear();
+    if (period.customer) apply(inputs, null);
+    picker.inputRef.current?.focus();
+  }, [picker, period.customer, inputs, apply]);
 
   const openLedger = useCallback((ckey) => { if (ckey) navigate(`/CustomerLedger?ckey=${encodeURIComponent(ckey)}`); }, [navigate]);
 
@@ -373,11 +388,11 @@ export default function CustomerBalanceDashboard() {
     add(data.aging.map((row) => ({ 경과기간: row.label, 미수금: toNumber(row.amount) })), '미수금경과기간', 2);
     add(data.trend.map((row) => ({ 월: row.month, 매출: toNumber(row.sales), 수금: toNumber(row.receipt), 월말미수금: toNumber(row.recv_balance), 매입: toNumber(row.purchase), 지급: toNumber(row.payment), 월말미지급금: toNumber(row.pay_balance) })), '월별추이', 7);
     add(data.attention.map((row) => ({ 구분: row.kind, 거래처코드: row.customcode, 거래처명: row.customname, 내용: row.text, 미수금: toNumber(row.recv), 미지급금: toNumber(row.pay), 마지막거래: dateText(row.last) })), '주의거래처', 7);
-    XLSX.writeFile(workbook, `채권채무요약_${String(data.date_from).slice(0, 10).replaceAll('-', '')}_${String(data.as_of).slice(0, 10).replaceAll('-', '')}.xlsx`);
+    XLSX.writeFile(workbook, `채권채무요약${data.customer?.customname ? `_${data.customer.customname.replace(/[\\/:*?"<>|]/g, '')}` : ''}_${String(data.date_from).slice(0, 10).replaceAll('-', '')}_${String(data.as_of).slice(0, 10).replaceAll('-', '')}.xlsx`);
   }, [data]);
 
   const ribbonActions = useRef({});
-  useLayoutEffect(() => { ribbonActions.current = { search, excel: exportExcel }; });
+  useLayoutEffect(() => { ribbonActions.current = { search: () => { void search(); }, excel: exportExcel }; });
   const excelDisabled = !data;
   useEffect(() => {
     if (!registerRibbon) return undefined;
@@ -424,42 +439,33 @@ export default function CustomerBalanceDashboard() {
   const net = toNumber(summary?.net);
   return (
     <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${searchClasses.page} ${classes.page}`}>
-      <DashboardHeader parent="장부관리" title="채권채무요약">
-        <FilterBox label="조회기간" onSearch={search} loading={loading}>
-          <ErpDateInput aria-label="시작일" type="date" value={inputs.date_from} onChange={(event) => { const { value } = event.currentTarget; setInputs((current) => ({ ...current, date_from: value })); }} />
-          <FilterTilde />
-          <ErpDateInput aria-label="종료일" type="date" value={inputs.date_to} onChange={(event) => { const { value } = event.currentTarget; setInputs((current) => ({ ...current, date_to: value })); }} />
-        </FilterBox>
+      <DashboardHeader parent="거래처관리" title="채권채무요약" note="잔액은 종료일 기준 · 증감은 시작일 전날 대비">
+        <PeriodFilter value={inputs} onChange={setInputs} onSearch={() => { void search(); }} loading={loading}>
+          <CustomerPicker picker={picker} onPick={pickCustomer} onClear={clearCustomer} onEnter={() => { void search(); }} />
+        </PeriodFilter>
       </DashboardHeader>
 
       <div className={classes.scroll}>
         {summary && derived ? <KpiGrid count={5}>
-          <KpiCard breakdown={derived.breakdowns.recv} palette={KPI_PALETTE.blue} icon={IconCoins} label="미수금" basis="채권 · 기말" value={Math.round(toNumber(summary.receivable)).toLocaleString('ko-KR')}
-            trend={<TrendPill mode="diff" current={summary.receivable} previous={derived.prevRecv} goodWhenUp={false} format={compact} unit="원" note="기초 대비" emptyText="비교 없음" />}
+          <KpiCard breakdown={derived.breakdowns.recv} palette={KPI_PALETTE.blue} icon={IconCoins} label="미수금" value={Math.round(toNumber(summary.receivable)).toLocaleString('ko-KR')}
+            trend={<TrendPill mode="diff" current={summary.receivable} previous={derived.prevRecv} goodWhenUp={false} format={compact} unit="원" note="" emptyText="비교 없음" />}
             stats={[{ label: '채권 거래처', value: `${summary.receivable_customers}곳` }, { label: '30일 넘게 밀림', value: derived.late > 0 ? `${compact(derived.late)}원` : '없음', warn: derived.late > 0 }]} />
-          <KpiCard breakdown={derived.breakdowns.pay} palette={KPI_PALETTE.orange} icon={IconReceipt} label="미지급금" basis="채무 · 기말" value={Math.round(toNumber(summary.payable)).toLocaleString('ko-KR')}
-            trend={<TrendPill mode="diff" current={summary.payable} previous={derived.prevPay} neutral format={compact} unit="원" note="기초 대비" emptyText="비교 없음" />}
+          <KpiCard breakdown={derived.breakdowns.pay} palette={KPI_PALETTE.orange} icon={IconReceipt} label="미지급금" value={Math.round(toNumber(summary.payable)).toLocaleString('ko-KR')}
+            trend={<TrendPill mode="diff" current={summary.payable} previous={derived.prevPay} neutral format={compact} unit="원" note="" emptyText="비교 없음" />}
             stats={[{ label: '채무 거래처', value: `${summary.payable_customers}곳` }, { label: '선급금 거래처', value: derived.prepaid ? `${derived.prepaid}곳` : '없음', warn: derived.prepaid > 0 }]} />
-          <KpiCard breakdown={derived.breakdowns.net} palette={KPI_PALETTE.slate} icon={IconScale} label="순잔액" basis="채권 − 채무" value={Math.round(net).toLocaleString('ko-KR')} negative={net < 0}
-            trend={<TrendPill mode="diff" current={net} previous={derived.prevNet} format={compact} unit="원" note="기초 대비" emptyText="비교 없음" />}
+          <KpiCard breakdown={derived.breakdowns.net} palette={KPI_PALETTE.slate} icon={IconScale} label="순잔액" value={Math.round(net).toLocaleString('ko-KR')} negative={net < 0}
+            trend={<TrendPill mode="diff" current={net} previous={derived.prevNet} format={compact} unit="원" note="" emptyText="비교 없음" />}
             stats={[{ label: '상태', value: net < 0 ? '채무가 더 많음' : '채권이 더 많음', warn: net < 0, good: net >= 0 }, { label: '기초', value: `${compact(derived.prevNet)}원` }]} />
-          <KpiCard breakdown={derived.breakdowns.rate} palette={KPI_PALETTE.green} icon={IconPercentage} label="기간 회수율" basis="매출 중 수금한 비율" value={derived.periodRate === null ? '–' : derived.periodRate.toFixed(1)} unit={derived.periodRate === null ? '' : '%'}
-            trend={<PillNote>{derived.periodRate === null ? '기간 매출 없음' : derived.periodText}</PillNote>}
+          <KpiCard breakdown={derived.breakdowns.rate} palette={KPI_PALETTE.green} icon={IconPercentage} label="기간 회수율" value={derived.periodRate === null ? '–' : derived.periodRate.toFixed(1)} unit={derived.periodRate === null ? '' : '%'}
+            trend={derived.periodRate === null ? <PillNote>기간 매출 없음</PillNote> : null}
             stats={[{ label: '수금', value: `${compact(summary.period_receipt)}원` }, { label: '매출', value: `${compact(summary.period_sales)}원` }]} />
-          <KpiCard breakdown={derived.breakdowns.payment} palette={KPI_PALETTE.amber} icon={IconCash} label="기간 지급" basis="기간에 지급한 돈" value={Math.round(toNumber(summary.period_payment)).toLocaleString('ko-KR')}
-            trend={<PillNote>{derived.periodText}</PillNote>}
+          <KpiCard breakdown={derived.breakdowns.payment} palette={KPI_PALETTE.amber} icon={IconCash} label="기간 지급" value={Math.round(toNumber(summary.period_payment)).toLocaleString('ko-KR')}
             stats={[{ label: '매입', value: `${compact(summary.period_purchase)}원` }, { label: '매입 대비 지급', value: toNumber(summary.period_purchase) > 0 ? pct((toNumber(summary.period_payment) / toNumber(summary.period_purchase)) * 100) : '–' }]} />
         </KpiGrid> : <Empty loading={loading} />}
 
         <div className={classes.row2_1}>
-          <Panel title="월말 잔액 추이" sub={`${derived?.trendMonths || 0}개월 · 진한 막대 = 종료월`}>
+          <Panel title="월말 잔액 추이" sub={`${derived?.trendMonths || 0}개월`} className={classes.chartPanel}>
             {data && derived ? <>
-              <div className={classes.monthSummary}>
-                <div className={classes.monthStat}><span className={classes.monthStatLabel}><i className={classes.swatch} style={{ background: COLOR.recv }} />기말 미수금</span><span className={classes.monthStatValue}>{compact(summary.receivable)}원</span><span className={classes.statTrend}><TrendPill mode="diff" current={summary.receivable} previous={derived.prevRecv} goodWhenUp={false} format={compact} unit="원" note="기초 대비" emptyText="비교 없음" /></span></div>
-                <div className={classes.monthStat}><span className={classes.monthStatLabel}><i className={classes.swatch} style={{ background: COLOR.pay }} />기말 미지급금</span><span className={classes.monthStatValue}>{compact(summary.payable)}원</span><span className={classes.statTrend}><TrendPill mode="diff" current={summary.payable} previous={derived.prevPay} neutral format={compact} unit="원" note="기초 대비" emptyText="비교 없음" /></span></div>
-                <div className={classes.monthStat}><span className={classes.monthStatLabel}>{derived.trendMonths}개월 최고 미수금</span><span className={classes.monthStatValue}>{compact(derived.peakRecv.value)}원</span><span className={classes.statTrend}><PillNote>{derived.peakRecv.month ? `${Number(derived.peakRecv.month.slice(5, 7))}월말` : '–'}</PillNote></span></div>
-                <div className={classes.monthStat}><span className={classes.monthStatLabel}>{derived.trendMonths}개월 평균 회수율</span><span className={classes.monthStatValue}>{derived.avgRate === null ? '–' : pct(derived.avgRate)}</span><span className={classes.statTrend}><PillNote>수금 ÷ 매출 ({derived.trendMonths}개월 합계)</PillNote></span></div>
-              </div>
               <div className={classes.monthLegend}>
                 <span><i className={classes.swatch} style={{ background: COLOR.recv }} />미수금</span>
                 <span><i className={classes.swatch} style={{ background: COLOR.pay }} />미지급금</span>
@@ -469,14 +475,14 @@ export default function CustomerBalanceDashboard() {
           </Panel>
           <Paper className={`${classes.panel} ${classes.flowPanel}`} withBorder>
             <div className={classes.flowTop}>
-              <span className={classes.flowTitle}>기간 자금 흐름 <small>{derived?.periodText}</small></span>
+              <span className={classes.flowTitle}>기간 자금 흐름</span>
               {summary ? <>
-                <div className={classes.flowRow}><span>채권 <small>수금</small></span><b className={classes.flowIn}>+{compact(summary.period_receipt)}원</b></div>
-                <div className={classes.flowRow}><span>채무 <small>지급</small></span><b className={classes.flowOut}>−{compact(summary.period_payment)}원</b></div>
+                <div className={classes.flowRow}><span>수금</span><b className={classes.flowIn}>+{compact(summary.period_receipt)}원</b></div>
+                <div className={classes.flowRow}><span>지급</span><b className={classes.flowOut}>−{compact(summary.period_payment)}원</b></div>
                 <div className={`${classes.flowRow} ${classes.flowNet}`}><span>차이</span><b>{toNumber(summary.period_receipt) - toNumber(summary.period_payment) >= 0 ? '+' : '−'}{compact(Math.abs(toNumber(summary.period_receipt) - toNumber(summary.period_payment)))}원</b></div>
               </> : <span className={classes.flowEmpty}>{loading ? '불러오는 중…' : '데이터가 없습니다.'}</span>}
             </div>
-            <div className={classes.pointHead}><span className={classes.pointTitle}><IconBulb size={16} stroke={1.9} />한눈에 보는 요점</span><span className={classes.pointSub}>이 화면의 숫자로 자동 작성</span></div>
+            <div className={classes.pointHead}><span className={classes.pointTitle}><IconBulb size={16} stroke={1.9} />한눈에 보는 요점</span></div>
             {derived ? (derived.insights.length
               ? <ol className={classes.points}>{derived.insights.map((item, index) => <li key={index} className={classes[`point_${item.tone}`]}>
                 <span className={classes.pointRank}>{item.tone === 'bad' || item.tone === 'warn' ? <IconAlertTriangle size={12} stroke={2.2} /> : index + 1}</span>
@@ -487,13 +493,13 @@ export default function CustomerBalanceDashboard() {
         </div>
 
         <div className={classes.row3}>
-          <Panel title="미수금 상위 거래처" sub="상위 10곳 · 금액 / 전체 대비 비중 · 막대를 누르면 원장">
+          <Panel title="미수금 상위 거래처" sub="상위 10곳">
             {data ? <TopBars rows={data.top_receivable} total={toNumber(data.summary.receivable)} color={COLOR.recv} label="미수금" onPick={openLedger} /> : <Empty loading={loading} />}
           </Panel>
-          <Panel title="미지급금 상위 거래처" sub="상위 10곳 · 금액 / 전체 대비 비중 · 막대를 누르면 원장">
+          <Panel title="미지급금 상위 거래처" sub="상위 10곳">
             {data ? <TopBars rows={data.top_payable} total={toNumber(data.summary.payable)} color={COLOR.pay} label="미지급금" onPick={openLedger} /> : <Empty loading={loading} />}
           </Panel>
-          <Panel title="미수금 경과 기간" sub="오래된 매출부터 수금된 것으로 계산 (선입선출)">
+          <Panel title="미수금 경과 기간">
             {data ? <>
               <AgingBar aging={data.aging} />
               {data.overdue.length > 0 && <div className={classes.overdue}>
@@ -507,14 +513,14 @@ export default function CustomerBalanceDashboard() {
         </div>
 
         <div className={classes.row2_1}>
-          <Panel title="월별 흐름" sub={`${flowSide === 'recv' ? '매출 vs 수금' : '매입 vs 지급'} · ${derived?.trendMonths || 0}개월`}
+          <Panel title="월별 흐름" sub={`${derived?.trendMonths || 0}개월`} className={classes.chartPanel}
             action={<Group gap={8} wrap="nowrap">
               <SegmentedControl size="xs" color="red" value={flowSide} onChange={setFlowSide} data={[{ value: 'recv', label: '미수금' }, { value: 'pay', label: '미지급금' }]} />
               <SegmentedControl size="xs" value={flowView} onChange={setFlowView} data={[{ value: 'chart', label: '그래프' }, { value: 'table', label: '표' }]} />
             </Group>}>
             {data ? (flowView === 'chart' ? <FlowBars trend={data.trend} side={flowSide} /> : <FlowTable trend={data.trend} side={flowSide} />) : <Empty loading={loading} />}
           </Panel>
-          <Panel title="주의 거래처" sub="선수금 · 선급금 거래처 · 90일 넘게 거래 없이 잔액이 남은 거래처">
+          <Panel title="주의 거래처">
             {data ? (data.attention.length
               ? <div className={classes.attention}>{data.attention.slice(0, 12).map((row) => <button key={`${row.ckey}:${row.kind}`} type="button" className={classes.attentionRow} onClick={() => openLedger(row.ckey)} title="누르면 거래처원장">
                 <Badge size="sm" variant="light" color={KIND_COLOR[row.kind] || 'gray'}>{row.kind}</Badge>

@@ -15,7 +15,7 @@ import { cachedDateFormat } from '../../utils/dateFormat';
 
 const monthFilters = () => {
   const now = new Date(); const y = now.getFullYear(); const m = now.getMonth(); const pad = (v) => String(v).padStart(2, '0');
-  return { date_from: `${y}-${pad(m + 1)}-01`, date_to: `${y}-${pad(m + 1)}-${pad(new Date(y, m + 1, 0).getDate())}`, iniotype: "", receiptno: "", customname: "", item_search: "", product_search: "", warehouse_search: "" };
+  return { date_from: `${y}-${pad(m + 1)}-01`, date_to: `${y}-${pad(m + 1)}-${pad(new Date(y, m + 1, 0).getDate())}`, iniotype: "", receiptno: "", customname: "", item_search: "", product_search: "", warehouse_search: "", thickness: "", width: "", length: "" };
 };
 const PAGE_OPTIONS = [{ value: '15', label: '15개씩' }, { value: '50', label: '50개씩' }, { value: '100', label: '100개씩' }, { value: '200', label: '200개씩' }];
 // 수불 상세구분: 가공·창고이동도 수불유형은 입고/출고라서 전표 종류로 나눠 보여준다
@@ -52,7 +52,8 @@ export default function IniopStockPage() {
   useEffect(() => { void load(); }, [load]);
   const search = () => { if (inputs.date_from && inputs.date_to && inputs.date_from > inputs.date_to) { notifications.show({ title: "조회 조건 확인", message: "수불 시작일은 종료일보다 뒤일 수 없습니다.", color: "orange" }); return; } setFilters(Object.fromEntries(Object.entries(inputs).map(([key, value]) => [key, String(value || "").trim()]))); setPage(1); };
   const exportExcel = async () => { if (!total || exporting) return; setExporting(true); try { const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value)); const { data } = await axios.get('/api/iniop-stock/items/export', { ...authConfig(), params, responseType: 'blob' }); const url = URL.createObjectURL(data); const link = document.createElement('a'); link.href = url; link.download = `재고수불현황_${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.xlsx`; document.body.appendChild(link); link.click(); link.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); } catch { notifications.show({ title: '엑셀 다운로드 실패', message: '재고수불 현황을 엑셀로 저장하지 못했습니다.', color: 'red' }); } finally { setExporting(false); } };
-  const fields = [["customname", "거래처명"], ["item_search", "품목"], ["product_search", "제품번호"], ["warehouse_search", "창고"], ["receiptno", "전표"]];
+  const fields = [["customname", "거래처명"], ["item_search", "품목"], ["thickness", "두께"], ["width", "폭"], ["length", "길이"], ["product_search", "제품번호"], ["warehouse_search", "창고"], ["receiptno", "전표"]];
+  const placeholders = { receiptno: "전표 검색", customname: "거래처명 검색", item_search: "품목코드 또는 품목명", product_search: "제품번호 검색", warehouse_search: "창고코드 또는 창고명", thickness: "두께 검색", width: "폭 검색", length: "길이 검색" };
 
   useErpPageRibbon({ onSearch: search, onExcel: exportExcel, showPrint: false, useSaveColor: false });
 
@@ -73,7 +74,7 @@ export default function IniopStockPage() {
             <ErpDateInput aria-label="재고기간 종료일" type="date" value={inputs.date_to} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, date_to: nextValue })); }} />
           </Stack>
         </Box>
-        {fields.map(([key, label]) => <TextInput key={key} label={label} placeholder={key === "receiptno" ? "전표 검색" : key === "customname" ? "거래처명 검색" : key === "item_search" ? "품목코드 또는 품목명" : key === "product_search" ? "제품번호 검색" : "창고코드 또는 창고명"} value={inputs[key] || ""} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, [key]: nextValue })); }} onKeyDown={(event) => event.key === "Enter" && search()} />)}
+        {fields.map(([key, label]) => <TextInput key={key} label={label} placeholder={placeholders[key]} value={inputs[key] || ""} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, [key]: nextValue })); }} onKeyDown={(event) => event.key === "Enter" && search()} />)}
       </Stack>
     </Paper>}
     <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder>

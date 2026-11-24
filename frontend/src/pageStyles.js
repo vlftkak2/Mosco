@@ -44,6 +44,8 @@ import s37 from './styles/pages/CustomerLedger.module.css';
 import s38 from './styles/pages/CustomerBalanceDashboard.module.css';
 import s39 from './styles/pages/GrossProfit.module.css';
 import s40 from './styles/pages/GrossProfitDashboard.module.css';
+import s41 from './styles/pages/LicenseRevenue.module.css';
+import s42 from './styles/pages/SharedStock.module.css';
 
-const pageStyleModules = [s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13, s14, s15, s16, s17, s18, s19, s20, s21, s22, s23, s24, s25, s26, s27, s28, s29, s30, s31, s32, s33, s34, s35, s36, s37, s38, s39, s40];
+const pageStyleModules = [s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13, s14, s15, s16, s17, s18, s19, s20, s21, s22, s23, s24, s25, s26, s27, s28, s29, s30, s31, s32, s33, s34, s35, s36, s37, s38, s39, s40, s41, s42];
 export default pageStyleModules;

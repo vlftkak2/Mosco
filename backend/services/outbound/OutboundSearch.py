@@ -62,6 +62,9 @@ def _search_conditions(
     customer: str = "",
     warehouse: str = "",
     iteminfo: str = "",
+    thickness: str = "",
+    width: str = "",
+    length: str = "",
 ):
     """합친 행(r)에 거는 조건. 각 묶음 안으로 내려가 적용된다.
     기타비용 행: 매출처 = 전표 매출처, 창고 = 전표 첫 상세 창고, 품목 = 비용구분."""
@@ -102,6 +105,11 @@ def _search_conditions(
         where.append("r.receptdate <= %s")
         params.append(date_to)
 
+    # 두께 · 폭 · 길이: 현재고현황과 같이 숫자 일부로 찾기 (예: 1.2 → 1.200). 규격이 없는 기타비용 · 가공비 행은 빠진다
+    for column, value in (("r.thickness", thickness), ("r.width", width), ("r.length", length)):
+        if str(value or "").strip():
+            where.append(f"CAST({column} AS TEXT) ILIKE %s")
+            params.append(f"%{str(value).strip()}%")
     return " AND ".join(where), params
 
 
@@ -180,11 +188,14 @@ def list_outbound_details(
     customer: str = "",
     warehouse: str = "",
     iteminfo: str = "",
+    thickness: str = "",
+    width: str = "",
+    length: str = "",
     with_summary: bool = True,
 ):
     where_sql, params = _search_conditions(
         companyid, date_from, date_to, receiptno, customcode, customname, itemcode, itemname,
-        customer, warehouse, iteminfo,
+        customer, warehouse, iteminfo, thickness=thickness, width=width, length=length,
     )
     with outbound_register_module._connect() as connection, connection.cursor() as cursor:
         # 수량·중량은 매출 행만(기타비용 행은 비어 있음). 합계금액 = 매출 + 기타비용 '아니오' ('예'는 비용(-) 칸이라 제외)
@@ -241,10 +252,13 @@ def write_outbound_details_excel(
     customer: str = "",
     warehouse: str = "",
     iteminfo: str = "",
+    thickness: str = "",
+    width: str = "",
+    length: str = "",
 ):
     where_sql, params = _search_conditions(
         companyid, date_from, date_to, receiptno, customcode, customname, itemcode, itemname,
-        customer, warehouse, iteminfo,
+        customer, warehouse, iteminfo, thickness=thickness, width=width, length=length,
     )
     headers = ["No.", *(title for _, title, _ in OUTPUT_COLUMNS)]
     kinds = [kind for _, _, kind in OUTPUT_COLUMNS]

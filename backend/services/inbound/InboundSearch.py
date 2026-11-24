@@ -75,7 +75,8 @@ def _rows_sql(include_sales_cost: bool, include_process_cost: bool) -> str:
 
 
 def _search_conditions(companyid: str, date_from: date | None, date_to: date | None, receiptno: str, customer: str,
-                       warehouse: str, customcode: str, customname: str, itemcode: str, itemname: str, iteminfo: str):
+                       warehouse: str, customcode: str, customname: str, itemcode: str, itemname: str, iteminfo: str,
+                       thickness: str = "", width: str = "", length: str = ""):
     """합친 행(r)에 거는 조건. 각 묶음 안으로 내려가 적용된다."""
     where = ["r.companyid = %s"]
     params: list = [companyid]
@@ -104,6 +105,11 @@ def _search_conditions(companyid: str, date_from: date | None, date_to: date | N
     if date_to:
         where.append("r.receptdate <= %s")
         params.append(date_to)
+    # 두께 · 폭 · 길이: 현재고현황과 같이 숫자 일부로 찾기 (예: 1.2 → 1.200). 규격이 없는 기타비용 · 가공비 행은 빠진다
+    for column, value in (("r.thickness", thickness), ("r.width", width), ("r.length", length)):
+        if str(value or "").strip():
+            where.append(f"CAST({column} AS TEXT) ILIKE %s")
+            params.append(f"%{str(value).strip()}%")
     return " AND ".join(where), params
 
 
@@ -161,12 +167,15 @@ def list_inbound_details(
     itemcode: str = "",
     itemname: str = "",
     iteminfo: str = "",
+    thickness: str = "",
+    width: str = "",
+    length: str = "",
     include_sales_cost: bool = False,
     include_process_cost: bool = False,
     with_summary: bool = True,
 ):
     where_sql, params = _search_conditions(
-        companyid, date_from, date_to, receiptno, customer, warehouse, customcode, customname, itemcode, itemname, iteminfo,
+        companyid, date_from, date_to, receiptno, customer, warehouse, customcode, customname, itemcode, itemname, iteminfo, thickness=thickness, width=width, length=length,
     )
     rows_sql = _rows_sql(include_sales_cost, include_process_cost)
     with inbound_register_module._connect() as connection, connection.cursor() as cursor:
@@ -222,11 +231,14 @@ def write_inbound_details_excel(
     itemcode: str = "",
     itemname: str = "",
     iteminfo: str = "",
+    thickness: str = "",
+    width: str = "",
+    length: str = "",
     include_sales_cost: bool = False,
     include_process_cost: bool = False,
 ):
     where_sql, params = _search_conditions(
-        companyid, date_from, date_to, receiptno, customer, warehouse, customcode, customname, itemcode, itemname, iteminfo,
+        companyid, date_from, date_to, receiptno, customer, warehouse, customcode, customname, itemcode, itemname, iteminfo, thickness=thickness, width=width, length=length,
     )
     headers = ["No.", *(label for _key, label in OUTPUT_COLUMNS)]
     keys = [key for key, _label in OUTPUT_COLUMNS]

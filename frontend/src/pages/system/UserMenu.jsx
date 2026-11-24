@@ -42,20 +42,18 @@ const DEFAULT_PAGE_SIZE = 15;
 
 // 화면 표시용 묶음: 사이드 메뉴의 대메뉴 구성과 같은 순서 (권한 저장 값과는 무관)
 const MENU_SECTIONS = [
-  { label: '홈', menuids: ['HOME'] },
-  { label: '매입', menuids: ['INBOUND_REGISTER', 'INBOUND_SEARCH'] },
-  { label: '매출', menuids: ['OUTBOUND_REGISTER', 'OUTBOUND_SEARCH', 'GROSS_PROFIT', 'GROSS_PROFIT_DASHBOARD'] },
+  { label: '대시보드', menuids: ['HOME'] },
+  { label: '매입관리', menuids: ['INBOUND_REGISTER', 'INBOUND_SEARCH'] },
+  { label: '매출관리', menuids: ['OUTBOUND_REGISTER', 'OUTBOUND_SEARCH', 'GROSS_PROFIT', 'GROSS_PROFIT_DASHBOARD'] },
+  { label: '재고관리', menuids: ['STOCK_INITIAL', 'STOCK_CURRENT', 'STOCK_HISTORY', 'INOUTMOVE_REGISTER', 'INOUTMOVE_SEARCH'] },
   {
-    label: '가공',
+    label: '가공관리',
     menuids: ['AI_ORDER_RECOGNITION', 'AI_ORDER_MANAGEMENT', 'AI_OPTIMIZATION', 'ITEM_PROCESS_MASTER', 'ITEM_PROCESS_REGISTER', 'ITEM_PROCESS_SEARCH'],
   },
-  { label: '재고', menuids: ['STOCK_INITIAL', 'STOCK_CURRENT', 'STOCK_HISTORY', 'INOUTMOVE_REGISTER', 'INOUTMOVE_SEARCH'] },
-  {
-    label: '자금',
-    menuids: ['RECEIPT_PAYMENT', 'RECEIPT_PAYMENT_SEARCH', 'INSTRUMENT_STATUS', 'CUSTOMER_LEDGER', 'CUSTOMER_BALANCE_DASHBOARD'],
-  },
+  { label: '거래처관리', menuids: ['DATA_CUSTOMER', 'CUSTOMER_LEDGER', 'CUSTOMER_BALANCE_DASHBOARD'] },
+  { label: '자금관리', menuids: ['RECEIPT_PAYMENT', 'RECEIPT_PAYMENT_SEARCH', 'INSTRUMENT_STATUS'] },
+  { label: '기준정보', menuids: ['DATA_CODE', 'DATA_ITEM', 'WORKPLACE_MANAGEMENT', 'MONTH_CLOSING', 'USER_MANAGEMENT'] },
   { label: '게시판', menuids: ['CUSTOMER_SUPPORT'] },
-  { label: '설정', menuids: ['DATA_CODE', 'DATA_ITEM', 'DATA_CUSTOMER', 'WORKPLACE_MANAGEMENT', 'MONTH_CLOSING', 'USER_MANAGEMENT'] },
 ];
 const MENU_SECTION_BY_ID = Object.fromEntries(
   MENU_SECTIONS.flatMap((section, index) => section.menuids.map((menuid) => [menuid, index])),
@@ -308,7 +306,7 @@ export default function UserMenu() {
   return (
     <Box className={`${simpleTheme.simple} ${simpleTheme.noIcons} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
-        <Text component="span" className={classes.breadcrumbParent}>고객사관리</Text>
+        <Text component="span" className={classes.breadcrumbParent}>어드민</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
         <Text component="span" className={classes.breadcrumbCurrent}>메뉴권한관리</Text>
       </Box>

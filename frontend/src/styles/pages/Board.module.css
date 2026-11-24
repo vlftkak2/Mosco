@@ -136,3 +136,8 @@
   .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(360px, 1fr) minmax(420px, auto); }
   .search { margin-left: 0; }
 }
+
+/* 세로줄 (다른 표와 같은 가는 선) */
+.table th { border-right: 1px solid #e3e8ef; }
+.table td { border-right: 1px solid #edf0f4; }
+.table th:last-child, .table td:last-child { border-right: 0; }

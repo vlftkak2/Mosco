@@ -14,7 +14,8 @@
 .searchBar :global(.mantine-Input-input:focus) { border-color: #e0434b; box-shadow: 0 0 0 2px #e0434b26; }
 
 /* 목록 표: 입고등록 표처럼 열 너비 합 = 표 너비 (User.module.css 의 width:100% 를 덮는다), 글자는 가운데 */
-.userTable.userTable.userTable { width: var(--user-table-width) !important; min-width: var(--user-table-width) !important; }
+/* 상담게시판 목록처럼 칸이 표 너비를 다 채운다 (칸 합이 더 넓으면 그만큼 가로 스크롤) */
+.userTable.userTable.userTable { width: max(100%, var(--user-table-width)) !important; min-width: var(--user-table-width) !important; }
 .userTable.userTable.userTable th, .userTable.userTable.userTable td { text-align: center; }
 .inactiveRow td { color: #9aa3af !important; }
 
@@ -62,3 +63,8 @@
   .form { grid-template-columns: 88px minmax(0, 1fr); }
   .wide { grid-column: span 1; }
 }
+
+/* 스크롤 영역 안쪽 상자가 표를 늘리지 않게 (칸 합이 좁으면 가로 스크롤 막대 없이 표 너비를 채움) */
+.userScroll :global(.mantine-ScrollArea-viewport) > div { display: block !important; }
+/* 마지막 칸의 너비 조절 손잡이가 표 밖으로 2px 삐져나와 가로 스크롤이 생기지 않게 */
+.userTable th:last-child [class*="columnResizeHandle"] { right: 0 !important; }

@@ -362,7 +362,7 @@ export default function CustomerLedger() {
     <Box className={`${simpleTheme.simple} ${searchClasses.page}`}>
       <Box component="nav" aria-label="현재 위치" className={searchClasses.pageBreadcrumb}>
         <Group className={searchClasses.breadcrumbTrail} gap={7}>
-          <Text component="span" className={searchClasses.breadcrumbParent}>장부관리</Text>
+          <Text component="span" className={searchClasses.breadcrumbParent}>거래처관리</Text>
           <Text component="span" className={searchClasses.breadcrumbChevron}>›</Text>
           <Text component="span" className={searchClasses.breadcrumbCurrent}>거래처원장</Text>
         </Group>

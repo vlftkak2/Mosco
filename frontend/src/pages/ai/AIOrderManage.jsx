@@ -1194,7 +1194,7 @@ export default function AIOrderManage() {
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
         <Group className={inboundClasses.breadcrumbTrail} gap={7}>
-          <Text component="span" className={inboundClasses.breadcrumbParent}>AI가공솔루션</Text>
+          <Text component="span" className={inboundClasses.breadcrumbParent}>가공관리</Text>
           <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
           <Text component="span" className={inboundClasses.breadcrumbCurrent}>가공주문관리</Text>
         </Group>

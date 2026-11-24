@@ -16,8 +16,7 @@ import {
 import {
   Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
-import ErpDateInput from '../../components/common/ErpDateInput';
-import { DashboardHeader, FilterBox, FilterTilde, KPI_PALETTE, KpiCard, KpiGrid, PillNote, TrendPill } from '../../components/common/DashboardKit';
+import { CustomerPicker, DashboardHeader, FillChart, KPI_PALETTE, KpiCard, KpiGrid, PeriodFilter, PillNote, TrendPill, useCustomerPicker } from '../../components/common/DashboardKit';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import { MenuAccessContext } from '../../components/layout/MainLayout';
@@ -31,7 +30,7 @@ const KPI_COLOR = { sales: KPI_PALETTE.blue, purchase: KPI_PALETTE.orange, profi
 const COST_COLOR = { past: '#dbe3ee', current: '#9fb1c8' };
 const PROFIT_COLOR = { past: '#a9e0c9', current: '#1baf7a' };
 const SALES_COLOR = { past: '#bcd6f3', current: '#2a78d6' };
-const AGING_COLORS = { m6: '#cfe1f7', y1: '#9cc2ee', y2: '#5f9be0', y3: '#2a78d6', over3: '#1a4f94', unknown: '#c3cad4' };
+const AGING_COLORS = { m3: '#cfe1f7', m6: '#9cc2ee', m9: '#5f9be0', y1: '#2a78d6', over1: '#1a4f94', unknown: '#c3cad4' };
 const AXIS_TICK = { fontSize: 11, fill: '#5d6b80' };
 
 const pad = (value) => String(value).padStart(2, '0');
@@ -47,20 +46,20 @@ const compact = (value) => {
   if (abs >= 10000) return `${Math.round(number / 10000).toLocaleString('ko-KR')}만`;
   return Math.round(number).toLocaleString('ko-KR');
 };
-const tons = (kg) => `${(toNumber(kg) / 1000).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}톤`;
+const kgWeight = (kg) => `${toNumber(kg).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}kg`;
 const kgText = (kg) => toNumber(kg).toLocaleString('ko-KR', { maximumFractionDigits: 1 });
 const pctText = (value) => (value === null || value === undefined ? '–' : `${toNumber(value).toFixed(1)}%`);
 const dateText = (value) => String(value || '').slice(0, 10);
 const shortDate = (value) => dateText(value).slice(5).replace('-', '.');
 const monthLabel = (month) => `${Number(String(month).slice(5, 7))}월`;
 const ageText = (days) => (days >= 365 ? `${(days / 365).toFixed(1)}년` : `${Math.round(days / 30)}개월`);
-const specText = (row) => [row.thickness, row.width, row.length].map(toNumber).filter((value) => value > 0)
-  .map((value) => value.toLocaleString('ko-KR', { maximumFractionDigits: 3, useGrouping: false })).join('×');
+// 두께 · 폭 · 길이 한 칸씩 (0 이나 빈 값은 '-')
+const specNum = (value) => (toNumber(value) > 0 ? toNumber(value).toLocaleString('ko-KR', { maximumFractionDigits: 3 }) : '-');
 
 // 전월 같은 기간 대비 알약 (공통 부품) · unit '%p' 이면 마진율처럼 %p 차이
 const Trend = ({ unit = '%', ...props }) => (unit === '%p'
-  ? <TrendPill {...props} mode="point" note="전월 대비" />
-  : <TrendPill {...props} mode="rate" note="전월 같은 기간 대비" emptyText="전월 같은 기간 실적 없음" />);
+  ? <TrendPill {...props} mode="point" note="" emptyText="전월 실적 없음" />
+  : <TrendPill {...props} mode="rate" note="" emptyText="전월 실적 없음" />);
 const Kpi = ({ tone, ...props }) => <KpiCard palette={KPI_COLOR[tone]} {...props} />;
 
 function Panel({ title, sub, action, children, className = '' }) {
@@ -79,7 +78,7 @@ const MoreLink = ({ onClick, children = '전체보기' }) => (onClick
 // 월별 매출 = 비용 + 매출이익 (쌓은 막대, 금액 축 하나) · 조회한 달은 진하게, 막대 위에 매출 합계
 const MonthlyChart = memo(function MonthlyChart({ data, showProfit }) {
   const last = data.length - 1;
-  return <ResponsiveContainer width="100%" height={240}>
+  return <FillChart><ResponsiveContainer width="100%" height="100%">
     <BarChart data={data} margin={{ top: 20, right: 8, bottom: 0, left: 0 }} barCategoryGap="28%">
       <CartesianGrid vertical={false} stroke="#eef1f5" />
       <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#d5dbe3' }} tickLine={false} />
@@ -95,7 +94,7 @@ const MonthlyChart = memo(function MonthlyChart({ data, showProfit }) {
             <div className={`${classes.tooltipRow} ${classes.tooltipTotal}`}><span className={classes.swatch} style={{ background: 'transparent' }} />매출<b>{won(row.sales)}</b></div>
             <div className={classes.tooltipRow}><span className={classes.swatch} style={{ background: 'transparent' }} />마진율<b>{pctText(row.margin)}</b></div>
           </> : <div className={classes.tooltipRow}><span className={classes.swatch} style={{ background: SALES_COLOR.current }} />매출<b>{won(row.sales)}</b></div>}
-          <div className={classes.tooltipRow}><span className={classes.swatch} style={{ background: 'transparent' }} />판매중량<b>{tons(row.weight)}</b></div>
+          <div className={classes.tooltipRow}><span className={classes.swatch} style={{ background: 'transparent' }} />판매중량<b>{kgWeight(row.weight)}</b></div>
         </Paper>;
       }} />
       {showProfit ? <>
@@ -111,20 +110,22 @@ const MonthlyChart = memo(function MonthlyChart({ data, showProfit }) {
         <LabelList dataKey="label" position="top" style={{ fontSize: 10.5, fill: '#33425a', fontWeight: 700 }} />
       </Bar>}
     </BarChart>
-  </ResponsiveContainer>;
+  </ResponsiveContainer></FillChart>;
 });
 
 // 최근 매입 / 매출 전표 (전표 한 장 = 한 줄)
 function RecentTable({ title, rows, kind, onMore, loading }) {
-  return <Panel title={title} sub={`조회기간 · 최근 ${rows.length}건`} action={<MoreLink onClick={onMore} />} className={classes.tablePanel}>
+  return <Panel title={title} action={<MoreLink onClick={onMore} />} className={classes.tablePanel}>
     {rows.length ? <div className={classes.tableScroll}>
       <table className={classes.table}>
-        <thead><tr><th>일자</th><th>거래처</th><th>품목 · 규격</th><th className={classes.num}>중량(kg)</th><th className={classes.num}>{kind === 'in' ? '매입' : '매출'}금액</th></tr></thead>
+        <thead><tr><th>일자</th><th>거래처</th><th>품명</th><th className={classes.num}>두께</th><th className={classes.num}>폭</th><th className={classes.num}>길이</th><th className={classes.num}>중량(kg)</th><th className={classes.num}>{kind === 'in' ? '매입' : '매출'}금액</th></tr></thead>
         <tbody>{rows.map((row) => <tr key={row.receiptno} title={row.receiptno}>
           <td className={classes.dateCell}>{shortDate(row.receptdate)}</td>
           <td className={classes.nameCell}>{row.customname || '-'}</td>
-          <td className={classes.itemCell}>{row.itemname || '-'}{row.spec ? <span className={classes.spec}> {row.spec}</span> : null}
-            {row.line_count > 1 && <span className={classes.more}> 외 {row.line_count - 1}건</span>}</td>
+          <td className={classes.itemCell}>{row.itemname || '-'}{row.line_count > 1 && <span className={classes.more}> 외 {row.line_count - 1}건</span>}</td>
+          <td className={classes.num}>{specNum(row.thickness)}</td>
+          <td className={classes.num}>{specNum(row.width)}</td>
+          <td className={classes.num}>{specNum(row.length)}</td>
           <td className={classes.num}>{kgText(row.weight)}</td>
           <td className={`${classes.num} ${classes.strong}`}>{toNumber(row.amount).toLocaleString('ko-KR')}</td>
         </tr>)}</tbody>
@@ -141,13 +142,13 @@ function StockAging({ stock }) {
   return <div className={classes.aging}>
     <div className={classes.agingHead}>
       <div><span className={classes.agingBig}>{((toNumber(stock.long_weight) / total) * 100).toFixed(1)}%</span><span className={classes.agingBigLabel}>1년 넘은 재고 비중</span></div>
-      <div className={classes.agingTotals}>총 재고 <b>{tons(total)}</b> · 재고금액 <b>{compact(stock.total_amount)}원</b></div>
+      <div className={classes.agingTotals}>총 재고 <b>{kgWeight(total)}</b> · 재고금액 <b>{compact(stock.total_amount)}원</b></div>
     </div>
     <div className={classes.agingBar} role="img" aria-label="재고 경과 기간 비율">
       {parts.map((row) => {
         const share = (toNumber(row.weight) / total) * 100;
-        return <div key={row.key} className={classes.agingPart} style={{ flexGrow: share, background: AGING_COLORS[row.key] }} title={`${row.label} ${tons(row.weight)} (${share.toFixed(1)}%)`}>
-          {share >= 9 && <span className={['m6', 'y1', 'unknown'].includes(row.key) ? classes.agingTextDark : classes.agingText}>{share.toFixed(0)}%</span>}
+        return <div key={row.key} className={classes.agingPart} style={{ flexGrow: share, background: AGING_COLORS[row.key] }} title={`${row.label} ${kgWeight(row.weight)} (${share.toFixed(1)}%)`}>
+          {share >= 9 && <span className={['m3', 'm6', 'unknown'].includes(row.key) ? classes.agingTextDark : classes.agingText}>{share.toFixed(0)}%</span>}
         </div>;
       })}
     </div>
@@ -155,7 +156,7 @@ function StockAging({ stock }) {
       {stock.buckets.map((row) => <div key={row.key} className={classes.agingRow}>
         <span className={classes.swatch} style={{ background: AGING_COLORS[row.key] }} />
         <span className={classes.agingName}>{row.label}</span>
-        <span className={classes.agingWeight}>{tons(row.weight)}</span>
+        <span className={classes.agingWeight}>{kgWeight(row.weight)}</span>
         <span className={classes.agingPct}>{((toNumber(row.weight) / total) * 100).toFixed(1)}%</span>
         <span className={classes.agingAmount}>{compact(row.amount)}원</span>
       </div>)}
@@ -236,7 +237,6 @@ function TodayPanel() {
     </div>
     <div className={classes.newsHead}>
       <span className={classes.newsTitle}><IconNews size={16} stroke={1.9} />철강 이슈</span>
-      <span className={classes.newsSub}>최신 기사 · 누르면 새 창</span>
     </div>
     <div className={classes.newsList}>
       {news.length ? news.map((item, index) => <a key={item.url} className={classes.newsItem} href={item.url} target="_blank" rel="noopener noreferrer">
@@ -263,12 +263,14 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
   const requestId = useRef(0);
+  const picker = useCustomerPicker('/api/dashboard/customers');
 
   const load = useCallback(async (requested) => {
     const id = ++requestId.current;
     setLoading(true);
     try {
-      const response = await axios.get('/api/dashboard/overview', { ...authConfig(), params: requested });
+      const params = { date_from: requested.date_from, date_to: requested.date_to, customcode: requested.customer?.ckey || undefined };
+      const response = await axios.get('/api/dashboard/overview', { ...authConfig(), params });
       if (id === requestId.current) setData(response.data);
     } catch (error) {
       if (id === requestId.current) notifications.show({ title: '대시보드 조회 실패', message: error.response?.data?.detail || '대시보드를 불러오지 못했습니다.', color: 'red' });
@@ -280,13 +282,25 @@ export default function HomePage() {
   // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 화면에서 전표가 바뀌었을 수 있음)
   usePageReactivated(() => { void load(period); });
 
-  const search = useCallback(() => {
-    if (!inputs.date_from || !inputs.date_to || inputs.date_from > inputs.date_to) {
+  // 조회: 기간 + 거래처 (같은 조건이어도 새로 불러온다)
+  const apply = useCallback((range, customer) => {
+    if (!range.date_from || !range.date_to || range.date_from > range.date_to) {
       notifications.show({ title: '조회 조건 확인', message: '기간을 올바르게 입력해 주세요.', color: 'orange' });
       return;
     }
-    setPeriod({ ...inputs });
-  }, [inputs]);
+    setInputs({ date_from: range.date_from, date_to: range.date_to });
+    setPeriod({ date_from: range.date_from, date_to: range.date_to, customer: customer || null });
+  }, []);
+  const search = useCallback(async () => {
+    const result = await picker.resolve();
+    if (result.ok) apply(inputs, result.customer);
+  }, [picker, inputs, apply]);
+  const pickCustomer = useCallback((item) => { picker.choose(item); apply(inputs, item); }, [picker, inputs, apply]);
+  const clearCustomer = useCallback(() => {
+    picker.clear();
+    if (period.customer) apply(inputs, null);
+    picker.inputRef.current?.focus();
+  }, [picker, period.customer, inputs, apply]);
   useErpPageRibbon({ onSearch: search, showPrint: false, useSaveColor: false, disableClose: true });
 
   const sales = data?.sales;
@@ -311,7 +325,7 @@ export default function HomePage() {
   const filterRows = useCallback((rows) => {
     const query = keyword.trim().toLocaleLowerCase();
     if (!query) return rows || [];
-    return (rows || []).filter((row) => [row.receiptno, row.customname, row.itemname, row.spec].some((value) => String(value || '').toLocaleLowerCase().includes(query)));
+    return (rows || []).filter((row) => [row.receiptno, row.customname, row.itemname, row.thickness, row.width, row.length].some((value) => String(value || '').toLocaleLowerCase().includes(query)));
   }, [keyword]);
   const recentIn = useMemo(() => filterRows(data?.recent_inbound), [data, filterRows]);
   const recentOut = useMemo(() => filterRows(data?.recent_outbound), [data, filterRows]);
@@ -323,13 +337,13 @@ export default function HomePage() {
       { op: '', label: '판매 (매출 공급가)', hint: '매출등록 품목 공급가', value: won(sales.total.sales_goods) },
       { op: '+', label: '매출비용(+)', hint: "매출 기타비용 중 비용여부 '아니오' (매출처 부담)", value: won(sales.total.sales_plus) },
       { op: '=', label: '매출', value: won(sales.total.sales), strong: true },
-      { op: '', label: '판매중량', value: tons(sales.total.weight) },
+      { op: '', label: '판매중량', value: kgWeight(sales.total.weight) },
       { op: '', label: '매출 전표', value: `${toNumber(sales.total.slips)}장` },
     ], note: '부가세 제외 · 공급가 기준 · 누르면 매출현황' };
     breakdowns.purchase = { title: '매입 구성', rows: [
       { op: '=', label: '매입 (품목 공급가)', hint: '매입등록 품목 공급가', value: won(purchase.total.amount), strong: true },
       { op: '', label: '매입 기타비용', hint: `${toNumber(purchase.total.expense?.count)}건 · 카드 금액과 별도 (재고 원가에 포함)`, value: won(purchase.total.expense?.amount) },
-      { op: '', label: '매입중량', value: tons(purchase.total.weight) },
+      { op: '', label: '매입중량', value: kgWeight(purchase.total.weight) },
       { op: '', label: '매입 전표', value: `${toNumber(purchase.total.count)}장` },
     ], note: '부가세 제외 · 누르면 매입현황' };
     if (profit) breakdowns.profit = { title: '매출이익 계산', rows: [
@@ -346,47 +360,43 @@ export default function HomePage() {
       { op: '', label: '미지급금 (참고)', value: won(balance.payable) },
     ], note: '공급가 기준 · 누르면 채권채무요약' };
     breakdowns.stock = { title: '현재고 구성 (오늘 기준)', rows: [
-      { op: '=', label: '재고 중량', hint: `${toNumber(stock.lots).toLocaleString('ko-KR')}개 로트`, value: tons(stock.total_weight), strong: true },
+      { op: '=', label: '재고 중량', hint: `${toNumber(stock.lots).toLocaleString('ko-KR')}개 로트`, value: kgWeight(stock.total_weight), strong: true },
       { op: '', label: '재고금액', hint: '남은 원가 (매입비용 · 가공원가 포함)', value: won(stock.total_amount) },
-      ...(stock.buckets || []).filter((row) => toNumber(row.weight)).map((row) => ({ op: '·', label: row.label, hint: won(row.amount), value: tons(row.weight) })),
+      ...(stock.buckets || []).filter((row) => toNumber(row.weight)).map((row) => ({ op: '·', label: row.label, hint: won(row.amount), value: kgWeight(row.weight) })),
     ], note: '입고일(원전표) 기준 경과 · 누르면 현재고' };
   }
 
   const kpis = [];
   if (data) {
-    kpis.push({ key: 'sales', tone: 'sales', icon: IconChartBar, label: '매출', basis: '판매 + 매출비용(+)', value: Math.round(toNumber(sales.total.sales)).toLocaleString('ko-KR'),
+    kpis.push({ key: 'sales', tone: 'sales', icon: IconChartBar, label: '매출', value: Math.round(toNumber(sales.total.sales)).toLocaleString('ko-KR'),
       trend: <Trend current={sales.total.sales} previous={sales.prev.sales} />,
-      stats: [{ label: '판매중량', value: tons(sales.total.weight) }, { label: '매출 전표', value: `${toNumber(sales.total.slips)}장` }],
+      stats: [{ label: '판매중량', value: kgWeight(sales.total.weight) }, { label: '매출 전표', value: `${toNumber(sales.total.slips)}장` }],
       onClick: go('OUTBOUND_SEARCH', '/OutboundSearchPage') });
-    kpis.push({ key: 'purchase', tone: 'purchase', icon: IconShoppingCart, label: '매입', basis: '매입 공급가 합계', value: Math.round(toNumber(purchase.total.amount)).toLocaleString('ko-KR'),
+    kpis.push({ key: 'purchase', tone: 'purchase', icon: IconShoppingCart, label: '매입', value: Math.round(toNumber(purchase.total.amount)).toLocaleString('ko-KR'),
       trend: <Trend current={purchase.total.amount} previous={purchase.prev.amount} neutral />,
-      stats: [{ label: '매입중량', value: tons(purchase.total.weight) }, { label: '매입 전표', value: `${toNumber(purchase.total.count)}장` }],
+      stats: [{ label: '매입중량', value: kgWeight(purchase.total.weight) }, { label: '매입 전표', value: `${toNumber(purchase.total.count)}장` }],
       onClick: go('INBOUND_SEARCH', '/InboundSearchPage') });
-    if (profit) kpis.push({ key: 'profit', tone: 'profit', icon: IconTrendingUp, label: '매출이익', basis: '매출 − 비용', value: Math.round(toNumber(profit.total.profit)).toLocaleString('ko-KR'),
+    if (profit) kpis.push({ key: 'profit', tone: 'profit', icon: IconTrendingUp, label: '매출이익', value: Math.round(toNumber(profit.total.profit)).toLocaleString('ko-KR'),
       trend: <Trend current={profit.total.profit} previous={profit.prev.profit} />,
-      stats: [{ label: '매출이익률', value: pctText(profit.total.margin_rate) }, { label: '톤당 이익', value: toNumber(sales.total.weight) > 0 ? `${compact((toNumber(profit.total.profit) / toNumber(sales.total.weight)) * 1000)}원` : '–' }],
+      stats: [{ label: '매출이익률', value: pctText(profit.total.margin_rate) }, { label: 'KG당 이익', value: toNumber(sales.total.weight) > 0 ? `${(toNumber(profit.total.profit) / toNumber(sales.total.weight)).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}원` : '–' }],
       onClick: go('GROSS_PROFIT_DASHBOARD', '/GrossProfitDashboard') });
-    if (balance) kpis.push({ key: 'recv', tone: 'recv', icon: IconCoins, label: '미수금', basis: '채권 (오늘 기준)', value: Math.round(toNumber(balance.receivable)).toLocaleString('ko-KR'),
-      trend: <PillNote>{balance.receivable_customers}곳에 남아 있음</PillNote>,
+    if (balance) kpis.push({ key: 'recv', tone: 'recv', icon: IconCoins, label: '미수금', basis: '오늘 기준', value: Math.round(toNumber(balance.receivable)).toLocaleString('ko-KR'),
+      trend: <PillNote>거래처 {balance.receivable_customers}곳</PillNote>,
       stats: [{ label: '30일 넘은 미수금', value: toNumber(balance.late) > 0 ? `${compact(balance.late)}원` : '없음', warn: toNumber(balance.late) > 0 }, { label: '미지급금', value: `${compact(balance.payable)}원` }],
       onClick: go('CUSTOMER_BALANCE_DASHBOARD', '/CustomerBalanceDashboard') });
-    kpis.push({ key: 'stock', tone: 'stock', icon: IconBox, label: '현재고', basis: '재고 중량 (오늘 기준)', value: (toNumber(stock.total_weight) / 1000).toLocaleString('ko-KR', { maximumFractionDigits: 1 }), unit: '톤',
+    kpis.push({ key: 'stock', tone: 'stock', icon: IconBox, label: '현재고', basis: period.customer ? '오늘 기준 · 이 거래처 매입분' : '오늘 기준', value: toNumber(stock.total_weight).toLocaleString('ko-KR', { maximumFractionDigits: 1 }), unit: 'kg',
       trend: <PillNote>재고금액 {compact(stock.total_amount)}원</PillNote>,
-      stats: [{ label: '1년 넘은 재고', value: tons(stock.long_weight), warn: toNumber(stock.long_weight) > 0 }, { label: '장기재고 비중', value: toNumber(stock.total_weight) ? `${((toNumber(stock.long_weight) / toNumber(stock.total_weight)) * 100).toFixed(1)}%` : '–' }],
+      stats: [{ label: '1년 넘은 재고', value: kgWeight(stock.long_weight), warn: toNumber(stock.long_weight) > 0 }, { label: '장기재고 비중', value: toNumber(stock.total_weight) ? `${((toNumber(stock.long_weight) / toNumber(stock.total_weight)) * 100).toFixed(1)}%` : '–' }],
       onClick: go('STOCK_CURRENT', '/CurrentStockPage') });
   }
 
-  const salesTotal = sales?.total;
-  const marginPrev = profit?.prev?.margin_rate;
 
   return (
     <div className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${searchClasses.page} ${classes.page}`}>
-      <DashboardHeader title="대시보드">
-        <FilterBox onSearch={search} loading={loading}>
-          <ErpDateInput aria-label="시작일" type="date" value={inputs.date_from} onChange={(event) => { const { value } = event.currentTarget; setInputs((current) => ({ ...current, date_from: value })); }} />
-          <FilterTilde />
-          <ErpDateInput aria-label="종료일" type="date" value={inputs.date_to} onChange={(event) => { const { value } = event.currentTarget; setInputs((current) => ({ ...current, date_to: value })); }} />
-        </FilterBox>
+      <DashboardHeader title="대시보드" note="증감은 전월 같은 기간 대비">
+        <PeriodFilter value={inputs} onChange={setInputs} onSearch={() => { void search(); }} loading={loading}>
+          <CustomerPicker picker={picker} onPick={pickCustomer} onClear={clearCustomer} onEnter={() => { void search(); }} />
+        </PeriodFilter>
       </DashboardHeader>
 
       <div className={classes.scroll}>
@@ -395,21 +405,14 @@ export default function HomePage() {
         </KpiGrid> : <Empty loading={loading} />}
 
         <div className={classes.row2_1}>
-          <Panel title={profit ? '월별 매출 · 매출이익' : '월별 매출'} sub={profit ? '최근 12개월 · 막대 전체 = 매출 (비용 + 매출이익) · 진한 막대 = 조회한 달' : '최근 12개월 · 진한 막대 = 조회한 달'}
+          <Panel title={profit ? '월별 매출 · 매출이익' : '월별 매출'} sub="최근 12개월" className={classes.chartPanel}
             action={<MoreLink onClick={go('GROSS_PROFIT_DASHBOARD', '/GrossProfitDashboard')}>매출이익요약</MoreLink>}>
             {data ? <>
-              <div className={classes.monthSummary}>
-                <div className={classes.monthStat}><span className={classes.monthStatLabel}>기간 매출</span><span className={classes.monthStatValue}>{compact(salesTotal.sales)}원</span><span className={classes.statTrend}><Trend current={salesTotal.sales} previous={sales.prev.sales} /></span></div>
-                {profit && <div className={classes.monthStat}><span className={classes.monthStatLabel}>매출이익</span><span className={`${classes.monthStatValue} ${classes.profitText}`}>{compact(profit.total.profit)}원</span><span className={classes.statTrend}><Trend current={profit.total.profit} previous={profit.prev.profit} /></span></div>}
-                {profit && <div className={classes.monthStat}><span className={classes.monthStatLabel}>매출이익률</span><span className={classes.monthStatValue}>{pctText(profit.total.margin_rate)}</span><span className={classes.statTrend}><Trend current={profit.total.margin_rate} previous={marginPrev} unit="%p" /></span></div>}
-                <div className={classes.monthStat}><span className={classes.monthStatLabel}>판매중량</span><span className={classes.monthStatValue}>{tons(salesTotal.weight)}</span><span className={classes.statTrend}><Trend current={salesTotal.weight} previous={sales.prev.weight} /></span></div>
-              </div>
               <div className={classes.monthLegend}>
                 {profit ? <>
                   <span><i className={classes.swatch} style={{ background: PROFIT_COLOR.current }} />매출이익</span>
                   <span><i className={classes.swatch} style={{ background: COST_COLOR.current }} />비용</span>
                 </> : <span><i className={classes.swatch} style={{ background: SALES_COLOR.current }} />매출</span>}
-                <span className={classes.current}>{monthly.length ? `${monthly[monthly.length - 1].name} = 조회한 달` : ''}</span>
               </div>
               <MonthlyChart data={monthly} showProfit={Boolean(profit)} />
             </> : <Empty loading={loading} />}
@@ -419,7 +422,7 @@ export default function HomePage() {
 
         <div className={classes.tableHead}>
           <Text className={classes.sectionTitle}>최근 매입 · 매출 전표</Text>
-          <TextInput size="xs" className={classes.tableSearch} leftSection={<IconSearch size={13} />} placeholder="거래처, 품목, 규격, 전표번호 검색"
+          <TextInput size="xs" className={classes.tableSearch} leftSection={<IconSearch size={13} />} placeholder="거래처, 품명, 두께·폭·길이, 전표번호 검색"
             value={keyword} onChange={(event) => setKeyword(event.currentTarget.value)} aria-label="최근 전표 검색" />
         </div>
         <div className={classes.row1_1}>
@@ -428,17 +431,20 @@ export default function HomePage() {
         </div>
 
         <div className={classes.row1_1}>
-          <Panel title="장기재고" sub="입고일 · 기초재고일부터 오늘까지 경과 기간 (중량 기준)" action={<MoreLink onClick={go('STOCK_CURRENT', '/CurrentStockPage')}>현재고현황</MoreLink>}>
+          <Panel title="장기재고" sub="오늘 기준 · 입고 후 지난 기간" action={<MoreLink onClick={go('STOCK_CURRENT', '/CurrentStockPage')}>현재고현황</MoreLink>}>
             {stock ? <StockAging stock={stock} /> : <Empty loading={loading} />}
           </Panel>
-          <Panel title="오래된 재고" sub="1년 넘은 재고 · 오래된 순 · 재고이동한 재고는 처음 입고일 기준" className={classes.tablePanel}>
+          <Panel title="오래된 재고" sub="1년 넘은 재고" className={classes.tablePanel}>
             {stock?.oldest?.length ? <div className={classes.tableScroll}>
               <table className={classes.table}>
-                <thead><tr><th>입고일</th><th className={classes.num}>경과</th><th>품목 · 규격</th><th>창고</th><th className={classes.num}>중량(kg)</th></tr></thead>
+                <thead><tr><th>입고일</th><th className={classes.num}>경과</th><th>품명</th><th className={classes.num}>두께</th><th className={classes.num}>폭</th><th className={classes.num}>길이</th><th>창고</th><th className={classes.num}>중량(kg)</th></tr></thead>
                 <tbody>{stock.oldest.map((row, index) => <tr key={index}>
                   <td className={classes.dateCell}>{dateText(row.agedate)}{row.kind === 'OPENING' && <span className={classes.kindTag}>기초</span>}</td>
                   <td className={`${classes.num} ${row.days >= 1096 ? classes.oldText : ''}`}>{ageText(row.days)}</td>
-                  <td className={classes.itemCell}>{row.itemname || '-'}<span className={classes.spec}> {specText(row)}</span></td>
+                  <td className={classes.itemCell}>{row.itemname || '-'}</td>
+                  <td className={classes.num}>{specNum(row.thickness)}</td>
+                  <td className={classes.num}>{specNum(row.width)}</td>
+                  <td className={classes.num}>{specNum(row.length)}</td>
                   <td>{row.warehousecodename || '-'}</td>
                   <td className={`${classes.num} ${classes.strong}`}>{kgText(row.weight)}</td>
                 </tr>)}</tbody>

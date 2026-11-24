@@ -94,6 +94,9 @@ function useHistory(opened, kind, material, itemname, months, query) {
 export function historyFit(kind, material, row, ctx) {
   if (kind === 'purchase') {
     // 주문서 관리에서 연결해 ① 에 이미 연결 원자재로 있는 현재고는 다시 추가하지 않는다
+    if (row.linked_refs && !(ctx.linkedKeys || []).includes(row.id)) {
+      return { ok: false, label: '연결 원자재', reason: `이 재고는 다른 주문 · 계획(${row.linked_refs})에 연결되어 있어 후보로 추가할 수 없습니다.` };
+    }
     if ((ctx.linkedKeys || []).includes(row.id)) {
       return { ok: false, label: '연결 원자재', reason: '이 재고는 주문서 관리에서 연결한 원자재로 ① 후보에 이미 있습니다. 다시 추가할 필요가 없습니다.' };
     }

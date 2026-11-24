@@ -213,6 +213,13 @@ def require_platform_admin(user: dict = Depends(get_current_user)) -> dict:
     return user
 
 
+def require_platform_company(user: dict = Depends(get_current_user)) -> dict:
+    """플랫폼 운영사(001 · 모스코) 계정이면 권한과 상관없이 통과 (예: 타사 재고현황). 다른 고객사 계정은 403."""
+    if user.get("companyid") != "001":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="모스코(001) 계정만 사용할 수 있습니다.")
+    return user
+
+
 def require_menu_access(menuid: str):
     def dependency(user: dict = Depends(get_current_user)) -> dict:
         # Platform administrators retain platform-wide access; account and company status

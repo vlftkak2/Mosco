@@ -39,7 +39,7 @@ const createDefaultFilters = () => {
   return {
     date_from: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`,
     date_to: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate())}`,
-    receiptno: '', fromwarehouse: '', towarehouse: '', iteminfo: '', productinfo: '',
+    receiptno: '', fromwarehouse: '', towarehouse: '', iteminfo: '', productinfo: '', thickness: '', width: '', length: '',
   };
 };
 
@@ -123,7 +123,7 @@ export default function InoutmoveSearch() {
   const searchOnEnter = (event) => { if (event.key === 'Enter') search(); };
 
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="재고이동" current="재고이동현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+    <ErpBreadcrumb parent="재고관리" current="재고이동현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
     <Box className={classes.inboundWorkspace}>
       {filterOpen && <Paper component="aside" className={classes.filterSidebar} withBorder>
         <Group className={classes.filterHeader} justify="space-between">
@@ -143,6 +143,9 @@ export default function InoutmoveSearch() {
             ['fromwarehouse', '출고 창고', '창고코드 또는 창고명'],
             ['towarehouse', '입고 창고', '창고코드 또는 창고명'],
             ['iteminfo', '품목정보', '품목코드 또는 품명'],
+            ['thickness', '두께', '두께 검색'],
+            ['width', '폭', '폭 검색'],
+            ['length', '길이', '길이 검색'],
             ['productinfo', '제품정보', '제품번호'],
           ].map(([key, label, placeholder]) => <TextInput key={key} label={label} placeholder={placeholder} value={inputs[key]} onChange={(event) => updateInput(key, event.currentTarget.value)} onKeyDown={searchOnEnter} />)}
         </Stack>

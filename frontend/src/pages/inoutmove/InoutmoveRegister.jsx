@@ -682,7 +682,7 @@ export default function InoutmoveRegister() {
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
     <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
       <Group className={inboundClasses.breadcrumbTrail} gap={7}>
-        <Text component="span" className={inboundClasses.breadcrumbParent}>재고이동</Text>
+        <Text component="span" className={inboundClasses.breadcrumbParent}>재고관리</Text>
         <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
         <Text component="span" className={inboundClasses.breadcrumbCurrent}>재고이동등록</Text>
       </Group>

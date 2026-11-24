@@ -36,149 +36,6 @@
   color: #e62222ff !important; /* red */
 }
 
-.appHeader {
-  display: flex !important;
-  height: 54px !important;
-  align-items: center !important;
-  gap: 16px;
-  padding: 0 16px 0 10px;
-  border-bottom: 1px solid #dce2e9 !important;
-  background: #fff !important;
-  box-shadow: none !important;
-  color: #242b35;
-  font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-
-.mobileBurger { flex: 0 0 auto; }
-.mobileBurger :global(.mantine-Burger-burger),
-.mobileBurger :global(.mantine-Burger-burger)::before,
-.mobileBurger :global(.mantine-Burger-burger)::after { background-color: #4b5563; }
-
-/* 사이드바 (로고 + 네비게이션) */
-.navBar {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border-right: 1px solid #343a45 !important;
-  background: #20252f !important;
-  color: #dce3ec;
-  transition-property: transform, top, height, width !important;
-}
-
-.sideHead {
-  display: flex;
-  height: 54px;
-  flex: 0 0 54px;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px 0 19px;
-  border-right: 1px solid #15181d;
-  border-bottom: 1px solid #15181d;
-  background: #15181d;
-}
-
-.logoSlot {
-  display: flex;
-  transition: opacity 160ms ease, flex-basis 220ms ease;
-  height: 36px;
-  min-width: 0;
-  flex: 1;
-  align-items: center;
-  justify-content: flex-start;
-  overflow: hidden;
-}
-
-.logoSlot img {
-  display: block;
-  width: 117px;
-  max-width: 100%;
-  height: auto;
-  max-height: 30.1px;
-  margin-left: 6px;
-  object-fit: contain;
-  object-position: left center;
-}
-
-.sidebarToggle {
-  display: flex;
-  width: 32px;
-  height: 34px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #d9e0e7;
-  cursor: pointer;
-}
-.sidebarToggle:hover { background: #2a3038; color: #fff; }
-.sidebarToggle:focus-visible { outline: 2px solid rgba(255, 255, 255, .55); outline-offset: -2px; }
-
-.navScroll { min-height: 0; overflow: hidden; }
-
-.headerActions {
-  display: flex;
-  min-width: 0;
-  flex: 1 1 auto;
-  align-items: center;
-  align-self: stretch;
-  overflow-x: auto;
-  scrollbar-width: none;
-  padding: 0;
-  background: transparent;
-}
-
-.headerActions::-webkit-scrollbar { display: none; }
-
-/* 계정 · 로그아웃 */
-.headerUser {
-  min-width: max-content;
-  align-items: center;
-  gap: 12px !important;
-  color: #4b5563;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.userIdentity {
-  align-items: center;
-  height: 30px;
-  padding: 0 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background-color 120ms ease;
-}
-.userIdentity:hover { background: #f5f6f8; }
-.userIdentity:focus-visible { outline: 2px solid rgba(209, 31, 38, .55); outline-offset: -2px; }
-.userName { color: #242b35; font-size: 13px; font-weight: 600; letter-spacing: -0.1px; }
-
-.userDivider { width: 1px; height: 17px; margin: 0; background: #dce2e9; }
-
-.logoutButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #6b7280;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: color 0.14s ease, background-color 0.14s ease;
-}
-.logoutButton:hover,
-.logoutButton:active { background: #fdf2f2; color: #d11f26; }
-.logoutButton:focus-visible { outline: 2px solid rgba(209, 31, 38, .55); outline-offset: -2px; }
-
-
 /* 메인 콘텐츠 영역 */
 .contentCard {
   background-color: #f4f4f4 !important;
@@ -190,134 +47,6 @@
 
 .appMain { background-color: #f4f4f4 !important; }
 
-/* 열린 화면 탭 (디자인 고도화 시안): 연회색 줄 위 사각 탭, 선택 탭은 흰 바탕 + 빨간 밑줄 2px. 왼쪽에 대시보드 홈 버튼 고정. */
-.pageTabs {
-  position: relative;
-  display: flex;
-  height: 38px;
-  min-height: 38px;
-  min-width: 0;
-  align-items: stretch;
-  gap: 0;
-  overflow: visible;
-  padding: 0;
-  margin: 0 -12px 12px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f3f4f6;
-  font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-
-.pinnedHome {
-  display: flex;
-  width: 46px;
-  flex: 0 0 46px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-right: 1px solid #e5e7eb;
-  background: transparent;
-  color: #556276;
-  cursor: pointer;
-  transition: background-color 140ms ease;
-}
-.pinnedHome:hover { background: #e9ebee; }
-.pinnedHomeActive,
-.pinnedHomeActive:hover { background: #fff; box-shadow: inset 0 -2px 0 #d11f26; }
-
-.pageTab {
-  position: relative;
-  display: inline-flex;
-  min-width: 0;
-  max-width: 220px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 10px 0 15px;
-  border: 0;
-  border-right: 1px solid #dce1e8;
-  border-radius: 0;
-  background: #e8eaee;
-  color: #64748b;
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: -0.2px;
-  white-space: nowrap;
-  cursor: pointer;
-  user-select: none;
-  transition: background-color 140ms ease, color 140ms ease;
-}
-.pageTab:hover:not(.pageTabActive) { background: #e0e4e9; color: #334155; }
-.pageTab:active { cursor: grabbing; }
-
-.pageTabLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-
-.pinnedHome:focus-visible,
-.pageTab:focus-visible,
-.pageTabClose:focus-visible,
-.moreTabsButton:focus-visible {
-  outline: 2px solid rgba(209, 31, 38, .55);
-  outline-offset: -2px;
-}
-
-.pageTabActive {
-  background: #fff;
-  color: #1f2937;
-  font-weight: 700;
-  box-shadow: inset 0 -2px 0 #d11f26;
-}
-.pageTabDragging { opacity: .5; }
-
-.pageTabClose {
-  display: grid;
-  width: 18px;
-  height: 18px;
-  flex: none;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: #98a2b3;
-  font: inherit;
-  font-size: 16px;
-  font-weight: 400;
-  line-height: 1;
-  cursor: pointer;
-}
-.pageTabClose:hover { background: transparent; color: #d11f26; }
-
-.moreTabsButton {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  padding: 0 14px;
-  border: 0;
-  border-left: 1px solid #dce1e8;
-  border-radius: 0;
-  background: #e8eaee;
-  color: #4b5563;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.moreTabsButton:hover { background: #e0e4e9; }
-.moreTabsButton > span:first-of-type { min-width: 18px; padding: 1px 5px; border-radius: 9px; background: #d4d9e0; color: #4b5563; font-size: 11.5px; text-align: center; }
-.moreTabsChevron { flex: 0 0 auto; color: #6b7280; }
-.moreTabsDropdown { width: 260px; max-height: min(60vh, 420px); overflow-y: auto; padding: 5px; }
-.moreTabsHeading { padding: 6px 9px 8px; border-bottom: 1px solid #e5e9ef; color: #7b8797; font-size: 11px; }
-.moreTabRow { display: flex; min-width: 0; align-items: center; gap: 4px; }
-.moreTabOpen { min-width: 0; flex: 1 1 auto; overflow: hidden; padding: 8px 9px; border: 0; border-radius: 4px; background: transparent; color: #40536b; font: inherit; font-size: 12px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.moreTabOpen:hover { background: #f1f4f7; color: #d11f26; }
-.moreTabClose { width: 28px; height: 28px; flex: 0 0 28px; border: 0; border-radius: 4px; background: transparent; color: #9ba5b5; font-size: 16px; cursor: pointer; }
-.moreTabClose:hover { background: #fff0f0; color: #d11f26; }
-
 /* Inbound workspace uses the remaining viewport height as a fixed ERP canvas. */
 .appShellInbound {
   height: 100dvh !important;
@@ -325,14 +54,9 @@
   overflow: hidden !important;
 }
 
-/* 접힌 사이드바: 로고 숨기고 접기 버튼만 가운데 */
-.sideHead { transition: gap 220ms ease, padding 220ms ease; }
-.sidebarCollapsed .sideHead { gap: 0; justify-content: center; padding: 0 12px; }
-.sidebarCollapsed .logoSlot { flex: 0 0 0; opacity: 0; pointer-events: none; }
-
 .appMainInbound {
   display: flex;
-  height: calc(100dvh - 54px);
+  height: calc(100dvh - 52px);
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
@@ -360,7 +84,7 @@
 
 .appMainDashboard {
   display: flex;
-  height: calc(100dvh - 54px);
+  height: calc(100dvh - 52px);
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
@@ -377,52 +101,6 @@
   border-radius: 0 !important;
   background: #f4f4f4 !important;
 }
-
-@media (max-width: 760px) {
-  .appHeader { gap: 7px; padding: 0 8px; }
-  .headerUser { gap: 5px; }
-  .userIcon,
-  .userDivider { display: none; }
-  .logoutButton { padding-right: 7px; padding-left: 7px; }
-  .logoutButton span { display: none; }
-}
-
-/* 상단 명령 버튼 (조회 · 추가 · 복사 · 저장 · 삭제 · 엑셀 · 인쇄 · 닫기) — 흰 리본, 아이콘별 색, 마우스를 올리면 브랜드 레드.
-   화면마다 따로 있는 ribbonTool 스타일을 여기 한 곳에서 덮어써 모든 화면이 같은 모양이 되게 한다.
-   아이콘 색은 Tabler 아이콘 클래스(tabler-icon-이름)로 정해 화면 코드를 고치지 않아도 된다. */
-.headerActions :global(.mantine-Group-root) { gap: 2px !important; }
-.headerActions :global(.mantine-Button-root) {
-  height: 32px !important; min-height: 32px !important; padding: 0 12px !important;
-  border: 0 !important; border-radius: 6px !important;
-  background: transparent !important; color: #374151 !important;
-  font-weight: 500 !important;
-  transition: background-color 140ms ease, color 140ms ease;
-}
-.headerActions :global(.mantine-Button-root .mantine-Button-label) { font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif; font-size: 13.5px !important; line-height: 1; letter-spacing: -.1px; }
-.headerActions :global(.mantine-Button-root .mantine-Button-section) { margin-inline-end: 7px; }
-.headerActions :global(.mantine-Button-root svg) { width: 16px !important; height: 16px !important; stroke-width: 1.8; color: #4b5563 !important; transition: color 140ms ease; }
-.headerActions :global(.mantine-Button-root .tabler-icon-plus),
-.headerActions :global(.mantine-Button-root .tabler-icon-file-spreadsheet) { color: #16a06d !important; }
-.headerActions :global(.mantine-Button-root .tabler-icon-copy) { color: #d99a06 !important; }
-.headerActions :global(.mantine-Button-root .tabler-icon-device-floppy) { color: #2f6fd8 !important; }
-.headerActions :global(.mantine-Button-root .tabler-icon-trash) { color: #e0435c !important; }
-.headerActions :global(.mantine-Button-root .mantine-Loader-root) { --loader-color: #4b5563; }
-
-/* 마우스 오버 · 누름: 브랜드 레드 바탕 + 흰 글자 · 흰 아이콘 */
-.headerActions :global(.mantine-Button-root:hover:not(:disabled):not([data-disabled])) { background: #d11f26 !important; color: #fff !important; }
-.headerActions :global(.mantine-Button-root:active:not(:disabled):not([data-disabled])) { background: #b91c23 !important; color: #fff !important; transform: none; }
-.headerActions :global(.mantine-Button-root:hover:not(:disabled):not([data-disabled]) svg),
-.headerActions :global(.mantine-Button-root:active:not(:disabled):not([data-disabled]) svg) { color: #fff !important; }
-.headerActions :global(.mantine-Button-root:focus-visible) { outline: 2px solid rgba(209, 31, 38, .55) !important; outline-offset: -2px !important; }
-
-/* 쓸 수 없는 버튼: 흐리게 (아이콘 색은 남겨 어떤 버튼인지는 보이게) */
-.headerActions :global(.mantine-Button-root:disabled),
-.headerActions :global(.mantine-Button-root[data-disabled]) {
-  background: transparent !important; box-shadow: none !important; color: #374151 !important; opacity: .38; cursor: not-allowed;
-}
-
-/* 구분선 (계정 구분선과 같은 색) */
-.headerActions [class*="ribbonSeparator"] { width: 1px !important; height: 17px !important; flex: 0 0 1px !important; margin: 0 7px !important; background: #dce2e9 !important; }
 
 /* 브레드크럼 (예: 매출관리 › 매출현황): 모든 화면을 '자금관리 › 거래처 잔액 현황'과 같은 글꼴 · 색 · 크기로.
    화면마다 CSS 모듈이 따로라 이름에 breadcrumb/crumb 이 들어간 클래스를 본문 영역에서 한 번에 맞춘다. */
@@ -460,3 +138,211 @@
 /* 본문 스크롤바: 화면 전체 스크롤(대시보드 등)도 표 스크롤과 같은 얇은 굵기 */
 .appMain, .appMain * { scrollbar-width: thin; scrollbar-color: #c5ccd6 transparent; }
 
+
+/* ════════ 네비 · 헤더 (네비 디자인 최종 시안) — 다크(기본) / 라이트 같은 배치, 색만 바뀜 ════════ */
+.shell {
+  --nv-red: #e02a31;
+  font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif;
+}
+.themeDark {
+  --nv-bg: #111418; --nv-tx2: #a3a8b3; --nv-tx3: #6c717d; --nv-hi: #fff;
+  --nv-line: rgba(255, 255, 255, .08); --nv-hov: rgba(255, 255, 255, .05); --nv-sel: rgba(255, 255, 255, .09); --nv-seltx: #fff;
+  --nv-sw: #2c2f36; --nv-ink: #fff; --hd-hov: rgba(255, 255, 255, .06);
+  --rb-tx: #e3e5ea; --rb-ic: #a3a8b3; --rb-hov: rgba(255, 255, 255, .08); --rb-act: rgba(255, 255, 255, .12); --rb-dis: #565c68; --rb-dis-ic: #4a505b;
+}
+.themeLight {
+  --nv-bg: #fff; --nv-tx2: #555c69; --nv-tx3: #8f96a3; --nv-hi: #14171c;
+  --nv-line: rgba(20, 23, 28, .08); --nv-hov: rgba(20, 23, 28, .04); --nv-sel: rgba(224, 42, 49, .09); --nv-seltx: #e02a31;
+  --nv-sw: #e02a31; --nv-ink: #111317; --hd-hov: rgba(20, 23, 28, .05);
+  --rb-tx: #14171c; --rb-ic: #5a5f68; --rb-hov: #f1f2f4; --rb-act: #e6e9ee; --rb-dis: #b8bdc8; --rb-dis-ic: #c7ccd5;
+}
+
+/* 사이드바 */
+.navBar {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 0 !important;
+  background: var(--nv-bg) !important;
+  color: var(--nv-tx2);
+  transition-property: transform, top, height, width, background-color !important;
+}
+.themeLight .navBar { box-shadow: 1px 0 0 #e5e7ea; }
+.sideHead { display: flex; height: 52px; flex: none; align-items: center; gap: 8px; padding: 6px 14px 1px 22px; }
+.logoSlot { display: flex; height: 36px; min-width: 0; flex: 1; align-items: center; overflow: hidden; }
+.brandLockup { display: block; width: auto; height: 28px; flex: none; }
+.lgRed { fill: #c8171e; }
+.lgInk { fill: var(--nv-ink); }
+.sidebarToggle { display: grid; width: 30px; height: 30px; flex: none; place-items: center; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--nv-tx2); cursor: pointer; }
+.sidebarToggle:hover { background: var(--nv-hov); color: var(--nv-hi); }
+.sidebarToggle:focus-visible { outline: 2px solid rgba(224, 42, 49, .55); outline-offset: -2px; }
+.navScroll { display: flex; min-height: 0; flex-direction: column; overflow: hidden; }
+
+/* 사이드바 아래: 라이트 모드 스위치 · 로그아웃 */
+.sFoot { flex: none; padding: 6px 12px 16px; border-top: 1px solid var(--nv-line); }
+.thm { display: flex; align-items: center; gap: 10px; padding: 10px; color: var(--nv-tx2); }
+.thmIcon { flex: none; }
+.thmText { flex: 1; font-size: 13px; text-align: left; white-space: nowrap; }
+.sw { position: relative; width: 44px; height: 24px; flex: none; padding: 0; border: 0; border-radius: 12px; background: var(--nv-sw); cursor: pointer; transition: background .2s; }
+.sw::after { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; content: ''; transition: left .2s; }
+.themeLight .sw::after { left: 23px; }
+.sw:focus-visible { outline: 2px solid rgba(224, 42, 49, .55); outline-offset: 2px; }
+.lo { display: flex; width: 100%; height: 42px; align-items: center; gap: 10px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--nv-tx2); font: inherit; font-size: 13px; cursor: pointer; }
+.lo:hover { background: var(--nv-hov); color: var(--nv-hi); }
+
+/* 접힌 사이드바 */
+.sidebarCollapsed .sideHead { justify-content: center; padding: 4px 0 0; }
+.sidebarCollapsed .logoSlot { display: none; }
+.sidebarCollapsed .sidebarToggle { width: 52px; height: 44px; border-radius: 10px; }
+.sidebarCollapsed .sFoot { padding: 6px 12px 14px; }
+.sidebarCollapsed .thm { justify-content: center; padding: 10px 0; }
+.sidebarCollapsed .thmIcon, .sidebarCollapsed .thmText { display: none; }
+.sidebarCollapsed .sw { width: 36px; }
+.sidebarCollapsed.themeLight .sw::after { left: 15px; }
+.sidebarCollapsed .lo { justify-content: center; padding: 0; }
+
+/* 헤더: 메뉴 검색 | 명령 버튼 · 사용자 */
+.appHeader {
+  position: relative;
+  display: flex !important;
+  height: 52px !important;
+  align-items: center !important;
+  justify-content: space-between;
+  padding: 0 14px;
+  border-bottom: 1px solid transparent !important;
+  background: var(--nv-bg) !important;
+  box-shadow: none !important;
+  color: var(--nv-hi);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color .2s;
+}
+.appHeader::before { position: absolute; top: 0; bottom: 0; left: 0; width: 1px; background: var(--nv-line); content: ''; }
+.themeLight .appHeader { border-bottom-color: var(--nv-line) !important; }
+.mobileBurger { flex: 0 0 auto; margin-right: 8px; }
+.mobileBurger :global(.mantine-Burger-burger),
+.mobileBurger :global(.mantine-Burger-burger)::before,
+.mobileBurger :global(.mantine-Burger-burger)::after { background-color: var(--nv-tx2); }
+
+.hsearch { display: flex; min-width: 150px; max-width: 360px; height: 32px; flex: 1 1 320px; align-items: center; gap: 10px; padding: 0 12px; border-radius: 10px; background: var(--hd-hov); color: var(--nv-tx3); cursor: text; }
+.hsearch:focus-within { color: var(--nv-hi); box-shadow: 0 0 0 1.5px rgba(224, 42, 49, .6); }
+.hsearch > svg { flex: none; }
+.hsearch input { min-width: 0; height: 100%; flex: 1; border: 0; outline: none; background: none; color: var(--nv-hi); font: inherit; font-size: 12px; }
+.hsearch input::placeholder { color: var(--nv-tx3); }
+.hsearch kbd { flex: none; padding: 3px 6px; border: 1px solid var(--nv-line); border-radius: 5px; color: var(--nv-tx3); font-family: inherit; font-size: 11px; line-height: 1; }
+.hsearch:focus-within kbd { opacity: 0; }
+
+.hright { display: flex; min-width: 0; flex: 0 1 auto; align-items: center; gap: 2px; margin-left: 16px; }
+.hsep { display: block; width: 1px; height: 16px; flex: none; margin: 0 10px; background: var(--nv-line); }
+.headerActions { display: flex; min-width: 0; align-items: center; overflow-x: auto; scrollbar-width: none; }
+.headerActions::-webkit-scrollbar { display: none; }
+
+/* 명령 버튼 (조회 · 추가 · 복사 · 저장 · 삭제 · 엑셀 · 인쇄 · 닫기): 화면마다 따로 만든 버튼을 여기서 한 모양으로 */
+.headerActions :global(.mantine-Group-root) { min-height: 0 !important; flex-wrap: nowrap !important; gap: 2px !important; background: transparent !important; }
+.headerActions :global(.mantine-Button-root) {
+  height: 30px !important; min-height: 30px !important; padding: 0 10px !important;
+  border: 0 !important; border-radius: 6px !important;
+  background: transparent !important; color: var(--rb-tx) !important; font-weight: 400 !important;
+  transition: background-color 120ms ease;
+}
+.headerActions :global(.mantine-Button-root .mantine-Button-label) { font-family: inherit; font-size: 12.5px !important; line-height: 1; }
+.headerActions :global(.mantine-Button-root .mantine-Button-section) { margin-inline-end: 6px; }
+.headerActions :global(.mantine-Button-root svg) { width: 15px !important; height: 15px !important; stroke-width: 1.5; color: var(--rb-ic) !important; }
+.headerActions :global(.mantine-Button-root .mantine-Loader-root) { --loader-color: var(--rb-ic); }
+.headerActions :global(.mantine-Button-root:hover:not(:disabled):not([data-disabled])) { background: var(--rb-hov) !important; }
+.headerActions :global(.mantine-Button-root:active:not(:disabled):not([data-disabled])) { background: var(--rb-act) !important; transform: none; }
+.headerActions :global(.mantine-Button-root:focus-visible) { outline: 2px solid rgba(224, 42, 49, .55) !important; outline-offset: -2px !important; }
+.headerActions :global(.mantine-Button-root:disabled),
+.headerActions :global(.mantine-Button-root[data-disabled]) { background: none !important; box-shadow: none !important; color: var(--rb-dis) !important; opacity: 1; cursor: not-allowed; }
+.headerActions :global(.mantine-Button-root:disabled svg),
+.headerActions :global(.mantine-Button-root[data-disabled] svg) { color: var(--rb-dis-ic) !important; }
+.headerActions [class*="ribbonSeparator"] { display: none !important; }
+
+/* 사용자 버튼 · 메뉴 (비밀번호 변경 · 로그아웃) */
+.ubtn { display: flex; height: 34px; flex: none; align-items: center; gap: 8px; padding: 0 8px 0 5px; border: 0; border-radius: 8px; background: none; color: var(--nv-hi); font: inherit; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.ubtn:hover, .ubtn[data-expanded] { background: var(--hd-hov); }
+.ubtn:focus-visible { outline: 2px solid rgba(224, 42, 49, .55); outline-offset: -2px; }
+.uav { flex: none; color: var(--nv-tx2); }
+.uchev { flex: none; color: var(--nv-tx3); transition: transform .15s; }
+.ubtn[data-expanded] .uchev { transform: rotate(180deg); }
+.umenu { padding: 6px !important; border: 1px solid #e5e7ea !important; border-radius: 10px !important; box-shadow: 0 12px 32px rgba(20, 23, 28, .18) !important; color: #14171c; font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif; }
+.uh { margin-bottom: 6px; padding: 10px 10px 12px; border-bottom: 1px solid #e5e7ea; }
+.uh b { display: block; font-size: 14px; }
+.uh span { display: block; margin-top: 3px; color: #5a5f68; font-size: 12px; }
+.ui { height: 38px; padding: 0 10px !important; border-radius: 6px !important; color: #14171c !important; font-size: 13px !important; }
+.ui:hover, .ui[data-hovered] { background: #f1f3f6 !important; }
+.ui :global(.mantine-Menu-itemSection) { margin-inline-end: 10px; color: #5a5f68; }
+.uiDanger, .uiDanger :global(.mantine-Menu-itemSection) { color: #e02a31 !important; }
+
+@media (max-width: 760px) {
+  .hsearch kbd { display: none; }
+  .ubtn > span { display: none; }
+}
+
+/* 열린 화면 탭 줄: 회색 줄 위 둥근 탭, 선택 탭은 흰 바탕 + 빨간 굵은 글자 */
+.pageTabs {
+  position: relative;
+  display: flex;
+  height: 38px;
+  min-height: 38px;
+  min-width: 0;
+  align-items: flex-end;
+  gap: 2px;
+  overflow: visible;
+  margin: 0 -12px 12px;
+  padding: 6px 8px 0 14px;
+  background: #eceef0;
+}
+.pageTab {
+  position: relative;
+  display: inline-flex;
+  height: 32px;
+  min-width: 0;
+  max-width: 220px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 14px;
+  border: 0;
+  border-radius: 8px 8px 0 0;
+  background: #d9dde3;
+  color: #5a5f68;
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.pageTab:hover:not(.pageTabActive) { background: #d0d4db; color: #14171c; }
+.pageTab[draggable="true"] { cursor: grab; }
+.homeTab { padding-right: 14px; }
+.pageTabActive, .pageTabActive:hover { background: #fff; color: #e02a31; font-weight: 700; }
+.pageTabDragging { outline: 1.5px dashed rgba(224, 42, 49, .55); outline-offset: -1.5px; background: rgba(224, 42, 49, .08) !important; color: #e02a31; }
+.pageTabLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pageTab:focus-visible, .pageTabClose:focus-visible, .moreTabsButton:focus-visible { outline: 2px solid rgba(224, 42, 49, .55); outline-offset: -2px; }
+.pageTabClose { display: grid; width: 16px; height: 16px; flex: none; place-items: center; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #aeb4bf; font: inherit; font-size: 13px; font-weight: 400; line-height: 1; cursor: pointer; }
+.pageTabClose:hover { background: #eceef2; color: #14171c; }
+.moreTabsButton { display: inline-flex; height: 100%; flex: 0 0 auto; align-items: center; gap: 4px; margin-left: auto; padding: 0 10px; align-self: stretch; border: 0; background: none; color: #8b9099; font: inherit; font-size: 16px; letter-spacing: 1px; line-height: 1; cursor: pointer; }
+.moreTabsButton:hover { color: #14171c; }
+.moreTabsButton > span { min-width: 18px; padding: 1px 5px; border-radius: 9px; background: #d9dde3; color: #5a5f68; font-size: 11px; letter-spacing: 0; }
+.moreTabsDropdown { width: 260px; max-height: min(60vh, 420px); overflow-y: auto; padding: 4px !important; border-radius: 8px !important; }
+.moreTabsHeading { padding: 6px 9px 8px; border-bottom: 1px solid #e5e7ea; color: #8b9099; font-size: 11px; }
+.moreTabRow { display: flex; min-width: 0; align-items: center; gap: 4px; }
+.moreTabOpen { min-width: 0; flex: 1 1 auto; overflow: hidden; padding: 9px 12px; border: 0; border-radius: 6px; background: transparent; color: #14171c; font: inherit; font-size: 13px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.moreTabOpen:hover { background: #f1f3f6; }
+.moreTabClose { width: 28px; height: 28px; flex: 0 0 28px; border: 0; border-radius: 4px; background: transparent; color: #aeb4bf; font-size: 15px; cursor: pointer; }
+.moreTabClose:hover { background: #eceef2; color: #14171c; }
+
+/* 본문 바탕 */
+.appMain { background-color: #f4f5f6 !important; }
+.contentCard, .inboundContentCard, .dashboardContentCard { background-color: #f4f5f6 !important; }
+/* 좁은 화면: 명령 버튼 글자가 잘리지 않게 버튼은 줄이지 않고, 검색칸이 먼저 줄어든다 */
+.headerActions :global(.mantine-Button-root) { flex-shrink: 0 !important; }
+.headerActions :global(.mantine-Group-root) { flex-shrink: 0 !important; }
+
+/* 탭 메뉴 (···): 나머지 열린 화면 + 탭 모두 닫기 */
+.moreTabsDivider { height: 1px; margin: 4px 2px; background: #e5e7ea; }
+.closeAllItem { padding: 9px 12px !important; border-radius: 6px !important; color: #14171c !important; font-size: 13px !important; }
+.closeAllItem:hover, .closeAllItem[data-hovered] { background: #f1f3f6 !important; }
+
+/* 네비와 본문 사이: 시안처럼 14px 만 (본문 바깥 여백 12px + 2px) */
+.contentCard, .inboundContentCard, .dashboardContentCard { padding-left: 2px !important; }

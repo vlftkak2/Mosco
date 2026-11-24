@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware  
-from config import ALLOWED_ORIGINS
+from config import ALLOWED_ORIGINS, APP_ENV
 from fastapi.exceptions import RequestValidationError
 from validation_messages import validation_exception_handler
 
@@ -14,6 +14,8 @@ from routes.dashboard import home_dashboard_routes as home_dashboard_routes
 from routes.masterdata import Customer_routes as customer_routes
 from routes.masterdata import Workplace_routes as workplace_routes
 from routes.masterdata import Company_routes as company_routes
+from routes.masterdata import LicenseRevenue_routes as license_revenue_routes
+from services.masterdata import LicenseCharge as license_charge_module
 from routes.auth import user_routes as company_user_routes
 from routes.auth import UserMenu_routes as user_menu_routes
 
@@ -31,6 +33,7 @@ from routes.outbound import GrossProfit_routes as GrossProfit_routes
 from routes.outbound import GrossProfitDashboard_routes as GrossProfitDashboard_routes
 from routes.inventory import StockStand_routes as StockStand_routes
 from routes.inventory import CurrentStock_routes as CurrentStock_routes
+from routes.inventory import SharedStock_routes as SharedStock_routes
 from routes.inventory import IniopStock_routes as IniopStock_routes
 from routes.inoutmove import inoutmoveRegister_routes as inoutmoveRegister_routes
 from routes.inoutmove import inoutmoveSearch_routes as inoutmoveSearch_routes
@@ -46,7 +49,13 @@ from routes.ai import AIOrderOptimization_routes as AIOrderOptimization_routes
 
 import uvicorn
 
-app = FastAPI()
+# 운영에서는 API 문서(/docs · /redoc · /openapi.json)를 열지 않는다 (로그인 없이 전체 API 목록이 보이므로)
+_IS_PRODUCTION = APP_ENV in {"production", "prod"}
+app = FastAPI(
+    docs_url=None if _IS_PRODUCTION else "/docs",
+    redoc_url=None if _IS_PRODUCTION else "/redoc",
+    openapi_url=None if _IS_PRODUCTION else "/openapi.json",
+)
 # 입력값 검증 오류(422) 문구를 한글로 (응답 모양은 그대로)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
@@ -79,6 +88,9 @@ app.include_router(workplace_routes.router)  # 사업장관리
 
 # Steel119 master company management API
 app.include_router(company_routes.router)
+app.include_router(license_revenue_routes.router)  # 라이선스 매출현황 (001 MASTER)
+# 라이선스 전월 청구 확정: 시작 때 빠진 달 채우기 + 매달 1일 00:01(KST)
+app.add_event_handler("startup", license_charge_module.start_monthly_close)
 app.include_router(company_user_routes.router)
 app.include_router(user_menu_routes.router)
 
@@ -112,6 +124,7 @@ app.include_router(StockStand_routes.router)
 
 # Company-scoped current stock API
 app.include_router(CurrentStock_routes.router)
+app.include_router(SharedStock_routes.router)  # 타사 재고현황 (001 계정 전용)
 
 # Company-scoped inventory ledger API
 app.include_router(IniopStock_routes.router)

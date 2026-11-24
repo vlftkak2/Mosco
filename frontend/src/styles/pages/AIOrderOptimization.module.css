@@ -892,3 +892,27 @@
 .intNote { margin: 6px 0 0; color: #475569; font-size: 11.5px; line-height: 1.55; }
 /* 조회조건 버튼 (매출등록 '현재고 조회'와 같은 모양 · 색은 그대로) */
 .optScope button[class*="_btnBlock_"] { height: 36px; border-radius: 6px; font-size: 13px; font-weight: 700; }
+
+/* 시트 가시화: 그림 영역 살짝 크게 (방향 설명은 옆 그대로) */
+.dimMain { flex: 1 1 440px; max-width: 560px; }
+/* 그림 폭 확보: 왼쪽 치수 칸 · 방향 설명 상자를 조금 줄임 */
+.optScope .dim { gap: 8px 10px; }
+.optScope .dimSideWrap { flex-basis: 52px; }
+.optScope .dimSegs, .optScope .dimTopLabel { margin-left: 60px; }
+.optScope .dimNote { max-width: 128px; padding: 7px 9px; font-size: 11px; }
+.optScope .dimNote b { font-size: 11.5px; }
+
+/* 시트 가시화 글자 통일: 치수선 숫자 12px · 라벨 11px · 방향 설명 폭 */
+.optScope .dimSeg span, .optScope .dimSegV span { font-size: 12px; }
+.optScope .dimSegTiny span, .optScope .dimSegVShort span { font-size: 11px; }
+.optScope .dimTopLabel, .optScope .dimSideLabel { font-size: 11px; }
+.optScope .dimNote { max-width: 148px; }
+
+/* 시트 가시화 정리: 그림 조금 작게 · 위아래 여백 · 왼쪽 치수 칸 원래 폭 (잔여 글씨 잘림 방지) */
+.optScope .dimMain { flex: 1 1 400px; max-width: 500px; }
+.optScope .dimSideWrap { flex-basis: 66px; }
+.optScope .dimSegs, .optScope .dimTopLabel { margin-left: 74px; }
+.optScope .dimTopLabel { margin-bottom: 4px; }
+.optScope .dimSegs { margin-bottom: 8px; }
+.optScope .dimSegsRaised { margin-top: 18px; }
+.optScope .dim { margin: 16px auto 20px; }

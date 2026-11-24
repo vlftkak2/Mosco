@@ -248,7 +248,7 @@ def create_user(
         )
         active_users = cursor.fetchone()["active_users"]
         if active_users >= licensed_seats:
-            raise ValueError(f"허용 계정 수({licensed_seats}명)를 모두 사용 중입니다.")
+            raise ValueError(f"라이선스 {licensed_seats}개를 모두 사용 중입니다.")
 
         # 사용자 코드: 회사별 001, 002, … (회사 행을 위에서 FOR UPDATE 로 잠가 같은 회사 등록이 겹치지 않는다)
         cursor.execute(
@@ -335,7 +335,7 @@ def update_user(data: UserUpdateInput, *, actor: dict | None = None, actor_email
             )
             active_users = cursor.fetchone()["active_users"]
             if active_users >= int(company["licensed_seats"] or 0):
-                raise ValueError(f"허용 계정 수({int(company['licensed_seats'] or 0)}명)를 모두 사용 중입니다.")
+                raise ValueError(f"라이선스 {int(company['licensed_seats'] or 0)}개를 모두 사용 중입니다.")
 
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(LOWER(%s), 0))", (data.email,))
         cursor.execute(

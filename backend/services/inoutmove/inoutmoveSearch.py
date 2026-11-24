@@ -11,10 +11,11 @@ def list_transfer_documents(
     date_from: date | None = None, date_to: date | None = None,
     receiptno: str = "", fromwarehouse: str = "", towarehouse: str = "",
     iteminfo: str = "", productinfo: str = "",
+    thickness: str = "", width: str = "", length: str = "",
 ):
     where_sql, params = _search_conditions(
         companyid, date_from, date_to, receiptno, fromwarehouse,
-        towarehouse, iteminfo, productinfo,
+        towarehouse, iteminfo, productinfo, thickness, width, length,
     )
     with transfer_register_module._connect() as connection, connection.cursor() as cursor:
         cursor.execute(
@@ -64,6 +65,9 @@ def _search_conditions(
     towarehouse: str = "",
     iteminfo: str = "",
     productinfo: str = "",
+    thickness: str = "",
+    width: str = "",
+    length: str = "",
 ):
     where = ["h.companyid = %s"]
     params: list = [companyid]
@@ -93,6 +97,11 @@ def _search_conditions(
         where.append("d.productname ILIKE %s")
         params.append(f"%{productinfo.strip()}%")
 
+    # 두께 · 폭 · 길이: 현재고현황과 같이 숫자 일부로 찾기 (예: 1.2 → 1.200)
+    for column, value in (("d.thickness", thickness), ("d.width", width), ("d.length", length)):
+        if str(value or "").strip():
+            where.append(f"CAST({column} AS TEXT) ILIKE %s")
+            params.append(f"%{str(value).strip()}%")
     return " AND ".join(where), params
 
 
@@ -138,10 +147,13 @@ def list_transfer_details(
     towarehouse: str = "",
     iteminfo: str = "",
     productinfo: str = "",
+    thickness: str = "",
+    width: str = "",
+    length: str = "",
 ):
     where_sql, params = _search_conditions(
         companyid, date_from, date_to, receiptno, fromwarehouse,
-        towarehouse, iteminfo, productinfo,
+        towarehouse, iteminfo, productinfo, thickness, width, length,
     )
     with transfer_register_module._connect() as connection, connection.cursor() as cursor:
         cursor.execute(
@@ -188,10 +200,13 @@ def write_transfer_details_excel(
     towarehouse: str = "",
     iteminfo: str = "",
     productinfo: str = "",
+    thickness: str = "",
+    width: str = "",
+    length: str = "",
 ):
     where_sql, params = _search_conditions(
         companyid, date_from, date_to, receiptno, fromwarehouse,
-        towarehouse, iteminfo, productinfo,
+        towarehouse, iteminfo, productinfo, thickness, width, length,
     )
     headers = [
         "No.", "재고이전일자", "재고이전전표", "출고창고", "입고창고", "상세순번",

@@ -60,7 +60,7 @@ const makeDefaultFilters = () => {
   return {
     date_from: `${year}-${pad(month + 1)}-01`,
     date_to: `${year}-${pad(month + 1)}-${pad(new Date(year, month + 1, 0).getDate())}`,
-    receiptno: '', customer: '', warehouse: '', iteminfo: '',
+    receiptno: '', customer: '', warehouse: '', iteminfo: '', thickness: '', width: '', length: '',
     include_sales_cost: '', include_process_cost: '',
   };
 };
@@ -86,6 +86,9 @@ const FILTERS = [
   { key: 'warehouse', label: '창고', placeholder: '창고코드 또는 창고명' },
   { key: 'receiptno', label: '입고전표번호', placeholder: '전표번호' },
   { key: 'iteminfo', label: '품목정보', placeholder: '품목코드 또는 품목명' },
+  { key: 'thickness', label: '두께', placeholder: '두께 검색' },
+  { key: 'width', label: '폭', placeholder: '폭 검색' },
+  { key: 'length', label: '길이', placeholder: '길이 검색' },
 ];
 
 // 조회조건 '비용 포함': 매입 기타비용은 항상 보이고, 아래는 켜면 함께 보인다

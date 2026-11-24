@@ -139,7 +139,7 @@ export default function MonthClose() {
     <Box className={`${sharedClasses.pageShell} ${classes.page} ${simpleTheme.simple}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>운영관리</Text>
+          <Text component="span" className={classes.breadcrumbParent}>기준정보</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
           <Text component="span" className={classes.breadcrumbCurrent}>월마감관리</Text>
         </Group>

@@ -1253,14 +1253,15 @@ def _analyze_sheet(stocks, lines, settings):
                        "source_note": f"과거 매입이력 {size['count']}건 · 최근 {size['no']}", "label": "신규"}, size["width"], size["length"], None)
     # 배치 불가 후보는 목록에 넣지 않는다 (현재고 · 과거 매입이력 자동 후보). 연결 원자재 · 사용자가 직접 넣은 후보는 이유를 보이게 남긴다
     candidates = [c for c in candidates if c["placeable"] or c.get("linked") or (c["kind"] == "NEW" and c.get("source"))]
-    # 정렬 (시트 탭 · 원판 · 코일 후보 공통): 로스중량 적은 순 (연결 원자재 · 현재고 · 신규 · 직접 입력 구분 없이)
+    # 정렬: 코일 후보(두께 × 폭) = 수율 높은 순 · 원판 후보(두께 × 폭 × 길이) = 로스중량 적은 순 (둘 다 있으면 코일 → 원판)
     # 같으면 연결 원자재 → 초과매수 적은 순 → 현재고 우선. 재고가 부족한 후보 · 배치 불가는 맨 뒤
     allow_over = 0
     for c in candidates:
         c["over_eff"] = int(c.get("over_pcs") or 0)
     short = lambda c: 1 if (c.get("short_sheets") or 0) > 0 or (c.get("short_pcs") or 0) > 0 else 0
-    candidates.sort(key=lambda c: (0 if c["placeable"] else 1, short(c) if c["placeable"] else 0,
-                                   round(c["loss_weight"] or 0, 2) if c["placeable"] else 0, 0 if c["linked"] else 1,
+    main = lambda c: -round(c.get("yield_rate") or 0, 2) if c.get("coil") else round(c["loss_weight"] or 0, 2)
+    candidates.sort(key=lambda c: (0 if c["placeable"] else 1, short(c) if c["placeable"] else 0, 0 if c.get("coil") else 1,
+                                   main(c) if c["placeable"] else 0, 0 if c["linked"] else 1,
                                    c["over_eff"] if c["placeable"] else 0, 0 if c["kind"] == "STOCK" else 1))
     for rank, c in enumerate(candidates, start=1):
         c["rank"] = rank
@@ -1775,6 +1776,27 @@ def history(companyid: str, kind: str, material: str, itemname: str = "", months
                      "thickness": _round(r["thickness"]), "width": _round(r["width"]), "length": _round(r["length"]) or None,
                      "qty": _f(r["qty"]), "weight": _f(r["weight"]), "unit": r["unit"], "unitprice": _f(r["unitprice"]),
                      "warehouse": r["warehousecodename"]} for r in cur.fetchall()]
+            if kind == "purchase" and rows:
+                # 그 매입 · 기초로 생긴 현재고가 주문에 연결됐거나(어느 주문이든) 확정 계획에 잡혀 있으면 표시 → 화면에서 선택 불가
+                keys = [("OPENING" if x["origin"] == "기초" else "INBOUND", x["no"], int(x["id"].rsplit("-", 1)[1])) for x in rows]
+                cur.execute("""WITH k(t, n, l) AS (SELECT * FROM unnest(%s::varchar[], %s::varchar[], %s::integer[]))
+                               SELECT k.n || '-' || k.l AS id, string_agg(DISTINCT ref, ', ') AS refs FROM k JOIN (
+                                   SELECT lk.stocksourcetype AS t, lk.stocksourceno AS n, lk.stocksourceline AS l, lk.orderid || '-' || lk.lineno AS ref
+                                     FROM aiorder03t lk JOIN aiorder02t ln ON ln.companyid = lk.companyid AND ln.orderid = lk.orderid AND ln.lineno = lk.lineno
+                                    WHERE lk.companyid = %s AND ln.optimize_status <> 'DONE'
+                                   UNION ALL
+                                   SELECT pl.stocksourcetype, pl.stocksourceno, pl.stocksourceline, pl.planno FROM aiplan01t pl
+                                    WHERE pl.companyid = %s AND pl.status = 'CONFIRMED' AND pl.rawkind = 'STOCK'
+                                   UNION ALL
+                                   SELECT lot->>'sourcetype', lot->>'sourceno', (lot->>'sourceline')::integer, pl.planno FROM aiplan01t pl
+                                     CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(pl.pattern->'lots') = 'array' THEN pl.pattern->'lots' ELSE '[]'::jsonb END) lot
+                                    WHERE pl.companyid = %s AND pl.status = 'CONFIRMED' AND pl.rawkind = 'STOCK'
+                               ) ref ON ref.t = k.t AND ref.n = k.n AND ref.l = k.l
+                               GROUP BY 1""", ([k[0] for k in keys], [k[1] for k in keys], [k[2] for k in keys], companyid, companyid, companyid))
+                taken = {r["id"]: r["refs"] for r in cur.fetchall()}
+                for x in rows:
+                    if x["id"] in taken:
+                        x["linked_refs"] = taken[x["id"]]
             return {"kind": kind, "material": material, "items": rows}
         cur.execute(f"""
             SELECT h.processno, h.processdate, h.customname, s.lineno, s.itemname, s.materialname, s.surfacename, s.thickness, s.width,

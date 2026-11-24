@@ -32,12 +32,15 @@ def get_transfer_documents(
     towarehouse: str = Query(default="", max_length=150),
     iteminfo: str = Query(default="", max_length=200),
     productinfo: str = Query(default="", max_length=200),
+    thickness: str = Query(default="", max_length=30),
+    width: str = Query(default="", max_length=30),
+    length: str = Query(default="", max_length=30),
     user: dict = Depends(security_module.get_current_user),
 ):
     _validate_date_range(date_from, date_to)
     return {"success": True, **search_module.list_transfer_documents(
         user["companyid"], page, page_size, date_from, date_to,
-        receiptno, fromwarehouse, towarehouse, iteminfo, productinfo,
+        receiptno, fromwarehouse, towarehouse, iteminfo, productinfo, thickness, width, length,
     )}
 
 
@@ -60,6 +63,9 @@ def get_transfer_details(
     towarehouse: str = Query(default="", max_length=150),
     iteminfo: str = Query(default="", max_length=200),
     productinfo: str = Query(default="", max_length=200),
+    thickness: str = Query(default="", max_length=30),
+    width: str = Query(default="", max_length=30),
+    length: str = Query(default="", max_length=30),
     user: dict = Depends(security_module.get_current_user),
 ):
     _validate_date_range(date_from, date_to)
@@ -75,6 +81,9 @@ def get_transfer_details(
                 towarehouse=towarehouse,
                 iteminfo=iteminfo,
                 productinfo=productinfo,
+                thickness=thickness,
+                width=width,
+                length=length,
             ),
         }
     except Exception as error:
@@ -90,6 +99,9 @@ def export_transfer_details(
     towarehouse: str = Query(default="", max_length=150),
     iteminfo: str = Query(default="", max_length=200),
     productinfo: str = Query(default="", max_length=200),
+    thickness: str = Query(default="", max_length=30),
+    width: str = Query(default="", max_length=30),
+    length: str = Query(default="", max_length=30),
     user: dict = Depends(security_module.get_current_user),
 ):
     _validate_date_range(date_from, date_to)
@@ -105,6 +117,9 @@ def export_transfer_details(
             towarehouse=towarehouse,
             iteminfo=iteminfo,
             productinfo=productinfo,
+            thickness=thickness,
+            width=width,
+            length=length,
         )
     except Exception as error:
         os.unlink(temp_file.name)

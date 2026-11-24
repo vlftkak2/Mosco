@@ -68,7 +68,14 @@ const COLUMNS = [
 const pad = (value) => String(value).padStart(2, '0');
 const dateString = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 const addDays = (days) => { const date = new Date(); date.setDate(date.getDate() + days); return dateString(date); };
-const makeFilters = () => ({ kind: '', status: '', bucket: '', maturity_from: '', maturity_to: '', customer: '', instrumenttype: '', keyword: '' });
+// 오늘 + n개월 (말일 넘침은 그 달 말일로: 11-30 + 3개월 = 02-28)
+const addMonths = (months) => {
+  const now = new Date();
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + months + 1, 0).getDate();
+  return dateString(new Date(now.getFullYear(), now.getMonth() + months, Math.min(now.getDate(), lastDay)));
+};
+// 기본 조회조건: 만기일 오늘 ~ 오늘 + 3개월
+const makeFilters = () => ({ kind: '', status: '', bucket: '', maturity_from: addDays(0), maturity_to: addMonths(3), customer: '', instrumenttype: '', keyword: '' });
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const displayDate = (value) => (value ? String(value).slice(0, 10) : '');
 const formatNumber = (value) => {
@@ -91,12 +98,12 @@ const ddayText = (item) => {
   if (days === 0) return 'D-Day';
   return days > 0 ? `D-${days}` : `D+${-days}`;
 };
-// 카드 → 목록 조건
+// 카드 → 목록 조건 (만기 도래 외에는 지금 만기일 기간을 그대로 둔다: 카드 숫자도 그 기간 기준)
 const CARD_PRESETS = {
-  held: { kind: 'RECEIVABLE', status: 'HELD', bucket: '', maturity_from: '', maturity_to: '' },
+  held: { kind: 'RECEIVABLE', status: 'HELD', bucket: '' },
   due30: { kind: '', status: 'OPEN', bucket: '', maturity_from: '', maturity_to: addDays(30) },
-  unpaid: { kind: 'PAYABLE', status: 'HELD', bucket: '', maturity_from: '', maturity_to: '' },
-  dishonored: { kind: '', status: 'DISHONORED', bucket: '', maturity_from: '', maturity_to: '' },
+  unpaid: { kind: 'PAYABLE', status: 'HELD', bucket: '' },
+  dishonored: { kind: '', status: 'DISHONORED', bucket: '' },
 };
 const matchesPreset = (filters, preset) => Object.entries(preset).every(([key, value]) => (filters[key] || '') === value);
 // 현재 걸린 조건을 사람이 읽는 말로
@@ -231,7 +238,7 @@ export default function InstrumentStatus() {
   }, []);
   const search = useCallback(() => applyFilters({ ...filterInputs }), [applyFilters, filterInputs]);
   const applyPreset = useCallback((preset) => applyFilters({ ...filterInputs, ...preset }), [applyFilters, filterInputs]);
-  const pickBucket = useCallback((bucket, kind) => applyFilters({ ...filterInputs, kind, status: 'OPEN', bucket, maturity_from: '', maturity_to: '' }), [applyFilters, filterInputs]);
+  const pickBucket = useCallback((bucket, kind) => applyFilters({ ...filterInputs, kind, status: 'OPEN', bucket }), [applyFilters, filterInputs]);
   const resetFilters = useCallback(() => applyFilters(makeFilters()), [applyFilters]);
   const onFilterKey = (event) => { if (event.key === 'Enter') search(); };
 
@@ -415,7 +422,7 @@ export default function InstrumentStatus() {
       <Box className={pageClasses.instrumentMain}>
         <Paper className={`${sharedClasses.panel} ${pageClasses.agingPanel}`} withBorder>
           <Group justify="space-between" wrap="nowrap" className={pageClasses.panelHeader}>
-            <Group gap={8} wrap="nowrap"><Text className={classes.sectionTitle} fw={700}>만기 구간별 금액</Text><Text size="xs" c="dimmed">진행 중인 받을 채권·지급 채무 · 전체 기간, 오늘 기준</Text></Group>
+            <Group gap={8} wrap="nowrap"><Text className={classes.sectionTitle} fw={700}>만기 구간별 금액</Text><Text size="xs" c="dimmed">진행 중인 받을 채권·지급 채무 · {filters.maturity_from || filters.maturity_to ? `만기 ${filters.maturity_from || '…'} ~ ${filters.maturity_to || '…'}` : '전체 기간'}</Text></Group>
             <Group gap={14} wrap="nowrap">{SERIES.map((series) => <Group key={series.key} gap={6} wrap="nowrap">
               <span className={pageClasses.legendSwatch} style={{ background: series.color }} /><Text size="xs" c="#52514e">{series.label}</Text></Group>)}</Group>
           </Group>
