@@ -1,3 +1,4 @@
+import { isApprovalPending, notifyApprovalPending } from '../../utils/approval';
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
@@ -1180,6 +1181,12 @@ export default function CustomerPage() {
       );
       if (data.success === false)
         throw new Error(data.message || "저장하지 못했습니다.");
+      // 승인 통제: 승인요청으로 보관됨 (승인되면 반영). 새 거래처는 입력칸을 비워 다시 요청하지 않게
+      if (isApprovalPending(data)) {
+        notifyApprovalPending(data);
+        if (creating) void startNewCustomer();
+        return;
+      }
       const savedCustomer = {
         ...payload,
         customercode: data.customercode || payload.customercode,
@@ -1207,7 +1214,7 @@ export default function CustomerPage() {
     } finally {
       setSaving(false);
     }
-  }, [draft, isNew, refreshAfterWrite]);
+  }, [draft, isNew, refreshAfterWrite, startNewCustomer]);
 
   const downloadTemplate = useCallback(() => {
     // 1번 시트 '거래처' = 업로드할 데이터 (상세 화면 입력 순서), 2번 시트 '작성안내' = 칼럼별 입력 규칙 · 은행 목록
@@ -1409,6 +1416,10 @@ export default function CustomerPage() {
           }, authConfig());
           if (data.success === false)
             throw new Error(data.message || "일괄 등록에 실패했습니다.");
+          if (isApprovalPending(data)) {
+            notifyApprovalPending(data);
+            return;
+          }
           generatedCount = (data.generated_codes || []).length;
         }
         notifications.show({

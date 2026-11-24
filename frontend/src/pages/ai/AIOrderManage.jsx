@@ -34,7 +34,7 @@ const ORDER_COLUMNS = [
   { key: 'duedate', label: '납기일', width: 70, minWidth: 70 },
   { key: 'deliverylocation', label: '납품장소', width: 170, minWidth: 100 },
   { key: 'detailcount', label: '상세건수', width: 60, minWidth: 60 },
-  { key: 'weight', label: '주문중량(KG)', width: 70, minWidth: 70 },
+  { key: 'weight', label: '주문중량(KG)', width: 84, minWidth: 70 },
   { key: 'progress', label: '진행', width: 80, minWidth: 70 },
   { key: 'notes', label: '비고', width: 110, minWidth: 100 },
   { key: 'created_by', label: '등록자', width: 80, minWidth: 70 },
@@ -42,22 +42,24 @@ const ORDER_COLUMNS = [
 ];
 const ORDER_TABLE_MIN_WIDTH = 1315;
 const DETAIL_TABLE_MIN_WIDTH = 1120;
-const DETAIL_COLUMNS = [
+// 재고매칭(현재고 연결) 칼럼: 가공 최적화의 원자재 후보 추천으로 대신해서 숨김. 다시 쓰려면 true (소스는 그대로 둠)
+const SHOW_STOCK_MATCH = false;
+const DETAIL_COLUMNS_ALL = [
   { key: 'select', label: '', width: 40, minWidth: 34 },
   { key: 'lineno', label: '순번', width: 40, minWidth: 40 },
   { key: 'itemname', label: '품명', width: 75, minWidth: 75, required: true },
   { key: 'steelgrade', label: '강종', width: 70, minWidth: 55, required: true },
   { key: 'surface', label: '표면', width: 60, minWidth: 50 },
-  { key: 'thickness', label: '두께', width: 50, minWidth: 50 },
-  { key: 'width', label: '폭', width: 50, minWidth: 50 },
+  { key: 'thickness', label: '두께', width: 50, minWidth: 50, required: true },
+  { key: 'width', label: '폭', width: 50, minWidth: 50, required: true },
   { key: 'length', label: '길이', width: 50, minWidth: 50 },
   { key: 'quantity', label: '수량', width: 50, minWidth: 50, required: true },
-  { key: 'weight_kg', label: '중량(KG)', width: 50, minWidth: 50, required: true },
+  { key: 'weight_kg', label: '중량(KG)', width: 72, minWidth: 60, required: true },
   { key: 'stock', label: '재고매칭', width: 120, minWidth: 80 },
   { key: 'progress', label: '진행', width: 80, minWidth: 70 },
-  { key: 'work', label: '작업', width: 70, minWidth: 70 },
   { key: 'notes', label: '비고', width: 125, minWidth: 80 },
 ];
+const DETAIL_COLUMNS = DETAIL_COLUMNS_ALL.filter((column) => SHOW_STOCK_MATCH || column.key !== 'stock');
 const createDefaultOrderFilters = (orderNo = '', orderDate = '') => {
   const hasOrderDate = /^\d{4}-\d{2}-\d{2}$/.test(orderDate);
   return {
@@ -147,6 +149,8 @@ const stockSize = (source) => [source.thickness, source.width, source.length]
   .join(' × ');
 // 주문 진행 (품목 진행상태를 모은 값) · 품목 진행상태는 가공 최적화가 관리한다
 const DRAFT_ID = '__draft__';
+// 주문 상세 캐시 (주문 클릭 시 바로 표시 · 뒤에서 항상 다시 받아 갱신)
+const orderDetailCache = new Map();
 const ORDER_PROGRESS = {
   DRAFT: { label: '저장 전', tone: 'orange' },
   NONE: { label: '미전송', tone: 'gray' }, PARTIAL: { label: '일부 전송', tone: 'orange' },
@@ -182,7 +186,7 @@ function Badge({ value, tone = 'blue' }) {
 // 진행 상태 안내 (서버 상태 변경 규칙 기준: AIOrderManage.py · AIOrderOptimization.py)
 const LINE_PROGRESS_GUIDE = [
   { tone: 'gray', label: '미전송', desc: '가공 최적화 요청 전 품목',
-    lines: ['품목 정보 수정, 삭제, 재고매칭을 할 수 있습니다.', <><b>[가공 최적화로 보내기]</b> 시 최적화 대기로 전환됩니다.</>] },
+    lines: ['품목 정보 수정, 삭제를 할 수 있습니다.', <><b>[가공 최적화로 보내기]</b> 시 최적화 대기로 전환됩니다.</>] },
   { tone: 'blue', label: '최적화 대기', desc: '가공 최적화 요청 완료, 계획 수립 대기',
     lines: ['품목 정보가 잠기며 수정할 수 없습니다.',
       <><b>[보내기 취소]</b> 또는 가공 최적화의 <b>[돌려보내기]</b> 시 미전송으로 전환됩니다. 계획에 포함된 품목은 계획을 먼저 삭제해야 합니다.</>,
@@ -318,7 +322,9 @@ export default function AIOrderManage() {
     const picked = selectedItemKeys.length ? itemDrafts.filter((row) => selectedItemKeys.includes(row._rowKey)) : itemDrafts;
     return {
       send: picked.some((row) => row.lineno && row.optimize_status === 'NONE'),
-      recall: picked.some((row) => row.lineno && row.optimize_status === 'WAITING'),
+      // 가공 최적화에서 임시저장 · 계획확정한 계획에 들어간 품목은 되돌릴 수 없다 (계획을 먼저 삭제 · 취소)
+      recall: picked.some((row) => row.lineno && row.optimize_status === 'WAITING' && !row.plan),
+      recallInPlan: picked.some((row) => row.lineno && row.optimize_status === 'WAITING' && row.plan),
     };
   }, [itemDrafts, selectedItemKeys]);
   const detailWeight = useMemo(() => itemDrafts.reduce((sum, item) => {
@@ -512,10 +518,12 @@ export default function AIOrderManage() {
       return undefined;
     }
     let active = true;
-    setDetail(null);
-    setDetailLoading(true);
+    // 한 번 본 주문은 바로 보여 주고(빈 화면 없음) 뒤에서 최신으로 다시 받는다
+    const cached = orderDetailCache.get(selectedId);
+    setDetail(cached || null);
+    setDetailLoading(!cached);
     axios.get(`/api/ai-order/confirmed/${encodeURIComponent(selectedId)}`, authConfig())
-      .then(({ data }) => { if (active) setDetail(data); })
+      .then(({ data }) => { orderDetailCache.set(selectedId, data); if (active) setDetail(data); })
       .catch((error) => { if (active) notify(errorMessage(error, '주문 상세를 불러오지 못했습니다.'), '주문 상세 조회 실패', 'red'); })
       .finally(() => { if (active) setDetailLoading(false); });
     return () => { active = false; };
@@ -650,6 +658,7 @@ export default function AIOrderManage() {
 
   // 주문 상세의 연결 재고 한 건 해제 (재고매칭 저장 API 그대로: 남은 연결만 다시 저장 → 서버의 잠금 · 재고 검사 동일)
   const [unlinkingKey, setUnlinkingKey] = useState(null);
+  const [openMatchKey, setOpenMatchKey] = useState(null);   // 연결 재고 팝오버 (한 번에 하나)
   const unlinkStockMatch = async (item, match) => {
     if (!selectedId || !item?.lineno || isLocked(item) || unlinkingKey !== null) return;
     const removeKey = stockKey(match);
@@ -719,7 +728,7 @@ export default function AIOrderManage() {
     if (!selectedOrder || saving || detailLoading) return;
     if (hasUnsavedItems()) return notify('저장하지 않은 상세 변경이 있습니다. 먼저 저장해 주세요.', '상세 저장 필요');
     const picked = selectedItemKeys.length ? itemDrafts.filter((row) => selectedItemKeys.includes(row._rowKey)) : itemDrafts;
-    const targets = picked.filter((row) => row.lineno && row.optimize_status === (send ? 'NONE' : 'WAITING'));
+    const targets = picked.filter((row) => row.lineno && row.optimize_status === (send ? 'NONE' : 'WAITING') && (send || !row.plan));
     if (!targets.length) {
       return notify(send ? '보낼 수 있는 품목이 없습니다. (이미 보낸 품목은 제외됩니다)' : '되돌릴 수 있는 품목이 없습니다. 최적화 대기 품목만 되돌릴 수 있습니다.', '품목 확인');
     }
@@ -728,8 +737,8 @@ export default function AIOrderManage() {
       const { data } = await axios.post(`/api/ai-order/confirmed/${encodeURIComponent(selectedOrder.orderid)}/${send ? 'send-to-optimization' : 'recall-from-optimization'}`,
         { linenos: targets.map((row) => row.lineno) }, authConfig());
       setSelectedItemKeys([]);
-      notify(send ? `${number(data?.changed?.length)}개 품목을 가공 최적화로 보냈습니다.` : `${number(data?.changed?.length)}개 품목을 되돌렸습니다.`,
-        send ? '가공 최적화로 보내기 완료' : '보내기 취소 완료', 'teal');
+      if (send) setModal({ type: 'sent-next', orderid: selectedOrder.orderid, count: data?.changed?.length || targets.length });
+      else notify(`${number(data?.changed?.length)}개 품목을 되돌렸습니다.`, '보내기 취소 완료', 'teal');
       await loadOrders();
       const response = await axios.get(`/api/ai-order/confirmed/${encodeURIComponent(selectedOrder.orderid)}`, authConfig());
       setDetail(response.data);
@@ -770,6 +779,26 @@ export default function AIOrderManage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // AI 주문서 인식 없이 수기로 주문 시작 (리본 [추가]): '저장 전 · 수기' 주문을 만들고 주문 정보 창을 연다.
+  // 품목은 주문 상세 [+ 품목 추가]로 넣고 [저장]하면 /api/ai-order/confirmed/manual 로 저장된다 (이후 흐름은 AI 주문과 같음)
+  const startManualOrder = () => {
+    if (orderDraft) {
+      setSelectedId(DRAFT_ID);
+      return notify('저장하지 않은 주문이 있습니다. 먼저 [저장]하거나 [삭제]로 취소한 뒤 새 주문을 추가해 주세요.', '저장 전 주문 확인');
+    }
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const draft = { manual: true, header: { order_date: today, buyer: null, recipient: null, due_date: null, delivery_location: null },
+      items: [{ source_product_name: '', steel_grade: '', surface: '', spec_raw: '', thickness: null, width: null, length: null,
+        quantity: null, quantity_unit: '', weight_kg: null, notes: '' }] };
+    writeAIOrderDraft(draft);
+    setOrderDraft(draft);
+    setSelectedItemKeys([]);
+    setSelectedId(DRAFT_ID);
+    setModal({ type: 'edit', buyer: '', recipient: '', orderDate: today, due: '', place: '' });
+    notify('주문 정보를 입력한 뒤 품목을 넣고 [저장]해 주세요.', '수기 주문 추가', 'teal');
   };
 
   const addItemDraft = () => {
@@ -864,6 +893,9 @@ export default function AIOrderManage() {
     const rows = [];
     const activeDrafts = itemDrafts.filter((row) => row.lineno || ['itemname', 'steelgrade', 'surface', 'thickness', 'width', 'length', 'quantity', 'weight_kg', 'notes']
       .some((key) => String(row[key] ?? '').trim()));
+    // 추가했는데 아무것도 입력하지 않은 행: 조용히 빼고 저장하지 않고 막는다
+    const blankRows = itemDrafts.filter((row) => !activeDrafts.includes(row)).map((row) => `${itemDrafts.indexOf(row) + 1}행`);
+    if (blankRows.length) return notify(`${blankRows.slice(0, 5).join(', ')}${blankRows.length > 5 ? ` 외 ${blankRows.length - 5}건` : ''}이 비어 있습니다. 값을 입력하거나 행을 삭제해 주세요.`, '빈 품목 행');
     // 필수값: 품명 · 강종 · 수량 · 중량 (보낸 품목은 잠겨 있어 제외)
     const missingRows = activeDrafts.filter((row) => !isLocked(row)).map((row) => {
       const missing = [['itemname', '품명'], ['steelgrade', '강종'], ['quantity', '수량'], ['weight_kg', '중량']]
@@ -902,14 +934,27 @@ export default function AIOrderManage() {
       rows.push(converted);
     }
 
+    // 정합성 검사 ① 막는 검사: 두께 · 폭 필수, 두께 · 폭 · 수량 · 중량 > 0 (서버도 같은 검사)
+    const editableRows = rows.filter((row) => !isLocked(row));
+    const rowNo = (row) => itemDrafts.findIndex((draft) => draft._rowKey === row._rowKey) + 1;
+    const hardErrors = editableRows.map((row) => {
+      const problems = [];
+      if (!(row.thickness > 0)) problems.push(row.thickness === null ? '두께 없음' : '두께 0');
+      if (!(row.width > 0)) problems.push(row.width === null ? '폭 없음' : '폭 0');
+      if (row.quantity !== null && !(row.quantity > 0)) problems.push('수량 0');
+      if (row.weight_kg !== null && !(row.weight_kg > 0)) problems.push('중량 0');
+      return problems.length ? `${rowNo(row)}행 ${problems.join(', ')}` : null;
+    }).filter(Boolean);
+    if (hardErrors.length) {
+      return notify(`${hardErrors.slice(0, 5).join(' / ')} · 두께 · 폭은 필수이고, 수량 · 중량 · 두께 · 폭은 0보다 커야 합니다.`, '입력값 확인');
+    }
     if (selectedOrder.isDraft) {
       if (!rows.length) return notify('상세 품목을 1건 이상 입력해 주세요.', '상세 확인');
       setSaving(true);
       try {
-        const { data } = await axios.post('/api/ai-order/confirmed', {
-          analysis_request_id: orderDraft.analysis_request_id,
-          sourcefilename: orderDraft.sourcefilename,
-          force_new: forceNew,
+        const manual = Boolean(orderDraft.manual);
+        const { data } = await axios.post(manual ? '/api/ai-order/confirmed/manual' : '/api/ai-order/confirmed', {
+          ...(manual ? {} : { analysis_request_id: orderDraft.analysis_request_id, sourcefilename: orderDraft.sourcefilename, force_new: forceNew }),
           header: orderDraft.header,
           items: rows.map((row) => ({
             source_product_name: row.itemname || null, steel_grade: row.steelgrade || null, surface: row.surface || null,
@@ -1023,7 +1068,7 @@ export default function AIOrderManage() {
     showPrint: false,
     useSaveColor: false,
     onSearch: () => applySearch(),
-    onAdd: selectedOrder && !detailLoading ? addItemDraft : undefined,
+    onAdd: !saving ? startManualOrder : undefined,   // 새 주문(수기) · 품목 행 추가는 주문 상세 [+ 품목 추가]
     onDelete: selectedOrder && !saving ? requestDelete : undefined,
     onSave: selectedOrder && !saving && !detailLoading ? () => saveItemEdits(false) : undefined,
   });
@@ -1032,7 +1077,7 @@ export default function AIOrderManage() {
     if (!modal || !selectedOrder) return null;
     if (modal.type === 'delete-order') return <ConfirmDeleteModal opened onClose={() => setModal(null)} onConfirm={() => void deleteOrder()} loading={saving}
       title={selectedOrder.isDraft ? '주문을 취소할까요?' : '주문을 삭제할까요?'} target={selectedOrder.isDraft ? '저장 전 주문' : selectedOrder.orderid}
-      message={selectedOrder.isDraft ? '저장하지 않은 주문을 취소합니다. AI 주문서인식의 분석 결과는 그대로 남아 있어 다시 넘길 수 있습니다.' : '주문과 상세 내역이 모두 삭제되며'}
+      message={selectedOrder.isDraft ? (orderDraft?.manual ? '입력 중인 수기 주문을 저장하지 않고 취소합니다.' : '저장하지 않은 주문을 취소합니다. AI 주문서인식의 분석 결과는 그대로 남아 있어 다시 넘길 수 있습니다.') : '주문과 상세 내역이 모두 삭제되며'}
       note={selectedOrder.isDraft ? '' : '삭제한 주문은 복구할 수 없습니다.'} />;
     if (modal.type === 'stock-match') {
       const targetItem = itemDrafts.find((item) => item.lineno === modal.lineno);
@@ -1052,7 +1097,7 @@ export default function AIOrderManage() {
       const selectedWarehouseName = selectedWarehouse ? (selectedWarehouse.warehousecodename || selectedWarehouse.warehouse || selectedWarehouse.warehousecode || '창고 없음') : '';
       const filterInput = (field, label, width, numericProps) => <TextInput size="sm" label={label} style={{ width }} {...numericProps}
         value={modal.filters?.[field] ?? ''} onChange={setFilter(field)} disabled={modal.saving} />;
-      return <PickerModal opened onClose={() => setModal(null)} closeDisabled={modal.saving}
+      return <PickerModal look="saas" opened onClose={() => setModal(null)} closeDisabled={modal.saving}
         title="재고 선택" description="주문 상세에 연결할 현재고를 고릅니다." icon={<IconPackages size={22} stroke={1.7} />}
         filters={<form style={{ display: 'contents' }} onSubmit={(event) => { event.preventDefault(); searchStockCandidates(); }}>
           <ItemNameAutocomplete value={modal.filters?.name ?? ''} exact={Boolean(modal.filters?.nameExact)} disabled={modal.saving}
@@ -1139,6 +1184,15 @@ export default function AIOrderManage() {
           </tbody></table>
       </PickerModal>;
     }
+    if (modal.type === 'sent-next') {
+      return <ConfirmActionModal opened onClose={() => setModal(null)} tone="red"
+        icon={<IconCheck size={24} stroke={2} />} title="가공 최적화로 보냈습니다" target={`${modal.count}개 품목`}
+        message="지금 가공 최적화에서 이어서 계획할까요?"
+        actions={[
+          { label: '나중에', kind: 'cancel', onClick: () => setModal(null) },
+          { label: '가공 최적화로 이동', kind: 'confirm', autoFocus: true, onClick: () => { setModal(null); navigate(`/AIOrderOptimization?orderid=${encodeURIComponent(modal.orderid)}`); } },
+        ]} />;
+    }
     if (modal.type === 'duplicate-order') {
       // 같은 발주서(AI 분석 결과)로 이미 저장된 주문이 있을 때
       const openExisting = () => {
@@ -1174,7 +1228,7 @@ export default function AIOrderManage() {
             <label className={manageClasses.field}>발주처<input value={modal.buyer} placeholder="발주처" onChange={setField('buyer')} data-autofocus /></label>
             <label className={manageClasses.field}>수신처<input value={modal.recipient} placeholder="수신처" onChange={setField('recipient')} /></label>
             <label className={manageClasses.field}>발주일자<input type="date" value={modal.orderDate} onChange={setField('orderDate')} /></label>
-            <label className={manageClasses.field}>납기일자<input type="date" value={modal.due} onChange={setField('due')} /></label>
+            <label className={manageClasses.field}><span>납기일자<span style={{ color: '#e0434b', marginLeft: 2 }}>*</span></span><input type="date" value={modal.due} onChange={setField('due')} /></label>
           </div>
         </div>
         <div className={manageClasses.section}>
@@ -1197,6 +1251,8 @@ export default function AIOrderManage() {
           <Text component="span" className={inboundClasses.breadcrumbParent}>가공관리</Text>
           <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
           <Text component="span" className={inboundClasses.breadcrumbCurrent}>가공주문관리</Text>
+          {/* 화면 안내: 메뉴 이름 바로 옆 (가공최적화와 같은 자리) */}
+          <button type="button" className={`${manageClasses.guideLink} ${manageClasses.guideLinkCrumb}`} onClick={() => setGuideOpen(true)}><IconHelpCircle size={14} stroke={2} />진행 상태 안내</button>
         </Group>
         {!filterOpen && <Button className={inboundClasses.receiptFilterToggle} variant="subtle" size="xs"
           leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
@@ -1205,15 +1261,15 @@ export default function AIOrderManage() {
       <Box className={`${inboundClasses.inboundWorkspace} ${classes.orderWorkspace}`}>
         <Box className={`${inboundClasses.inboundPrimaryColumn} ${classes.orderPrimaryColumn}`}>
       <section className={`${classes.panel} ${classes.ordersPanel}`}>
-        <header className={classes.panelHeader}><strong>주문 기본</strong><span className={classes.count}>{number(total)}건</span><button type="button" className={manageClasses.guideTrigger} onClick={() => setGuideOpen(true)}><IconHelpCircle size={15} stroke={2} />진행 상태 안내</button>{loading && <small>주문을 불러오는 중입니다.</small>}<button type="button" className={`${manageClasses.btn} ${manageClasses.btnDark} ${manageClasses.pushRight}`} onClick={openEdit} disabled={!selectedOrder}>주문변경</button>
+        <header className={classes.panelHeader}><strong>주문 기본</strong><span className={classes.count}>{number(total)}건</span>{loading && <small>주문을 불러오는 중입니다.</small>}<button type="button" className={`${manageClasses.btn} ${manageClasses.btnDark} ${manageClasses.pushRight}`} onClick={openEdit} disabled={!selectedOrder}>주문변경</button>
           {/* 선택한 주문의 최적화 대기 품목을 가공 최적화에서 바로 연다 */}
-          <button type="button" className={`${manageClasses.btn} ${manageClasses.btnBlue}`}
+          <button type="button" className={`${manageClasses.btn} ${manageClasses.btnPrimary}`}
             disabled={!selectedOrder || selectedOrder.isDraft || !['PARTIAL', 'SENT'].includes(selectedOrder.progress)}
             title={selectedOrder && !['PARTIAL', 'SENT'].includes(selectedOrder.progress) ? '가공 최적화로 보낸 품목이 없습니다' : '선택한 주문의 대기 품목으로 가공 최적화를 엽니다'}
             onClick={() => navigate(`/AIOrderOptimization?orderid=${encodeURIComponent(selectedOrder.orderid)}`)}>가공 최적화 이동</button></header>
-        <div ref={ordersScrollRef} className={`${classes.tableScroll} ${classes.ordersScroll}`} onScroll={syncScrollbarFromOrders}><table className={classes.ordersTable} style={{ width: `max(100%, ${orderTableWidth}px)`, minWidth: `${orderTableWidth}px` }}><colgroup>{ORDER_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${orderColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{ORDER_COLUMNS.map((column) => <th key={column.key} className={classes.resizableHeader} style={{ width: orderColumnWidths[column.key] ?? column.width }}><span>{column.label}</span><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'orders', column)} role="separator" aria-label={`Resize ${column.label} column`} /></th>)}</tr></thead>
+        <div ref={ordersScrollRef} className={`${classes.tableScroll} ${classes.ordersScroll}`} onScroll={syncScrollbarFromOrders}><table className={classes.ordersTable} style={{ width: `max(100%, ${orderTableWidth}px)`, minWidth: `${orderTableWidth}px` }}><colgroup>{ORDER_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${orderColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{ORDER_COLUMNS.map((column) => <th key={column.key} className={`${classes.resizableHeader} ${column.key === 'progress' ? classes.center : ''}`} style={{ width: orderColumnWidths[column.key] ?? column.width }}><span>{column.label}</span><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'orders', column)} role="separator" aria-label={`Resize ${column.label} column`} /></th>)}</tr></thead>
           <tbody>{displayOrders.length ? displayOrders.map((order) => <tr key={order.orderid} data-orderid={order.orderid} className={order.orderid === selectedId ? classes.selectedRow : ''} onClick={() => setSelectedId(order.orderid)}>
-            <td>{dateText(order.orderdate)}</td><td>{order.isDraft ? <Badge value="저장 전" tone="orange" /> : order.orderid}</td><td>{order.buyer || ''}</td><td>{order.recipient || ''}</td><td>{dateText(order.duedate)}</td><td title={order.deliverylocation || ''}>{order.deliverylocation || ''}</td><td className={classes.center}>{number(order.item_count)}</td><td className={classes.numeric}>{number(order.total_weight)}</td><td><Badge value={(ORDER_PROGRESS[order.progress] || ORDER_PROGRESS.NONE).label} tone={(ORDER_PROGRESS[order.progress] || ORDER_PROGRESS.NONE).tone} /></td><td>{order.notes || ''}</td><td>{order.created_by || ''}</td><td>{order.updated_by || ''}</td></tr>
+            <td>{dateText(order.orderdate)}</td><td>{order.isDraft ? <Badge value={orderDraft?.manual ? '저장 전 · 수기' : '저장 전'} tone="orange" /> : <>{order.orderid}{order.manual && <span className={manageClasses.manualTag} title="AI 주문서 인식 없이 수기로 입력한 주문">수기</span>}</>}</td><td>{order.buyer || ''}</td><td>{order.recipient || ''}</td><td>{dateText(order.duedate)}</td><td title={order.deliverylocation || ''}>{order.deliverylocation || ''}</td><td className={classes.center}>{number(order.item_count)}</td><td className={classes.numeric}>{number(order.total_weight)}</td><td className={classes.center}><Badge value={(ORDER_PROGRESS[order.progress] || ORDER_PROGRESS.NONE).label} tone={(ORDER_PROGRESS[order.progress] || ORDER_PROGRESS.NONE).tone} /></td><td>{order.notes || ''}</td><td>{order.created_by || ''}</td><td>{order.updated_by || ''}</td></tr>
           ) : <tr><td colSpan={ORDER_COLUMNS.length} className={classes.empty}>{loading ? '주문을 불러오는 중입니다.' : '조회된 확정 주문이 없습니다.'}</td></tr>}</tbody></table></div>
         <div ref={ordersHorizontalScrollRef} className={classes.ordersHorizontalScroll} onScroll={syncOrdersFromScrollbar} aria-label="주문 기본 가로 스크롤">
           <div className={classes.ordersHorizontalContent} style={{ width: `max(100%, ${orderTableWidth}px)` }} />
@@ -1230,15 +1286,24 @@ export default function AIOrderManage() {
       <section className={`${classes.panel} ${classes.detailPanel}`}>
         <header className={classes.panelHeader}><strong>주문 상세</strong><span className={`${classes.count} ${isDraftSelected ? classes.orange : classes.blue}`}>{isDraftSelected ? '저장 전 · 확인 후 [저장]' : selectedOrder?.orderid || '주문을 선택하세요'}</span>
           <Group gap={6} wrap="nowrap" className={classes.detailHeaderActions}>
-            <button type="button" className={`${manageClasses.btn} ${manageClasses.btnGray}`} onClick={() => void changeOptimizeStatus(false)}
-              disabled={!selectedOrder || saving || detailLoading || !optimizeTargets.recall}
-              title="최적화 대기 품목을 주문서 관리로 되돌립니다 (선택 없으면 전체)">보내기 취소</button>
-            <button type="button" className={`${manageClasses.btn} ${manageClasses.btnPrimary}`} onClick={() => void changeOptimizeStatus(true)}
-              disabled={!selectedOrder || saving || detailLoading || !optimizeTargets.send}
-              title="선택한 품목을 가공 최적화로 보냅니다 (선택 없으면 미전송 전체)">가공 최적화로 보내기</button>
+            <button type="button" className={`${manageClasses.btn} ${manageClasses.btnDark}`} onClick={addItemDraft}
+              disabled={!selectedOrder || saving || detailLoading} title="주문 상세에 품목 행을 추가합니다 (입력 후 [저장])">+ 품목 추가</button>
+            {/* 보내기 · 보내기 취소 한 버튼: 보낼 품목(미전송)이 있으면 [가공 최적화로 보내기], 없으면 [보내기 취소] (계획에 들어간 품목 · 되돌릴 품목 없음은 비활성) */}
+            {(() => {
+              const sendMode = optimizeTargets.send || !itemDrafts.some((row) => row.lineno && row.optimize_status !== 'NONE');
+              const enabled = sendMode ? optimizeTargets.send : optimizeTargets.recall;
+              const title = sendMode
+                ? '선택한 품목을 가공 최적화로 보냅니다 (선택 없으면 미전송 전체). 보낸 품목을 되돌리려면 그 품목만 체크하면 [보내기 취소]로 바뀝니다.'
+                : optimizeTargets.recall ? '최적화 대기 품목을 주문서 관리로 되돌립니다 (선택 없으면 전체)'
+                  : optimizeTargets.recallInPlan ? '가공 최적화에서 임시저장 · 계획확정한 품목은 되돌릴 수 없습니다. 가공 최적화에서 계획을 삭제 · 취소해 주세요.'
+                    : '되돌릴 최적화 대기 품목이 없습니다 (계획확정 · 가공완료 품목)';
+              return <button type="button" className={`${manageClasses.btn} ${sendMode ? manageClasses.btnPrimary : manageClasses.btnGray}`}
+                onClick={() => void changeOptimizeStatus(sendMode)} disabled={!selectedOrder || saving || detailLoading || !enabled} title={title}>
+                {sendMode ? '가공 최적화로 보내기' : '보내기 취소'}</button>;
+            })()}
           </Group>
         </header>
-        <div className={`${classes.tableScroll} ${classes.detailsScroll}`}><table className={classes.detailsTable} style={{ width: `max(100%, ${detailTableWidth}px)`, minWidth: `${detailTableWidth}px` }}><colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{DETAIL_COLUMNS.map((column) => column.key === 'select' ? <th key={column.key} className={`${classes.checkColumn} ${classes.resizableHeader}`} style={{ width: detailColumnWidths[column.key] ?? column.width }}><input type="checkbox" aria-label="Select all order details" checked={itemDrafts.length > 0 && selectedItemKeys.length === itemDrafts.length} onChange={toggleAllItemSelection} disabled={!itemDrafts.length || detailLoading} /><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'details', column)} role="separator" aria-label="Resize selection column" /></th> : <th key={column.key} className={classes.resizableHeader} style={{ width: detailColumnWidths[column.key] ?? column.width }}><span>{column.label}{column.required && <span className={classes.requiredMark}> *</span>}</span><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'details', column)} role="separator" aria-label={`Resize ${column.label} column`} /></th>)}</tr></thead>
+        <div className={`${classes.tableScroll} ${classes.detailsScroll}`}><table className={classes.detailsTable} style={{ width: `max(100%, ${detailTableWidth}px)`, minWidth: `${detailTableWidth}px` }}><colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{DETAIL_COLUMNS.map((column) => column.key === 'select' ? <th key={column.key} className={`${classes.checkColumn} ${classes.resizableHeader}`} style={{ width: detailColumnWidths[column.key] ?? column.width }}><input type="checkbox" aria-label="Select all order details" checked={itemDrafts.length > 0 && selectedItemKeys.length === itemDrafts.length} onChange={toggleAllItemSelection} disabled={!itemDrafts.length || detailLoading} /><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'details', column)} role="separator" aria-label="Resize selection column" /></th> : <th key={column.key} className={`${classes.resizableHeader} ${column.key === 'progress' ? classes.center : ''}`} style={{ width: detailColumnWidths[column.key] ?? column.width }}><span>{column.label}{column.required && <span className={classes.requiredMark}> *</span>}</span><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'details', column)} role="separator" aria-label={`Resize ${column.label} column`} /></th>)}</tr></thead>
           <tbody>{itemDrafts.length ? itemDrafts.map((item, index) => <tr key={item._rowKey} className={selectedItemKeys.includes(item._rowKey) ? classes.selectedDetailRow : ''}>
             <td className={classes.checkColumn}><input type="checkbox" aria-label={`${index + 1}행 선택`} checked={selectedItemKeys.includes(item._rowKey)} onChange={(event) => toggleItemSelection(item._rowKey, event.nativeEvent.shiftKey)} /></td>
             <td className={`${classes.center} ${classes.detailTextCell}`}>{index + 1}</td>
@@ -1280,10 +1345,12 @@ export default function AIOrderManage() {
             <td className={classes.numeric}>{detailInput(item, 'length', true, index)}</td>
             <td className={classes.numeric}>{detailInput(item, 'quantity', true, index)}</td>
             <td className={classes.numeric}>{detailInput(item, 'weight_kg', true, index)}</td>
-            <td className={classes.detailTextCell}>{item.stock_matches?.length
-              ? <Popover position="bottom-start" withArrow shadow="sm" withinPortal>
+            {SHOW_STOCK_MATCH && <td className={classes.detailTextCell}>{item.stock_matches?.length
+              ? <Popover position="bottom-start" withArrow shadow="sm" withinPortal opened={openMatchKey === item._rowKey}
+                onChange={(opened) => setOpenMatchKey(opened ? item._rowKey : null)}>
                 <Popover.Target>
-                  <button type="button" className={classes.stockMatchTrigger} title="연결된 재고 확인">
+                  <button type="button" className={classes.stockMatchTrigger} title="연결된 재고 확인"
+                    onClick={() => setOpenMatchKey((current) => (current === item._rowKey ? null : item._rowKey))}>
                     <span>{item.stock_matches?.length
                       ? `${item.stock_matches[0].itemname || item.stock_matches[0].productname || item.stock_matches[0].sourceno}${stockSize(item.stock_matches[0]) ? ` ${stockSize(item.stock_matches[0])}` : ''}${item.stock_matches.length > 1 ? ` 외 ${item.stock_matches.length - 1}건` : ''}`
                       : '연결 재고 확인'}</span>
@@ -1312,14 +1379,16 @@ export default function AIOrderManage() {
                       <div className={classes.stockMatchMeta}>{meta || '품명 정보 없음'}</div>
                     </div>;
                   })}
+                  {!isLocked(item) && <button type="button" className={manageClasses.matchChangeButton} onClick={() => { setOpenMatchKey(null); void openStockMatcher(item); }}>재고 변경 · 추가</button>}
                 </Popover.Dropdown>
               </Popover>
-              : <span className={classes.unmatchedStock}>미선택</span>}</td>
-            <td className={classes.detailTextCell}>{LINE_PROGRESS[item.optimize_status]
+              : !item.lineno ? <span className={classes.unmatchedStock} title="품목을 저장한 뒤 재고를 연결할 수 있습니다">저장 후 연결</span>
+              : isLocked(item) ? <span className={classes.unmatchedStock}>미선택</span>
+              : <button type="button" className={manageClasses.matchAddChip} onClick={() => void openStockMatcher(item)} disabled={detailLoading}
+                title="이 품목에 쓸 현재고를 고릅니다">+ 재고 연결</button>}</td>}
+            <td className={`${classes.detailTextCell} ${classes.center}`}>{LINE_PROGRESS[item.optimize_status]
               ? <Badge value={LINE_PROGRESS[item.optimize_status].label} tone={LINE_PROGRESS[item.optimize_status].tone} />
               : <span className={classes.unmatchedStock}>미전송</span>}</td>
-            <td className={classes.center}><button type="button" className={manageClasses.rowMatchButton} onClick={() => void openStockMatcher(item)} disabled={!item.lineno || detailLoading || isLocked(item)}
-              title={isLocked(item) ? '가공 최적화로 보낸 품목은 재고매칭을 바꿀 수 없습니다.' : undefined}>재고매칭</button></td>
             <td title={item.notes || ''}>{detailInput(item, 'notes', false, index)}</td>
           </tr>)
             : <tr><td colSpan={DETAIL_COLUMNS.length} className={classes.empty}>{selectedOrder ? (detailLoading ? '상세 품목을 불러오는 중입니다.' : '상세 품목이 없습니다. 행 추가로 품목을 등록하세요.') : '주문을 선택하세요.'}</td></tr>}</tbody></table></div>

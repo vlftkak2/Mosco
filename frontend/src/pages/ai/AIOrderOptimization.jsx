@@ -77,7 +77,10 @@ const badge = (tone) => `${m.status} ${m[`status_${tone || 'gray'}`] || m.status
 const btn = (...kinds) => [m.btn, ...kinds.map((kind) => m[kind])].join(' ');
 const STOCK_LOCK_TIP = '현재고 값입니다. 바꾸려면 재고를 수정해 주세요. 가공할 양은 가공방식(일부가공 · 등분)으로 정합니다.';
 const MODAL_LOOK = { content: m.mModalContent, header: m.mModalHeader, title: m.mModalTitle, body: m.mModalBody };
-const PLAN_STATUS = { DRAFT: { label: '임시저장', tone: 'blue' }, CONFIRMED: { label: '계획확정', tone: 'green' }, CANCELLED: { label: '취소', tone: '' }, DONE: { label: '가공완료', tone: 'green' } };
+// 계산 결과 캐시: 단독 ↔ 혼합처럼 같은 조건을 다시 고르면 서버를 기다리지 않고 바로 보여 준다 (30초 · 저장 · 취소 · 수정 시 비움)
+const ANALYZE_TTL = 30 * 1000;
+const analyzeCache = new Map();
+const PLAN_STATUS = { DRAFT: { label: '임시저장', tone: 'blue' }, CONFIRMED: { label: '계획확정', tone: 'orange' }, CANCELLED: { label: '취소', tone: '' }, DONE: { label: '가공완료', tone: 'green' } };
 // newcandidates = ② 직접 입력·매입이력 후보, excluded_raw = ② 목록에서 뺀 후보, extrawidths/extralengths = ④ 가공 후보, history_patterns = ④ 가공이력 반영(여러 개)
 const DEFAULT_SETTINGS = { combo: 'SINGLE', processmode: 'ONE', trimloss: 4, orientation: 'NORMAL', newcandidates: [], excluded_raw: [], extrawidths: [], extralengths: [], history_patterns: [] };
 // 대기 품목 · 계획 불러오기 창 열 (공용 선택 창 틀 · 열 너비 조절)
@@ -125,7 +128,7 @@ const TARGET_COLUMNS = [   // 너비 = 가장 긴 값(예: 신영정밀금속 ·
   { key: 'need_amount', label: '필요', width: 84, minWidth: 66, align: 'right', unit: true },
   { key: 'warehouse', label: '창고', width: 160, minWidth: 90 },
   { key: 'order', label: '주문번호', width: 150, minWidth: 100 },
-  { key: 'status', label: '상태', width: 100, minWidth: 64 },   // [대기] [빼기] 한 줄. [확인 필요][수정][빼기]는 줄바꿈
+  { key: 'status', label: '상태', width: 96, minWidth: 64 },   // 점 + 글자 (값 확인은 [입력] 링크). 목록에서 빼기는 맨 끝 × 칸
   { key: 'duedate', label: '납기일', width: 96, minWidth: 80 },
 ];
 const CANDIDATE_COLUMNS = [
@@ -687,6 +690,9 @@ export default function AIOrderOptimization() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [analysis, setAnalysis] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const recommendRef = useRef(null);
+  const [lockHeight, setLockHeight] = useState(0);
+  useEffect(() => { if (!analyzing && lockHeight) { const id = requestAnimationFrame(() => setLockHeight(0)); return () => cancelAnimationFrame(id); } return undefined; }, [analyzing, lockHeight]);
   const [planId, setPlanId] = useState(null);   // null = 추천안 (코일은 A안, 시트는 로스가 적은 방향 안)
   const [activePlan, setActivePlan] = useState(null); // { planno, status, detail }
   const [saving, setSaving] = useState(false);
@@ -699,7 +705,7 @@ export default function AIOrderOptimization() {
   const requestRef = useRef(0);
   const delayRef = useRef(0); // 다음 계산까지 기다릴 시간 (숫자 입력 중에만 잠깐 기다림)
   const targetWidths = useColumnWidths();
-  const queuePickerColumnsDef = useMemo(() => [...QUEUE_PICKER_COLUMNS, ...TARGET_COLUMNS.filter((column) => !column.sheetOnly || material === 'SHEET')], [material]);
+  const queuePickerColumnsDef = useMemo(() => [...QUEUE_PICKER_COLUMNS, ...TARGET_COLUMNS.filter((column) => column.key !== 'mark' && (!column.sheetOnly || material === 'SHEET'))], [material]);
   const queuePickerColumns = useResizableColumns(queuePickerColumnsDef);
   const planPickerColumns = useResizableColumns(PLAN_PICKER_COLUMNS);
   const [planPicked, setPlanPicked] = useState('');
@@ -731,8 +737,14 @@ export default function AIOrderOptimization() {
         if (!lines.length && plannos.length === 1) void openPlan(plannos[0]);
         else if (lines.length && !plannos.length && grouped.groups.length === 1 && !grouped.excluded.length) startGroup(grouped.groups[0]);
         else if (lines.length || plannos.length) {
-          const inPlans = orderRows.filter((row) => planOf(row)).map((row) => ({ row, reason: `${planLabel(planOf(row))} 계획에 포함` }));
-          setOrderGroups({ orderid, groups: grouped?.groups || [], excluded: [...(grouped?.excluded || []), ...inPlans] });
+          // 계획(임시저장 · 계획확정)에 들어간 품목은 계획별 카드로 (상태 표시 · [열기])
+          const planCards = new Map();
+          orderRows.filter((row) => planOf(row)).forEach((row) => {
+            const plan = planOf(row);
+            if (!planCards.has(plan.planno)) planCards.set(plan.planno, { planno: plan.planno, status: plan.status, rows: [] });
+            planCards.get(plan.planno).rows.push(row);
+          });
+          setOrderGroups({ orderid, groups: grouped?.groups || [], plans: [...planCards.values()], excluded: grouped?.excluded || [] });
         } else {
           notifications.show({ title: '최적화 대기 품목 없음', message: `${orderid} 주문에는 최적화 대기 품목이 없습니다. 이미 계획에 들어갔거나 아직 보내지 않았습니다.`, color: 'orange' });
         }
@@ -765,9 +777,13 @@ export default function AIOrderOptimization() {
   // 선택·설정이 바뀌면 서버에서 다시 계산 (잠깐 기다렸다가)
   const runAnalyze = useCallback(async (keys, nextSettings, planno) => {
     const id = ++requestRef.current;
+    const cacheKey = JSON.stringify([toKeys(keys), nextSettings, planno || '']);
+    const hit = analyzeCache.get(cacheKey);
+    if (hit && Date.now() - hit.at < ANALYZE_TTL) { setAnalysis(hit.data); setAnalyzing(false); return; }
     setAnalyzing(true);
     try {
       const { data } = await axios.post(`${API}/analyze`, { keys: toKeys(keys), settings: nextSettings, planno: planno || '' }, authConfig());
+      analyzeCache.set(cacheKey, { at: Date.now(), data });
       if (id === requestRef.current) setAnalysis(data);
     } catch (error) {
       if (id === requestRef.current) {
@@ -895,6 +911,7 @@ export default function AIOrderOptimization() {
     if (!groupKeys.length || !chosenPlan || saving) return;
     setSaving(true);
     try {
+      analyzeCache.clear();
       const { data } = await axios.post(`${API}/plans`, {
         keys: toKeys(groupKeys), settings, planno: editingDraft ? activePlan.planno : '', status, plan_id: chosenPlan.id,
       }, authConfig());
@@ -914,6 +931,7 @@ export default function AIOrderOptimization() {
     if (!activePlan || saving) return;
     setSaving(true);
     try {
+      analyzeCache.clear();
       await axios.post(`${API}/plans/${encodeURIComponent(activePlan.planno)}/cancel`, {}, authConfig());
       notifications.show({ title: activePlan.status === 'DRAFT' ? '임시저장 삭제' : '계획 취소', message: `${activePlan.planno} · 같은 품목과 조건으로 바로 다시 계획할 수 있습니다.`, color: 'teal' });
       // 처음부터 다시 담지 않게: 품목 · 조건은 그대로 두고 계획 연결만 끊는다 (새 작업으로 계속)
@@ -933,6 +951,7 @@ export default function AIOrderOptimization() {
     if (!groupKeys.length || saving) return;
     setSaving(true);
     try {
+      analyzeCache.clear();
       const { data } = await axios.post(`${API}/return`, { keys: toKeys(groupKeys) }, authConfig());
       notifications.show({ title: '주문서 관리로 돌려보냄', message: `${data.returned}개 품목을 미전송으로 돌렸습니다. 주문서 관리에서 수정할 수 있습니다.`, color: 'teal' });
       resetWork();
@@ -952,6 +971,7 @@ export default function AIOrderOptimization() {
       .map((key) => [key, Number(editLine.values[key])]));
     setSaving(true);
     try {
+      analyzeCache.clear();
       await axios.put(`${API}/lines/${encodeURIComponent(editLine.row.orderid)}/${editLine.row.lineno}`, payload, authConfig());
       notifications.show({ title: '품목 값 저장', message: `${editLine.row.orderid}-${editLine.row.lineno} 값을 저장했습니다.`, color: 'teal' });
       setEditLine(null);
@@ -1064,7 +1084,9 @@ export default function AIOrderOptimization() {
   const targetTableWidth = targetColumns.reduce((sum, column) => sum + targetWidths.widthOf(column), 0);
   const targetTableStyle = { width: `max(100%, ${targetTableWidth}px)`, minWidth: `${targetTableWidth}px` };
   // 최적화 대상 표: 맨 앞에 가공그룹 '계산' 체크 열을 따로 둔다 (불러오기 창은 그대로)
-  const mainTargetColumns = [{ key: 'group', label: '계산', width: 46, minWidth: 40, align: 'center' }, ...targetColumns];
+  const mainTargetColumns = [{ key: 'group', label: '계산', width: 46, minWidth: 40, align: 'center' },
+    ...targetColumns.map((column) => (column.key === 'status' ? { ...column, align: 'center' } : column)),
+    ...(activePlan ? [] : [{ key: 'remove', label: '', width: 44, minWidth: 44, align: 'center' }])];
   const targetHead = (first) => <ResizableHead columns={targetColumns} {...targetWidths}
     labelOf={(column) => (column.key === 'mark' ? first : column.unit ? `${column.label}(${unit})` : column.label)} />;
   const showOver = material === 'SHEET' && (shownAnalysis?.candidates || []).some((c) => (c.over_pcs || 0) > 0);
@@ -1091,14 +1113,13 @@ export default function AIOrderOptimization() {
       <TextInput size="sm" label="발주처" placeholder="발주처명 검색" leftSection={<IconSearch size={14} />} value={pickerFilter.buyer} onChange={(event) => { const { value } = event.currentTarget; setPickerFilter((current) => ({ ...current, buyer: value })); setPickerPage(1); }} />
       <TextInput size="sm" label="품명" placeholder="품명 검색" value={pickerFilter.itemname} onChange={(event) => { const { value } = event.currentTarget; setPickerFilter((current) => ({ ...current, itemname: value })); setPickerPage(1); }} />
       <TextInput size="sm" label="두께 (mm)" placeholder="예: 1.2" style={{ width: 120 }} value={pickerFilter.thickness} onChange={(event) => { const { value } = event.currentTarget; setPickerFilter((current) => ({ ...current, thickness: value })); setPickerPage(1); }} />
-      <Button size="sm" variant="default" onClick={() => { setPickerFilter({ buyer: '', itemname: '', thickness: '' }); setPickerPage(1); }}>초기화</Button>
     </>}
     guide={<>
-      <p>같은 창고·품명·두께{material === 'SHEET' ? '·폭' : ''}의 품목을 함께 담을 수 있습니다. 첫 품목이 기준이 됩니다.</p>
+      <p>같은 창고 · 품명 · 두께{material === 'SHEET' ? ' · 폭' : ''} 품목끼리 함께 담아 계산합니다. 처음 고른 품목과 맞지 않는 품목은 흐리게 표시됩니다.</p>
       {/* 선택 전에도 같은 줄을 그려 두어 첫 선택 때 안내 상자 높이가 바뀌지 않게 한다 */}
       <div className={pickerClasses.criteria}>
-        <span className={pickerBase ? undefined : pickerClasses.criteriaEmpty}><b>기준 품목</b>{pickerBase ? `${pickerBase.itemname} ${fmt(pickerBase.thickness, 3)}T${material === 'SHEET' ? ` × ${fmt(pickerBase.width)}mm` : ''}` : '품목을 선택하면 표시됩니다'}</span>
-        <span className={pickerBase ? undefined : pickerClasses.criteriaEmpty}><b>연결 창고</b>{pickerBase ? (pickerWarehouses.length ? queue.flatMap((row) => row.warehouses || []).find((item) => item.code === pickerWarehouses[0])?.name || pickerWarehouses[0] : '연결 재고 없음') : '-'}</span>
+        <span className={pickerBase ? undefined : pickerClasses.criteriaEmpty}><b>담는 품목</b>{pickerBase ? `${pickerBase.itemname} ${fmt(pickerBase.thickness, 3)}T${material === 'SHEET' ? ` × ${fmt(pickerBase.width)}mm` : ''}` : '품목을 고르면 표시됩니다'}</span>
+        <span className={pickerBase ? undefined : pickerClasses.criteriaEmpty}><b>창고</b>{pickerBase ? (pickerWarehouses.length ? queue.flatMap((row) => row.warehouses || []).find((item) => item.code === pickerWarehouses[0])?.name || pickerWarehouses[0] : '미지정') : '-'}</span>
       </div>
     </>}
     listTitle="대기 품목" count={pickerRows.length} loading={loading}
@@ -1115,8 +1136,11 @@ export default function AIOrderOptimization() {
         const reason = picked ? '' : incompatibleReason(pickerBase, row, pickerWarehouses);
         return <tr key={key} className={picked ? pickerClasses.selectedRow : reason ? pickerClasses.disabledRow : ''} title={reason || undefined} onClick={() => togglePick(row)}>
           <td className={pickerClasses.center}><input className={pickerClasses.checkbox} type="checkbox" checked={picked} disabled={Boolean(reason)} onClick={(event) => event.stopPropagation()} onChange={() => togglePick(row)} aria-label={`${row.orderid}-${row.lineno} 선택`} /></td>
-          <td className={pickerClasses.center}>{pickerBase && keyOf(pickerBase) === key ? <span className={badge('orange')}>기준</span> : ''}</td>
-          {lineCells(row, <td>{reason ? <span className={badge(planOf(row) ? 'blue' : undefined)} title={reason}>{planOf(row) ? planLabel(planOf(row)) : '함께 선택 불가'}</span> : row.missing?.length ? <span className={badge('orange')} title={`빠진 값: ${row.missing.join(', ')}`}>확인 필요</span> : picked ? <span className={badge('red')}>선택됨</span> : <span className={badge()}>대기</span>}</td>)}
+          {lineCells(row, <td>{reason
+            ? (planOf(row) ? <span className={`${classes.state} ${classes[`statePlan_${planOf(row).status}`] || classes.stateOff}`} title={reason}>{PLAN_STATUS[planOf(row).status]?.label || '계획'}</span>
+              : <span className={`${classes.state} ${classes.stateOff}`} title={reason}>추가 불가</span>)
+            : row.missing?.length ? <span className={`${classes.state} ${classes.stateWarn}`} title={`빠진 값: ${row.missing.join(', ')}`}>값 확인</span>
+              : picked ? <span className={`${classes.state} ${classes.statePicked}`}>추가</span> : <span className={`${classes.state} ${classes.stateWait}`}>대기</span>}</td>)}
         </tr>;
       })}
       {!pickerPageRows.length && <tr><td colSpan={queuePickerColumnsDef.length} className={pickerClasses.emptyCell}>
@@ -1187,6 +1211,8 @@ export default function AIOrderOptimization() {
     extraValues: material === 'COIL' ? settings.extrawidths || [] : settings.extralengths || [],
     // ① 에 이미 연결 원자재로 잡힌 현재고 (전표-순번) → 매입이력 창에서 비활성
     linkedKeys: (shownAnalysis?.candidates || []).filter((c) => c.linked).map((c) => `${c.sourceno}-${c.sourceline}`),
+    // ① 에 현재고로 이미 추천된 원자재 (과거 매입이력에서 '이미 추천됨'). 같은 규격 여러 창고 · 로트로 묶인 줄은 로트 전부
+    stockKeys: (shownAnalysis?.candidates || []).filter((c) => c.kind === 'STOCK').flatMap((c) => [`${c.sourceno}-${c.sourceline}`, ...(c.lots || []).map((lot) => `${lot.sourceno}-${lot.sourceline}`)]),
   }), [baseRow, groupRows, settings, raw, material, rawLocked, shownAnalysis]);
   const refs = [
     ...(material === 'COIL' ? (settings.extrawidths || []).map((value) => ({ kind: 'width', value, label: `가공 후보 ${fmt(value)}mm` }))
@@ -1208,23 +1234,25 @@ export default function AIOrderOptimization() {
   };
   const processWeight = Number(rawLocked ? raw?.raw_weight : settings.raw_weight ?? raw?.raw_weight) || 0;
   const targetTable = <div className={`${reg.tableScroll} ${classes.tableScroll}`}>
-    <table className={`${reg.ordersTable} ${classes.table}`} style={{ width: `max(100%, ${targetTableWidth + 46}px)`, minWidth: `${targetTableWidth + 46}px` }}>
+    <table className={`${reg.ordersTable} ${classes.table}`} style={{ width: `max(100%, ${targetTableWidth + 46 + (activePlan ? 0 : 44)}px)`, minWidth: `${targetTableWidth + 46 + (activePlan ? 0 : 44)}px` }}>
       <ResizableHead columns={mainTargetColumns} {...targetWidths}
-        labelOf={(column) => (column.key === 'mark' ? '구분' : column.unit ? `${column.label}(${unit})` : column.label)} />
+        labelOf={(column) => (column.key === 'mark' ? '순번' : column.unit ? `${column.label}(${unit})` : column.label)} />
       <tbody>{selectedRows.length ? selectedRows.map((row, index) => {
         const key = keyOf(row);
         const inGroup = !groupOff.includes(key);
         return <tr key={key} className={inGroup ? '' : classes.groupOffRow}>
           <td className={classes.center}><input type="checkbox" className={classes.pickerCheckbox} checked={inGroup} disabled={Boolean(activePlan)} onChange={() => toggleGroup(key)}
             aria-label={`${row.orderid}-${row.lineno} 가공그룹 포함`} title="체크를 풀면 계산 · 저장에서 빠집니다 (작업 목록에는 남음)" /></td>
-          <td className={classes.center}>{index === 0 ? <span className={badge('orange')}>기준</span> : index + 1}</td>
-          {lineCells(row, <td>{row.missing?.length
-            ? <><span className={badge('orange')} title={`빠진 값: ${row.missing.join(', ')}`}>확인 필요</span>
-              <button type="button" className={`${m.rowMatchButton} ${m.small}`} style={{ marginLeft: 6 }} onClick={() => setEditLine({ row, values: { thickness: row.thickness ?? '', width: row.width ?? '', length: row.length ?? '', quantity: row.quantity ?? '', weight_kg: row.weight ?? '' } })}>수정</button></>
-            : row.optimize_status === 'PLANNED' ? <span className={badge('green')}>계획확정</span>
-              : row.optimize_status === 'DONE' ? <span className={badge('green')}>가공완료</span>
-              : inGroup ? <span className={badge()}>대기</span> : <span className={badge()}>그룹 제외</span>}
-            {!activePlan && <button type="button" className={m.rowGrayButton} style={{ marginLeft: 6 }} onClick={() => removeRow(key)}>빼기</button>}</td>)}
+          <td className={classes.center}>{index + 1}</td>
+          {lineCells(row, <td className={classes.center}>{row.missing?.length
+            ? <><span className={`${classes.state} ${classes.stateWarn}`} title={`빠진 값: ${row.missing.join(', ')}`}>값 확인</span>
+              <button type="button" className={classes.stateFix} onClick={() => setEditLine({ row, values: { thickness: row.thickness ?? '', width: row.width ?? '', length: row.length ?? '', quantity: row.quantity ?? '', weight_kg: row.weight ?? '' } })}>입력</button></>
+            : row.optimize_status === 'PLANNED' ? <span className={`${classes.state} ${classes.stateConfirmed}`}>계획확정</span>
+              : row.optimize_status === 'DONE' ? <span className={`${classes.state} ${classes.stateDone}`}>가공완료</span>
+              : inGroup ? <span className={`${classes.state} ${classes.stateWait}`}>대기</span>
+                : <span className={`${classes.state} ${classes.stateOff}`} title="계산 체크를 풀어 이번 계산에서 빠진 품목">계산 제외</span>}</td>)}
+          {!activePlan && <td className={classes.removeCell}><button type="button" className={classes.rowRemove} onClick={() => removeRow(key)}
+            aria-label={`${row.orderid}-${row.lineno} 작업 목록에서 제외`} title="작업 목록에서 제외 (대기 품목으로 돌아갑니다)"><IconX size={14} stroke={2} /></button></td>}
         </tr>;
       }) : <tr><td colSpan={mainTargetColumns.length} className={classes.empty}>{loading ? '대기 품목을 불러오는 중입니다.'
         : materialQueue.length ? '[대기 품목]에서 최적화할 품목을 담아 주세요.' : '최적화 대기 품목이 없습니다. 주문서 관리에서 [가공 최적화로 보내기]를 해 주세요.'}</td></tr>}</tbody>
@@ -1237,6 +1265,8 @@ export default function AIOrderOptimization() {
         <Text component="span" className={inboundClasses.breadcrumbParent}>가공관리</Text>
         <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
         <Text component="span" className={inboundClasses.breadcrumbCurrent}>가공최적화</Text>
+        {/* 화면 안내: 메뉴 이름 바로 옆 */}
+        <button type="button" className={`${m.guideLink} ${m.guideLinkCrumb} ${classes.guideLinkOpt}`} onClick={() => setGuideOpen(true)}><IconHelpCircle size={14} stroke={2} />사용 안내</button>
       </Group>
       {!filterOpen && <Button className={inboundClasses.receiptFilterToggle} variant="subtle" size="xs"
         leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
@@ -1250,8 +1280,8 @@ export default function AIOrderOptimization() {
             <div className={classes.queueTabs}>
               <SegmentedControl size="xs" color="red" value={material} onChange={changeMaterial} data={MATERIAL_TABS} />
             </div>
-            {activePlan && <span className={badge(PLAN_STATUS[activePlan.status]?.tone)}>{activePlan.planno} · {PLAN_STATUS[activePlan.status]?.label}</span>}
-            <button type="button" className={m.guideTrigger} onClick={() => setGuideOpen(true)}><IconHelpCircle size={15} stroke={2} />사용 안내</button>
+            {activePlan && <span className={`${classes.planTag} ${classes[`planTag_${activePlan.status}`] || ''}`} title="지금 열려 있는 계획">
+              <i aria-hidden="true" />{PLAN_STATUS[activePlan.status]?.label}<b>{activePlan.planno}</b></span>}
             {canGoProcess && <button type="button" className={btn('btnPrimary', 'btnSm', 'pushRight')} title="이 계획을 재고가공등록에서 차수별로 불러와 등록합니다"
               onClick={() => navigate(`/ItemProcessRegister?planno=${encodeURIComponent(activePlan.planno)}`)}>재고가공등록으로 이동</button>}
             {(selectedKeys.length > 0 || activePlan) && <button type="button" className={btn('btnDark', 'btnSm', canGoProcess ? '' : 'pushRight')} onClick={resetWork} disabled={saving}
@@ -1284,7 +1314,7 @@ export default function AIOrderOptimization() {
               {material === 'SHEET' && <NumberInput size="xs" w={110} label="원판 길이" placeholder="mm" value={newLength} onChange={setNewLength} hideControls min={0} />}
               {material === 'COIL' && <NumberInput size="xs" w={130} label="예상 투입중량 (선택)" placeholder="비우면 필요중량" value={newWeight} onChange={setNewWeight} hideControls min={0} thousandSeparator="," />}
               <button type="button" className={btn('btnDark', 'btnSm')} style={{ alignSelf: 'flex-end' }} onClick={addNewCandidate}>후보 추가</button>
-              <span className={`${classes.muted} ${classes.toolsNote}`}>{material === 'COIL' ? '연결 원자재 → 현재고 → 신규(매입이력·직접 입력) 순, 수율 높은 순' : (shownAnalysis?.candidates || []).some((c) => c.coil) ? '코일 후보: 수율 높은 순 · 원판 후보: 로스중량 적은 순 (동률 시 연결 원자재 우선)' : '로스중량 적은 순 (동률 시 연결 원자재 우선)'}</span>
+              <span className={`${classes.muted} ${classes.toolsNote}`}>{material === 'COIL' ? '현재고 → 신규(매입이력·직접 입력) 순, 수율 높은 순' : (shownAnalysis?.candidates || []).some((c) => c.coil) ? '코일 후보: 수율 높은 순 · 원판 후보: 로스중량 적은 순 (동률 시 연결 원자재 우선)' : '로스중량 적은 순 (동률 시 연결 원자재 우선)'}</span>
             </div>
             {shownAnalysis?.candidates?.length ? <div className={`${reg.tableScroll} ${classes.candidateScroll}`}><table className={`${reg.ordersTable} ${classes.candidateTable}`} style={{ width: `max(100%, ${candidateTableWidth}px)`, minWidth: `${candidateTableWidth}px` }}>
               <ResizableHead columns={candidateColumns} {...candidateWidths}
@@ -1346,16 +1376,21 @@ export default function AIOrderOptimization() {
                   <div className={classes.splitHead}>
                     <strong>등분 설정</strong><span>{splits.length}차</span>
                     <span className={`${classes.splitSum} ${balanced ? classes.splitSumOk : classes.splitSumWarn}`}>
-                      합계 {fmt(splitTotal)}kg / 가공중량 {fmt(processWeight)}kg{balanced ? '' : ' · 합계를 맞춰 주세요'}
+                      {balanced ? '✓ ' : ''}합계 <b>{fmt(splitTotal)}</b> / {fmt(processWeight)}kg{balanced ? '' : splitTotal > processWeight ? ` · ${fmt(splitTotal - processWeight)}kg 초과` : ` · ${fmt(processWeight - splitTotal)}kg 남음`}
                     </span>
+                  </div>
+                  {/* 등분 합계가 가공중량을 얼마나 채웠는지 (맞으면 초록 · 모자라면 주황 · 넘치면 빨강) */}
+                  <div className={classes.splitMeter} aria-hidden="true">
+                    <i className={balanced ? classes.splitMeterOk : splitTotal > processWeight ? classes.splitMeterOver : classes.splitMeterShort}
+                      style={{ width: `${processWeight > 0 ? Math.min(100, (splitTotal / processWeight) * 100) : 0}%` }} />
+                  </div>
+                  <div className={`${classes.splitActions} ${classes.splitActionsTop}`}>
+                    <button type="button" className={btn('btnSoftBlue', 'btnSm')} onClick={() => updateSettings({ splitweights: [...splits, 0] })} title="차수를 하나 더 나눕니다">+ 차수 추가</button>
+                    {splits.length > 2 && <button type="button" className={btn('btnSoftGray', 'btnSm')} onClick={() => updateSettings({ splitweights: splits.slice(0, -1) })} title="마지막 차수를 지웁니다">− 차수 삭제</button>}
                   </div>
                   <div className={classes.runs}>
                     {splits.map((weight, index, list) => <NumberInput key={index} size="xs" label={`${index + 1}차 가공중량 (kg)`} value={weight} hideControls thousandSeparator=","
                       onChange={(value) => typeSettings({ splitweights: list.map((item, i) => (i === index ? Number(value) || 0 : item)) })} />)}
-                    <div className={classes.splitActions}>
-                      <button type="button" className={btn('btnSoftBlue', 'btnSm')} onClick={() => updateSettings({ splitweights: [...splits, 0] })}>+ 등분 추가</button>
-                      {splits.length > 2 && <button type="button" className={btn('btnSoftGray', 'btnSm')} onClick={() => updateSettings({ splitweights: splits.slice(0, -1) })}>− 마지막 등분 빼기</button>}
-                    </div>
                   </div>
                 </div>;
               })()}
@@ -1417,12 +1452,13 @@ export default function AIOrderOptimization() {
             {shownAnalysis?.warnings?.map((warning) => <div key={warning} className={classes.warn}>{warning}</div>)}
           </Card>
 
-          <Card number="3" title="가공 추천조합" bodyClass={classes.recommendBody}
+          <Card number="3" title="가공 추천조합" bodyClass={`${classes.recommendBody} ${analyzing ? classes.recalcBody : ''}`}
             actions={historyButtons('processing')}>
-            <div className={classes.box}>
+            <div className={classes.box} ref={recommendRef} style={lockHeight ? { minHeight: lockHeight } : undefined}>
               <div className={classes.methodRow}>
                 <SegmentedControl size="xs" color="red" value={settings.combo} onChange={(value) => {
                   // 탭은 막지 않는다. 시트에서 안 되는 경우는 탭 안에 안내로 보여 준다 (코일 탭 '추천 가능한 조합 없음' 안내와 같은 모양)
+                  setLockHeight(recommendRef.current?.offsetHeight || 0);   // 새 결과가 올 때까지 높이 유지 (아래 화면이 튀지 않게)
                   updateSettings({ combo: value }); setPlanId(null);
                 }}
                   data={material === 'COIL' ? [{ value: 'SINGLE', label: '단독' }, { value: 'MIXED', label: '혼합' }]
@@ -1473,8 +1509,9 @@ export default function AIOrderOptimization() {
                 {material === 'SHEET' && !sheetMixBlocked && (shownAnalysis?.bad || []).map((bad) => <div key={bad.orientation} className={classes.orientNote}>{bad.label} : 배치 불가 ({bad.why})</div>)}</div>
               {material === 'SHEET' && chosenPlan?.coil && chosenPlan.short_pcs > 0 && <div className={`${classes.status} ${classes.statusWarn}`}>
                 코일 재고로 {chosenPlan.short_text} 부족 (약 {fmt(chosenPlan.short_kg)}kg) → 시트 재고 또는 신규 매입으로 보충</div>}
-              {(shownAnalysis?.notes?.length > 0 || chosenPlan?.rec_weights) && material === 'COIL' && <div className={`${classes.status} ${shownAnalysis?.notes_warn ? classes.statusWarn : ''}`}>
-                {(shownAnalysis?.notes || []).map((note) => <div key={note}>{note}</div>)}
+              {(shownAnalysis?.notes?.length > 0 || chosenPlan?.rec_weights) && material === 'COIL' && <div className={`${classes.status} ${classes.noteBox} ${shownAnalysis?.notes_warn ? classes.statusWarn : ''}`}>
+                {/* 첫 줄 = 계산 기준(머리표), 나머지 = 한 문장씩 줄바꿈 */}
+                {(shownAnalysis?.notes || []).map((note, i) => (i === 0 ? <div key={note} className={classes.noteHead}>{note}</div> : <p key={note} className={classes.noteLine}>{note}</p>))}
                 {chosenPlan?.rec_weights && <button type="button" className={classes.recButton}
                   onClick={() => updateSettings({ processmode: 'SPLIT', splitweights: chosenPlan.rec_weights })}>권장 등분중량 적용 ({chosenPlan.rec_weights.map((v) => fmt(v, 0)).join(' / ')}kg)</button>}
               </div>}
@@ -1531,7 +1568,7 @@ export default function AIOrderOptimization() {
           <span className={confirmBase.icon} aria-hidden="true"><IconListCheck size={24} stroke={1.8} /></span>
           <h2>작업할 품목을 골라 주세요</h2>
           <span className={confirmBase.target}>{orderGroups.orderid}</span>
-          <p>창고 · 품명 · 두께(시트는 폭까지)가 같은 품목끼리 묶었습니다.<br />한 번에 한 묶음씩 계획합니다.</p>
+          <p>창고 · 품명 · 두께가 같은 품목끼리 묶었습니다.<br />한 번에 한 묶음씩 계획합니다.</p>
         </div>
         <div className={classes.ogList}>
           {orderGroups.groups.map((group) => <button key={group.key} type="button" className={classes.ogCard} onClick={() => startGroup(group)}>
@@ -1542,7 +1579,20 @@ export default function AIOrderOptimization() {
             </span>
             <span className={classes.ogPick}>선택</span>
           </button>)}
-          {!orderGroups.groups.length && <div className={classes.ogEmpty}>지금 계획할 수 있는 대기 품목이 없습니다.</div>}
+          {!orderGroups.groups.length && !(orderGroups.plans || []).length && <div className={classes.ogEmpty}>지금 계획할 수 있는 대기 품목이 없습니다.</div>}
+          {(orderGroups.plans || []).length > 0 && <div className={classes.ogSectionTitle}>저장된 계획</div>}
+          {(orderGroups.plans || []).map((plan) => {
+            const first = plan.rows[0];
+            const tone = plan.status === 'CONFIRMED' ? classes.ogBadgeConfirmed : plan.status === 'DONE' ? classes.ogBadgeDone : classes.ogBadgeDraft;
+            return <button key={plan.planno} type="button" className={classes.ogCard} onClick={() => { setOrderGroups(null); void openPlan(plan.planno); }}>
+              <span className={`${classes.ogBadge} ${tone}`}>{plan.status === 'CONFIRMED' ? '계획확정' : plan.status === 'DONE' ? '가공완료' : '임시저장'}</span>
+              <span className={classes.ogMain}>
+                <b title={first.itemname}>{first.itemname} <em>{fmt(first.thickness, 3)}T{first.material === 'SHEET' && first.width != null ? ` × ${fmt(first.width)}` : ''}</em></b>
+                <small>{plan.planno} · 품목 {plan.rows.length}건 ({plan.rows.map((row) => `${row.orderid}-${row.lineno}`).join(', ')})</small>
+              </span>
+              <span className={classes.ogOpen}>열기</span>
+            </button>;
+          })}
           {orderGroups.excluded.length > 0 && <div className={classes.groupExcluded}>
             <strong>최적화할 수 없는 품목 {orderGroups.excluded.length}건</strong>
             <ul>{orderGroups.excluded.map(({ row, reason }) => <li key={keyOf(row)}>{row.orderid}-{row.lineno} {row.itemname} · {reason}</li>)}</ul>
@@ -1550,7 +1600,10 @@ export default function AIOrderOptimization() {
         </div>
         <div className={classes.ogGuide}>
           <b>가공 최적화란?</b>
-          <span>주문 품목을 어떤 원자재로 어떻게 자를지 계산하는 화면입니다. 묶음을 고르면 ① 원자재 후보 → ② 원자재 · 가공방식 → ③ 추천조합 순서로 계산되고, 안을 골라 [계획 확정]하면 재고가공등록으로 넘길 수 있습니다. 고르지 않은 묶음은 [대기 품목]에 남습니다.</span>
+          <span>주문 품목을 어떤 원자재로 어떻게 자를지 계산하는 화면입니다.<br />
+            묶음을 고르면 ① 원자재 후보 → ② 원자재 · 가공방식 → ③ 추천조합 순서로 계산됩니다.<br />
+            안을 골라 [계획 확정]하면 재고가공등록으로 넘길 수 있습니다.<br />
+            고르지 않은 묶음은 [대기 품목]에, 저장된 계획은 [계획 불러오기]에 남습니다.</span>
         </div>
         <div className={classes.ogFooter}><button type="button" className={confirmBase.cancel} onClick={() => setOrderGroups(null)}>닫기</button></div>
       </>}
@@ -1594,7 +1647,7 @@ export default function AIOrderOptimization() {
           </>}
           {confirmAction === 'cancel' && <>
             <div className={classes.confirmHead}>
-              <span className={badge(editingDraft ? 'blue' : 'green')}>{editingDraft ? '임시저장' : '계획확정'}</span>
+              <span className={badge(editingDraft ? 'blue' : 'orange')}>{editingDraft ? '임시저장' : '계획확정'}</span>
               <strong>{activePlan?.planno}</strong>
               <span className={classes.confirmMeta}>품목 {groupRows.length}건</span>
             </div>

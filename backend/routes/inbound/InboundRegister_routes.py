@@ -3,6 +3,7 @@ from datetime import date
 
 from services.inbound import InboundRegister as inbound_module
 import security as security_module
+from services.control import Approval as approval_module
 
 router = APIRouter(
     prefix="/api/inbound-register",
@@ -57,6 +58,17 @@ def save_receipt(
     user: dict = Depends(security_module.get_current_user),
 ):
     try:
+        is_create = data.is_new or not data.receiptno
+        weight = sum((item.weight or 0) for item in data.items)
+        pending = approval_module.intercept(
+            user, "INBOUND", "CREATE" if is_create else "UPDATE", "save", {"item": data.model_dump(mode="json")},
+            f"{data.customname or data.items[0].customname} · {data.receptdate} · {len(data.items)}건 · {weight:,.0f}kg"
+            + ("" if is_create else f" ({data.receiptno} 수정)"),
+            ref_no=None if is_create else data.receiptno,
+            dates=[data.receptdate, *[item.receptdate for item in data.items if item.receptdate]],
+        )
+        if pending:
+            return pending
         result = inbound_module.save_receipt(
             user["companyid"], user.get("companyname") or user["companyid"],
             data.model_dump(),
@@ -76,6 +88,10 @@ def update_receipt_manager(
     user: dict = Depends(security_module.get_current_user),
 ):
     try:
+        pending = approval_module.intercept(user, "INBOUND", "UPDATE", "manager", {"receiptno": receiptno, "manager": data.manager},
+                                            f"{receiptno} 담당자 → {data.manager or '(없음)'}", ref_no=receiptno)
+        if pending:
+            return pending
         updated_count = inbound_module.update_receipt_manager(user["companyid"], receiptno, data.manager, actor=user.get("email"))
         return {"success": True, "updated_count": updated_count}
     except ValueError as error:
@@ -87,6 +103,9 @@ def update_receipt_manager(
 @router.delete("/receipts/{receiptno}")
 def delete_receipt(receiptno: str, user: dict = Depends(security_module.get_current_user)):
     try:
+        pending = approval_module.intercept(user, "INBOUND", "DELETE", "delete", {"receiptno": receiptno}, f"{receiptno} 삭제", ref_no=receiptno)
+        if pending:
+            return pending
         deleted_count = inbound_module.delete_receipt(user["companyid"], receiptno)
         if not deleted_count:
             raise HTTPException(status_code=404, detail="입고전표를 찾을 수 없습니다.")

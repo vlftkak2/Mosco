@@ -145,13 +145,15 @@
   font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif;
 }
 .themeDark {
-  --nv-bg: #111418; --nv-tx2: #a3a8b3; --nv-tx3: #6c717d; --nv-hi: #fff;
+  --nv-bg: #1f1f1f; --hd-bg: #191919;   /* 네비 · 최상단 헤더 */
+  --nv-tx2: #a3a8b3; --nv-tx3: #6c717d; --nv-hi: #fff;
   --nv-line: rgba(255, 255, 255, .08); --nv-hov: rgba(255, 255, 255, .05); --nv-sel: rgba(255, 255, 255, .09); --nv-seltx: #fff;
   --nv-sw: #2c2f36; --nv-ink: #fff; --hd-hov: rgba(255, 255, 255, .06);
   --rb-tx: #e3e5ea; --rb-ic: #a3a8b3; --rb-hov: rgba(255, 255, 255, .08); --rb-act: rgba(255, 255, 255, .12); --rb-dis: #565c68; --rb-dis-ic: #4a505b;
 }
 .themeLight {
-  --nv-bg: #fff; --nv-tx2: #555c69; --nv-tx3: #8f96a3; --nv-hi: #14171c;
+  --nv-bg: #fff; --hd-bg: #fff;
+  --nv-tx2: #555c69; --nv-tx3: #8f96a3; --nv-hi: #14171c;
   --nv-line: rgba(20, 23, 28, .08); --nv-hov: rgba(20, 23, 28, .04); --nv-sel: rgba(224, 42, 49, .09); --nv-seltx: #e02a31;
   --nv-sw: #e02a31; --nv-ink: #111317; --hd-hov: rgba(20, 23, 28, .05);
   --rb-tx: #14171c; --rb-ic: #5a5f68; --rb-hov: #f1f2f4; --rb-act: #e6e9ee; --rb-dis: #b8bdc8; --rb-dis-ic: #c7ccd5;
@@ -210,7 +212,7 @@
   justify-content: space-between;
   padding: 0 14px;
   border-bottom: 1px solid transparent !important;
-  background: var(--nv-bg) !important;
+  background: var(--hd-bg, var(--nv-bg)) !important;
   box-shadow: none !important;
   color: var(--nv-hi);
   -webkit-font-smoothing: antialiased;
@@ -346,3 +348,9 @@
 
 /* 네비와 본문 사이: 시안처럼 14px 만 (본문 바깥 여백 12px + 2px) */
 .contentCard, .inboundContentCard, .dashboardContentCard { padding-left: 2px !important; }
+
+/* 승인 알림 (통제관리): 승인자는 대기 건수, 담당자는 최근 반려 건수 */
+.bell { position: relative; display: grid; width: 32px; height: 32px; flex: none; place-items: center; margin-right: 4px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--nv-tx2); cursor: pointer; }
+.bell:hover { background: var(--hd-hov); color: var(--nv-hi); }
+.bell:focus-visible { outline: 2px solid rgba(224, 42, 49, .55); outline-offset: -2px; }
+.bellBadge { position: absolute; top: 2px; right: 1px; min-width: 16px; height: 16px; padding: 0 4px; border: 1.5px solid var(--nv-bg); border-radius: 8px; background: #e02a31; color: #fff; font-size: 10px; font-weight: 700; line-height: 13px; text-align: center; }

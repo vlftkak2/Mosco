@@ -9,7 +9,8 @@ export function writeAIOrderDraft(draft) {
 export function readAIOrderDraft() {
   try {
     const value = JSON.parse(sessionStorage.getItem(KEY) || 'null');
-    return value && Array.isArray(value.items) && value.analysis_request_id ? value : null;
+    // AI 주문서인식 초안(analysis_request_id) 또는 가공주문관리 [추가]로 시작한 수기 주문(manual)
+    return value && Array.isArray(value.items) && (value.analysis_request_id || value.manual) ? value : null;
   } catch {
     return null;
   }

@@ -1,3 +1,4 @@
+import { isApprovalPending, notifyApprovalPending } from '../../utils/approval';
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { usePageActivation } from '../../components/common/usePageReactivated';
@@ -2218,6 +2219,11 @@ export default function OutboundRegisterPage() {
           },
           authConfig(),
         );
+        if (isApprovalPending(data)) {
+          notifyApprovalPending(data);
+          await openReceipt(selectedReceiptno, true);
+          return true;
+        }
         // 전표 다시 열기 + 목록 금액 갱신을 함께
         await Promise.all([openReceipt(selectedReceiptno, true), loadReceipts(page, filters)]);
         const changed = [hasManagerChanges && '담당자', header.destination_dirty && '착지', data.price_count > 0 && `판매단가 ${data.price_count}행`].filter(Boolean);
@@ -2290,6 +2296,17 @@ export default function OutboundRegisterPage() {
         : axios.post('/api/outbound-register/receipts', payload, authConfig());
       const { data } = await saveRequest;
       masterPasteErrorsRef.current.clear();
+      // 승인 통제: 승인요청으로 보관 · 재고 예약됨 → 입력칸을 비운다 (승인되면 전표가 생김)
+      if (isApprovalPending(data)) {
+        notifyApprovalPending(data);
+        if (selectedReceiptno) await openReceipt(selectedReceiptno, true);
+        else {
+          setHeader({ ...EMPTY_HEADER, receptdate: localDate() });
+          setReceiptMetadata({ companyid: '', companyname: '', created_at: '', updated_at: '' });
+          setRows([]); setExpenses([]); setSelectedExpenseIds([]); expenseSelectionAnchorRef.current = ''; setSubulyn('N'); setDocumentDirty(false); setDetailTab('details');
+        }
+        return true;
+      }
       notifications.show({
         title: '매출 저장 완료',
         message: data.group_count > 1
@@ -2485,7 +2502,12 @@ export default function OutboundRegisterPage() {
     if (!selectedReceiptno || locked) return;
     setSaving(true);
     try {
-      await axios.delete(`/api/outbound-register/receipts/${encodeURIComponent(selectedReceiptno)}`, authConfig());
+      const { data } = await axios.delete(`/api/outbound-register/receipts/${encodeURIComponent(selectedReceiptno)}`, authConfig());
+      if (isApprovalPending(data)) {
+        notifyApprovalPending(data);
+        setDeleteOpen(false);
+        return;
+      }
       notifications.show({ title: '매출 삭제 완료', message: `${selectedReceiptno} 전표를 삭제했습니다.`, color: 'teal' });
       setDeleteOpen(false);
       setHeader({ ...EMPTY_HEADER, receptdate: localDate() });

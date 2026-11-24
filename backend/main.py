@@ -46,6 +46,7 @@ from routes.closing import MonthClose_routes as MonthClose_routes
 from routes.ai import AIOrder_routes as AIOrder_routes
 from routes.ai import AIOrderManage_routes as AIOrderManage_routes
 from routes.ai import AIOrderOptimization_routes as AIOrderOptimization_routes
+from routes.control import Approval_routes as Approval_routes
 
 import uvicorn
 
@@ -145,6 +146,7 @@ app.include_router(MonthClose_routes.router)  # 월마감 관리
 app.include_router(AIOrder_routes.router)
 app.include_router(AIOrderManage_routes.router)
 app.include_router(AIOrderOptimization_routes.router)  # 가공 최적화
+app.include_router(Approval_routes.router)  # 통제관리 (승인요청 · 승인)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

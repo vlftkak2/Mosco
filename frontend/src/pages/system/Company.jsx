@@ -66,6 +66,7 @@ const STATUS_OPTIONS = [
   { value: 'CLOSED', label: '종료' },
 ];
 const STOCK_OPEN_OPTIONS = [{ value: 'N', label: '비공개' }, { value: 'Y', label: '공개' }];
+const APPROVAL_OPTIONS = [{ value: 'N', label: '미허용' }, { value: 'Y', label: '허용' }];
 const PLAN_FILTER_OPTIONS = [{ value: 'ALL', label: '전체' }, ...PLAN_OPTIONS];
 const STATUS_FILTER_OPTIONS = [{ value: 'ALL', label: '전체' }, ...STATUS_OPTIONS];
 const STATUS_LABEL = Object.fromEntries(STATUS_OPTIONS.map((item) => [item.value, item.label]));
@@ -110,6 +111,7 @@ const emptyCompany = () => ({
   license_end: '',
   stock_open_yn: 'N',
   stock_open_date: '',
+  approval_yn: 'N',
   license_unit_price: 0,
   active_users: 0,
   total_users: 0,
@@ -134,6 +136,7 @@ const normalizeCompany = (row = {}) => ({
   license_end: String(row.license_end ?? '').slice(0, 10),
   stock_open_yn: row.stock_open_yn === 'Y' ? 'Y' : 'N',
   stock_open_date: String(row.stock_open_date ?? '').slice(0, 10),
+  approval_yn: row.approval_yn === 'Y' ? 'Y' : 'N',
   active_users: Number(row.active_users || 0),
   total_users: Number(row.total_users || 0),
 });
@@ -360,6 +363,7 @@ export default function Company() {
         license_end: draft.license_end || null,
         stock_open_yn: draft.stock_open_yn === 'Y' ? 'Y' : 'N',
         stock_open_date: draft.stock_open_yn === 'Y' ? (draft.stock_open_date || null) : null,
+        approval_yn: draft.approval_yn === 'Y' ? 'Y' : 'N',
         license_unit_price: Number(draft.license_unit_price || 0),
       };
       const request = creating
@@ -611,6 +615,12 @@ export default function Company() {
                     <ErpDateInput className={classes.compactField} label="공개 동의일" value={draft.stock_open_date} disabled={draft.stock_open_yn !== 'Y'}
                       onChange={(event) => updateDraft('stock_open_date', event.currentTarget.value)} />
                   </div>}
+                  {/* 승인 통제: 허용하면 이 고객사가 기준정보 › 통제관리에서 등록 · 수정 · 삭제 승인 절차를 설정해 쓴다 */}
+                  <div className={classes.compactRow}>
+                    <Select className={classes.compactField} label="승인 통제" data={APPROVAL_OPTIONS} value={draft.approval_yn}
+                      onChange={(value) => updateDraft('approval_yn', value === 'Y' ? 'Y' : 'N')}
+                      allowDeselect={false} comboboxProps={{ width: 'max-content', position: 'bottom-start' }} />
+                  </div>
                   <div className={classes.usage}>
                     <span>계정 사용률</span>
                     <Progress className={classes.usageBar} value={usagePercent} size="sm" radius="xl" color={usagePercent >= 100 ? 'red' : usagePercent >= 80 ? 'orange' : 'teal'} />

@@ -56,6 +56,12 @@ class ConfirmRequest(BaseModel):
     items: list[Line] = Field(min_length=1, max_length=1000)
 
 
+class ManualOrderRequest(BaseModel):
+    """AI 주문서 인식 없이 수기로 입력한 주문."""
+    header: Header
+    items: list[Line] = Field(min_length=1, max_length=1000)
+
+
 class ConfirmedOrderUpdate(BaseModel):
     buyer: str | None = Field(default=None, max_length=100)
     recipient: str | None = Field(default=None, max_length=100)
@@ -130,6 +136,20 @@ async def confirm(payload: ConfirmRequest, user: dict = Depends(authorized_user)
     except Exception as exc:
         logger.exception("Order confirmation failed company=%s error_type=%s", user["companyid"], type(exc).__name__)
         raise HTTPException(500, "주문확정 저장에 실패했습니다. 다시 시도해주세요.") from exc
+
+
+@router.post("/manual")
+async def create_manual(payload: ManualOrderRequest, user: dict = Depends(authorized_user)):
+    try:
+        return await asyncio.to_thread(
+            service.create_manual_order, user["companyid"], str(user.get("companyname") or ""),
+            str(user.get("username") or ""), user["email"], payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Manual order save failed company=%s error_type=%s", user["companyid"], type(exc).__name__)
+        raise HTTPException(500, "수기 주문 저장에 실패했습니다. 다시 시도해주세요.") from exc
 
 
 @router.get("")

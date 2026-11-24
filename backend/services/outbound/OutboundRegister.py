@@ -1,3 +1,4 @@
+from services.control import reservation as reservation_module
 from psycopg2.extras import execute_values
 from services.ai.stock_links import ensure_not_linked, linked_orders_sql
 from services.closing import MonthClose as month_close_module
@@ -525,17 +526,21 @@ def list_available_stock(
                     FROM Outbound02t
                     WHERE companyid = %s AND receiptno = %s
                     GROUP BY stocksourcetype, stocksourceno, stocksourceline
-                )
+                ), {reservation_module.reserved_cte()}
                 SELECT COUNT(*)
                 FROM CurrentStock01t AS stock
                 LEFT JOIN own_allocation AS own
                   ON own.stocksourcetype = stock.sourcetype
                  AND own.stocksourceno = stock.sourceno
                  AND own.stocksourceline = stock.sourceline
+                LEFT JOIN reserved AS rsv
+                  ON rsv.sourcetype = stock.sourcetype
+                 AND rsv.sourceno = stock.sourceno
+                 AND rsv.sourceline = stock.sourceline
                 WHERE {where_sql}
                   AND (stock.qty + COALESCE(own.qty, 0) > 0
                        OR stock.weight + COALESCE(own.weight, 0) > 0)""",
-            (companyid, own_receipt, *params),
+            (companyid, own_receipt, companyid, *params),
         )
         total = cursor.fetchone()[0]
         cursor.execute(
@@ -545,17 +550,19 @@ def list_available_stock(
                     FROM Outbound02t
                     WHERE companyid = %s AND receiptno = %s
                     GROUP BY stocksourcetype, stocksourceno, stocksourceline
-                )
+                ), {reservation_module.reserved_cte()}
                 SELECT stock.sourcetype, stock.sourceno, stock.sourceline, stock.receiptdate,
                        stock.customcode, stock.customname, stock.itemcode, stock.itemname,
                        stock.productname, stock.materialcode, stock.materialname,
                        stock.surfacecode, stock.surfacename, stock.myrtle, stock.manager,
                        stock.thickness, stock.width, stock.length,
                        stock.qty AS current_qty,
-                       stock.qty + COALESCE(own.qty, 0) AS available_qty,
+                       GREATEST(stock.qty + COALESCE(own.qty, 0) - COALESCE(rsv.qty, 0), 0) AS available_qty,
                        stock.qtyunit, COALESCE(qty_code.code_name, stock.qtyunit) AS qtyunit_name,
                        stock.weight AS current_weight,
-                       stock.weight + COALESCE(own.weight, 0) AS available_weight,
+                       GREATEST(stock.weight + COALESCE(own.weight, 0) - COALESCE(rsv.weight, 0), 0) AS available_weight,
+                       COALESCE(rsv.qty, 0) AS reserved_qty, COALESCE(rsv.weight, 0) AS reserved_weight,
+                       rsv.requests AS reserved_requests,
                        stock.unit, stock.warehousecode, stock.warehousecodename,
                        stock.stockkind, CASE WHEN stock.weight > 0 THEN ROUND(stock.costamt / stock.weight, 2) END AS costprice,
                        {linked_orders_sql("stock")} AS linked_orders
@@ -564,6 +571,10 @@ def list_available_stock(
                   ON own.stocksourcetype = stock.sourcetype
                  AND own.stocksourceno = stock.sourceno
                  AND own.stocksourceline = stock.sourceline
+                LEFT JOIN reserved AS rsv
+                  ON rsv.sourcetype = stock.sourcetype
+                 AND rsv.sourceno = stock.sourceno
+                 AND rsv.sourceline = stock.sourceline
                 LEFT JOIN CodeMaster01t AS qty_code
                   ON qty_code.companyid = stock.companyid
                  AND qty_code.groupcode = 'QTY'
@@ -573,7 +584,7 @@ def list_available_stock(
                        OR stock.weight + COALESCE(own.weight, 0) > 0)
                 ORDER BY stock.receiptdate, stock.sourcetype, stock.sourceno, stock.sourceline
                 LIMIT %s OFFSET %s""",
-            (companyid, own_receipt, *params, page_size, (page - 1) * page_size),
+            (companyid, own_receipt, companyid, *params, page_size, (page - 1) * page_size),
         )
         items = [_row_dict(cursor, row) for row in cursor.fetchall()]
     return {"items": items, "total": total, "page": page, "page_size": page_size}

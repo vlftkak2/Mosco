@@ -1,3 +1,4 @@
+import { isApprovalPending, notifyApprovalPending } from '../../utils/approval';
 import { createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { usePageActivation } from '../../components/common/usePageReactivated';
@@ -2377,6 +2378,11 @@ export default function InboundRegisterPage() {
           { manager: String(header.manager || '').trim() },
           authConfig(),
         );
+        if (isApprovalPending(data)) {
+          notifyApprovalPending(data);
+          await openReceipt(selectedReceiptno, true);
+          return true;
+        }
         await openReceipt(selectedReceiptno, true);
         notifications.show({
           title: '담당자 수정 완료',
@@ -2442,6 +2448,17 @@ export default function InboundRegisterPage() {
       };
       const { data } = await axios.put('/api/inbound-register/receipts', payload, authConfig());
       masterPasteErrorsRef.current.clear();
+      // 승인 통제: 승인요청으로 보관됨 → 입력칸을 비운다 (승인되면 전표가 생김)
+      if (isApprovalPending(data)) {
+        notifyApprovalPending(data);
+        if (selectedReceiptno) await openReceipt(selectedReceiptno, true);
+        else {
+          setHeader({ ...EMPTY_HEADER, receptdate: localDate() });
+          setRows([]); setExpenses([]); setSelectedExpenseIds([]); expenseSelectionAnchorRef.current = '';
+          setSubulyn('N'); setDocumentDirty(false); setDetailTab('details');
+        }
+        return true;
+      }
       notifications.show({
         title: '입고 저장 완료',
         message: `${data.saved_count}건을 매입일자·매입처·창고 기준 ${data.group_count || 1}개 전표로 나누어 저장했습니다.`,
@@ -2655,7 +2672,12 @@ export default function InboundRegisterPage() {
     if (!selectedReceiptno || locked) return;
     setSaving(true);
     try {
-      await axios.delete(`/api/inbound-register/receipts/${encodeURIComponent(selectedReceiptno)}`, authConfig());
+      const { data } = await axios.delete(`/api/inbound-register/receipts/${encodeURIComponent(selectedReceiptno)}`, authConfig());
+      if (isApprovalPending(data)) {
+        notifyApprovalPending(data);
+        setDeleteOpen(false);
+        return;
+      }
       notifications.show({ title: '입고 삭제 완료', message: `${selectedReceiptno} 전표를 삭제했습니다.`, color: 'teal' });
       setDeleteOpen(false);
       setHeader({ ...EMPTY_HEADER, receptdate: localDate() });

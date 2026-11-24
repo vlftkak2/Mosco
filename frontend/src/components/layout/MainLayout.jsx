@@ -9,7 +9,7 @@ import { clearAIOrderPageSession } from '../../pages/ai/AIOrderPageSession';
 import { clearAIOrderDraft } from '../../pages/ai/AIOrderDraft';
 import {
   IconAdjustmentsHorizontal, IconBox, IconChevronDown, IconClipboardText, IconCreditCard, IconHome, IconKey, IconLayoutSidebar, IconLogout,
-  IconMoon, IconSearch, IconShieldLock, IconShoppingBag, IconStack2, IconTrendingUp, IconUserCircle, IconUsers,
+  IconBell, IconMoon, IconSearch, IconShieldLock, IconShoppingBag, IconStack2, IconTrendingUp, IconUserCircle, IconUsers,
 } from '@tabler/icons-react';
 import '@mantine/notifications/styles.css';
 import { notifications } from '@mantine/notifications';
@@ -128,6 +128,7 @@ const mockdata = [
       { label: '사업장관리', link: '/Workplace', MenuID: 'WORKPLACE_MANAGEMENT' },
       { label: '월마감관리', link: '/MonthClose', MenuID: 'MONTH_CLOSING' },
       { label: '직원관리', link: '/UserInfo', MenuID: 'USER_MANAGEMENT' },
+      { label: '통제관리', link: '/ControlManagement' },
     ],
   },
   {
@@ -237,7 +238,7 @@ export default function MainLayout({ children }) {
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
     '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage',
     '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/itemprocessmaster', '/itemprocessregister', '/itemprocesssearch', '/customersupport', '/board',
-    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/instrumentstatus', '/customerledger', '/customerbalancedashboard', '/grossprofit', '/grossprofitdashboard', '/company', '/licenserevenue', '/sharedstock', '/user', '/usermenu', '/workplace', '/monthclose', '/userinfo',
+    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/instrumentstatus', '/customerledger', '/customerbalancedashboard', '/grossprofit', '/grossprofitdashboard', '/company', '/licenserevenue', '/sharedstock', '/user', '/usermenu', '/workplace', '/monthclose', '/userinfo', '/controlmanagement',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
   // 탭별 화면 / 리본 보관 (key = 경로)
   const [pageCache, setPageCache] = useState({});
@@ -322,6 +323,28 @@ export default function MainLayout({ children }) {
   // 화면별 리본의 [닫기]가 항상 최신 closePageTab 을 쓰도록
   const closeTabRef = useRef(closePageTab);
   useLayoutEffect(() => { closeTabRef.current = closePageTab; }, [closePageTab]);
+
+  // 승인 통제: 사용 여부 · 승인자 여부 · 대기 건수 (헤더 알림 · 통제관리 메뉴 표시)
+  const [controlSummary, setControlSummary] = useState(null);
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) return undefined;
+    let alive = true;
+    const loadControl = () => axios.get('/api/control/summary', { headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } })
+      .then(({ data }) => { if (alive) setControlSummary(data); })
+      .catch(() => { /* 알림만 못 보여 줌 */ });
+    void loadControl();
+    const onVisible = () => { if (document.visibilityState === 'visible') void loadControl(); };
+    window.addEventListener('approval-changed', loadControl);
+    document.addEventListener('visibilitychange', onVisible);
+    const timer = window.setInterval(() => { void loadControl(); }, 60 * 1000);
+    return () => {
+      alive = false;
+      window.removeEventListener('approval-changed', loadControl);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const [myPermissions, setMyPermissions] = useState([]);
   const [myPermissionsLoaded, setMyPermissionsLoaded] = useState(false);
@@ -547,6 +570,8 @@ const canSeeMenu = (link) => {
   if (link.link === '/Company' || link.link === '/LicenseRevenue') return isPlatformMaster;
   // 타사 재고현황: 모스코(001) 계정이면 권한과 상관없이, 다른 고객사는 숨김
   if (link.link === '/SharedStock') return currentCompanyId === '001';
+  // 통제관리: 고객사에 승인 통제가 허용된 경우 모든 직원 (승인함 · 설정 탭은 화면에서 역할별로)
+  if (link.link === '/ControlManagement') return Boolean(controlSummary?.enabled);
   // 고객사관리 · 고객사 메뉴권한: 플랫폼 관리자(001 MASTER)와 고객사 관리자(001 이외 SUBMASTER)만 (서버 규칙과 같게)
   if (link.link === '/User' || link.link === '/UserMenu') return isPlatformMaster || (currentAuthority === 'SUBMASTER' && currentCompanyId !== '001');
   // 사용자관리: 관리자(고객사 관리자 · 플랫폼 관리자)는 항상, 그 밖에는 메뉴 권한을 받은 계정만
@@ -656,6 +681,16 @@ const menuAccessContextValue = useMemo(() => ({
             {ribbons[pathname] ?? null}
           </Box>
           <span className={classes.hsep} aria-hidden="true" />
+          {controlSummary?.enabled && (() => {
+            const count = controlSummary.is_approver ? controlSummary.pending : controlSummary.my_rejected;
+            const label = controlSummary.is_approver
+              ? `승인 대기 ${controlSummary.pending}건`
+              : `내 요청 대기 ${controlSummary.my_pending}건 · 최근 반려 ${controlSummary.my_rejected}건`;
+            return <button type="button" className={classes.bell} title={label} aria-label={label} onClick={() => navigate('/ControlManagement')}>
+              <IconBell size={18} stroke={1.5} />
+              {count > 0 && <span className={classes.bellBadge}>{count > 99 ? '99+' : count}</span>}
+            </button>;
+          })()}
           <Menu position="bottom-end" offset={8} width={248} shadow="md" withinPortal classNames={{ dropdown: classes.umenu }}>
             <Menu.Target>
               <button type="button" className={classes.ubtn} aria-label="사용자 메뉴">

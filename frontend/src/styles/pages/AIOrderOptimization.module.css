@@ -916,3 +916,211 @@
 .optScope .dimSegs { margin-bottom: 8px; }
 .optScope .dimSegsRaised { margin-top: 18px; }
 .optScope .dim { margin: 16px auto 20px; }
+
+/* 묶음 고르기 창: 저장된 계획 카드 */
+.ogSectionTitle { margin: 6px 2px 0; color: #64748b; font-size: 12px; font-weight: 800; }
+.ogBadgeDraft { background: #eef2ff; color: #4f46e5; }
+.ogBadgeConfirmed { background: #ecfdf5; color: #15803d; }
+.ogBadgeDone { background: #f1f5f9; color: #475569; }
+.ogOpen { flex: none; padding: 7px 14px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #334155; font-size: 12.5px; font-weight: 800; }
+.ogCard:hover .ogOpen { border-color: #e0434b; color: #c9353d; }
+
+
+/* 묶음 고르기 창: 목록 자체 스크롤 없앰 (창 스크롤 하나만) */
+.ogList { max-height: none; overflow: visible; }
+
+/* ───────── 디자인 정리 v2: 버튼 위계 · 상태 표시 · 열린 계획 · 안내문 ───────── */
+/* 버튼 위계: 빨강 = 다음 단계(대기 품목 · 계획 확정 · 재고가공등록), 흰 테두리 = 보조, 글자 = 되돌리기 */
+.optScope button[class*="_btnDark_"], .optScope button[class*="_btnBlue_"], .optScope button[class*="_btnSoftBlue_"], .optScope button[class*="_btnSoftGray_"] {
+  border-color: #d5dce6; background: #fff; color: #1e293b; box-shadow: none; }
+.optScope button[class*="_btnDark_"]:hover:not(:disabled), .optScope button[class*="_btnBlue_"]:hover:not(:disabled),
+.optScope button[class*="_btnSoftBlue_"]:hover:not(:disabled), .optScope button[class*="_btnSoftGray_"]:hover:not(:disabled),
+.optScope button[class*="_btnBlock_"][class*="_btnDark_"]:hover:not(:disabled) { border-color: #e5484d; background: #fff5f5; color: #c9353d; box-shadow: none; }
+.optScope button[class*="_btnGray_"], .optScope button[class*="_btnLine_"] { border-color: transparent; background: transparent; color: #64748b; }
+.optScope button[class*="_btnGray_"]:hover:not(:disabled), .optScope button[class*="_btnLine_"]:hover:not(:disabled) { border-color: #e2e8f0; background: #f1f5f9; color: #0f172a; }
+.optScope button[class*="_btnDark_"]:disabled, .optScope button[class*="_btnPrimary_"]:disabled { border-color: #e5e9ef; background: #f1f4f7; color: #a7b1be; }
+
+/* 최적화 대상 상태: 점 + 글자 (뱃지 상자 없이) */
+.state { display: inline-flex; align-items: center; gap: 6px; color: #475569; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.state::before { width: 7px; height: 7px; flex: none; border-radius: 50%; background: currentColor; content: ""; }
+.stateWait { color: #2563eb; }
+.stateOff { color: #94a3b8; }
+.stateWarn { color: #d9480f; }
+.stateConfirmed { color: #c2610c; }
+.stateDone { color: #15803d; }
+.stateFix { margin-left: 8px; padding: 0; border: 0; background: none; color: #c9353d; font: inherit; font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+/* 작업 목록에서 제외 (×) */
+.rowRemove { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #94a3b8; cursor: pointer; }
+.rowRemove:hover { border-color: #fecaca; background: #fef2f2; color: #dc2626; }
+
+/* 열린 계획: [● 임시저장  PL…] 한 덩어리 */
+.planTag { display: inline-flex; height: 28px; box-sizing: border-box; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid #e2e8f0; border-radius: 999px; background: #fff; color: #334155; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.planTag i { width: 7px; height: 7px; border-radius: 50%; background: #94a3b8; }
+.planTag b { padding-left: 7px; border-left: 1px solid #e2e8f0; color: #0f172a; font-family: ui-monospace, Consolas, monospace; font-size: 12px; font-weight: 700; letter-spacing: -.2px; }
+.planTag_DRAFT i { background: #2563eb; }
+.planTag_DRAFT { color: #1d4ed8; }
+.planTag_CONFIRMED i { background: #ea7a1a; }
+.planTag_CONFIRMED { color: #c2610c; }
+.planTag_DONE i { background: #16a34a; }
+.planTag_DONE { color: #15803d; }
+
+/* ④ 하단 안내: 첫 줄 = 계산 기준, 나머지는 한 문장씩 */
+.noteBox { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid #e8ecf1; border-radius: 10px; background: #f8fafc; color: #475569; font-size: 12.5px; line-height: 1.6; }
+.noteBox.statusWarn { border-color: #fde2c8; background: #fffaf3; color: #9a4a0d; }
+.noteHead { justify-self: start; padding: 2px 8px; border-radius: 6px; background: #e9eef4; color: #334155; font-size: 11.5px; font-weight: 800; }
+.noteBox.statusWarn .noteHead { background: #fdebd6; color: #9a4a0d; }
+.noteLine { margin: 0; }
+.noteLine:first-of-type { font-weight: 700; }
+
+/* 묶음 고르기 · 계획 카드 상태색: 가공주문관리와 같게 (임시저장 파랑 · 계획확정 주황 · 가공완료 초록) */
+.ogBadgeDraft { background: #e2edfc; color: #1b58a6; }
+.ogBadgeConfirmed { background: #fff0e0; color: #b2560d; }
+.ogBadgeDone { background: #e1f5ea; color: #0d7349; }
+
+/* 사용 안내: 계산 단계 제목 옆 코일 / 시트 전환 */
+.guideTitleRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.guideSwitch { display: inline-flex; gap: 2px; padding: 2px; border-radius: 6px; background: #eef1f5; }
+.guideSwitch button { height: 24px; padding: 0 10px; border: 0; border-radius: 4px; background: transparent; color: #64748b; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.guideSwitch .guideSwitchOn { background: #fff; color: #c9353d; box-shadow: 0 1px 2px #0f172a1f; }
+
+/* 사용 안내: 가공주문관리처럼 ? 글자 링크 (테마 버튼 모양 덮어쓰기) */
+.optScope button.guideLinkOpt { height: auto; margin-left: 4px; padding: 2px 4px; border: 0 !important; border-radius: 4px; background: transparent !important; box-shadow: none !important; color: #64748b !important; font-size: 12px; font-weight: 600; }
+.optScope button.guideLinkOpt:hover { color: #0f172a !important; text-decoration: underline; }
+/* 최적화 대상 맨 끝 × 칸: 여백 없이 가운데 (말줄임 · 잘림 없음) */
+.optScope td.removeCell { padding: 0 !important; overflow: visible !important; text-align: center; text-overflow: clip !important; }
+/* 조회조건 열기: 매입등록과 같은 모양 (회청색 글자 · 깔때기 아이콘 · 바탕 없음) */
+.optScope button[class*="_receiptFilterToggle_"][data-variant] { min-height: 30px; height: 30px; padding: 0 8px; border: 0 !important; border-radius: 4px !important; background: transparent !important; box-shadow: none !important; color: #7b91ad !important; font-size: 12px; font-weight: 500 !important; }
+.optScope button[class*="_receiptFilterToggle_"][data-variant]:hover:not(:disabled) { border: 0 !important; background: #edf1f6 !important; color: #7b91ad !important; }
+
+/* ───────── 과거 매입이력 · 가공이력 창 UX 정리 ───────── */
+/* 두께 범위 한 칸 */
+.hxRange { display: flex; flex-direction: column; }
+.hxRange > label { margin-bottom: 5px; color: #4b5b70; font-size: 12px; font-weight: 600; }
+.hxRange > div { display: flex; align-items: center; gap: 6px; }
+.hxRange > div > span { color: #94a3b8; font-size: 12px; }
+.hxRange :global(.mantine-InputWrapper-root) { width: 72px !important; }
+/* [상세 조건] 펼치기 */
+.hxMoreToggle { display: inline-flex; height: 36px; align-items: center; gap: 4px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: #475569; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.hxMoreToggle:hover { background: #f1f5f9; color: #0f172a; }
+.hxMoreToggle em { display: inline-flex; min-width: 18px; height: 18px; align-items: center; justify-content: center; padding: 0 5px; border-radius: 9px; background: #e5484d; color: #fff; font-size: 11px; font-style: normal; }
+.hxMoreToggle svg { transition: transform 120ms ease; }
+.hxMoreOn svg { transform: rotate(180deg); }
+.hxMoreRow { display: flex; flex-basis: 100%; flex-wrap: wrap; align-items: end; gap: 10px; padding: 10px 12px; border: 1px dashed #dbe2ea; border-radius: 10px; background: #fafbfc; }
+/* 상세 칸 빈 상태: 한국어 줄바꿈 */
+.hxDetailEmpty span, .hxApply, .hxReason { word-break: keep-all; }
+
+/* 이력 창 오른쪽 하단: 추가되는 것 / 고를 수 없는 이유 */
+.hxResult, .hxBlocked { display: flex; flex: 0 0 auto; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; word-break: keep-all; }
+.hxResult { border-left: 3px solid #e0434b; }
+.hxResult strong { color: #0f172a; font-size: 15px; font-weight: 800; letter-spacing: -.2px; }
+.hxResult strong em { color: #64748b; font-size: 12px; font-style: normal; font-weight: 600; }
+.hxResult small { color: #64748b; font-size: 11.5px; line-height: 1.55; }
+.hxResultSub { border-left-color: #94a3b8; }
+.hxResultSub strong { font-size: 13.5px; }
+.hxResultLabel { color: #c9353d; font-size: 11px; font-weight: 800; letter-spacing: .2px; }
+.hxResultSub .hxResultLabel { color: #64748b; }
+.hxBlocked { border-color: #f1f5f9; background: #f8fafc; }
+.hxBlocked .hxResultLabel { color: #64748b; }
+.hxBlocked p { margin: 0; color: #475569; font-size: 12px; line-height: 1.6; }
+/* 보고 있는 행: 테두리 선 없이 옅은 바탕 + 왼쪽 빨간 막대 */
+.hxFocusRow { outline: none !important; }
+.hxFocusRow td { background: #fff7f7 !important; }
+.hxFocusRow td:first-child { box-shadow: inset 3px 0 #e0434b; }
+.hxFocusBg td { background: #fff7f7 !important; }
+
+/* 등분 설정: 흰 카드 + 합계 글자 + 채움 막대 (상자 · 왼쪽 회색 막대 없이) */
+.splitPanel { margin-top: 14px; padding: 14px 16px 16px; border: 1px solid #e2e8f0; border-left: 1px solid #e2e8f0; border-radius: 10px; background: #fff; }
+.splitHead strong { color: #0f172a; font-size: 13px; }
+.splitHead > span:not(.splitSum) { padding: 1px 8px; border: 0; border-radius: 999px; background: #f1f5f9; color: #475569; font-size: 11.5px; }
+.splitSum { padding: 0; border: 0 !important; background: transparent !important; font-size: 12.5px; font-weight: 600; }
+.splitSum b { font-weight: 800; }
+.splitSumOk { color: #15803d; }
+.splitSumWarn { color: #c2410c; }
+.splitMeter { height: 4px; margin-top: 10px; overflow: hidden; border-radius: 999px; background: #f1f5f9; }
+.splitMeter i { display: block; height: 100%; border-radius: 999px; transition: width 160ms ease; }
+.splitMeterOk { background: #22c55e; }
+.splitMeterShort { background: #f59e0b; }
+.splitMeterOver { background: #ef4444; }
+
+/* 이력 창: 적합 = 옅은 알약 (고를 수 있음 초록 · 없음 회색) */
+.hxFitOk, .hxFitNo { padding: 2px 9px 2px 8px; border-radius: 999px; font-size: 11.5px; }
+.hxFitOk::before, .hxFitNo::before { width: 5px; height: 5px; }
+.hxFitOk { background: #ecfdf3; color: #15803d; }
+.hxFitNo { background: #f1f5f9; color: #94a3b8; }
+/* 이력 창 오른쪽 상세: 회색 바탕 · 겹친 카드 → 흰 바탕 한 장 (머리 · 항목 줄 구분) */
+.hxSplitDetail { gap: 12px; padding: 16px; border-left: 1px solid #eef1f4; background: #fcfcfd; }
+.hxSplitDetail .hxCard { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.hxSplitDetail .hxCard:first-child { padding-bottom: 12px; border-bottom: 1px solid #eef1f4; }
+.hxSplitDetail .hxDetailHead strong { color: #0f172a; font-size: 14px; }
+.hxSplitDetail .hxDetailSub { color: #94a3b8; font-size: 12px; }
+.hxSplitDetail .hxPillOk { background: #ecfdf3; color: #15803d; }
+.hxSplitDetail .hxPillNo { background: #f1f5f9; color: #64748b; }
+.hxSplitDetail .hxKeyvals { gap: 0; }
+.hxSplitDetail .hxKeyvals > div { grid-template-columns: 76px 1fr; padding: 7px 0; border-bottom: 1px dashed #eef1f4; font-size: 12.5px; }
+.hxSplitDetail .hxKeyvals > div:last-child { border-bottom: 0; }
+.hxSplitDetail .hxKeyvals dt { color: #94a3b8; font-weight: 600; }
+.hxSplitDetail .hxKeyvals dd { color: #1e293b; font-weight: 700; }
+.hxSplitDetail .hxDetailEmpty strong { color: #334155; }
+
+/* 가공이력 창 · 직접 입력: 배치 미리보기 (한눈에: 막대 → 숫자 3개 → 범례) */
+.hxManualPane { padding: 16px; background: #f8fafc; }
+.hxPreview { gap: 14px; max-width: none; padding: 18px 20px; border: 1px solid #e2e8f0; border-radius: 12px; }
+.hxPreviewHead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.hxPreviewHead b { color: #0f172a; font-size: 14px; font-weight: 800; }
+.hxPreviewHead b em { color: #c9353d; font-style: normal; }
+.hxPreviewHead span { color: #94a3b8; font-size: 12px; }
+.hxPreview .hxStrip { height: 52px; border-radius: 8px; }
+.pieceNew { background: #fde4e5; color: #b4232c; }
+.hxPreview .pieceNew + .pieceNew { box-shadow: inset 1px 0 #fff; }
+.hxPreviewEmpty { display: flex; height: 52px; align-items: center; justify-content: center; border: 1.5px dashed #e2e8f0; border-radius: 8px; color: #94a3b8; font-size: 12.5px; }
+.hxPreviewStats { display: grid; grid-template-columns: repeat(3, minmax(0, 160px)); gap: 10px; }
+.hxPreviewStats > div { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border: 1px solid #eef1f4; border-radius: 10px; background: #fff; }
+.hxPreviewStats span { color: #94a3b8; font-size: 11.5px; font-weight: 600; }
+.hxPreviewStats strong { color: #0f172a; font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.hxPreviewStats .hxStatMain { border-color: #fecdd0; background: #fff5f5; }
+.hxPreviewStats .hxStatMain strong { color: #c9353d; }
+.hxPreviewStats .hxStatBad strong { color: #94a3b8; }
+.hxLegend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; color: #475569; font-size: 12px; font-weight: 600; }
+.hxLegend > span { display: inline-flex; align-items: center; gap: 6px; }
+.hxLegend i { display: inline-block; width: 14px; height: 10px; border-radius: 3px; }
+.hxLegendGroup { color: #94a3b8; }
+.hxLegendGroup em { padding: 1px 8px; border-radius: 999px; background: #f1f5f9; color: #334155; font-style: normal; font-weight: 700; }
+.hxPreviewNote { color: #94a3b8; font-size: 11.5px; }
+/* 등분 설정: [+ 차수 추가] [− 차수 삭제]는 제목 아래 고정 (입력칸이 늘어도 위치 그대로) */
+.splitActionsTop { margin-top: 10px; }
+
+/* ③ 단독 ↔ 혼합 다시 계산 중: 이전 결과를 옅게 남겨 두고 (깜빡임 없이) 새 결과로 바꾼다 */
+.recommendBody .plans, .recommendBody .box + .box { transition: opacity 140ms ease; }
+.recalcBody .plans, .recalcBody .box + .box { opacity: .45; }
+
+/* 결과 숫자 줄(코일 재고 · 가공 · 보관 · 생산 · 로스): 좁은 화면에서 잘리지 않게 칸이 줄바꿈 + 글자 크기 자동 */
+.optScope .flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 1px; overflow: hidden; background: var(--o-line, #e3e9f0); container-type: inline-size; }
+.optScope .flow > span { background: #fff; }
+.optScope .flow > span + span { border-left: 0; }
+.optScope .flow small { white-space: normal; overflow: visible; line-height: 1.35; }
+.optScope .flow b { font-size: clamp(14px, 3.2cqi, 18px); }
+/* 대기 품목 창 상태: 담음 · 계획 중 */
+.statePicked { color: #dc2626; }
+.statePlan_DRAFT { color: #2563eb; }
+.statePlan_CONFIRMED { color: #c2610c; }
+.statePlan_DONE { color: #15803d; }
+/* (위 줄바꿈 대신) 한 줄 유지 · 칸이 좁으면 숫자 글자만 작아짐 — 빈 회색 칸이 생기지 않게 */
+.optScope .flow { display: flex; gap: 0; background: #fff; }
+.optScope .flow > span { flex: 1 1 0; min-width: 0; padding: 10px 12px; }
+.optScope .flow > span + span { border-left: 1px solid var(--o-line, #e3e9f0); }
+.optScope .flow b { font-size: clamp(13px, 2.9cqi, 18px); }
+
+/* 계산 보기 창: 생산 = 빨강, 로스 = 파랑 */
+.calcBalanceProd { background: linear-gradient(90deg, #ef5a61, #e0434b) !important; }
+.calcBalanceLoss { background: repeating-linear-gradient(45deg, #60a5fa 0 6px, #3b82f6 6px 12px) !important; }
+.toneProd::before { background: #e0434b !important; }
+.toneLoss::before { background: #3b82f6 !important; }
+.toneProd .calcStep { background: #e0434b !important; }
+.toneLoss .calcStep { background: #3b82f6 !important; }
+
+/* [계산 보기]: 결과 띠 위쪽 경계선에 걸쳐 두어 숫자 · 라벨을 가리지 않게 */
+.calcTarget { margin-top: 12px; }
+.calcHint { top: -11px; right: 12px; z-index: 1; box-shadow: 0 0 0 3px #fff; }
+/* [주문서 관리로 돌려보내기]: 임시저장과 같은 흰 바탕 테두리 버튼 */
+.optScope button[class*="_btnGray_"], .optScope button[class*="_btnLine_"] { border-color: #d5dce6; background: #fff; color: #1e293b; }
+.optScope button[class*="_btnGray_"]:hover:not(:disabled), .optScope button[class*="_btnLine_"]:hover:not(:disabled) { border-color: #e5484d; background: #fff5f5; color: #c9353d; }

@@ -1,3 +1,4 @@
+from services.control import reservation as reservation_module
 from psycopg2.extras import execute_values
 from services.ai.stock_links import ensure_not_linked, linked_orders_sql
 import logging
@@ -106,6 +107,7 @@ def list_available_stock(
         "stock.companyid = %s",
         "COALESCE(stock.qty, 0) > 0",
         "COALESCE(stock.weight, 0) > 0",
+        reservation_module.not_reserved_sql("stock"),   # 매출 승인요청에 예약된 재고는 고를 수 없다
     ]
     params: list = [companyid]
     if item_search.strip():

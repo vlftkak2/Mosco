@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { Button, NumberInput, Select, TextInput } from '@mantine/core';
 import { ItemNameAutocomplete } from './AIItemNameLookup';
-import { IconCheck, IconHistory, IconSearch } from '@tabler/icons-react';
+import { IconCheck, IconChevronDown, IconHistory, IconSearch } from '@tabler/icons-react';
 import PickerModal, { ColumnResizeHandle, PickerEmpty, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
 import classes from '../../styles/pages/AIOrderOptimization.module.css';
 import m from '../../styles/pages/AIOrderManage.module.css';
@@ -100,12 +100,17 @@ export function historyFit(kind, material, row, ctx) {
     if ((ctx.linkedKeys || []).includes(row.id)) {
       return { ok: false, label: '연결 원자재', reason: '이 재고는 주문서 관리에서 연결한 원자재로 ① 후보에 이미 있습니다. 다시 추가할 필요가 없습니다.' };
     }
+    // 아직 현재고로 남아 있는 매입 · 기초분은 ① 에 현재고로 이미 나온다 → 신규로 또 추가하지 않는다
+    if (row.in_stock && (ctx.stockKeys || []).includes(row.id)) {
+      return { ok: false, label: '기추천', reason: '① 원자재 후보에 현재고로 추천된 원자재입니다 (중복 추가 불가).' };
+    }
     // 슬리팅 · 절단으로 두께는 바뀌지 않는다 → 발주와 같은 두께의 매입이력만 원자재 후보로 추가할 수 있다
     // 코일: 가장 넓은 제품 폭 + 기본 로스보다 좁은 원자재는 후보가 될 수 없다
     const minWidth = Math.max(0, ...(ctx.orderValues || []).map(Number)) + (Number(ctx.trim) || 0);
     if (material === 'COIL' && Number(row.width) < minWidth - 1e-6) {
       return { ok: false, label: '폭 부족', reason: `원자재 폭 ${fmt(row.width)}mm는 가장 넓은 제품 폭 + 기본 로스 = ${fmt(minWidth)}mm 이상이어야 후보로 추가할 수 있습니다.` };
     }
+    if (row.in_stock) return { ok: false, label: '재고 보유', reason: '현재고로 보유 중인 원자재입니다. 신규 후보로 추가하지 않습니다.' };
     return same(row.thickness, ctx.thickness) ? { ok: true, label: '두께 일치' }
       : { ok: false, label: '두께 상이', reason: `이력 두께 ${fmt(row.thickness, 3)}T · 발주 두께 ${fmt(ctx.thickness, 3)}T. 같은 두께의 매입이력만 원자재 후보로 추가할 수 있습니다.` };
   }
@@ -137,8 +142,8 @@ const rawText = (material, row) => (material === 'COIL' ? `${fmt(row.raw_width ?
 
 const TITLES = { purchase: '과거 매입이력', processing: '과거 가공이력' };
 const DESCRIPTIONS = {
-  purchase: '과거 입고(매입) · 기초재고로 등록한 원자재 규격을 조회해 ① 신규 원자재 후보로 추가합니다. 현재고가 아닙니다.',
-  processing: { COIL: '가공등록에서 실제로 가공한 폭·칼수 조합을 조회하고, 현재 원자재 폭으로 검증해 ③ 추천에 반영합니다.', SHEET: '가공등록에서 실제로 절단한 패턴을 조회하고, 현재 원판에 들어가는지 검증해 ③ 추천에 반영합니다.' },
+  purchase: '예전에 매입(입고 · 기초)한 원자재 규격을 ① 원자재 후보에 신규로 추가합니다. 발주와 두께가 같은 규격만 고를 수 있습니다.',
+  processing: { COIL: '예전에 가공한 칼 배치를 ③ 추천조합에 추가합니다. 지금 원자재 폭에 들어가는 이력만 고를 수 있습니다.', SHEET: '예전에 절단한 패턴을 ③ 추천조합에 추가합니다. 지금 원판에 들어가는 이력만 고를 수 있습니다.' },
 };
 const APPLY_LABEL = { purchase: '후보로 추가', processing: '추천조합에 반영' };
 
@@ -152,15 +157,15 @@ const PROCESS_TABS = [
 // 이력 목록 열 (열 너비 조절)
 const HISTORY_COLUMNS = (kind, isCoil) => [
   { key: 'select', label: '선택', width: 52, align: 'center' },
-  ...(kind === 'purchase' ? [{ key: 'origin', label: '구분', width: 64, align: 'center' }] : []),
+  { key: 'fit', label: '적합', width: 112 },
+  { key: 'spec', label: kind === 'purchase' ? '매입 규격' : '사용 원자재', width: 150 },
+  { key: 'amount', label: kind === 'purchase' ? (isCoil ? '중량' : '수량') : '가공패턴', width: kind === 'purchase' ? 100 : 170, align: kind === 'purchase' ? 'right' : undefined },
   { key: 'date', label: kind === 'purchase' ? '일자' : '작업일', width: 100 },
+  ...(kind === 'purchase' ? [{ key: 'origin', label: '구분', width: 60, align: 'center' }] : []),
   { key: 'customer', label: '거래처', width: 150 },
-  { key: 'itemname', label: '품명', width: 130 },
-  { key: 'grade', label: '강종', width: 100 },
-  { key: 'surface', label: '표면', width: 90 },
-  { key: 'spec', label: kind === 'purchase' ? '매입 규격' : '사용 원자재', width: 160 },
-  { key: 'amount', label: kind === 'purchase' ? (isCoil ? '중량' : '수량') : '가공패턴', width: 150, align: 'right' },
-  { key: 'fit', label: '적합', width: 110 },
+  { key: 'itemname', label: '품명', width: 120 },
+  { key: 'grade', label: '강종', width: 90 },
+  { key: 'surface', label: '표면', width: 80 },
 ];
 const SALES_COLUMNS = (isCoil) => [
   { key: 'select', label: '선택', width: 52, align: 'center' },
@@ -216,13 +221,13 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
   const [manual, setManual] = useState('');     // 직접 입력한 가공 후보
   const [salesQuery, setSalesQuery] = useState('');
   const [message, setMessage] = useState('');
+  const [moreOpen, setMoreOpen] = useState(false);   // 조회조건 [상세 조건] 펼침
   // 매입이력: 기본은 기준 품목의 품명으로 찾고, 없으면 품명을 바꾸거나 비워(전체) 직접 찾는다
   // 조회조건: 입력칸(input)은 [조회] · Enter 때 적용(applied). 기간은 바로 적용
   const [filterInput, setFilterInput] = useState(() => defaultHistoryFilters(context));
   const [appliedFilters, setAppliedFilters] = useState(() => defaultHistoryFilters(context));
   const setField = (field) => (event) => { const { value } = event.currentTarget; setFilterInput((current) => ({ ...current, [field]: value })); };
   const runSearch = () => { setAppliedFilters(filterInput); setChosenId(null); setChecked([]); };
-  const resetFilters = () => { const base = defaultHistoryFilters(context); setFilterInput(base); setAppliedFilters(base); setMonths('0'); setChosenId(null); setChecked([]); };
   const onEnter = (event) => { if (event.key === 'Enter') runSearch(); };
   const isCoil = material === 'COIL';
   const historyColumnsDef = useMemo(() => HISTORY_COLUMNS(kind, isCoil), [kind, isCoil]);
@@ -253,7 +258,7 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
   const basis = kind === 'purchase'
     ? [['품명', context.itemname || '–'], ['두께', `${fmt(context.thickness, 3)}T`]]
     : tab === 'history'
-      ? [['품명', context.itemname || '–'], [isCoil ? '원자재 폭' : '원판', isCoil ? `${fmt(context.rawWidth)}mm` : `${fmt(context.rawWidth)} × ${fmt(context.rawLength)}mm`], [isCoil ? '기본 로스' : '제품 폭', isCoil ? `${fmt(context.trim)}mm` : `${fmt(context.itemWidth)}mm`]]
+      ? [['품명', context.itemname || '–'], [isCoil ? '원자재 폭' : '원판', !(context.rawWidth > 0) ? '① 에서 미선택' : isCoil ? `${fmt(context.rawWidth)}mm` : `${fmt(context.rawWidth)} × ${fmt(context.rawLength)}mm`], [isCoil ? '기본 로스' : '제품 폭', isCoil ? `${fmt(context.trim)}mm` : `${fmt(context.itemWidth)}mm`]]
       : [['품명', context.itemname || '–'], ['두께', `${fmt(context.thickness, 3)}T`],
         [isCoil ? '사용 가능 폭' : '원판', isCoil ? `${fmt(candidates.usable)}mm (원자재 ${fmt(context.rawWidth)} − 로스 ${fmt(context.trim)})` : `${fmt(context.rawWidth)} × ${fmt(context.rawLength)}mm · 제품 폭 ${fmt(context.itemWidth)}mm`],
         ...(context.extraValues.length ? [['추가된 가공 후보', context.extraValues.map((v) => `${fmt(v)}mm`).join(', ')]] : [])];
@@ -266,10 +271,6 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
       ...(isCoil ? [['칼수', `${row.knives}칼`], ['작업 원코일', `${fmt(row.raw_weight)}kg (${fmt(row.raw_qty, 0)}개)`],
         ['실적 로스', row.actual_loss === null || row.actual_loss === undefined ? '–' : `${fmt(row.actual_loss)}kg`], ['실적 수율', row.actual_yield === null || row.actual_yield === undefined ? '–' : `${fmt(row.actual_yield, 2)}%`]]
         : [['작업 원판', `${fmt(row.raw_qty, 0)}매`]])]);
-  const applyText = kind === 'purchase'
-    ? (row) => `반영하면 ① 원자재 후보에 "매입이력 ${row.id}" ${fmt(row.thickness, 3)} × ${rawText(material, row)} 규격이 추가됩니다. 여러 건이면 첫 번째가 선택됩니다. 실제 재고가 아니라 '이 규격을 사면' 기준입니다.`
-    : (row) => `반영하면 ③ 추천조합에 ${patternText(material, row)} 칼 배치 안이 추가됩니다. 여러 건이면 안마다 하나씩 (A·B·C 최대 3개). (가공이력 ${row.no})`;
-
   // 가공 후보 추가 (가공매출이력 · 직접 입력)
   const addCandidate = () => {
     let value;
@@ -297,8 +298,8 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
     onClick={() => changeTab(item.value)}>{item.label}<small>{item.hint}</small></button>);
   // 안내 첫 줄 (탭마다 한 줄로 · 높이 고정)
   const lead = tab === 'history' ? (kind === 'purchase' ? DESCRIPTIONS.purchase : DESCRIPTIONS.processing[material])
-    : tab === 'sales' ? `과거 출고(매출)한 제품 ${isCoil ? '폭' : '길이'}을 골라 가공 후보로 추가합니다. 추가하면 혼합으로 ③ 추천조합이 다시 계산됩니다.`
-      : `주문에 없는 제품 ${isCoil ? '폭' : '길이'}을 직접 넣어 가공 후보로 추가합니다. 추가하면 혼합으로 ③ 추천조합이 다시 계산됩니다.`;
+    : tab === 'sales' ? `예전에 출고한 제품 ${isCoil ? '폭' : '길이'}을 가공 후보로 추가합니다. 추가하면 ③ 추천조합을 혼합으로 다시 계산합니다.`
+      : `주문에 없는 제품 ${isCoil ? '폭' : '길이'}을 직접 넣어 가공 후보로 추가합니다. 추가하면 ③ 추천조합을 혼합으로 다시 계산합니다.`;
   // 가공이력: 이력에서 쓴 원자재를 ① 원자재 후보로 (체크한 이력, 없으면 보고 있는 이력 1건 · 칼 배치 적합 여부와 무관)
   // 두께가 발주와 같은 이력의 원자재만 (슬리팅 · 절단으로 두께는 바뀌지 않는다)
   const rawRows = (pickedRows.length ? pickedRows : chosen ? [chosen.row] : []).filter((row) => same(row.thickness, context.thickness));
@@ -311,7 +312,7 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
       {APPLY_LABEL[kind]}{pickedRows.length ? ` (${pickedRows.length})` : ''}</Button>
   </> : undefined;
   const frame = tab === 'history'
-    ? { listTitle: '이력', count: shown.length, listHint: shown.length ? `적합 ${fmt(fitCount, 0)}건 · 적합한 이력이 위에 표시됩니다` : '', selectedCount: pickedRows.length,
+    ? { listTitle: '이력', count: shown.length, listHint: shown.length ? `고를 수 있는 이력 ${fmt(fitCount, 0)}건 (위쪽)` : '', selectedCount: pickedRows.length,
       onClearSelection: () => setChecked([]), onApply: () => { onApply(pickedRows); onClose(); }, applyLabel: APPLY_LABEL[kind], applyDisabled: !pickedRows.length, footerActions: processFooter }
     : tab === 'sales'
       ? { listTitle: '출고 규격', count: salesGroups.length, listHint: '행을 눌러 규격을 고르세요', selectedCount: picked ? 1 : 0,
@@ -319,24 +320,33 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
       : { listTitle: '배치 미리보기', count: undefined, listHint: isCoil ? '현재 원자재 폭에 몇 칼 들어가는지 보여 줍니다' : '', selectedCount: manual ? 1 : 0, selectionLabel: '입력',
         onApply: addCandidate, applyLabel: '가공 후보 추가', applyDisabled: !manual };
   // 검색 줄: 탭마다 같은 높이 (라벨 + 입력칸)
+  const moreCount = ['productname', 'steelgrade', 'surface', 'warehouse', 'q'].filter((key) => String(filterInput[key] ?? '').trim()).length;
   const filters = tab === 'history' ? <>
-    <ItemNameAutocomplete value={filterInput.name} exact={filterInput.nameExact} onKeyDown={onEnter} width={150} subject="이력"
+    <ItemNameAutocomplete value={filterInput.name} exact={filterInput.nameExact} onKeyDown={onEnter} width={170} subject="이력"
       onChange={(value, exact) => setFilterInput((current) => ({ ...current, name: value, nameExact: exact }))} />
-    <TextInput size="sm" label="제품명" style={{ width: 100 }} value={filterInput.productname} onKeyDown={onEnter} onChange={setField('productname')} />
-    <TextInput size="sm" label="강종" style={{ width: 88 }} value={filterInput.steelgrade} onKeyDown={onEnter} onChange={setField('steelgrade')} />
-    <TextInput size="sm" label="표면" style={{ width: 76 }} value={filterInput.surface} onKeyDown={onEnter} onChange={setField('surface')} />
-    <TextInput size="sm" label="두께 시작" type="number" step="0.01" min="0" style={{ width: 76 }} value={filterInput.thicknessFrom} onKeyDown={onEnter} onChange={setField('thicknessFrom')} />
-    <TextInput size="sm" label="두께 끝" type="number" step="0.01" min="0" style={{ width: 76 }} value={filterInput.thicknessTo} onKeyDown={onEnter} onChange={setField('thicknessTo')} />
-    <TextInput size="sm" label="폭" type="number" step="0.1" min="0" style={{ width: 70 }} value={filterInput.width} onKeyDown={onEnter} onChange={setField('width')} />
-    {!isCoil && <TextInput size="sm" label="길이" type="number" step="0.1" min="0" style={{ width: 70 }} value={filterInput.length} onKeyDown={onEnter} onChange={setField('length')} />}
-    <TextInput size="sm" label="창고" style={{ width: 88 }} value={filterInput.warehouse} onKeyDown={onEnter} onChange={setField('warehouse')} />
-    <TextInput size="sm" label="거래처 · 전표" style={{ width: 110 }} value={filterInput.q} onKeyDown={onEnter} onChange={setField('q')} />
-    <Select size="sm" label="기간" value={months} allowDeselect={false} style={{ width: 112 }} onChange={setMonths} data={PERIODS} />
+    <div className={classes.hxRange}>
+      <label htmlFor="hx-thick-from">두께 (mm)</label>
+      <div>
+        <TextInput id="hx-thick-from" size="sm" type="number" step="0.01" min="0" aria-label="두께 시작" value={filterInput.thicknessFrom} onKeyDown={onEnter} onChange={setField('thicknessFrom')} />
+        <span>~</span>
+        <TextInput size="sm" type="number" step="0.01" min="0" aria-label="두께 끝" value={filterInput.thicknessTo} onKeyDown={onEnter} onChange={setField('thicknessTo')} />
+      </div>
+    </div>
+    <TextInput size="sm" label="폭" type="number" step="0.1" min="0" style={{ width: 84 }} value={filterInput.width} onKeyDown={onEnter} onChange={setField('width')} />
+    {!isCoil && <TextInput size="sm" label="길이" type="number" step="0.1" min="0" style={{ width: 84 }} value={filterInput.length} onKeyDown={onEnter} onChange={setField('length')} />}
+    <Select size="sm" label="기간" value={months} allowDeselect={false} style={{ width: 120 }} onChange={setMonths} data={PERIODS} />
     <Button size="sm" color="red" leftSection={<IconSearch size={14} />} onClick={runSearch}>조회</Button>
-    <Button size="sm" variant="default" onClick={resetFilters}>초기화</Button>
+    <button type="button" className={`${classes.hxMoreToggle} ${moreOpen ? classes.hxMoreOn : ''}`} aria-expanded={moreOpen} onClick={() => setMoreOpen((v) => !v)}>
+      상세 조건{moreCount ? <em>{moreCount}</em> : null}<IconChevronDown size={14} stroke={2} /></button>
+    {moreOpen && <div className={classes.hxMoreRow}>
+      <TextInput size="sm" label="거래처 · 전표번호" style={{ width: 170 }} value={filterInput.q} onKeyDown={onEnter} onChange={setField('q')} />
+      <TextInput size="sm" label="제품명" style={{ width: 130 }} value={filterInput.productname} onKeyDown={onEnter} onChange={setField('productname')} />
+      <TextInput size="sm" label="강종" style={{ width: 110 }} value={filterInput.steelgrade} onKeyDown={onEnter} onChange={setField('steelgrade')} />
+      <TextInput size="sm" label="표면" style={{ width: 100 }} value={filterInput.surface} onKeyDown={onEnter} onChange={setField('surface')} />
+      <TextInput size="sm" label="창고" style={{ width: 130 }} value={filterInput.warehouse} onKeyDown={onEnter} onChange={setField('warehouse')} />
+    </div>}
   </> : tab === 'sales' ? <>
     <TextInput size="sm" label="검색" placeholder={`제품 ${isCoil ? '폭' : '길이'} · 거래처`} style={{ width: 240 }} value={salesQuery} onChange={(event) => setSalesQuery(event.currentTarget.value)} />
-    <Button size="sm" variant="default" onClick={() => setSalesQuery('')}>초기화</Button>
   </> : <>
     <NumberInput size="sm" label={isCoil ? '제품 폭 (mm)' : '제품 길이 (mm)'} placeholder={isCoil ? '예: 165' : '예: 400'} value={manual} data-autofocus
       onChange={(value) => { setManual(value); setMessage(''); }} hideControls min={0} style={{ width: 240 }} />
@@ -364,16 +374,16 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
             onClick={() => { setChosenId(item.row.id); toggle(item); }}>
             <td className={pickerClasses.center}><input className={pickerClasses.checkbox} type="checkbox" aria-label={`${item.row.id} 선택`} checked={checked.includes(item.row.id)} disabled={!item.fit.ok}
               onClick={(event) => event.stopPropagation()} onChange={() => toggle(item)} /></td>
-            {kind === 'purchase' && <td className={pickerClasses.center} title={item.row.origin === '기초' ? '기초재고로 등록한 원자재' : '입고(매입) 전표'}>{item.row.origin || '입고'}</td>}
+            <td><span className={item.fit.ok ? classes.hxFitOk : classes.hxFitNo} title={item.fit.reason || ''}>{item.fit.label}</span></td>
+            <td><b>{fmt(item.row.thickness, 3)} × {rawText(material, item.row)}</b></td>
+            <td className={kind === 'purchase' ? pickerClasses.right : ''} title={kind === 'processing' ? patternText(material, item.row) : undefined}>
+              {kind === 'purchase' ? (isCoil ? `${fmt(item.row.weight)}kg` : `${fmt(item.row.qty, 0)}매`) : patternText(material, item.row)}</td>
             <td>{String(item.row.date || '').slice(0, 10)}</td>
+            {kind === 'purchase' && <td className={pickerClasses.center} title={item.row.origin === '기초' ? '기초재고로 등록한 원자재' : '입고(매입) 전표'}>{item.row.origin || '입고'}</td>}
             <td title={item.row.customer || ''}>{item.row.customer || '–'}</td>
             <td title={item.row.itemname || ''}>{item.row.itemname || '–'}</td>
             <td title={item.row.steelgrade || ''}>{item.row.steelgrade || '–'}</td>
             <td title={item.row.surface || ''}>{item.row.surface || '–'}</td>
-            <td><b>{fmt(item.row.thickness, 3)} × {rawText(material, item.row)}</b></td>
-            <td className={pickerClasses.right} title={kind === 'processing' ? patternText(material, item.row) : undefined}>
-              {kind === 'purchase' ? (isCoil ? `${fmt(item.row.weight)}kg` : `${fmt(item.row.qty, 0)}매`) : patternText(material, item.row)}</td>
-            <td><span className={item.fit.ok ? classes.hxFitOk : classes.hxFitNo} title={item.fit.reason || ''}>{item.fit.label}</span></td>
           </tr>)}
           {!shown.length && <tr><td colSpan={historyColumnsDef.length} className={pickerClasses.emptyCell}>
             <PickerEmpty title={loading ? '이력을 불러오는 중입니다' : error || (searchName ? `"${searchName}" ${TITLES[kind]}이 없습니다` : `검색 조건에 맞는 ${TITLES[kind]}이 없습니다`)}
@@ -391,9 +401,26 @@ export function HistoryModal({ opened, kind, material, context, onClose, onApply
           {kind === 'processing' && isCoil && <PatternBar row={chosen.row} rawWidth={context.rawWidth} trim={context.trim} orderValues={context.orderValues} />}
           <dl className={`${classes.hxCard} ${classes.hxKeyvals}`}>{detail(chosen.row).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>
           {chosen.fit.ok
-            ? <p className={classes.hxApply}><b>적용하면</b>{applyText(chosen.row)}{chosen.fit.reason ? <><br />{chosen.fit.reason}</> : null}</p>
-            : <p className={classes.hxReason}><b>적용할 수 없습니다</b>{chosen.fit.reason}</p>}
-          {kind === 'processing' && <p className={classes.hxApply}><b>원자재 후보로 추가하면</b>이 이력에서 쓴 원자재 {fmt(chosen.row.thickness, 3)} × {rawText(material, chosen.row)}{isCoil && chosen.row.raw_weight ? ` (1개 ${fmt(chosen.row.raw_weight / (chosen.row.raw_qty || 1))}kg)` : ''} 규격이 ① 원자재 후보에 신규로 추가됩니다. 칼 배치가 맞지 않아도 추가할 수 있습니다.{same(chosen.row.thickness, context.thickness) ? '' : ` 단, 이력 두께 ${fmt(chosen.row.thickness, 3)}T가 발주 두께 ${fmt(context.thickness, 3)}T와 달라 추가할 수 없습니다.`}</p>}
+            ? <div className={classes.hxResult}>
+              <span className={classes.hxResultLabel}>{kind === 'purchase' ? '① 원자재 후보에 추가' : '③ 추천조합에 추가'}</span>
+              <strong>{kind === 'purchase' ? `${fmt(chosen.row.thickness, 3)} × ${rawText(material, chosen.row)}` : patternText(material, chosen.row)}</strong>
+              <small>{kind === 'purchase' ? '여러 건을 고르면 첫 번째 규격이 선택됩니다.' : '여러 건을 고르면 A · B · C안으로 최대 3개까지 추가됩니다.'}</small>
+              {chosen.fit.reason && <small>{chosen.fit.reason}</small>}
+            </div>
+            : <div className={classes.hxBlocked}>
+              <span className={classes.hxResultLabel}>고를 수 없는 이력</span>
+              <p>{chosen.fit.reason}</p>
+            </div>}
+          {kind === 'processing' && (same(chosen.row.thickness, context.thickness)
+            ? <div className={`${classes.hxResult} ${classes.hxResultSub}`}>
+              <span className={classes.hxResultLabel}>[원자재 후보로 추가] 시</span>
+              <strong>{fmt(chosen.row.thickness, 3)} × {rawText(material, chosen.row)}{isCoil && chosen.row.raw_weight ? <em> · 1개 {fmt(chosen.row.raw_weight / (chosen.row.raw_qty || 1))}kg</em> : null}</strong>
+              <small>이 이력의 원자재가 ① 후보에 신규로 추가됩니다. 칼 배치가 맞지 않아도 됩니다.</small>
+            </div>
+            : <div className={classes.hxBlocked}>
+              <span className={classes.hxResultLabel}>원자재 후보로 추가 불가</span>
+              <p>이력 두께 {fmt(chosen.row.thickness, 3)}T가 발주 두께 {fmt(context.thickness, 3)}T와 다릅니다.</p>
+            </div>)}
         </> : <div className={classes.hxDetailEmpty}><strong>선택한 이력이 없습니다</strong><span>목록에서 이력을 누르면 상세와 적용 결과를 확인할 수 있습니다.</span></div>}
       </aside>
     </div>}
@@ -438,7 +465,7 @@ function toneOf(width, orderValues) {
 }
 
 // 원코일 막대 (③ 칼 배치와 같은 색 · 로스 빗금)
-function CoilStrip({ pieces, rawWidth, trim, orderValues, limit }) {
+function CoilStrip({ pieces, rawWidth, trim, orderValues, limit, newCut = false }) {
   const used = pieces.reduce((sum, w) => sum + w, 0);
   const loss = (rawWidth || 0) - used;   // 기본 로스 + 잔여폭
   const cap = (limit ?? rawWidth) - (trim || 0);   // 이 폭을 넘는 칼은 빨갛게 (원자재 폭 초과)
@@ -448,15 +475,11 @@ function CoilStrip({ pieces, rawWidth, trim, orderValues, limit }) {
       const over = ends[index] > cap + 1e-6;
       // 칼이 11개 이하면 칸마다 최소 폭을 줘서 숫자가 보이게 (좁아진 만큼 로스 빗금이 줄어든다). 많으면 비율 그대로
       const roomy = pieces.length <= 11;
-      return <span key={index} className={`${classes.piece} ${roomy ? classes.hxPieceRoomy : classes.hxPiece} ${over ? classes.hxPieceOver : toneOf(w, orderValues)}`}
+      return <span key={index} className={`${classes.piece} ${roomy ? classes.hxPieceRoomy : classes.hxPiece} ${over ? classes.hxPieceOver : newCut ? classes.pieceNew : toneOf(w, orderValues)}`}
         style={{ flex: `${w} 1 0` }} title={over ? `${fmt(w)}mm · 원자재 폭 초과` : `${fmt(w)}mm`}>{roomy || (rawWidth > 0 && w / rawWidth >= 0.09) ? fmt(w) : ''}</span>;
     })}
     {loss > 0.001 && <span className={`${classes.piece} ${classes.loss}`} style={{ flex: loss }} title={`기본 로스 ${fmt(trim)}mm + 잔여폭 ${fmt(Math.max(0, loss - (trim || 0)))}mm`} />}
   </div>;
-}
-
-function Metric({ label, value, tone }) {
-  return <div className={classes.hxMetric}><span>{label}</span><strong className={tone || ''}>{value}</strong></div>;
 }
 
 // 과거 가공이력 칼 배치를 현재 원자재 폭 위에 그려 본다 (사용폭 · 기본 로스 · 잔여폭)
@@ -482,16 +505,26 @@ function PatternBar({ row, rawWidth, trim, orderValues }) {
 function ManualPreview({ value, rawWidth, trim, orderValues, extraValues }) {
   const usable = (rawWidth || 0) - (trim || 0);
   const cuts = value > 0 && usable > 0 ? Math.min(60, Math.floor((usable + 1e-7) / value)) : 0;
+  const rest = value > 0 ? Math.max(0, usable - cuts * value) : 0;
   return <div className={classes.hxPreview}>
-    <div className={classes.hxCardTitle}><b>{value > 0 ? `${fmt(value)}mm 단독 배치` : '제품 폭을 입력하세요'}</b><span>현재 원자재 {fmt(rawWidth)}mm · 기본 로스 {fmt(trim)}mm</span></div>
-    <CoilStrip pieces={Array.from({ length: cuts }, () => value)} rawWidth={rawWidth} trim={trim} orderValues={[]} />
-    <div className={classes.hxMetrics}>
-      <Metric label="최대 칼수" value={value > 0 ? `${fmt(cuts, 0)}칼` : '–'} tone={value > 0 && !cuts ? classes.hxOver : ''} />
-      <Metric label="사용폭" value={value > 0 ? `${fmt(cuts * value)}mm` : '–'} />
-      <Metric label="잔여폭" value={value > 0 ? `${fmt(Math.max(0, usable - cuts * value))}mm` : '–'} />
+    <div className={classes.hxPreviewHead}>
+      <b>{value > 0 ? <>제품 폭 <em>{fmt(value)}mm</em> 만 넣으면</> : '제품 폭을 입력해 주세요'}</b>
+      <span>원자재 {fmt(rawWidth)}mm · 기본 로스 {fmt(trim)}mm · 사용 가능 {fmt(usable)}mm</span>
     </div>
-    <div className={classes.hxChips}><b>담은 발주 폭</b>{(orderValues || []).map((v) => <span key={v}><i className={toneOf(v, orderValues)} />{fmt(v)}mm</span>)}
-      {extraValues?.length > 0 && <><b>추가된 가공 후보</b>{extraValues.map((v) => <span key={v}><i className={classes.pieceExtra} />{fmt(v)}mm</span>)}</>}</div>
-    <p className={classes.hxPreviewNote}>실제 추천은 담은 발주 폭과 함께 섞어(혼합) 계산합니다. 이 막대는 입력한 폭만 넣었을 때의 참고용입니다.</p>
+    {value > 0
+      ? <CoilStrip pieces={Array.from({ length: cuts }, () => value)} rawWidth={rawWidth} trim={trim} orderValues={[]} newCut />
+      : <div className={classes.hxPreviewEmpty}>위에 제품 폭을 입력하면 원자재에 몇 칼 들어가는지 바로 보여 줍니다.</div>}
+    <div className={classes.hxPreviewStats}>
+      <div className={cuts > 0 ? classes.hxStatMain : value > 0 ? classes.hxStatBad : ''}><span>최대 칼수</span><strong>{value > 0 ? `${fmt(cuts, 0)}칼` : '–'}</strong></div>
+      <div><span>사용폭</span><strong>{value > 0 ? `${fmt(cuts * value)}mm` : '–'}</strong></div>
+      <div><span>잔여폭</span><strong>{value > 0 ? `${fmt(rest)}mm` : '–'}</strong></div>
+    </div>
+    <div className={classes.hxLegend}>
+      <span><i className={classes.pieceNew} />입력한 폭</span>
+      {(orderValues || []).length > 0 && <span className={classes.hxLegendGroup}>담은 발주 폭{(orderValues || []).map((v) => <em key={v}>{fmt(v)}</em>)}</span>}
+      {extraValues?.length > 0 && <span className={classes.hxLegendGroup}>추가된 가공 후보{extraValues.map((v) => <em key={v}>{fmt(v)}</em>)}</span>}
+      <span><i className={classes.loss} />로스 · 잔여</span>
+    </div>
+    <p className={classes.hxPreviewNote}>참고용입니다. 실제 추천은 담은 발주 폭과 섞어(혼합) 계산합니다.</p>
   </div>;
 }

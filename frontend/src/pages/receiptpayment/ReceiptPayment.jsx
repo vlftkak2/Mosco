@@ -1,3 +1,4 @@
+import { isApprovalPending, notifyApprovalPending } from '../../utils/approval';
 import { memo, useCallback, useContext, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { usePageActivation } from '../../components/common/usePageReactivated';
@@ -1471,6 +1472,13 @@ export default function ReceiptPayment() {
             source_receiptno: row.source_receiptno || '', source_lineno: row.source_receiptno ? Number(row.source_lineno) : null,
           })),
       }, authConfig());
+      if (isApprovalPending(data)) {
+        notifyApprovalPending(data);
+        const editing = header.receiptno;
+        startNew();
+        if (editing) await openDocument(editing);
+        return;
+      }
       notifications.show({ title: '저장 완료', message: `${data.receiptno} 전표를 저장했습니다.`, color: 'teal' });
       // 입력 중인 임시 상태를 비우고 목록을 갱신한 뒤, 저장된 전표를 다시 선택한다.
       // 다른 전표의 상세도 바뀌었을 수 있다 (보유증권 사용 → 원본 수금 증권 배서) → 기억해 둔 상세를 모두 비운다.
@@ -1489,7 +1497,12 @@ export default function ReceiptPayment() {
     if (!header.receiptno) return;
     setSaving(true);
     try {
-      await axios.delete(`/api/receipt-payment/documents/${encodeURIComponent(header.receiptno)}`, authConfig());
+      const { data } = await axios.delete(`/api/receipt-payment/documents/${encodeURIComponent(header.receiptno)}`, authConfig());
+      if (isApprovalPending(data)) {
+        notifyApprovalPending(data);
+        setDeleteOpen(false);
+        return;
+      }
       notifications.show({ title: '삭제 완료', message: `${header.receiptno} 전표를 삭제했습니다.`, color: 'teal' });
       detailCache.current.clear(); // 지급 삭제 → 원본 수금 증권이 보관으로 돌아옴
       setDeleteOpen(false);

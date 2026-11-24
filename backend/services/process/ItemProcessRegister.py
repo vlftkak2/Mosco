@@ -1,3 +1,4 @@
+from services.control import reservation as reservation_module
 import logging
 from datetime import date
 from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP
@@ -229,7 +230,7 @@ def list_available_stock(
     thickness: Decimal | None = None, width: Decimal | None = None, length: Decimal | None = None,
     date_from: date | None = None, date_to: date | None = None,
 ):
-    where = ["companyid = %s", "qty > 0", "weight > 0"]
+    where = ["companyid = %s", "qty > 0", "weight > 0", reservation_module.not_reserved_sql("stock")]  # 예약 재고 제외
     params: list = [companyid]
     if q.strip():
         pattern = f"%{q.strip()}%"

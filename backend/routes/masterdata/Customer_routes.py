@@ -6,6 +6,7 @@ from decimal import Decimal
 # 모듈 임포트 (이름 충돌을 피하기 위해 as 사용)
 from services.masterdata import Customer as customer_module
 import security as security_module
+from services.control import Approval as approval_module
 
 router = APIRouter(
     prefix="/api",
@@ -73,6 +74,11 @@ def create_customer(
     data.companyname = user.get("companyname") or user["companyid"]
     if not _can_edit_opening_balances(user):
         _clear_opening_balances(data)
+    # 승인 통제: 거래처 등록이 통제 대상이면 승인요청으로 보관 (승인되면 등록)
+    pending = approval_module.intercept(user, "CUSTOMER", "CREATE", "create", {"item": data.model_dump(mode="json")},
+                                        f"{data.customername} ({data.customercode or '코드 자동'})")
+    if pending:
+        return pending
     result = customer_module.CustomerCreate(data, actor=user.get("email"))
     
     # 실패했을 경우 401 에러
@@ -94,6 +100,12 @@ def bulk_create_customers(
         customer.companyname = companyname
         if not can_edit_opening:
             _clear_opening_balances(customer)
+    first = data.customers[0].customername if data.customers else ""
+    pending = approval_module.intercept(user, "CUSTOMER", "CREATE", "bulk_create",
+                                        {"items": [customer.model_dump(mode="json") for customer in data.customers]},
+                                        f"엑셀 일괄 등록 {len(data.customers)}건 ({first}{' 외' if len(data.customers) > 1 else ''})")
+    if pending:
+        return pending
     result = customer_module.CustomerBulkCreate(data.customers, actor=user.get("email"))
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
@@ -108,6 +120,11 @@ def update_customer(
     user: dict = Depends(require_customer_master),
 ):
     data.companyid = user["companyid"]
+    pending = approval_module.intercept(user, "CUSTOMER", "UPDATE", "update",
+                                        {"item": data.model_dump(mode="json"), "update_opening": _can_edit_opening_balances(user)},
+                                        f"{data.customername} ({data.customercode}) 수정", ref_no=data.customercode)
+    if pending:
+        return pending
     result = customer_module.CustomerModify(
         data,
         actor=user.get("email"),

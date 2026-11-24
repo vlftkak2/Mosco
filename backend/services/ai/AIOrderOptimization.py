@@ -19,6 +19,7 @@
 """
 from __future__ import annotations
 
+from services.control import reservation as reservation_module
 import json
 import re
 import threading
@@ -382,6 +383,7 @@ def _stock_candidates(cur, companyid, lines, material, min_width, min_length, li
                {plan_outstanding_sql('s', "%(planno)s")} AS plan_reserved
         FROM currentstock01t s
         WHERE s.companyid = %(companyid)s AND s.qty > 0 AND s.weight > 0
+          AND {reservation_module.not_reserved_sql("s")}
           AND s.thickness = %(thick)s AND {name_sql}
           AND (s.width >= %(minw)s
                -- 주문서 관리에서 연결한 원자재는 폭이 모자라도 보여 준다 (② 표에 '배치 불가'로)
@@ -872,7 +874,8 @@ def _analyze_coil(stocks, lines, settings):
                            "source": size.get("source"), "assumed_weight": assumed,
                            "purchase_count": size.get("count"), "lastdate": size.get("lastdate"),
                            **(m or {}), "placeable": bool(m), "weight_tag": ("가정" if assumed else "필요") if m else None})
-    candidates.sort(key=lambda c: (0 if c["linked"] else 1 if c["kind"] == "STOCK" else 2, 0 if c["placeable"] else 1, -(c.get("yield_rate") or 0)))
+    # 현재고(연결 원자재 포함) → 신규(매입이력 · 직접 입력), 같은 구분은 배치 가능 → 수율 높은 순
+    candidates.sort(key=lambda c: (0 if c["kind"] == "STOCK" else 1, 0 if c["placeable"] else 1, -(c.get("yield_rate") or 0)))
     for rank, c in enumerate(candidates, start=1):
         c["rank"] = rank
         c["id"] = (f"STOCK|{c['sourcetype']}|{c['sourceno']}|{c['sourceline']}" if c["kind"] == "STOCK" else f"NEW|{c['width']:g}")
@@ -947,8 +950,9 @@ def _analyze_coil(stocks, lines, settings):
             warn = False
     over = [it for it in plans[0]["ev"]["items"] if it["state"] == "over"]
     if over and mode == "ONE" and not plans[0]["ev"]["ok_all"]:
-        notes.append(" · ".join(f"{it['width']:g}mm {it['delta']:,.0f}kg" for it in over) + " 초과 생산됩니다. "
-                     "가공방식을 '일부가공'으로 가공중량을 줄이거나, 단독 + '등분'(품목별 차수)으로 권장 등분중량을 적용하면 주문에 맞출 수 있습니다.")
+        # 화면에서 한 줄씩 보이게: 사실 → 해결 방법
+        notes.append(" · ".join(f"{it['width']:g}mm {it['delta']:,.0f}kg" for it in over) + " 초과 생산됩니다.")
+        notes.append("주문에 맞추려면 가공방식을 '일부가공'으로 바꿔 가공중량을 줄이거나, 단독 + '등분'으로 권장 등분중량을 적용하세요.")
     if len(plans) < 2 and not plans[0].get("item_pass"):
         notes.append("추천 가능한 조합 1개")
     result["notes"], result["notes_warn"] = notes, warn
@@ -1797,6 +1801,18 @@ def history(companyid: str, kind: str, material: str, itemname: str = "", months
                 for x in rows:
                     if x["id"] in taken:
                         x["linked_refs"] = taken[x["id"]]
+                # 그 매입 · 기초분이 아직 현재고로 남아 있으면 표시 → ① 에 현재고로 이미 나오므로 신규로 또 추가하지 않게 (화면에서 선택 불가)
+                cur.execute("""WITH k(t, n, l) AS (SELECT * FROM unnest(%s::varchar[], %s::varchar[], %s::integer[]))
+                               SELECT cs.sourceno || '-' || cs.sourceline AS id, SUM(COALESCE(cs.weight, 0)) AS weight, SUM(COALESCE(cs.qty, 0)) AS qty,
+                                      MAX(cs.warehousecodename) AS warehouse
+                                 FROM currentstock01t cs JOIN k ON cs.sourcetype = k.t AND cs.sourceno = k.n AND cs.sourceline = k.l
+                                WHERE cs.companyid = %s AND (COALESCE(cs.weight, 0) > 0 OR COALESCE(cs.qty, 0) > 0)
+                                GROUP BY 1""", ([k[0] for k in keys], [k[1] for k in keys], [k[2] for k in keys], companyid))
+                stock_left = {r["id"]: r for r in cur.fetchall()}
+                for x in rows:
+                    if x["id"] in stock_left:
+                        s = stock_left[x["id"]]
+                        x["in_stock"] = {"weight": _f(s["weight"]), "qty": _f(s["qty"]), "warehouse": s["warehouse"]}
             return {"kind": kind, "material": material, "items": rows}
         cur.execute(f"""
             SELECT h.processno, h.processdate, h.customname, s.lineno, s.itemname, s.materialname, s.surfacename, s.thickness, s.width,

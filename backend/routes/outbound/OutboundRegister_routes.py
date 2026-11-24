@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from services.outbound import OutboundRegister as outbound_module
 import security as security_module
+from services.control import Approval as approval_module
 
 router = APIRouter(
     prefix="/api/outbound-register",
@@ -97,6 +98,19 @@ def _save_receipt(data: outbound_module.OutboundSaveRequest, user: dict, is_new:
     try:
         payload = data.model_dump()
         payload["is_new"] = is_new
+        # 승인 통제: 매출이 통제 대상이면 승인요청으로 보관하고 고른 재고를 예약 (승인되면 전표 생성)
+        item = data.model_dump(mode="json")
+        item["is_new"] = is_new
+        weight = sum((line.weight or 0) for line in data.items)
+        pending = approval_module.intercept(
+            user, "OUTBOUND", "CREATE" if is_new else "UPDATE", "save", {"item": item},
+            f"{data.customname or data.items[0].customname} · {data.receptdate} · {len(data.items)}건 · {weight:,.0f}kg"
+            + ("" if is_new else f" ({data.receiptno} 수정)"),
+            ref_no=None if is_new else data.receiptno,
+            dates=[data.receptdate, *[line.receptdate for line in data.items if line.receptdate]],
+        )
+        if pending:
+            return pending
         result = outbound_module.save_receipt(
             user["companyid"], user.get("companyname") or user["companyid"],
             payload,
@@ -134,6 +148,10 @@ def update_receipt_managers(
     user: dict = Depends(security_module.get_current_user),
 ):
     try:
+        pending = approval_module.intercept(user, "OUTBOUND", "UPDATE", "manager", {"receiptno": receiptno, "manager": data.manager},
+                                            f"{receiptno} 담당자 → {data.manager or '(없음)'}", ref_no=receiptno)
+        if pending:
+            return pending
         updated_count = outbound_module.update_receipt_manager(
             user["companyid"], receiptno, data.manager,
             actor=user.get("email"),
@@ -153,6 +171,14 @@ def update_receipt_sales_fields(
 ):
     """저장된 매출전표의 담당자 · 착지 · 판매단가만 수정 (재고·원가는 그대로)."""
     try:
+        changed = [label for label, value in (("담당자", data.manager), ("착지", data.destination)) if value is not None]
+        if data.prices:
+            changed.append(f"단가 {len(data.prices)}건")
+        pending = approval_module.intercept(user, "OUTBOUND", "UPDATE", "sales_fields",
+                                            {"receiptno": receiptno, "item": data.model_dump(mode="json")},
+                                            f"{receiptno} 수정 ({', '.join(changed)})", ref_no=receiptno)
+        if pending:
+            return pending
         result = outbound_module.update_receipt_sales_fields(
             user["companyid"], receiptno, data, actor=user.get("email"),
         )
@@ -166,6 +192,9 @@ def update_receipt_sales_fields(
 @router.delete("/receipts/{receiptno}")
 def delete_receipt(receiptno: str, user: dict = Depends(security_module.get_current_user)):
     try:
+        pending = approval_module.intercept(user, "OUTBOUND", "DELETE", "delete", {"receiptno": receiptno}, f"{receiptno} 삭제", ref_no=receiptno)
+        if pending:
+            return pending
         deleted_count = outbound_module.delete_receipt(user["companyid"], receiptno, actor=user.get("email"))
         if not deleted_count:
             raise HTTPException(status_code=404, detail="매출전표를 찾을 수 없습니다.")

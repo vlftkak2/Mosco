@@ -20,6 +20,9 @@ const STOCK_COLUMNS = [
   { key: 'width', label: '폭', width: 75, minWidth: 60 },
   { key: 'length', label: '길이', width: 75, minWidth: 60 },
   { key: 'warehouse', label: '창고', width: 115, minWidth: 90 },
+  { key: 'sourceno', label: '원천전표', width: 135, minWidth: 100 },
+  { key: 'sourceline', label: '순번', width: 56, minWidth: 48 },
+  { key: 'reserved', label: '예약', width: 190, minWidth: 110 },
   { key: 'currentqty', label: '현재고수량', width: 100, minWidth: 90 },
   { key: 'currentweight', label: '현재고중량(kg)', width: 125, minWidth: 100 },
   { key: 'unitprice', label: '매출단가', width: 130, minWidth: 100 },
@@ -27,7 +30,7 @@ const STOCK_COLUMNS = [
   { key: 'weight', label: '매출중량(kg)', width: 125, minWidth: 100 },
   { key: 'productname', label: '제품번호', width: 260, minWidth: 150 },
 ];
-const RIGHT_COLUMNS = new Set(['thickness', 'width', 'length', 'currentqty', 'currentweight']);
+const RIGHT_COLUMNS = new Set(['thickness', 'width', 'length', 'sourceline', 'currentqty', 'currentweight']);
 const initialColumnWidths = () => Object.fromEntries(STOCK_COLUMNS.map(({ key, width }) => [key, width]));
 const createDefaultFilters = () => {
   const today = new Date();
@@ -265,6 +268,7 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
   const stockDisabledReason = (stock, alreadyAdded, available) => {
     if (alreadyAdded) return '이미 매출 상세에 담긴 재고입니다.';
     if (stock.linked_orders) return '주문서에 연결된 재고입니다.';
+    if ((available.qty <= 0 || available.weight <= 0) && Number(stock.reserved_weight || 0) > 0) return `다른 승인요청에 예약된 재고입니다 (${stock.reserved_requests || ''}).`;
     if (available.qty <= 0 || available.weight <= 0) return '매출 가능한 잔량이 없습니다.';
     return '';
   };
@@ -325,6 +329,12 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
             <td className={pickerClasses.right}>{dimensionValue(stock.width)}</td>
             <td className={pickerClasses.right}>{dimensionValue(stock.length)}</td>
             <td>{stock.warehousecodename || stock.warehousecode}</td>
+            <td title={stock.sourceno || ''}>{stock.sourceno}</td>
+            <td className={pickerClasses.right}>{stock.sourceline}</td>
+            {/* 승인요청에 예약된 중량 · 요청번호 · 요청자 (승인 통제를 쓰는 고객사만) */}
+            <td title={stock.reserved_requests || ''} style={Number(stock.reserved_weight || 0) > 0 ? { color: '#a36a00', fontWeight: 700 } : undefined}>
+              {Number(stock.reserved_weight || 0) > 0 ? `${numberText(stock.reserved_weight)}kg · ${stock.reserved_requests || ''}` : ''}
+            </td>
             <td className={pickerClasses.right}>{numberText(stock.current_qty)}</td>
             <td className={pickerClasses.right}>{numberText(stock.current_weight)}</td>
             <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'unitprice')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.unitprice)} disabled={alreadyAdded} onChange={(event) => updateUnitPriceDraft(stock, event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'unitprice', event)} aria-label={`${stock.itemname} 매출단가`} /></td>

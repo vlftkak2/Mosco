@@ -6,6 +6,7 @@
 연결 재고를 그대로 쓸지 잘라서 쓸지는 가공 최적화가 규격(폭·길이)으로 판단한다.
 """
 
+from services.control import reservation as reservation_module
 import re
 from contextlib import contextmanager
 from datetime import datetime
@@ -125,65 +126,10 @@ def confirm_order(companyid, companyname, username, email, payload):
                 # 저장하지 않고 알려 준다 → 화면에서 [기존 주문 열기] / [새 주문으로 저장] / [취소] 를 고른다
                 return {"orderid": existing["orderid"], "already_confirmed": True}
 
-            # 주문서 관리 저장과 같은 필수값: 품명 · 강종 · 수량 · 중량 (숫자 또는 AI 원문 값)
-            missing_rows = []
-            for position, item in enumerate(payload.items, start=1):
-                missing = [label for label, present in (
-                    ("품명", str(item.source_product_name or "").strip()),
-                    ("강종", str(item.steel_grade or "").strip()),
-                    ("수량", item.quantity is not None or str(item.quantity_raw or "").strip()),
-                    ("중량", item.weight_kg is not None or str(item.weight_raw or "").strip()),
-                ) if not present]
-                if missing:
-                    missing_rows.append(f"{position}행 {', '.join(missing)}")
-            if missing_rows:
-                raise ValueError("필수값을 입력해 주세요: " + " / ".join(missing_rows[:5]))
-            _require_master_item_names(cur, companyid, [
-                (position, item.source_product_name) for position, item in enumerate(payload.items, start=1)
-            ])
-
-            prefix = datetime.now(ZoneInfo("Asia/Seoul")).strftime("AI%Y%m%d")
-            # Advisory transaction lock serializes numbering only within this company.
-            cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"ai-order-sequence:{companyid}",))
-            # Another request may have confirmed the same analysis while this one waited.
-            cur.execute("""
-                SELECT orderid FROM aiorder01t
-                WHERE companyid = %s AND analysis_request_id = %s
-            """, (companyid, request_id))
-            existing = cur.fetchone()
-            if existing and not force_new:
-                return {"orderid": existing["orderid"], "already_confirmed": True}
-            if existing:
-                request_id = _copy_analysis(cur, companyid, request_id)
-            cur.execute("""
-                SELECT COALESCE(MAX(substring(orderid from %s)::integer), 0) AS last_number
-                FROM aiorder01t WHERE companyid = %s AND orderid ~ %s
-            """, (r"[0-9]{5}$", companyid, f"^{prefix}[0-9]{{5}}$"))
-            # The regex above limits the sequence to today's company orders.
-            number = cur.fetchone()["last_number"] + 1
-            if number > 99999:
-                raise ValueError("오늘의 주문번호 한도를 초과했습니다.")
-            orderid = f"{prefix}{number:05d}"
-            h = payload.header
-            cur.execute("""
-                INSERT INTO aiorder01t
-                    (companyid, companyname, orderid, analysis_request_id, username, useremail,
-                     buyer, recipient, orderdate, duedate, deliverylocation, sourcefilename, created_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (companyid, companyname, orderid, request_id, username, email,
-                  h.buyer, h.recipient, h.order_date, h.due_date, h.delivery_location,
-                  payload.sourcefilename, email or None))
-            for lineno, item in enumerate(payload.items, start=1):
-                cur.execute("""
-                    INSERT INTO aiorder02t
-                        (companyid, companyname, orderid, lineno, itemname, steelgrade, surface, size,
-                         thickness, width, length, quantity, quantity_unit, weight_kg, notes,
-                         quantity_raw, weight_raw, created_by)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (companyid, companyname, orderid, lineno, item.source_product_name,
-                      item.steel_grade, item.surface, item.spec_raw, item.thickness, item.width, item.length,
-                      item.quantity, item.quantity_unit, item.weight_kg, item.notes,
-                      item.quantity_raw, item.weight_raw, email or None))
+            orderid = _insert_order(cur, companyid, companyname, username, email, request_id, payload.header, payload.items,
+                                    payload.sourcefilename, check_existing=None if force_new else True)
+            if isinstance(orderid, dict):
+                return orderid
         conn.commit()
     return {"orderid": orderid, "already_confirmed": False}
 
@@ -216,7 +162,7 @@ def list_orders(companyid, start_date=None, end_date=None, buyer=None, orderid=N
             if cur.fetchone() and before:
                 page = int(before["before"]) // page_size + 1
         cur.execute(f"""
-            SELECT h.orderid, h.buyer, h.recipient, h.orderdate, h.duedate, h.deliverylocation,
+            SELECT h.orderid, h.buyer, h.recipient, h.orderdate, h.duedate, h.deliverylocation, (h.analysis_request_id IS NULL) AS manual,
                    h.username, h.useremail, h.created_at, h.updated_at,
                    COALESCE((SELECT u.username FROM user01t u WHERE u.email = COALESCE(h.created_by, h.useremail) LIMIT 1),
                             COALESCE(h.created_by, h.useremail)) AS created_by,
@@ -252,6 +198,14 @@ def get_order(companyid, orderid):
             FROM aiorder02t WHERE companyid=%s AND orderid=%s ORDER BY lineno
         """, (companyid, orderid))
         items = [as_dict(row) for row in cur.fetchall()]
+        # 가공 최적화 계획(임시저장 · 계획확정)에 들어 있는 품목: [보내기 취소]를 막는 데 쓴다
+        cur.execute("""SELECT DISTINCT ON (d.orderlineno) d.orderlineno, p.planno, p.status
+                       FROM aiplan02t d JOIN aiplan01t p ON p.companyid = d.companyid AND p.planno = d.planno
+                       WHERE d.companyid = %s AND d.orderid = %s AND p.status IN ('DRAFT', 'CONFIRMED')
+                       ORDER BY d.orderlineno, p.planno DESC""", (companyid, orderid))
+        plan_of = {row["orderlineno"]: {"planno": row["planno"], "status": row["status"]} for row in cur.fetchall()}
+        for item in items:
+            item["plan"] = plan_of.get(item["lineno"])
         matches = {}
         cur.execute("""
             SELECT l.lineno, l.matchlineno, l.stocksourcetype, l.stocksourceno, l.stocksourceline,
@@ -317,6 +271,95 @@ def update_order(companyid, orderid, buyer, recipient, order_date, due_date, del
     return updated
 
 
+def _check_item_values(rows) -> None:
+    """품목 정합성 (막는 검사): 두께 · 폭 필수, 두께 · 폭 · 수량 · 중량은 0보다 커야 한다 (수량 · 중량은 숫자로 들어온 경우).
+    rows = [(행 번호, item)] · 가공 최적화가 두께 · 폭 없이는 계산할 수 없어 저장 단계에서 막는다."""
+    bad = []
+    for position, item in rows:
+        problems = []
+        for label, value, required in (("두께", item.thickness, True), ("폭", item.width, True),
+                                       ("수량", item.quantity, False), ("중량", item.weight_kg, False)):
+            if value is None:
+                if required:
+                    problems.append(f"{label} 없음")
+            elif value <= 0:
+                problems.append(f"{label} 0")
+        if item.length is not None and item.length < 0:
+            problems.append("길이 음수")
+        if problems:
+            bad.append(f"{position}행 {', '.join(problems)}")
+    if bad:
+        raise ValueError("입력값을 확인해 주세요: " + " / ".join(bad[:5]) + ". 두께 · 폭은 필수이고, 수량 · 중량 · 두께 · 폭은 0보다 커야 합니다.")
+
+
+def _insert_order(cur, companyid, companyname, username, email, request_id, header, items, sourcefilename, check_existing=None):
+    """주문 1건 저장 (AI 주문서 확정 · 수기 주문 공통): 필수값 · 품명 마스터 검사 → 오늘 날짜 주문번호 → 01t/02t INSERT.
+    request_id 가 없으면 수기 주문 (analysis_request_id NULL)."""
+    missing_rows = []
+    for position, item in enumerate(items, start=1):
+        missing = [label for label, present in (
+            ("품명", str(item.source_product_name or "").strip()),
+            ("강종", str(item.steel_grade or "").strip()),
+            ("수량", item.quantity is not None or str(item.quantity_raw or "").strip()),
+            ("중량", item.weight_kg is not None or str(item.weight_raw or "").strip()),
+        ) if not present]
+        if missing:
+            missing_rows.append(f"{position}행 {', '.join(missing)}")
+    if missing_rows:
+        raise ValueError("필수값을 입력해 주세요: " + " / ".join(missing_rows[:5]))
+    _require_master_item_names(cur, companyid, [(position, item.source_product_name) for position, item in enumerate(items, start=1)])
+    _check_item_values(list(enumerate(items, start=1)))
+
+    prefix = datetime.now(ZoneInfo("Asia/Seoul")).strftime("AI%Y%m%d")
+    # Advisory transaction lock serializes numbering only within this company.
+    cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"ai-order-sequence:{companyid}",))
+    if request_id is not None:
+        # Another request may have confirmed the same analysis while this one waited.
+        cur.execute("SELECT orderid FROM aiorder01t WHERE companyid = %s AND analysis_request_id = %s", (companyid, request_id))
+        existing = cur.fetchone()
+        if existing and check_existing:
+            return {"orderid": existing["orderid"], "already_confirmed": True}
+        if existing:
+            request_id = _copy_analysis(cur, companyid, request_id)
+    cur.execute("""
+        SELECT COALESCE(MAX(substring(orderid from %s)::integer), 0) AS last_number
+        FROM aiorder01t WHERE companyid = %s AND orderid ~ %s
+    """, (r"[0-9]{5}$", companyid, f"^{prefix}[0-9]{{5}}$"))
+    number = cur.fetchone()["last_number"] + 1
+    if number > 99999:
+        raise ValueError("오늘의 주문번호 한도를 초과했습니다.")
+    orderid = f"{prefix}{number:05d}"
+    cur.execute("""
+        INSERT INTO aiorder01t
+            (companyid, companyname, orderid, analysis_request_id, username, useremail,
+             buyer, recipient, orderdate, duedate, deliverylocation, sourcefilename, created_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """, (companyid, companyname, orderid, request_id, username, email,
+          header.buyer, header.recipient, header.order_date, header.due_date, header.delivery_location,
+          sourcefilename, email or None))
+    for lineno, item in enumerate(items, start=1):
+        cur.execute("""
+            INSERT INTO aiorder02t
+                (companyid, companyname, orderid, lineno, itemname, steelgrade, surface, size,
+                 thickness, width, length, quantity, quantity_unit, weight_kg, notes,
+                 quantity_raw, weight_raw, created_by)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (companyid, companyname, orderid, lineno, item.source_product_name,
+              item.steel_grade, item.surface, item.spec_raw, item.thickness, item.width, item.length,
+              item.quantity, item.quantity_unit, item.weight_kg, item.notes,
+              item.quantity_raw, item.weight_raw, email or None))
+    return orderid
+
+
+def create_manual_order(companyid, companyname, username, email, payload):
+    """AI 주문서 인식 없이 수기로 입력한 주문 저장 (analysis_request_id 없음 · 이후 흐름은 AI 주문과 같다)."""
+    with connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            orderid = _insert_order(cur, companyid, companyname, username, email, None, payload.header, payload.items, None)
+        conn.commit()
+    return {"orderid": orderid, "already_confirmed": False}
+
+
 def update_order_items(companyid, orderid, items, actor=None):
     """Save editable order rows, retaining existing line IDs and appending new IDs."""
     with connection() as conn:
@@ -368,6 +411,7 @@ def update_order_items(companyid, orderid, items, actor=None):
                 (position, item.itemname) for position, item in enumerate(items, start=1)
                 if item.lineno not in locked_lines
             ])
+            _check_item_values([(position, item) for position, item in enumerate(items, start=1) if item.lineno not in locked_lines])
 
             next_lineno = max(existing_lines, default=0)
 
@@ -614,7 +658,7 @@ def stock_candidates(companyid, orderid, lineno, thickness_from=None, thickness_
             "thickness_from": float(thickness_from) if thickness_from is not None else None,
             "thickness_to": float(thickness_to) if thickness_to is not None else None}
     # Only fixed SQL fragments are added here; every value stays a bound parameter.
-    filters = ["s.companyid=%(companyid)s", "(s.qty>0 OR s.weight>0)"]
+    filters = ["s.companyid=%(companyid)s", "(s.qty>0 OR s.weight>0)", reservation_module.not_reserved_sql("s")]  # 예약 재고 제외
     params = {"companyid": companyid}
     if search_name and name_exact:
         # 품명 일치 (대소문자 · 앞뒤 공백 무시): 'GI SHEET' 는 'EGI SHEET' 를 찾지 않는다

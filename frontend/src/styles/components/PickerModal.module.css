@@ -219,3 +219,22 @@
 .saas .tabs > button[aria-selected="true"] { border-color: #e0434b; background: #e0434b; color: #fff; }
 .saas .tabs > button small { background: #f1f5f9; color: #64748b; }
 .saas .tabs > button[aria-selected="true"] small { background: rgba(255, 255, 255, .22); color: #fff; }
+
+/* look="saas" 하단 흰 버튼(취소 · 연결 초기화 등): 마우스를 올리면 빨강 */
+.saas .footer :global(.mantine-Button-root[data-variant="default"]:not([data-disabled])) { border-color: #e2e8f0; color: #334155; transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease; }
+.saas .footer :global(.mantine-Button-root[data-variant="default"]:not([data-disabled]):hover) { border-color: #e0434b; background: #fef2f2; color: #c9353d; }
+
+/* look="saas": 창을 열 때 닫기(X)에 자동 포커스되어 빨간 테두리가 보이던 것 → 회색 바탕으로만 표시 */
+.saas .close:focus, .saas .close:focus-visible { outline: none; box-shadow: none; }
+.saas .close:focus-visible { background: #f1f3f6; }
+
+/* look="saas" 하단 흰 버튼(취소 등): 마우스를 올리면 빨강으로 꽉 차게 */
+.saas .footer :global(.mantine-Button-root[data-variant="default"]:not([data-disabled]):hover) { border-color: #e0434b; background: #e0434b; color: #fff; }
+/* look="saas" 탭: 밑줄형 (선택 = 빨간 글자 + 밑줄, 보조 설명은 옅은 글자) */
+.saas .tabs { gap: 2px; padding: 0 24px; border-bottom-color: #eef1f4; }
+.saas .tabs > button { height: 44px; margin: 0 0 -1px; padding: 0 14px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: #64748b; font-weight: 700; }
+.saas .tabs > button:hover { border-color: transparent; border-bottom-color: #e2e8f0; color: #0f172a; }
+.saas .tabs > button[aria-selected="true"] { border-bottom-color: #e0434b; background: transparent; color: #c9353d; }
+.saas .tabs > button small, .saas .tabs > button[aria-selected="true"] small { padding: 0; background: transparent; color: #94a3b8; font-size: 11px; font-weight: 600; }
+/* look="saas" 하단 흰 버튼(취소 등): 마우스를 올리면 빨간 테두리 + 빨간 글자 (바탕은 흰색 유지) */
+.saas .footer :global(.mantine-Button-root[data-variant="default"]:not([data-disabled]):hover) { border-color: #e0434b; background: #fff; color: #e0434b; }

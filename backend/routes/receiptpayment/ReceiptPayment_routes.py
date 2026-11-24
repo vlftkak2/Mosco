@@ -3,6 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 import security as security_module
+from services.control import Approval as approval_module
 from services.receiptpayment import ReceiptPayment as receipt_payment_module
 
 
@@ -108,6 +109,16 @@ def save_document(
     user: dict = Depends(security_module.get_current_user),
 ):
     try:
+        is_create = not data.receiptno
+        amount = sum((row.cashamt + row.instrumentamt + row.bankamt + row.cardamt + row.offsetamt) for row in data.items)
+        pending = approval_module.intercept(
+            user, "RECEIPT_PAYMENT", "CREATE" if is_create else "UPDATE", "save", {"item": data.model_dump(mode="json")},
+            f"{'수금' if data.transactiontype == 'RECEIPT' else '지급'} · {data.customname} · {data.receiptdate} · {amount:,.0f}원"
+            + ("" if is_create else f" ({data.receiptno} 수정)"),
+            ref_no=None if is_create else data.receiptno, dates=[data.receiptdate],
+        )
+        if pending:
+            return pending
         result = receipt_payment_module.save_document(
             user["companyid"], user.get("companyname") or user["companyid"], data.model_dump(),
             actor=user.get("email"),
@@ -141,6 +152,10 @@ def process_instruments(
 @router.delete("/documents/{receiptno}")
 def delete_document(receiptno: str, user: dict = Depends(security_module.get_current_user)):
     try:
+        pending = approval_module.intercept(user, "RECEIPT_PAYMENT", "DELETE", "delete", {"receiptno": receiptno},
+                                            f"{receiptno} 삭제", ref_no=receiptno)
+        if pending:
+            return pending
         if not receipt_payment_module.delete_document(user["companyid"], receiptno, actor=user.get("email")):
             raise HTTPException(status_code=404, detail="수금/지급 전표를 찾을 수 없습니다.")
         return {"success": True, "deleted_count": 1}

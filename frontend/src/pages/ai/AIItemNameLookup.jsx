@@ -142,22 +142,31 @@ export function ItemNameSuggestInput({ value, readOnly, onValueChange, onGridKey
 
 // ── 강종 · 표면 (공통코드 MATERIAL / SURFACE) ───────────────────────────────
 // 코드 목록을 한 번 받아 두고 화면에서 거른다. 값은 코드명(이름)으로 넣는다 (주문서 원문과 같은 형태).
-export async function loadCodeOptions(groupcode) {
-  const items = [];
-  let page = 1;
-  let total = 0;
-  do {
-    const { data } = await axios.get(`/api/code-master/groups/${groupcode}/items`, { ...authConfig(), params: { page, page_size: 200, include_total: true } });
-    items.push(...(data.items || []));
-    total = data.total || 0;
-    page += 1;
-  } while (items.length < total && page <= 50);
+// 화면을 다시 열 때마다 받지 않게 5분 동안 재사용 (같은 그룹 요청이 겹치면 한 번만) · 2쪽부터는 한꺼번에 받는다
+const CODE_CACHE_TTL = 5 * 60 * 1000;
+const codeCache = new Map();
+async function fetchCodeOptions(groupcode) {
+  const get = (page) => axios.get(`/api/code-master/groups/${groupcode}/items`, { ...authConfig(), params: { page, page_size: 200, include_total: true } });
+  const { data: first } = await get(1);
+  const items = [...(first.items || [])];
+  const pages = Math.min(50, Math.ceil((first.total || 0) / 200));
+  if (pages > 1) {
+    const rest = await Promise.all(Array.from({ length: pages - 1 }, (_, i) => get(i + 2)));
+    rest.forEach(({ data }) => items.push(...(data.items || [])));
+  }
   const unique = new Map();
   items.filter((item) => item.use).forEach((item) => {
     const code = String(item.code || '').trim();
     if (code) unique.set(code.toLocaleUpperCase(), { code, name: item.name || code });
   });
   return [...unique.values()];
+}
+export function loadCodeOptions(groupcode) {
+  const hit = codeCache.get(groupcode);
+  if (hit && Date.now() - hit.at < CODE_CACHE_TTL) return hit.promise;
+  const promise = fetchCodeOptions(groupcode).catch((error) => { codeCache.delete(groupcode); throw error; });
+  codeCache.set(groupcode, { at: Date.now(), promise });
+  return promise;
 }
 
 const matchOptions = (options, query) => {

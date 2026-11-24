@@ -38,6 +38,7 @@ const Company = lazy(() => import("./pages/system/Company"));
 const LicenseRevenue = lazy(() => import("./pages/system/LicenseRevenue"));
 const Workplace = lazy(() => import("./pages/system/Workplace"));
 const MonthClose = lazy(() => import("./pages/system/MonthClose"));
+const ControlManagement = lazy(() => import("./pages/system/ControlManagement"));
 const UserInfo = lazy(() => import("./pages/system/UserInfo"));
 const InoutmoveRegister = lazy(() => import("./pages/inoutmove/InoutmoveRegister"));
 const InoutmoveSearch = lazy(() => import("./pages/inoutmove/inoutmoveSearch"));
@@ -138,6 +139,8 @@ function App() {
           <Route path="/Board" element={menuPage('CUSTOMER_SUPPORT', <Board />)} />
           <Route path="/Workplace" element={menuPage('WORKPLACE_MANAGEMENT', <Workplace />)} />
           <Route path="/MonthClose" element={menuPage('MONTH_CLOSING', <MonthClose />)} />
+          {/* 통제관리: 고객사에 승인 통제가 허용된 경우 (화면이 직접 확인) */}
+          <Route path="/ControlManagement" element={<ControlManagement />} />
           <Route path="/UserInfo" element={<RequireUserManagement><UserInfo /></RequireUserManagement>} />
           <Route path="/Company" element={<RequireAuthority allowed={['MASTER']}><Company /></RequireAuthority>} />
           <Route path="/LicenseRevenue" element={<RequireAuthority allowed={['MASTER']}><LicenseRevenue /></RequireAuthority>} />
