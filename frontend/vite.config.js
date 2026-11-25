@@ -22,9 +22,9 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(appVersion),
   },
   server: {
-    host: '0.0.0.0', // 타 PC에서 접근 가능하도록 허용
-    // Cloudflare Tunnel 외부 접속 허용
-    allowedHosts: ['.trycloudflare.com'],
+    // 개발 서버는 이 PC에서만 (2026-11-25: 외부 · 터널로 열려 있다가 원격 실행 공격 요청이 들어와 막음)
+    // 다른 PC · 외부 시연은 빌드한 결과를 vite preview(아래)나 정식 서버로 띄운다.
+    host: '127.0.0.1',
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000', // FastAPI backend (backend/main.py)

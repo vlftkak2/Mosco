@@ -1,7 +1,8 @@
 
-import { AppShell, Burger, Text, Box, Modal, PasswordInput, Menu } from '@mantine/core';
+import { AppShell, Burger, Text, Box, Modal, PasswordInput, Menu, Popover } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { SidebarNav } from './MainLayoutLink';
+import ConfirmDeleteModal from '../common/ConfirmDeleteModal';
 import classes from '../../styles/layout/MainLayout.module.css';
 import { Suspense, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, useOutlet, UNSAFE_LocationContext as LocationContext } from 'react-router-dom';
@@ -9,7 +10,7 @@ import { clearAIOrderPageSession } from '../../pages/ai/AIOrderPageSession';
 import { clearAIOrderDraft } from '../../pages/ai/AIOrderDraft';
 import {
   IconAdjustmentsHorizontal, IconBox, IconChevronDown, IconClipboardText, IconCreditCard, IconHome, IconKey, IconLayoutSidebar, IconLogout,
-  IconBell, IconMoon, IconSearch, IconShieldLock, IconShoppingBag, IconStack2, IconTrendingUp, IconUserCircle, IconUsers,
+  IconBell, IconHourglass, IconMoon, IconSearch, IconShieldLock, IconShoppingBag, IconStack2, IconTrendingUp, IconUserCircle, IconUsers,
 } from '@tabler/icons-react';
 import '@mantine/notifications/styles.css';
 import { notifications } from '@mantine/notifications';
@@ -128,7 +129,6 @@ const mockdata = [
       { label: '사업장관리', link: '/Workplace', MenuID: 'WORKPLACE_MANAGEMENT' },
       { label: '월마감관리', link: '/MonthClose', MenuID: 'MONTH_CLOSING' },
       { label: '직원관리', link: '/UserInfo', MenuID: 'USER_MANAGEMENT' },
-      { label: '통제관리', link: '/ControlManagement' },
     ],
   },
   {
@@ -147,6 +147,7 @@ const mockdata = [
       { label: '메뉴권한관리', link: '/UserMenu', MenuID: 'USER_MENU_PERMISSION' },
       { label: '라이선스 매출현황', link: '/LicenseRevenue', MenuID: 'LICENSE_REVENUE' },
       { label: '타사 재고현황', link: '/SharedStock', MenuID: 'SHARED_STOCK' },
+      { label: '통제관리', link: '/ControlManagement', MenuID: 'CONTROL_MANAGEMENT' },
     ],
   },
 ];
@@ -344,6 +345,14 @@ export default function MainLayout({ children }) {
       document.removeEventListener('visibilitychange', onVisible);
       window.clearInterval(timer);
     };
+  }, []);
+
+  // 승인요청 안내 창 (매입 · 매출 · 거래처 · 수금지급 저장 · 삭제가 승인요청으로 들어갔을 때)
+  const [approvalNotice, setApprovalNotice] = useState(null);
+  useEffect(() => {
+    const onPending = (event) => setApprovalNotice(event.detail || {});
+    window.addEventListener('approval-pending', onPending);
+    return () => window.removeEventListener('approval-pending', onPending);
   }, []);
 
   const [myPermissions, setMyPermissions] = useState([]);
@@ -570,8 +579,8 @@ const canSeeMenu = (link) => {
   if (link.link === '/Company' || link.link === '/LicenseRevenue') return isPlatformMaster;
   // 타사 재고현황: 모스코(001) 계정이면 권한과 상관없이, 다른 고객사는 숨김
   if (link.link === '/SharedStock') return currentCompanyId === '001';
-  // 통제관리: 고객사에 승인 통제가 허용된 경우 모든 직원 (승인함 · 설정 탭은 화면에서 역할별로)
-  if (link.link === '/ControlManagement') return Boolean(controlSummary?.enabled);
+  // 통제관리: 메뉴 권한이 있거나, 통제 설정에서 승인자로 지정된 직원
+  if (link.link === '/ControlManagement' && controlSummary?.is_approver) return true;
   // 고객사관리 · 고객사 메뉴권한: 플랫폼 관리자(001 MASTER)와 고객사 관리자(001 이외 SUBMASTER)만 (서버 규칙과 같게)
   if (link.link === '/User' || link.link === '/UserMenu') return isPlatformMaster || (currentAuthority === 'SUBMASTER' && currentCompanyId !== '001');
   // 사용자관리: 관리자(고객사 관리자 · 플랫폼 관리자)는 항상, 그 밖에는 메뉴 권한을 받은 계정만
@@ -681,16 +690,8 @@ const menuAccessContextValue = useMemo(() => ({
             {ribbons[pathname] ?? null}
           </Box>
           <span className={classes.hsep} aria-hidden="true" />
-          {controlSummary?.enabled && (() => {
-            const count = controlSummary.is_approver ? controlSummary.pending : controlSummary.my_rejected;
-            const label = controlSummary.is_approver
-              ? `승인 대기 ${controlSummary.pending}건`
-              : `내 요청 대기 ${controlSummary.my_pending}건 · 최근 반려 ${controlSummary.my_rejected}건`;
-            return <button type="button" className={classes.bell} title={label} aria-label={label} onClick={() => navigate('/ControlManagement')}>
-              <IconBell size={18} stroke={1.5} />
-              {count > 0 && <span className={classes.bellBadge}>{count > 99 ? '99+' : count}</span>}
-            </button>;
-          })()}
+          {controlSummary?.active && <ApprovalBell summary={controlSummary}
+            onOpen={(item) => navigate(`/ControlManagement?tab=${controlSummary.can_manage || controlSummary.is_approver ? 'inbox' : 'mine'}`, { state: { request: item || null } })} />}
           <Menu position="bottom-end" offset={8} width={248} shadow="md" withinPortal classNames={{ dropdown: classes.umenu }}>
             <Menu.Target>
               <button type="button" className={classes.ubtn} aria-label="사용자 메뉴">
@@ -710,6 +711,12 @@ const menuAccessContextValue = useMemo(() => ({
             </Menu.Dropdown>
           </Menu>
         </div>
+
+        <ConfirmDeleteModal opened={Boolean(approvalNotice)} onClose={() => setApprovalNotice(null)}
+          onConfirm={() => { setApprovalNotice(null); navigate('/ControlManagement?tab=mine'); }}
+          icon={<IconHourglass size={24} stroke={1.8} />} title={`${approvalNotice?.label ? `${approvalNotice.label} ` : ''}승인을 요청했어요`}
+          target={approvalNotice?.requestno} message="승인되면 자동으로 반영돼요."
+          note="진행 상황은 내 요청에서 확인할 수 있어요." cancelLabel="닫기" confirmLabel="내 요청 보기" />
 
         <Modal opened={pwModalOpened} onClose={closePwModal} centered size={380} withCloseButton={false} padding={0} radius={16}
           overlayProps={{ backgroundOpacity: 0.2 }} classNames={{ content: classes.pwModal }}>
@@ -837,4 +844,61 @@ const menuAccessContextValue = useMemo(() => ({
   </>
   );
 
+}
+
+
+// ── 승인 알림 (헤더 종) ─────────────────────────────────────────
+// 승인자 · 관리자: 대기 중인 요청 / 담당자: 최근 2주 내 내 요청 결과. 줄을 누르면 통제관리에서 그 요청을 연다.
+const BELL_STATUS = { PENDING: 'wait', PROCESSING: 'wait', APPROVED: 'ok', REJECTED: 'no', CANCELED: 'muted' };
+const bellTime = (value) => {
+  if (!value) return '';
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60000));
+  if (minutes < 1) return '방금';
+  if (minutes < 60) return `${minutes}분 전`;
+  if (minutes < 60 * 24) return `${Math.floor(minutes / 60)}시간 전`;
+  return `${Math.floor(minutes / (60 * 24))}일 전`;
+};
+const bellWon = (value) => (value === null || value === undefined ? '' : `${Math.round(Number(value)).toLocaleString('ko-KR')}원`);
+
+function ApprovalBell({ summary, onOpen }) {
+  const [opened, setOpened] = useState(false);
+  const approverView = summary.can_manage || summary.is_approver;
+  const count = approverView ? summary.pending : summary.my_rejected;
+  const items = summary.items || [];
+  const label = approverView ? `승인 대기 ${summary.pending}건` : `내 요청 · 최근 반려 ${summary.my_rejected}건`;
+  const open = (item) => { setOpened(false); onOpen(item); };
+  return <Popover opened={opened} onChange={setOpened} position="bottom-end" offset={8} width={360} shadow="md" withinPortal>
+    <Popover.Target>
+      <button type="button" className={classes.bell} title={label} aria-label={label} onClick={() => setOpened((value) => !value)}>
+        <IconBell size={18} stroke={1.5} />
+        {count > 0 && <span className={classes.bellBadge}>{count > 99 ? '99+' : count}</span>}
+      </button>
+    </Popover.Target>
+    <Popover.Dropdown className={classes.bellPanel}>
+      <div className={classes.bellHead}>
+        <b>{approverView ? '승인 대기' : '내 요청'}</b>
+        {approverView && summary.pending > 0 && <span>{summary.pending}건</span>}
+      </div>
+      <div className={classes.bellList}>
+        {items.map((item) => <button key={item.requestno} type="button" className={classes.bellItem} onClick={() => open(item)}>
+          <span className={`${classes.bellDot} ${classes[`bell_${BELL_STATUS[item.status] || 'muted'}`]}`} aria-hidden="true" />
+          <span className={classes.bellBody}>
+            <span className={classes.bellTitle}>
+              <b>{item.target_label} {item.action_label}</b>
+              {!approverView && <em className={classes[`bellTag_${BELL_STATUS[item.status] || 'muted'}`]}>{item.status_label}</em>}
+              <i>{bellTime(item.decided_at || item.requested_at)}</i>
+            </span>
+            <span className={classes.bellSummary}>{item.summary}</span>
+            <span className={classes.bellMeta}>
+              {approverView ? item.requested_name : item.decided_name ? `${item.decided_name} 처리` : '승인 대기 중'}
+              {item.amount !== null && item.amount !== undefined && <b>{bellWon(item.amount)}</b>}
+            </span>
+            {!approverView && item.reject_reason && <span className={classes.bellReason}>{item.reject_reason}</span>}
+          </span>
+        </button>)}
+        {!items.length && <div className={classes.bellEmpty}>{approverView ? '대기 중인 요청이 없어요' : '최근 요청이 없어요'}</div>}
+      </div>
+      <button type="button" className={classes.bellFoot} onClick={() => open(null)}>통제관리에서 모두 보기</button>
+    </Popover.Dropdown>
+  </Popover>;
 }

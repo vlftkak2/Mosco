@@ -54,6 +54,7 @@ const MENU_SECTIONS = [
   { label: '자금관리', menuids: ['RECEIPT_PAYMENT', 'RECEIPT_PAYMENT_SEARCH', 'INSTRUMENT_STATUS'] },
   { label: '기준정보', menuids: ['DATA_CODE', 'DATA_ITEM', 'WORKPLACE_MANAGEMENT', 'MONTH_CLOSING', 'USER_MANAGEMENT'] },
   { label: '게시판', menuids: ['CUSTOMER_SUPPORT'] },
+  { label: '어드민', menuids: ['CONTROL_MANAGEMENT'] },
 ];
 const MENU_SECTION_BY_ID = Object.fromEntries(
   MENU_SECTIONS.flatMap((section, index) => section.menuids.map((menuid) => [menuid, index])),

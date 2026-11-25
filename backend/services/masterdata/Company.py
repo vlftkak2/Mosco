@@ -40,22 +40,12 @@ class CompanyInput(BaseModel):
     # 재고 공개 동의 (서면 계약): Y 면 모스코(001)가 타사 재고현황에서 이 회사 재고를 본다
     stock_open_yn: str = "N"
     stock_open_date: date | None = None
-    # 승인 통제 허용: Y 면 이 고객사가 기준정보 › 통제관리에서 등록 · 수정 · 삭제 승인 절차를 쓸 수 있다
-    approval_yn: str = "N"
 
     @field_validator("companyid", "companyname", "businessno", "corporationno", "ceoname", "phone", "zipcode",
                      "address1", "address2", mode="before")
     @classmethod
     def strip_text(cls, value):
         return str(value or "").strip()
-
-    @field_validator("approval_yn", mode="before")
-    @classmethod
-    def validate_approval(cls, value):
-        value = str(value or "N").strip().upper()
-        if value not in {"Y", "N"}:
-            raise ValueError("승인 통제는 Y 또는 N 만 사용할 수 있습니다.")
-        return value
 
     @field_validator("stock_open_yn", mode="before")
     @classmethod
@@ -231,15 +221,15 @@ def create_company(data: CompanyInput, actor: str | None = None):
             """INSERT INTO company01t
                (companyid, companyname, businessno, corporationno, ceoname, phone, zipcode,
                 address1, address2, plan_code, company_status, licensed_seats,
-                license_start, license_end, stock_open_yn, stock_open_date, approval_yn, created_by)
+                license_start, license_end, stock_open_yn, stock_open_date, created_by)
                VALUES (%s, %s, NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''),
                        NULLIF(%s, ''), NULLIF(%s, ''), NULLIF(%s, ''),
-                       %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       %s, %s, %s, %s, %s, %s, %s, %s)
                RETURNING """ + _returning_sql(cursor),
             (data.companyid, data.companyname, data.businessno, data.corporationno, data.ceoname, data.phone,
              data.zipcode, data.address1, data.address2, data.plan_code,
              data.company_status, data.licensed_seats,
-             data.license_start, data.license_end, data.stock_open_yn, data.stock_open_date, data.approval_yn, actor or None),
+             data.license_start, data.license_end, data.stock_open_yn, data.stock_open_date, actor or None),
         )
         item = dict(cursor.fetchone())
         license_charge.save_setting(cursor, data.companyid, data.license_unit_price, actor)
@@ -278,14 +268,14 @@ def update_company(companyid: str, data: CompanyInput, actor: str | None = None)
                    ceoname = NULLIF(%s, ''), phone = NULLIF(%s, ''), zipcode = NULLIF(%s, ''),
                    address1 = NULLIF(%s, ''), address2 = NULLIF(%s, ''), plan_code = %s,
                    company_status = %s, licensed_seats = %s,
-                   license_start = %s, license_end = %s, stock_open_yn = %s, stock_open_date = %s, approval_yn = %s,
+                   license_start = %s, license_end = %s, stock_open_yn = %s, stock_open_date = %s,
                    updatedat = CURRENT_TIMESTAMP, updated_by = %s
                WHERE companyid = %s
                RETURNING """ + _returning_sql(cursor),
             (data.companyid, data.companyname, data.businessno, data.corporationno, data.ceoname, data.phone,
              data.zipcode, data.address1, data.address2, data.plan_code,
              data.company_status, data.licensed_seats,
-             data.license_start, data.license_end, data.stock_open_yn, data.stock_open_date, data.approval_yn, actor or None, companyid),
+             data.license_start, data.license_end, data.stock_open_yn, data.stock_open_date, actor or None, companyid),
         )
         row = cursor.fetchone()
         if not row:

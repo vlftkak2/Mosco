@@ -152,7 +152,7 @@
   --rb-tx: #e3e5ea; --rb-ic: #a3a8b3; --rb-hov: rgba(255, 255, 255, .08); --rb-act: rgba(255, 255, 255, .12); --rb-dis: #565c68; --rb-dis-ic: #4a505b;
 }
 .themeLight {
-  --nv-bg: #fff; --hd-bg: #fff;
+  --nv-bg: #f9f9f9; --hd-bg: #fff;   /* 네비 · 최상단 헤더 */
   --nv-tx2: #555c69; --nv-tx3: #8f96a3; --nv-hi: #14171c;
   --nv-line: rgba(20, 23, 28, .08); --nv-hov: rgba(20, 23, 28, .04); --nv-sel: rgba(224, 42, 49, .09); --nv-seltx: #e02a31;
   --nv-sw: #e02a31; --nv-ink: #111317; --hd-hov: rgba(20, 23, 28, .05);
@@ -354,3 +354,28 @@
 .bell:hover { background: var(--hd-hov); color: var(--nv-hi); }
 .bell:focus-visible { outline: 2px solid rgba(224, 42, 49, .55); outline-offset: -2px; }
 .bellBadge { position: absolute; top: 2px; right: 1px; min-width: 16px; height: 16px; padding: 0 4px; border: 1.5px solid var(--nv-bg); border-radius: 8px; background: #e02a31; color: #fff; font-size: 10px; font-weight: 700; line-height: 13px; text-align: center; }
+
+/* 승인 알림 창 */
+.bellPanel { overflow: hidden; padding: 0 !important; border: 1px solid #e5e7ea !important; border-radius: 12px !important; box-shadow: 0 14px 36px rgba(20, 23, 28, .18) !important; font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif; }
+.bellHead { display: flex; align-items: baseline; gap: 8px; padding: 14px 16px 10px; border-bottom: 1px solid #f0f1f3; }
+.bellHead b { color: #14171c; font-size: 14px; font-weight: 800; }
+.bellHead span { color: #e02a31; font-size: 12px; font-weight: 700; }
+.bellList { max-height: 380px; overflow-y: auto; padding: 4px; }
+.bellItem { display: flex; width: 100%; gap: 10px; padding: 10px 12px; border: 0; border-radius: 8px; background: none; font: inherit; text-align: left; cursor: pointer; transition: background 120ms ease; }
+.bellItem:hover { background: #f6f7f9; }
+.bellItem + .bellItem { margin-top: 2px; }
+.bellDot { width: 8px; height: 8px; flex: none; margin-top: 6px; border-radius: 50%; }
+.bell_wait { background: #f59e0b; } .bell_ok { background: #16a34a; } .bell_no { background: #e02a31; } .bell_muted { background: #c3c8d0; }
+.bellBody { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
+.bellTitle { display: flex; align-items: center; gap: 6px; }
+.bellTitle b { color: #14171c; font-size: 13px; font-weight: 700; }
+.bellTitle em { padding: 0 6px; border-radius: 8px; font-size: 11px; font-style: normal; font-weight: 700; line-height: 17px; }
+.bellTag_wait { background: #fdf3dc; color: #a16207; } .bellTag_ok { background: #e6f4ec; color: #15803d; } .bellTag_no { background: #fdecec; color: #c4363f; } .bellTag_muted { background: #eef0f3; color: #6b7280; }
+.bellTitle i { margin-left: auto; color: #9aa3af; font-size: 11.5px; font-style: normal; white-space: nowrap; }
+.bellSummary { overflow: hidden; color: #4b5563; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.bellMeta { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #9aa3af; font-size: 11.5px; }
+.bellMeta b { color: #14171c; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.bellReason { overflow: hidden; padding: 4px 8px; border-radius: 6px; background: #fdecec; color: #8f2a31; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.bellEmpty { padding: 34px 16px; color: #9aa3af; font-size: 12.5px; text-align: center; }
+.bellFoot { display: block; width: 100%; height: 42px; border: 0; border-top: 1px solid #f0f1f3; background: #fafbfc; color: #e02a31; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.bellFoot:hover { background: #fff5f5; }
