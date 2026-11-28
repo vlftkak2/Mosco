@@ -9,7 +9,7 @@
   height: 100%;
   align-items: center;
   justify-content: center;
-  color: #64748b;
+  color: var(--dk-tx-64748b, #64748b);
 }
 
 .calendarIcon {

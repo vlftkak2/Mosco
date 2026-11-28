@@ -13,6 +13,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconBuildingBank, IconBuildingStore, IconChevronDown, IconCopy, IconDeviceFloppy, IconFileDollar, IconFileSpreadsheet, IconFilter, IconPlus, IconSearch, IconTrash, IconX,
+  IconPrinter,
 } from '@tabler/icons-react';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import PickerModal, { ColumnResizeHandle, PickerEmpty, SelectPickerModal, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
@@ -217,7 +218,6 @@ const numeric = (value) => {
 };
 const formatted = (value) => numeric(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const dateOnly = (value) => value ? String(value).slice(0, 10) : '';
-const totalOf = (row) => ['cashamt', 'instrumentamt', 'bankamt', 'cardamt'].reduce((sum, key) => sum + numeric(row[key]), 0);
 // 저장된 행이 증권 줄인지 (증권 정보가 하나라도 있으면 어음/수표)
 const isInstrumentRow = (row) => numeric(row.instrumentamt) > 0 || Boolean(String(row.instrumenttype || '').trim())
   || Boolean(String(row.instrumentno || '').trim()) || Boolean(row.source_receiptno);
@@ -847,7 +847,6 @@ export default function ReceiptPayment() {
   const pageActivation = usePageActivation(); // 탭에 돌아올 때마다 목록(코드·거래처)을 다시 불러온다
   const ribbon = useContext(PageRibbonContext);
   const registerRibbon = ribbon?.registerPageRibbon;
-  const closePage = ribbon?.closeActivePage;
   const [filterOpen, setFilterOpen] = useState(true);
   const filterInputsRef = useRef(null);
   if (filterInputsRef.current === null) filterInputsRef.current = makeFilters();
@@ -1897,12 +1896,11 @@ export default function ReceiptPayment() {
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={call('saveDocument')} loading={saving} disabled={saving || !canSave}>저장</Button>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={call('deleteAction')} disabled={!deleteEnabled}>삭제</Button>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={call('exportExcel')} disabled={!canExport}>엑셀</Button>
-        <span className={inboundClasses.ribbonSeparator} />
-        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closePage}>닫기</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} disabled>인쇄</Button>
       </Group>,
     );
     return () => registerRibbon(null);
-  }, [registerRibbon, closePage, loading, saving, copyEnabled, canExport, canSave, deleteEnabled]);
+  }, [registerRibbon, loading, saving, copyEnabled, canExport, canSave, deleteEnabled]);
 
   const visibleTotals = useMemo(() => documents.reduce((sum, row) => {
     DOCUMENT_MONEY_KEYS.forEach((key) => { sum[key] += numeric(row[key]); });
@@ -1935,9 +1933,9 @@ export default function ReceiptPayment() {
     <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
         <Group className={inboundClasses.breadcrumbTrail} gap={7}>
-          <Text component="span" className={inboundClasses.breadcrumbParent}>자금관리</Text>
+          <Text component="span" className={inboundClasses.breadcrumbParent}>자금</Text>
           <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
-          <Text component="span" className={inboundClasses.breadcrumbCurrent}>수금/지급등록</Text>
+          <Text component="span" className={inboundClasses.breadcrumbCurrent}>수금지급 등록</Text>
         </Group>
         {!filterOpen && (
           <Button className={inboundClasses.receiptFilterToggle} variant="subtle" size="xs"

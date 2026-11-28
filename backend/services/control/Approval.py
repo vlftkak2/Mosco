@@ -48,10 +48,6 @@ STATUS_LABEL = {"PENDING": "대기", "PROCESSING": "처리 중", "APPROVED": "�
 ZERO = Decimal("0")
 
 
-def _name(column: str) -> str:
-    return f"COALESCE((SELECT u.username FROM user01t u WHERE u.email = {column} LIMIT 1), {column})"
-
-
 def _won_text(value) -> str:
     """1,000,000 → '100만원', 120,000,000 → '1억 2,000만원', 35,000 → '3만 5,000원', 9,000 → '9,000원'."""
     amount = int(_num(value).quantize(Decimal("1"), rounding=ROUND_HALF_UP))

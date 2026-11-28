@@ -1,7 +1,7 @@
 import { Button, Group } from '@mantine/core';
 import {
   IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus,
-  IconPrinter, IconSearch, IconTrash, IconX,
+  IconPrinter, IconSearch, IconTrash,
 } from '@tabler/icons-react';
 import classes from '../../styles/pages/InboundRegister.module.css';
 
@@ -19,9 +19,11 @@ const RibbonButton = ({ icon: Icon, label, onClick, disabled, loading, className
   </Button>
 );
 
+// 최상단 명령 버튼: 조회 | 추가 · 복사 · 저장 · 삭제 · 엑셀 · 인쇄 (시안 순서, 닫기 없음 — 탭의 × 로 닫는다).
+// 인쇄는 늘 보이고, 그 화면에 인쇄 기능(onPrint)이 있을 때만 켜진다.
 export default function ErpRibbon({
-  onSearch, onAdd, onCopy, onExcel, onSave, onDelete, onPrint, onClose,
-  showPrint = true, showExcel = false,
+  onSearch, onAdd, onCopy, onExcel, onSave, onDelete, onPrint,
+  showExcel = false,
   useSaveColor = true,
   disabled = {}, loading = {},
 }) {
@@ -34,9 +36,7 @@ export default function ErpRibbon({
       <RibbonButton icon={IconDeviceFloppy} label="저장" onClick={onSave} disabled={disabled.save} loading={loading.save} className={useSaveColor ? classes.ribbonSave : undefined} />
       <RibbonButton icon={IconTrash} label="삭제" onClick={onDelete} disabled={disabled.delete} loading={loading.delete} />
       {(onExcel || showExcel) && <RibbonButton icon={IconFileSpreadsheet} label="엑셀" onClick={onExcel} disabled={disabled.excel} loading={loading.excel} />}
-      {showPrint && <RibbonButton icon={IconPrinter} label="인쇄" onClick={onPrint} disabled={disabled.print} loading={loading.print} />}
-      <span className={classes.ribbonSeparator} />
-      <RibbonButton icon={IconX} label="닫기" onClick={onClose} disabled={disabled.close} />
+      <RibbonButton icon={IconPrinter} label="인쇄" onClick={onPrint} disabled={disabled.print} loading={loading.print} />
     </Group>
   );
 }

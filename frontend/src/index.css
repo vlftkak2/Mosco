@@ -9,8 +9,8 @@ body,
 }
 
 body {
-  color: #252a32;
-  background: #f6f7f9;
+  color: var(--dk-tx-252a32, #252a32);
+  background: var(--dk-bg-f6f7f9, #f6f7f9);
   font-family: 'Malgun Gothic', Arial, sans-serif;
   font-size: 12px;
   font-weight: 400;

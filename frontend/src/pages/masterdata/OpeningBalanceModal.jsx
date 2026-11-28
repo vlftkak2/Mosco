@@ -154,11 +154,11 @@ export default function OpeningBalanceModal({ opened, onClose, canEdit, onApplie
     </>}
     guide={<>
       <p>[양식 받기]로 받은 파일에서 <b>기초 미수금 · 기초 미지급금</b> 금액만 고쳐 올리세요. 빈칸은 0원으로 반영됩니다. 기말 잔액은 원장에서 자동 계산되므로 입력하지 않습니다.</p>
-      {!canEdit && <p style={{ color: '#c2561b' }}>기초잔액 반영은 관리자(MASTER·SUBMASTER)만 할 수 있습니다. 양식은 받을 수 있습니다.</p>}
+      {!canEdit && <p style={{ color: 'var(--dk-tx-c2561b, #c2561b)' }}>기초잔액 반영은 관리자(MASTER·SUBMASTER)만 할 수 있습니다. 양식은 받을 수 있습니다.</p>}
       {preview && <div className={pickerClasses.criteria}>
         <span><b>변경</b>{preview.changed_count.toLocaleString()}곳</span>
         <span><b>그대로</b>{preview.unchanged_count.toLocaleString()}곳</span>
-        <span style={preview.missing_count ? { color: '#c2561b' } : undefined}><b>코드 없음</b>{preview.missing_count.toLocaleString()}곳{preview.missing_count ? ` (${preview.missing.slice(0, 5).map((item) => `${item.rowno}행 ${item.customercode}`).join(', ')}${preview.missing_count > 5 ? ' …' : ''}) — 반영하지 않습니다` : ''}</span>
+        <span style={preview.missing_count ? { color: 'var(--dk-tx-c2561b, #c2561b)' } : undefined}><b>코드 없음</b>{preview.missing_count.toLocaleString()}곳{preview.missing_count ? ` (${preview.missing.slice(0, 5).map((item) => `${item.rowno}행 ${item.customercode}`).join(', ')}${preview.missing_count > 5 ? ' …' : ''}) — 반영하지 않습니다` : ''}</span>
       </div>}
     </>}
     listTitle="바뀌는 거래처" count={preview ? preview.changed_count : 0} listHint={preview ? '반영 전 금액 → 반영 후 금액' : '엑셀을 올리면 바뀌는 거래처가 여기에 나옵니다'}
@@ -175,7 +175,7 @@ export default function OpeningBalanceModal({ opened, onClose, canEdit, onApplie
           <td className={pickerClasses.right}>{won(item.before_receivable)} → <b>{won(item.after_receivable)}</b></td>
           <td className={pickerClasses.right}>{won(item.before_payable)} → <b>{won(item.after_payable)}</b></td>
         </tr>)}
-        {preview && preview.changed_count > changed.length && <tr><td colSpan={5} className={pickerClasses.center} style={{ color: '#8290a5' }}>
+        {preview && preview.changed_count > changed.length && <tr><td colSpan={5} className={pickerClasses.center} style={{ color: 'var(--dk-tx-8290a5, #8290a5)' }}>
           외 {(preview.changed_count - changed.length).toLocaleString()}곳 더 바뀝니다 (반영은 전부 됩니다)
         </td></tr>}
         {!changed.length && <tr><td colSpan={5} className={pickerClasses.emptyCell}>

@@ -25,13 +25,13 @@ import {
   IconPlus,
   IconSearch,
   IconTrash,
-  IconX,
+  IconX, IconPrinter,
 } from "@tabler/icons-react";
 import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import sharedClasses from "../../styles/pages/ManagementShared.module.css";
 import classes from "../../styles/pages/CustomerPage.module.css";
-import { MenuAccessContext, PageRibbonContext } from "../../components/layout/MainLayout";
+import { PageRibbonContext } from "../../components/layout/MainLayout";
 import OpeningBalanceModal from "./OpeningBalanceModal";
 import ExcelBulkActions from '../../components/common/ExcelBulkActions';
 import { apiErrorMessage } from '../../utils/apiError';
@@ -854,8 +854,6 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
 export default function CustomerPage() {
   const pageLayout = useContext(PageRibbonContext);
   const registerPageRibbon = pageLayout?.registerPageRibbon;
-  const closeActivePage = pageLayout?.closeActivePage;
-  const menuAccess = useContext(MenuAccessContext);
   // 기초잔액 · 여신한도: 거래처등록 권한이면 수정 (막으려면 통제관리 › 거래처 수정 승인)
   const canEditOpeningBalances = true;
   const companyid = localStorage.getItem("user_company") || "";
@@ -1512,20 +1510,19 @@ export default function CustomerPage() {
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={saveCustomer} loading={saving || allocatingCode} disabled={allocatingCode}>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportCustomers} loading={exportLoading} disabled={listLoading}>엑셀</Button>
-        <span className={classes.ribbonSeparator} />
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closeActivePage}>닫기</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} disabled>인쇄</Button>
       </Group>,
     );
     return () => registerPageRibbon(null);
-  }, [registerPageRibbon, closeActivePage, handleSearch, listLoading, startNewCustomer, allocatingCode, exportCustomers, exportLoading, saveCustomer, saving]);
+  }, [registerPageRibbon, handleSearch, listLoading, startNewCustomer, allocatingCode, exportCustomers, exportLoading, saveCustomer, saving]);
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page} ${classes.simple}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>거래처관리</Text>
+          <Text component="span" className={classes.breadcrumbParent}>설정</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-          <Text component="span" className={classes.breadcrumbCurrent}>거래처등록</Text>
+          <Text component="span" className={classes.breadcrumbCurrent}>거래처관리</Text>
         </Group>
       </Box>
 

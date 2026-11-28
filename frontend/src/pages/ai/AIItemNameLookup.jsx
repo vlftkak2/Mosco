@@ -134,7 +134,7 @@ export function ItemNameSuggestInput({ value, readOnly, onValueChange, onGridKey
       <div role="listbox" aria-label="품목 검색 결과">
         {items.map((item, index) => <button key={item.itemcode} type="button" role="option" aria-selected={index === activeIndex}
           className={itemMasterClasses.shapeSuggestion}
-          style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          style={index === activeIndex ? { background: 'var(--dk-bg-edf3f8, #edf3f8)' } : undefined}
           onMouseDown={(event) => event.preventDefault()}
           onMouseEnter={() => setActiveIndex(index)}
           onClick={() => choose(item)}>
@@ -249,7 +249,7 @@ export function CodeSuggestInput({ value, options, readOnly, onValueChange, onGr
       <div role="listbox" aria-label="코드 검색 결과">
         {items.map((option, index) => <button key={option.code} type="button" role="option" aria-selected={index === activeIndex}
           className={itemMasterClasses.shapeSuggestion}
-          style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          style={index === activeIndex ? { background: 'var(--dk-bg-edf3f8, #edf3f8)' } : undefined}
           onMouseDown={(event) => event.preventDefault()}
           onMouseEnter={() => setActiveIndex(index)}
           onClick={() => choose(option)}>
@@ -292,7 +292,7 @@ export function ItemNameAutocomplete({ value, exact, disabled, onChange, onKeyDo
   return <Autocomplete size="sm" style={{ width }} disabled={disabled} value={value} data={exact ? [] : options} leftSection={<IconSearch size={14} />}
     filter={({ options: list }) => list} limit={20} comboboxProps={{ zIndex: 500 }} onKeyDown={handleKeyDown}
     onDropdownOpen={() => setDropdownOpen(true)} onDropdownClose={() => setDropdownOpen(false)}
-    label={<>품명 <span style={{ color: exact ? '#d94a54' : '#8292a9', fontWeight: 600 }}>{exact ? '· 일치' : '· 포함'}</span></>}
+    label={<>품명 <span style={{ color: exact ? 'var(--dk-tx-d94a54, #d94a54)' : 'var(--dk-tx-8292a9, #8292a9)', fontWeight: 600 }}>{exact ? '· 일치' : '· 포함'}</span></>}
     title={exact ? `이 품명과 똑같은 ${subject}만 찾습니다. 글자를 고치면 포함 검색으로 바뀝니다.` : `입력한 글자가 들어간 품명의 ${subject}를 모두 찾습니다. 추천 목록에서 고르면 일치 검색이 됩니다. 비우면 전체 품명.`}
     onChange={(next) => onChange(next, next === pickedRef.current)}
     onOptionSubmit={pick} />;

@@ -11,7 +11,8 @@ import { Box, Button, Group, Loader, Paper, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconAlertTriangle, IconBulb, IconCash, IconChevronRight, IconPercentage, IconReceipt, IconScale, IconTrendingUp, IconCopy, IconDeviceFloppy,
-  IconFileSpreadsheet, IconPlus, IconSearch, IconTrash, IconX,
+  IconFileSpreadsheet, IconPlus, IconSearch, IconTrash,
+  IconPrinter,
 } from '@tabler/icons-react';
 import {
   Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -246,7 +247,6 @@ const topSlices = (rows, valueKey, nameKey) => {
 export default function GrossProfitDashboard() {
   const ribbon = useContext(PageRibbonContext);
   const registerRibbon = ribbon?.registerPageRibbon;
-  const closePage = ribbon?.closeActivePage;
   const navigate = useNavigate();
   const [inputs, setInputs] = useState(() => PRESETS.this());
   const [period, setPeriod] = useState(() => PRESETS.this());
@@ -331,12 +331,11 @@ export default function GrossProfitDashboard() {
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={() => actions.current.exportExcel()} disabled={!hasData}>엑셀</Button>
-        <span className={classes.ribbonSeparator} />
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closePage}>닫기</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} disabled>인쇄</Button>
       </Group>,
     );
     return () => registerRibbon(null);
-  }, [registerRibbon, closePage, hasData]);
+  }, [registerRibbon, hasData]);
 
   const total = data?.total;
   const prev = data?.prev_total;
@@ -418,7 +417,7 @@ export default function GrossProfitDashboard() {
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page} ${pageClasses.page} ${simpleTheme.simple}`}>
-      <DashboardHeader parent="매출관리" title="매출이익요약" note="증감은 전월 같은 기간 대비">
+      <DashboardHeader parent="매출" title="매출이익 분석" note="증감은 전월 같은 기간 대비">
         <PeriodFilter value={inputs} onChange={setInputs} onSearch={() => { void search(); }} loading={loading}>
           <CustomerPicker picker={picker} onPick={pickCustomer} onClear={clearCustomer} onEnter={() => { void search(); }} />
         </PeriodFilter>

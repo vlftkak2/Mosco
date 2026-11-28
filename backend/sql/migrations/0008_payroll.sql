@@ -6,8 +6,6 @@
 --   - 부서 · 사원번호 · 입사일 · 생년월일은 user01t 에서 조인한다.
 --   - 마감(closeyn = 'Y')한 달은 고칠 수 없고, 직원은 마감된 자기 급여만 '내 급여현황'에서 본다.
 --  칼럼 규칙: companyid · companyname 맨 앞, 감사 칼럼(createdat · updatedat · created_by · updated_by) 맨 끝
-BEGIN;
-
 CREATE TABLE IF NOT EXISTS pay_slip01t (
     companyid      varchar(20)  NOT NULL,
     companyname    varchar(100),
@@ -56,10 +54,10 @@ CREATE INDEX IF NOT EXISTS pay_slip01t_user_idx ON pay_slip01t (companyid, usere
 -- 메뉴: 급여관리(급여입력 · 급여대장, 관리자) · 내 급여현황(직원 본인)
 --  급여대장(PAYROLL_LEDGER)은 급여관리(PAYROLL) 권한을 그대로 쓴다 → 부여 대상 아님 (즐겨찾기 저장용)
 INSERT INTO menucatalog01t (menuid, menuname, access_scope, assignable, sort_order, useyn) VALUES
-    ('PAYROLL',        '급여입력',    'COMPANY', TRUE,  40, 'Y'),
-    ('PAYROLL_LEDGER', '급여대장',    'COMPANY', FALSE, 41, 'Y'),
-    ('PAYROLL_MY',     '내 급여현황', 'COMPANY', TRUE,  42, 'Y')
-ON CONFLICT (menuid) DO NOTHING;
+    ('PAYROLL',        '급여등록 · 급여대장', 'COMPANY', TRUE,  28, 'Y'),
+    ('PAYROLL_LEDGER', '급여대장',            'COMPANY', FALSE, 29, 'Y'),
+    ('PAYROLL_MY',     '내 급여현황',         'COMPANY', TRUE,  30, 'Y')
+ON CONFLICT (menuid) DO NOTHING;   -- 이름 · 순서는 0007(네비 메뉴 명칭)과 같다
 
 -- 처음 한 번: 사용 중인 직원 전원에게 내 급여현황, 메뉴권한관리 권한이 있는 직원에게 급여입력
 INSERT INTO usermenupermission01t (companyid, useremail, menuid, useyn, createdby)
@@ -72,5 +70,3 @@ SELECT p.companyid, p.useremail, 'PAYROLL', 'Y', 'payroll-migration-20261128'
   FROM usermenupermission01t p
  WHERE p.menuid = 'USER_MENU_PERMISSION' AND UPPER(COALESCE(p.useyn, 'N')) = 'Y'
 ON CONFLICT (companyid, useremail, menuid) DO NOTHING;
-
-COMMIT;

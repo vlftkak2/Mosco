@@ -81,11 +81,6 @@ def _check_ym(payym: str) -> str:
     return f"{year:04d}-{month:02d}"
 
 
-def _prev_ym(payym: str) -> str:
-    year, month = (int(x) for x in payym.split("-"))
-    return f"{year - 1:04d}-12" if month == 1 else f"{year:04d}-{month - 1:02d}"
-
-
 def _month_range(payym: str) -> tuple[date, date]:
     year, month = (int(x) for x in payym.split("-"))
     first = date(year, month, 1)

@@ -146,6 +146,8 @@ def list_orders(companyid, start_date=None, end_date=None, buyer=None, orderid=N
         if value is not None:
             clauses.append(condition)
             args.append(value)
+    # 진행상태별 건수 (화면 위 상태 카드): 진행상태 조건만 빼고 나머지 조건은 같게
+    base_where, base_args = " AND ".join(clauses), list(args)
     if progress in ORDER_PROGRESS:
         clauses.append(f"{_PROGRESS_SQL} = %s")
         args.append(progress)
@@ -153,6 +155,10 @@ def list_orders(companyid, start_date=None, end_date=None, buyer=None, orderid=N
     with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(f"SELECT COUNT(*) AS total FROM aiorder01t h WHERE {where}", args)
         total = cur.fetchone()["total"]
+        cur.execute(f"SELECT {_PROGRESS_SQL} AS progress, COUNT(*) AS n FROM aiorder01t h WHERE {base_where} GROUP BY 1", base_args)
+        progress_counts = {key: 0 for key in ORDER_PROGRESS}
+        for row in cur.fetchall():
+            progress_counts[row["progress"]] = int(row["n"])
         if focus:
             cur.execute(f"""SELECT COUNT(*) AS before FROM aiorder01t h, aiorder01t f
                             WHERE {where} AND f.companyid = h.companyid AND f.orderid = %s
@@ -175,7 +181,7 @@ def list_orders(companyid, start_date=None, end_date=None, buyer=None, orderid=N
             -- 주문일자 오름차순 (주문일자 없는 주문은 맨 뒤), 같은 날은 주문번호 순
             ORDER BY COALESCE(h.orderdate, DATE '9999-12-31') ASC, h.orderid ASC LIMIT %s OFFSET %s
         """, args + [page_size, (page - 1) * page_size])
-        return {"total": total, "page": page, "items": [as_dict(row) for row in cur.fetchall()]}
+        return {"total": total, "page": page, "progress_counts": progress_counts, "items": [as_dict(row) for row in cur.fetchall()]}
 
 
 def get_order(companyid, orderid):

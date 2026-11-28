@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List
-from decimal import Decimal
 
 # 모듈 임포트 (이름 충돌을 피하기 위해 as 사용)
 from services.masterdata import Customer as customer_module

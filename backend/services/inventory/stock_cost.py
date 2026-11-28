@@ -20,18 +20,10 @@ from decimal import ROUND_HALF_UP, Decimal
 
 ZERO = Decimal("0")
 WON = Decimal("1")
-COST_PLACES = Decimal("0.01")  # kg당 원가 표시 자릿수 (소수 둘째 자리)
-
-STOCK_KINDS = ("OPENING", "INBOUND", "PROCESS", "TRANSFER")
 
 
 def _dec(value) -> Decimal:
     return Decimal(str(value if value is not None else 0))
-
-
-def per_kg(total_cost, weight) -> Decimal:
-    weight = _dec(weight)
-    return (_dec(total_cost) / weight).quantize(COST_PLACES, rounding=ROUND_HALF_UP) if weight > 0 else ZERO
 
 
 def allocate_by_weight(total, weights: list) -> list[Decimal]:
@@ -54,12 +46,6 @@ def consume_cost(remaining_cost, remaining_weight, weight) -> Decimal:
     if remaining_weight <= 0 or weight >= remaining_weight:
         return remaining_cost
     return min(remaining_cost, (remaining_cost * weight / remaining_weight).quantize(WON, rounding=ROUND_HALF_UP))
-
-
-def inbound_cost_amounts(lines: list[dict], expense_total) -> list[Decimal]:
-    """lines: [{supplyamt, weight}] (전표 순서). 라인 원가금액 = 공급가 + 기타비용(공급가 합계) 중량 배부액."""
-    shares = allocate_by_weight(expense_total, [line.get("weight") for line in lines])
-    return [_dec(line.get("supplyamt")) + share for line, share in zip(lines, shares)]
 
 
 def _leaves(nodes: list[dict]):
@@ -102,12 +88,6 @@ def process_product_amounts(material_cost, nodes: list[dict]) -> dict:
     return totals
 
 
-def process_product_costs(material_cost, nodes: list[dict]) -> dict:
-    """{최종 가공품 id: kg당 원가} (참고용)."""
-    weights = {node["id"]: node["weight"] for node in nodes}
-    return {key: per_kg(amount, weights[key]) for key, amount in process_product_amounts(material_cost, nodes).items()}
-
-
 def stock_kind_label(kind: str) -> str:
     return {"OPENING": "기초", "INBOUND": "입고", "PROCESS": "가공", "TRANSFER": "이동"}.get(kind or "", kind or "")
 
@@ -135,24 +115,6 @@ def _process_trees(rows) -> list[tuple]:
         } for row in products]
         trees.append((source, nodes))
     return trees
-
-
-def process_fee_rates(cursor, companyid: str, processnos) -> dict:
-    """{(가공번호, 최종 가공품 순번): kg당 가공비} — 매출이익 화면의 가공비/원자재원가 칸 구분용."""
-    processnos = sorted({str(no) for no in processnos if no})
-    if not processnos:
-        return {}
-    cursor.execute(_PROCESS_LINE_SQL, (companyid, processnos))
-    rows = cursor.fetchall()
-    rates = {}
-    for processno in processnos:
-        for _source, nodes in _process_trees([row for row in rows if row[0] == processno]):
-            weights = {node["id"]: _dec(node["weight"]) for node in nodes}
-            # 화면 표시용 반올림(per_kg) 없이 정밀하게: 매출이익에서 kg당 가공비 × 출고중량을 원 단위로 반올림한다
-            for lineno, fee in process_product_amounts(ZERO, nodes).items():
-                weight = weights[lineno]
-                rates[(processno, int(lineno))] = (fee / weight).quantize(Decimal("0.000001")) if weight > 0 else ZERO
-    return rates
 
 
 # ---------------------------------------------------------------------------

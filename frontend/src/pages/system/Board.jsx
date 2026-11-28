@@ -169,7 +169,6 @@ export default function Board() {
     onAdd: result.can_create && !busy ? startNew : undefined,
     // 목록에서 글을 고르면 위쪽 [삭제]로도 지울 수 있다 (지울 권한이 있는 글만)
     onDelete: detail?.can_edit && !busy ? () => setConfirm({ type: 'post' }) : undefined,
-    showPrint: false,
   });
 
   // 결과 반영: 상세 · 목록 · 건수
@@ -230,7 +229,7 @@ export default function Board() {
   const pages = Math.max(1, Math.ceil(result.total / PAGE_SIZE));
 
   return <div className={`${simpleTheme.simple} ${shared.pageShell} ${searchClasses.page} ${classes.page}`}>
-    <ErpBreadcrumb parent="게시판" current="상담게시판" />
+    <ErpBreadcrumb parent="소통" current="상담게시판" />
 
     <div className={classes.workspace}>
       {/* ── 목록 ── */}

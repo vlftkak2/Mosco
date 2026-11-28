@@ -224,12 +224,6 @@ def user_has_menu_access(companyid: str, email: str, menuid: str) -> bool:
     return has_platform_admin_role(snapshot) or menuid in snapshot["menuids"]
 
 
-def require_platform_admin(user: dict = Depends(get_current_user)) -> dict:
-    if not has_platform_admin_role(user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="플랫폼 관리자만 사용할 수 있습니다.")
-    return user
-
-
 def require_platform_company(user: dict = Depends(get_current_user)) -> dict:
     """플랫폼 운영사(001 · 모스코) 계정이면 권한과 상관없이 통과 (예: 타사 재고현황). 다른 고객사 계정은 403."""
     if user.get("companyid") != "001":

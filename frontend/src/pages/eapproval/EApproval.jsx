@@ -3,7 +3,7 @@
 // 서버: backend/services/eapproval/EApproval.py
 import { Fragment, memo, useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Box, Group, Loader, Pagination, Paper, Select, Text, TextInput, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import ErpDateInput from '../../components/common/ErpDateInput';
@@ -17,6 +17,7 @@ import classes from '../../styles/pages/InboundRegister.module.css';
 import own from '../../styles/pages/ControlManagement.module.css';
 import ea from '../../styles/pages/EApproval.module.css';
 import { apiErrorMessage } from '../../utils/apiError';
+import { CustomFields, CustomRead } from './CustomFormView';
 
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const errorText = (error, fallback = '처리하지 못했습니다.') => apiErrorMessage(error, fallback);
@@ -35,6 +36,7 @@ const thisMonth = () => {
 const num = (value) => (value === null || value === undefined || value === '' ? '' : Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 2 }));
 const STATUS_CLASS = { DRAFT: own.muted, PENDING: own.wait, APPROVED: own.ok, REJECTED: own.no };
 const StatusPill = ({ status, label }) => <span className={`${own.pill} ${STATUS_CLASS[status] || own.muted}`}>{label}</span>;
+// 양식 거르기: 기본 양식 + 회사가 추가한 양식(사용 중인 것)은 목록 화면에서 붙인다
 const FORM_OPTIONS = [{ value: '', label: '전체 양식' }, { value: 'LEAVE', label: '휴가신청서' }, { value: 'TRIP', label: '출장신청서' }, { value: 'REPORT', label: '업무보고서' }];
 // 필터 드롭다운: 입력칸보다 좁아지지 않고 글자가 한 줄에 들어가게
 const FILTER_DROPDOWN = { width: 150, position: 'bottom-start' };
@@ -60,7 +62,7 @@ const emptyContent = (formcode) => ({
   LEAVE: { kind: 'ANNUAL', date_from: today(), date_to: today(), reason: '' },
   TRIP: { title: '', destination: '', date_from: today(), date_to: today(), purpose: '', companions: '', cost: '', memo: '' },
   REPORT: { title: '', report_type: 'WEEKLY', date_from: today(), date_to: today(), done: '', plan: '', issue: '' },
-}[formcode] || {});
+}[formcode] || { values: {} });   // 그 밖(추가 양식)은 입력칸 값만
 
 // ── 결재 흐름 (신청 → 1차 → 2차 …) : 제목 아래 한 줄, 결재자가 많으면 다음 줄로 ──
 const STEP_TONE = { done: ea.flowDone, ok: ea.flowOk, now: ea.flowNow, wait: ea.flowWait, no: ea.flowNo, draft: ea.flowWait };
@@ -124,6 +126,8 @@ function LeaveBox({ leave, requestDays }) {
 
 // ── 양식 입력 칸 ────────────────────────────────────────────────────
 function DocFields({ formcode, content, set, setup }) {
+  const custom = (setup?.forms || []).find((f) => f.formcode === formcode && f.custom);
+  if (custom) return <CustomFields form={custom} values={content.values || {}} setValue={(key, value) => set((cur) => ({ values: { ...(cur.values || {}), [key]: value } }))} />;
   const kinds = Object.entries(setup?.leave_kinds || {}).map(([value, label]) => ({ value, label }));
   const types = Object.entries(setup?.report_types || {}).map(([value, label]) => ({ value, label: `${label} 보고` }));
   const period = (label, required = true) => <div className={ea.full}>
@@ -211,7 +215,8 @@ function WriteTab({ setup, draft, onSaved, onBack }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const docno = draft?.docno || null;
   const form = forms.find((item) => item.formcode === formcode);
-  const set = useCallback((patch) => setContent((current) => ({ ...current, ...patch })), []);
+  // patch: 바꿀 값 또는 (현재 내용 → 바꿀 값) 함수 (추가 양식 입력칸처럼 이전 값에 이어 붙일 때)
+  const set = useCallback((patch) => setContent((current) => ({ ...current, ...(typeof patch === 'function' ? patch(current) : patch) })), []);
   const pick = (code) => { if (code === formcode) return; setFormcode(code); setContent(emptyContent(code)); };
 
   const send = async (kind) => {
@@ -329,9 +334,9 @@ function DocDetail({ docno, setup, onChanged, onRewrite, onWithdrawn }) {
       </div>
       <StampGrid writer={{ name: view.writer_name, team: view.writer_team }} steps={view.steps} currentStep={view.current_step} status={view.status} submittedAt={view.submitted_at} />
     </div>
-    <div className={ea.readGrid}>
+    {view.content?._form ? <CustomRead content={view.content} /> : <div className={ea.readGrid}>
       {readRows(view, setup).map(([label, value]) => <Fragment key={label}><div>{label}</div><div>{value || '-'}</div></Fragment>)}
-    </div>
+    </div>}
     {/* 결재 의견 · 반려 사유만 따로 (신청자 본인 단계 자동 승인 문구는 빼고) */}
     {view.steps.filter((x) => x.comment && x.comment !== '신청자 본인 단계').map((x) => <div key={x.step} className={`${ea.opinion} ${x.status === 'REJECTED' ? ea.opinionNo : ''}`}>
       {/* 관리자 반려: "[관리자 반려 · 이름] 사유" */}
@@ -451,7 +456,7 @@ function ListTab({ box: initialBox, setup, reloadKey, onOpenDraft, onRewrite, on
         </div>}
         {(box === 'mine' || box === 'done') && <Select className={own.smallSelect} data={STATUS_OPTIONS} value={filters.status} allowDeselect={false} aria-label="상태" comboboxProps={FILTER_DROPDOWN}
           onChange={(value) => { const next = { ...filters, status: value || '' }; setFilters(next); setQuery(next); }} />}
-        <Select className={own.smallSelect} data={FORM_OPTIONS} value={filters.formcode} allowDeselect={false} aria-label="양식" comboboxProps={FILTER_DROPDOWN}
+        <Select className={own.smallSelect} data={[...FORM_OPTIONS, ...(setup?.forms || []).filter((f) => f.custom).map((f) => ({ value: f.formcode, label: f.formname }))]} value={filters.formcode} allowDeselect={false} aria-label="양식" comboboxProps={FILTER_DROPDOWN}
           onChange={(value) => { const next = { ...filters, formcode: value || '' }; setFilters(next); setQuery(next); }} />
         <TextInput className={own.search} placeholder="문서번호 · 제목 · 신청자 (Enter)" value={filters.q}
           onChange={(event) => { const value = event.currentTarget.value; setFilters((current) => ({ ...current, q: value })); }}
@@ -466,7 +471,7 @@ function ListTab({ box: initialBox, setup, reloadKey, onOpenDraft, onRewrite, on
           </th>)}</tr></thead>
           <tbody>
             {result.items.map((row) => <DocRow key={row.docno} row={row} box={box} selected={selected?.docno === row.docno} onSelect={select} />)}
-            {!result.items.length && <tr><td colSpan={columns.length} className={own.center} style={{ height: 120, color: '#9aa3af' }}>
+            {!result.items.length && <tr><td colSpan={columns.length} className={own.center} style={{ height: 120, color: 'var(--dk-tx-9aa3af, #9aa3af)' }}>
               {loading ? '조회 중' : { drafts: '임시저장한 문서가 없습니다', mine: '신청한 문서가 없습니다', todo: '결재할 문서가 없습니다', done: '결재한 문서가 없습니다' }[box]}
             </td></tr>}
           </tbody>
@@ -480,11 +485,22 @@ function ListTab({ box: initialBox, setup, reloadKey, onOpenDraft, onRewrite, on
   </div>;
 }
 
-export default function EApproval() {
+// 결재 문서 메뉴 4개 = 이 화면을 고정 탭으로 하나씩 연다 (예전 화면 안 탭 → 메뉴로 분리, 메뉴마다 따로 열려 쓰던 내용이 섞이지 않음).
+// 다른 메뉴로 넘어가는 흐름(신청 → 내 결재현황, 임시저장 · 회수 → 임시저장함, 다시 작성 → 새 문서 작성)은 그 메뉴 화면으로 이동한다.
+// 목록은 저장 · 처리 때 'eapproval-changed' 로, 탭으로 돌아올 때 usePageReactivated 로 다시 읽는다.
+export const EAPPROVAL_BOXES = {
+  write: { path: '/EApproval', label: '새 문서 작성' },
+  drafts: { path: '/EApprovalDrafts', label: '임시저장함' },
+  mine: { path: '/EApprovalMine', label: '내 결재현황' },
+  inbox: { path: '/EApprovalInbox', label: '결재함' },
+};
+
+export default function EApproval({ box = 'write' }) {
   const location = useLocation();
-  const [tab, setTab] = useState(() => new URLSearchParams(location.search).get('tab') || 'write');
+  const navigate = useNavigate();
+  const tab = EAPPROVAL_BOXES[box] ? box : 'write';
   const [setup, setSetup] = useState(null);
-  const [draft, setDraft] = useState(null);          // 신규작성에 채울 내용 (반려 문서 다시 작성)
+  const [draft, setDraft] = useState(() => location.state?.rewrite || null);   // 새 문서 작성에 채울 내용 (내 결재현황 → 다시 작성)
   const [editDraft, setEditDraft] = useState(null);  // 임시저장함에서 고치는 문서
   const [writeKey, setWriteKey] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
@@ -500,56 +516,44 @@ export default function EApproval() {
   const runSetup = useEffectEvent(() => { void loadSetup(); });
   useEffect(() => { runSetup(); }, []);
   usePageReactivated(() => { void loadSetup(); });
-  useErpPageRibbon({ onSearch: () => { setReloadKey((v) => v + 1); void loadSetup(); }, showPrint: false });
+  useErpPageRibbon({ onSearch: () => { setReloadKey((v) => v + 1); void loadSetup(); } });
 
-  const openWrite = (next) => { setDraft(next); setWriteKey((v) => v + 1); setTab('write'); };
-  // 임시저장 문서는 임시저장함 탭 안에서 연다 (탭 이름 · 개수는 그대로)
+  const goBox = (key, state) => navigate(EAPPROVAL_BOXES[key].path, state ? { state } : undefined);
+  const openWrite = (next) => goBox('write', { rewrite: next });
+  // 임시저장 문서는 임시저장함 안에서 연다
   const openDraft = async (docno) => {
     try {
       const { data } = await axios.get(`/api/eapproval/docs/${encodeURIComponent(docno)}`, authConfig());
       setEditDraft({ docno: data.docno, formcode: data.formcode, content: data.content });
-      setTab('drafts');
     } catch (error) {
       notifications.show({ title: '문서 조회 실패', message: errorText(error), color: 'red' });
     }
   };
-  // 신규작성: 신청 → 신청내역, 임시저장 → 임시저장함
+  // 새 문서 작성: 신청 → 내 결재현황, 임시저장 → 임시저장함 (작성 칸은 비운다)
   const onSaved = (kind) => {
     void loadSetup();
     setDraft(null);
     setWriteKey((v) => v + 1);
-    setTab(kind === 'submit' ? 'mine' : 'drafts');
+    goBox(kind === 'submit' ? 'mine' : 'drafts');
   };
-  // 임시저장함에서 고치던 문서: 신청 → 신청내역, 저장 · 삭제 → 임시저장함 목록
+  // 임시저장함에서 고치던 문서: 신청 → 내 결재현황, 저장 · 삭제 → 임시저장함 목록
   const onDraftSaved = (kind) => {
     void loadSetup();
     setEditDraft(null);
-    if (kind === 'submit') setTab('mine');
+    if (kind === 'submit') goBox('mine');
   };
-  // 회수 → 임시저장함 목록으로 바로
-  const onWithdrawn = () => { setEditDraft(null); setTab('drafts'); };
-  const tabs = [{ key: 'write', label: '신규작성' }, { key: 'drafts', label: '임시저장함' }, { key: 'mine', label: '신청내역' }, { key: 'inbox', label: '결재함' }];
-  const pickTab = (key) => {
-    if (key === 'write' && tab !== 'write') { setDraft(null); setWriteKey((v) => v + 1); }
-    if (key === 'drafts') setEditDraft(null);   // 임시저장함 탭을 누르면 목록
-    setTab(key);
-  };
+  // 회수 → 임시저장함 목록
+  const onWithdrawn = () => { setEditDraft(null); if (tab !== 'drafts') goBox('drafts'); };
 
   return <Box className={`${sharedClasses.pageShell} ${classes.page} ${simpleTheme.simple} ${own.page}`}>
     <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
       <Group className={classes.breadcrumbTrail} gap={7}>
-        <Text component="span" className={classes.breadcrumbParent}>전자결재</Text>
+        <Text component="span" className={classes.breadcrumbParent}>결재</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-        <Text component="span" className={classes.breadcrumbCurrent}>{tabs.find((t) => t.key === tab)?.label}</Text>
+        <Text component="span" className={classes.breadcrumbCurrent}>{EAPPROVAL_BOXES[tab].label}</Text>
         {tab === 'drafts' && editDraft && <><Text component="span" className={classes.breadcrumbChevron}>›</Text><Text component="span" className={classes.breadcrumbCurrent}>{editDraft.docno}</Text></>}
       </Group>
     </Box>
-    <div className={own.tabs} role="tablist">
-      {tabs.map((item) => <button key={item.key} type="button" role="tab" aria-selected={tab === item.key}
-        className={`${own.tab} ${tab === item.key ? own.tabOn : ''}`} onClick={() => pickTab(item.key)}>
-        {item.label}
-      </button>)}
-    </div>
     <div className={own.body}>
       {!setup ? <div className={own.empty}><Loader size="sm" color="red" /></div> : <>
         {tab === 'write' && <WriteTab key={writeKey} setup={setup} draft={draft} onSaved={onSaved} />}

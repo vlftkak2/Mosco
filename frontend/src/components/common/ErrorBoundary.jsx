@@ -37,7 +37,7 @@ export default class ErrorBoundary extends Component {
     return (
       <div role="alert" style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12,
-        minHeight: fullPage ? '100vh' : 240, padding: 24, textAlign: 'center', color: '#343a40',
+        minHeight: fullPage ? '100vh' : 240, padding: 24, textAlign: 'center', color: 'var(--dk-tx-343a40, #343a40)',
       }}>
         <strong style={{ fontSize: 16 }}>화면을 표시하는 중 오류가 발생했습니다.</strong>
         <span style={{ fontSize: 13, color: '#868e96' }}>
@@ -49,7 +49,7 @@ export default class ErrorBoundary extends Component {
           }}>다시 시도</button>
           {(fullPage || chunkError) && (
             <button type="button" onClick={() => window.location.reload()} style={{
-              height: 32, padding: '0 16px', border: '1px solid #dee2e6', borderRadius: 6, background: '#fff', color: '#343a40', fontSize: 13, cursor: 'pointer',
+              height: 32, padding: '0 16px', border: '1px solid var(--dk-ln-dee2e6, #dee2e6)', borderRadius: 6, background: 'var(--dk-bg-ffffff, #fff)', color: 'var(--dk-tx-343a40, #343a40)', fontSize: 13, cursor: 'pointer',
             }}>새로고침</button>
           )}
         </div>

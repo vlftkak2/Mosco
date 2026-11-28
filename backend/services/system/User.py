@@ -19,7 +19,6 @@ import db
 
 PLATFORM_COMPANY = "001"
 MENU_ID = "USER_MANAGEMENT"
-PHOTO_TYPES = {"image/png", "image/jpeg"}
 PHOTO_MAX_BYTES = 500 * 1024
 _DATA_URL = re.compile(r"^data:(image/(?:png|jpeg));base64,(.+)$", re.S)
 _MOBILE = re.compile(r"^01\d-\d{3,4}-\d{4}$")

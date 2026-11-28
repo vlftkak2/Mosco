@@ -18,15 +18,15 @@
   align-items: stretch;
 }
 
-.outboundFinderButton { color: #536174 !important; font-size: 11px; }
-.outboundFinderButton:hover { background: #f2f4f7; color: #f0444c !important; }
+.outboundFinderButton { color: var(--dk-tx-536174, #536174) !important; font-size: 11px; }
+.outboundFinderButton:hover { background: var(--dk-bg-f2f4f7, #f2f4f7); color: var(--dk-tx-f0444c, #f0444c) !important; }
 .outboundWorkspace { height: 0; flex: 1 1 0; min-height: 0; }
 .outboundPrimaryColumn { display: flex; height: 100%; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 10px; }
 .outboundFilterSidebar { height: 100%; }
 .receiptFinderRow { cursor: pointer; }
-.receiptFinderRowActive > td { background: #fceff0; }
+.receiptFinderRowActive > td { background: var(--dk-bg-fceff0, #fceff0); }
 .receiptFinderRowActive > td:first-child { box-shadow: inset 3px 0 #f0444c; }
-.receiptFinderAmount { color: #354052; font-weight: 600; }
+.receiptFinderAmount { color: var(--dk-tx-354052, #354052); font-weight: 600; }
 
 .editorPanel {
   display: flex !important;
@@ -41,104 +41,104 @@
 }
 .editorPanel :global([data-virtuoso-scroller]) {
   scrollbar-width: thin;
-  scrollbar-color: #aab6c4 #f1f4f7;
+  scrollbar-color: #aab6c4 var(--dk-ln-f1f4f7, #f1f4f7);
 }
 .editorPanel :global([data-virtuoso-scroller])::-webkit-scrollbar { width: 12px; height: 12px; }
-.editorPanel :global([data-virtuoso-scroller])::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
-.editorPanel :global([data-virtuoso-scroller])::-webkit-scrollbar-track { background: #f1f4f7; }
+.editorPanel :global([data-virtuoso-scroller])::-webkit-scrollbar-thumb { background: var(--dk-bg-aab6c4, #aab6c4); border: 3px solid var(--dk-ln-f1f4f7, #f1f4f7); border-radius: 8px; }
+.editorPanel :global([data-virtuoso-scroller])::-webkit-scrollbar-track { background: var(--dk-bg-f1f4f7, #f1f4f7); }
 
 .receiptLookupPanel { padding: 13px 16px; box-shadow: 0 3px 12px #26364e08; }
-.receiptLookupIcon { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border: 1px solid #dce2e9; border-radius: 8px; background: #f0f3f7; color: #526079; }
-.receiptFinderModalContent { overflow: hidden; border: 1px solid #dce2e9; border-radius: 10px; box-shadow: 0 18px 55px #1e293b1a; }
-.receiptFinderModalHeader { min-height: 58px; padding: 12px 18px; border-bottom: 1px solid #dce2e9; background: #f0f3f7; }
-.receiptFinderModalTitle { color: #233148; font-size: 14px; }
-.receiptFinderModalClose { color: #64748b; }
-.receiptFinderModalClose:hover { background: #e8edf3; color: #334155; }
-.receiptFinderTitleIcon { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border: 1px solid #dce2e9; border-radius: 7px; background: #fff; color: #526079; }
-.modalHint { padding: 10px 12px; border: 1px solid #e0e6ef; border-radius: 6px; background: #f7f8fa; color: #596579; font-size: 12px; }
+.receiptLookupIcon { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border: 1px solid var(--dk-ln-dce2e9, #dce2e9); border-radius: 8px; background: var(--dk-bg-f0f3f7, #f0f3f7); color: var(--dk-tx-526079, #526079); }
+.receiptFinderModalContent { overflow: hidden; border: 1px solid var(--dk-ln-dce2e9, #dce2e9); border-radius: 10px; box-shadow: 0 18px 55px #1e293b1a; }
+.receiptFinderModalHeader { min-height: 58px; padding: 12px 18px; border-bottom: 1px solid var(--dk-ln-dce2e9, #dce2e9); background: var(--dk-bg-f0f3f7, #f0f3f7); }
+.receiptFinderModalTitle { color: var(--dk-tx-233148, #233148); font-size: 14px; }
+.receiptFinderModalClose { color: var(--dk-tx-64748b, #64748b); }
+.receiptFinderModalClose:hover { background: var(--dk-bg-e8edf3, #e8edf3); color: var(--dk-tx-334155, #334155); }
+.receiptFinderTitleIcon { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border: 1px solid var(--dk-ln-dce2e9, #dce2e9); border-radius: 7px; background: var(--dk-bg-ffffff, #fff); color: var(--dk-tx-526079, #526079); }
+.modalHint { padding: 10px 12px; border: 1px solid var(--dk-ln-e0e6ef, #e0e6ef); border-radius: 6px; background: var(--dk-bg-f7f8fa, #f7f8fa); color: var(--dk-tx-596579, #596579); font-size: 12px; }
 .stockCustomerInputWrap { width: 100%; min-width: 0; }
-.stockCustomerInputWrap :global(.mantine-InputWrapper-label) { color: #526079; font-size: 12px; font-weight: 600; }
-.stockCustomerSuggestions { box-sizing: border-box; max-height: 256px; overflow: auto; padding: 2px; border: 1px solid #dce2e9; border-radius: 4px; background: #fff; }
-.stockCustomerSuggestion { display: flex; width: 100%; height: 32px; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px; border: 0; border-radius: 2px; background: transparent; color: #293a52; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
-.stockCustomerSuggestion:hover { background: #edf3f8; }
+.stockCustomerInputWrap :global(.mantine-InputWrapper-label) { color: var(--dk-tx-526079, #526079); font-size: 12px; font-weight: 600; }
+.stockCustomerSuggestions { box-sizing: border-box; max-height: 256px; overflow: auto; padding: 2px; border: 1px solid var(--dk-ln-dce2e9, #dce2e9); border-radius: 4px; background: var(--dk-bg-ffffff, #fff); }
+.stockCustomerSuggestion { display: flex; width: 100%; height: 32px; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px; border: 0; border-radius: 2px; background: transparent; color: var(--dk-tx-293a52, #293a52); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.stockCustomerSuggestion:hover { background: var(--dk-bg-edf3f8, #edf3f8); }
 .stockCustomerSuggestion span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stockCustomerSuggestion small { flex: 0 0 auto; color: #7b8798; font-size: 11px; }
+.stockCustomerSuggestion small { flex: 0 0 auto; color: var(--dk-tx-7b8798, #7b8798); font-size: 11px; }
 .customerAutocompleteTarget { position: relative; width: 100%; height: 33px; }
 .customerAutocompleteInput { height: 33px !important; padding-right: 27px !important; cursor: zoom-in !important; }
-.receiptFinderFilters { padding: 15px 16px 13px; border: 1px solid #e5e9ef; border-radius: 8px; background: #fff; }
+.receiptFinderFilters { padding: 15px 16px 13px; border: 1px solid var(--dk-ln-e5e9ef, #e5e9ef); border-radius: 8px; background: var(--dk-bg-ffffff, #fff); }
 .receiptFinderFilterGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; }
-.receiptFinderFilters :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #526079; font-size: 12px; font-weight: 600; }
+.receiptFinderFilters :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: var(--dk-tx-526079, #526079); font-size: 12px; font-weight: 600; }
 .receiptFinderFilters :global(.mantine-Input-input) { min-height: 33px; font-size: 12px; }
-.receiptFinderResults { height: 430px; overflow: hidden; border: 1px solid #e1e6ed; border-radius: 8px; }
+.receiptFinderResults { height: 430px; overflow: hidden; border: 1px solid var(--dk-ln-e1e6ed, #e1e6ed); border-radius: 8px; }
 .receiptFinderTable { min-width: 720px; }
-.receiptFinderTable thead th { position: sticky; top: 0; z-index: 2; background: #f0f3f7; color: #354052; font-size: 11px; font-weight: 700; white-space: nowrap; }
-.receiptFinderTable tbody td { border-color: #e0e6ef; color: #252a32; font-size: 11px; }
+.receiptFinderTable thead th { position: sticky; top: 0; z-index: 2; background: var(--dk-bg-f0f3f7, #f0f3f7); color: var(--dk-tx-354052, #354052); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.receiptFinderTable tbody td { border-color: var(--dk-ln-e0e6ef, #e0e6ef); color: var(--dk-tx-252a32, #252a32); font-size: 11px; }
 .receiptFinderRow { cursor: pointer; }
-.receiptFinderRowActive > td { background: #fceff0; }
-.receiptFinderAmount { color: #354052; font-weight: 600; }
+.receiptFinderRowActive > td { background: var(--dk-bg-fceff0, #fceff0); }
+.receiptFinderAmount { color: var(--dk-tx-354052, #354052); font-weight: 600; }
 .receiptLoading { display: grid; min-height: 180px; flex: 1; place-items: center; }
 
 .editorPanel { position: relative; }
 .editorPanel > :global(.mantine-Group-root:first-child) { min-height: 42px; padding: 11px 13px; }
 .editorPanel :global(thead th) {
-  background: #f0f3f7 !important;
-  color: #354052 !important;
-  border-color: #e0e6ef !important;
+  background: var(--dk-bg-f0f3f7, #f0f3f7) !important;
+  color: var(--dk-tx-354052, #354052) !important;
+  border-color: var(--dk-ln-e0e6ef, #e0e6ef) !important;
   font-size: 11px !important;
   font-weight: 700 !important;
 }
 .editorPanel :global(.mantine-Table-thead th) { height: 34px; padding-top: 6px; padding-bottom: 6px; }
-.editorPanel :global(.mantine-Table-tbody td) { color: #252a32; font-size: 11px; }
-.amountInput { padding-right: 9px; background: #f8f9fb; color: #637188; text-align: right; }
-.newRow :global(input):not(.itemCodePickerInput) { background-color: #fff !important; color: #293a52 !important; }
+.editorPanel :global(.mantine-Table-tbody td) { color: var(--dk-tx-252a32, #252a32); font-size: 11px; }
+.amountInput { padding-right: 9px; background: var(--dk-bg-f8f9fb, #f8f9fb); color: var(--dk-tx-637188, #637188); text-align: right; }
+.newRow :global(input):not(.itemCodePickerInput) { background-color: var(--dk-bg-ffffff, #fff) !important; color: var(--dk-tx-293a52, #293a52) !important; }
 .selectedRow > td,
-.newRow.selectedRow > td { background: #fff0f1 !important; }
+.newRow.selectedRow > td { background: var(--dk-bg-fff0f1, #fff0f1) !important; }
 .selectedRow > td:first-child { box-shadow: inset 3px 0 #e45159; }
 .selectedRow > td.rowNumberCell,
-.newRow.selectedRow > td.rowNumberCell { background: #fff0f1 !important; color: #293a52 !important; }
+.newRow.selectedRow > td.rowNumberCell { background: var(--dk-bg-fff0f1, #fff0f1) !important; color: var(--dk-tx-293a52, #293a52) !important; }
 .selectedRow > td :global(input),
-.newRow.selectedRow > td :global(input) { background-color: #fff0f1 !important; color: #293a52 !important; }
-.autoFilledInput { background: #f1f3f5 !important; color: #8b95a3 !important; cursor: not-allowed; }
+.newRow.selectedRow > td :global(input) { background-color: var(--dk-bg-fff0f1, #fff0f1) !important; color: var(--dk-tx-293a52, #293a52) !important; }
+.autoFilledInput { background: var(--dk-bg-f1f3f5, #f1f3f5) !important; color: var(--dk-tx-8b95a3, #8b95a3) !important; cursor: not-allowed; }
 .currentStockInput,
-.newRow :global(input).currentStockInput { background: #f1f3f5 !important; color: #8b95a3 !important; cursor: not-allowed; }
+.newRow :global(input).currentStockInput { background: var(--dk-bg-f1f3f5, #f1f3f5) !important; color: var(--dk-tx-8b95a3, #8b95a3) !important; cursor: not-allowed; }
 .itemCodePickerInput {
   padding-right: 27px !important;
-  border-color: #e7b1b3 !important;
-  background-color: #fff9f8 !important;
+  border-color: var(--dk-ln-e7b1b3, #e7b1b3) !important;
+  background-color: var(--dk-bg-fff9f8, #fff9f8) !important;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23c9373d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-4-4'/%3E%3C/svg%3E") !important;
   background-repeat: no-repeat !important;
   background-position: right 7px center !important;
   background-size: 14px 14px !important;
   cursor: zoom-in;
 }
-.itemCodePickerInput:hover { border-color: #d9777b !important; background-color: #fff2f1 !important; }
+.itemCodePickerInput:hover { border-color: #d9777b !important; background-color: var(--dk-bg-fff2f1, #fff2f1) !important; }
 .itemCodePickerInput:focus { border-color: #c9373d !important; box-shadow: 0 0 0 2px #c9373d1a; }
 .itemCodePickerInput:disabled {
   border-color: transparent !important;
-  background-color: #f1f3f5 !important;
+  background-color: var(--dk-bg-f1f3f5, #f1f3f5) !important;
   background-image: none !important;
-  color: #8b95a3 !important;
+  color: var(--dk-tx-8b95a3, #8b95a3) !important;
   cursor: not-allowed;
   opacity: 1;
 }
-.itemCodePickerInput:read-only { background: transparent !important; color: #293a52 !important; }
-.savedCell { background: #f1f3f5 !important; color: #8b95a3 !important; }
+.itemCodePickerInput:read-only { background: transparent !important; color: var(--dk-tx-293a52, #293a52) !important; }
+.savedCell { background: var(--dk-bg-f1f3f5, #f1f3f5) !important; color: var(--dk-tx-8b95a3, #8b95a3) !important; }
 .savedCellText { display: block; overflow: hidden; padding: 0 8px; line-height: 33px; text-overflow: ellipsis; white-space: nowrap; }
-.savedDetailScroller { overflow: auto !important; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #aab6c4 #f1f4f7; }
+.savedDetailScroller { overflow: auto !important; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #aab6c4 var(--dk-ln-f1f4f7, #f1f4f7); }
 .savedDetailScroller::-webkit-scrollbar { width: 12px; height: 12px; }
-.savedDetailScroller::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
-.savedDetailScroller::-webkit-scrollbar-track { background: #f1f4f7; }
+.savedDetailScroller::-webkit-scrollbar-thumb { background: var(--dk-bg-aab6c4, #aab6c4); border: 3px solid var(--dk-ln-f1f4f7, #f1f4f7); border-radius: 8px; }
+.savedDetailScroller::-webkit-scrollbar-track { background: var(--dk-bg-f1f4f7, #f1f4f7); }
 .savedDetailScroller th { position: sticky !important; top: 0; z-index: 3; }
 .savedCell :global(input),
 .savedCell :global(select) {
-  background-color: #f1f3f5 !important;
+  background-color: var(--dk-bg-f1f3f5, #f1f3f5) !important;
   background-image: none !important;
-  color: #8b95a3 !important;
+  color: var(--dk-tx-8b95a3, #8b95a3) !important;
   cursor: not-allowed;
 }
 .customerSearchInput { min-width: 0; flex: 1; }
-.customerResults { min-height: 200px; border: 1px solid #dce2ea; border-radius: 6px; overflow: hidden; }
-.pickerResults { position: relative; height: 422px; border: 1px solid #dce2ea; border-radius: 6px; overflow: hidden; }
+.customerResults { min-height: 200px; border: 1px solid var(--dk-ln-dce2ea, #dce2ea); border-radius: 6px; overflow: hidden; }
+.pickerResults { position: relative; height: 422px; border: 1px solid var(--dk-ln-dce2ea, #dce2ea); border-radius: 6px; overflow: hidden; }
 .pickerLoader { position: absolute; z-index: 2; top: 9px; right: 10px; pointer-events: none; }
 .pickerTable { width: min(100%, 760px); min-width: 0 !important; table-layout: fixed; }
 .pickerTable thead th { position: sticky !important; top: 0; z-index: 2; }
@@ -146,21 +146,21 @@
 .pickerTable :global(td) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stockPickerTable { min-width: 1060px; width: max-content; table-layout: fixed; }
 .stockPickerTable :global(th) { text-align: center !important; }
-.stockPickerTable :global(thead th) { background: #f0f3f6 !important; color: #42566f !important; }
+.stockPickerTable :global(thead th) { background: var(--dk-bg-f0f3f6, #f0f3f6) !important; color: var(--dk-tx-42566f, #42566f) !important; }
 .stockPickerTable :global(th),
 .stockPickerTable :global(td) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stockPickerHeader { position: relative; padding-right: 12px !important; }
 .stockPickerResizeHandle { position: absolute; top: 0; right: -2px; z-index: 2; width: 7px; height: 100%; cursor: col-resize; touch-action: none; user-select: none; }
 .stockPickerResizeHandle:hover,
 .stockPickerResizeHandle:active { background: #c9373d40; }
-.stockDraftInput { width: 88px; height: 28px; padding: 3px 6px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; color: #24364b; text-align: right; font: inherit; }
+.stockDraftInput { width: 88px; height: 28px; padding: 3px 6px; border: 1px solid var(--dk-ln-cbd5e1, #cbd5e1); border-radius: 4px; background: var(--dk-bg-ffffff, #fff); color: var(--dk-tx-24364b, #24364b); text-align: right; font: inherit; }
 .customerCodeColumn { width: 23%; }
 .customerNameColumn { width: 35%; }
 .customerRepresentativeColumn { width: 18%; }
 .customerBusinessColumn { width: 24%; }
 .customerResultRow { cursor: pointer; }
-.customerResultRow:hover > td { background: #fff5f5; }
-.customerEmpty { height: 120px; color: #7d899a !important; text-align: center !important; }
+.customerResultRow:hover > td { background: var(--dk-bg-fff5f5, #fff5f5); }
+.customerEmpty { height: 120px; color: var(--dk-tx-7d899a, #7d899a) !important; text-align: center !important; }
 .detailTabsBar {
   display: flex;
   min-width: 0;
@@ -169,8 +169,8 @@
   align-items: stretch;
   gap: 6px;
   padding: 5px 10px 0;
-  border-bottom: 1px solid #e0e6ef;
-  background: #f7f9fc;
+  border-bottom: 1px solid var(--dk-ln-e0e6ef, #e0e6ef);
+  background: var(--dk-bg-f7f9fc, #f7f9fc);
 }
 .detailTab,
 .detailTabActive {
@@ -181,7 +181,7 @@
   border-bottom: 0;
   border-radius: 7px 7px 0 0;
   background: transparent;
-  color: #64758d;
+  color: var(--dk-tx-64758d, #64758d);
   font: inherit;
   font-size: 12px;
   font-weight: 650;
@@ -189,8 +189,8 @@
   transition: background-color 120ms ease, color 120ms ease;
 }
 /* 선택된 탭: 흰 바탕 + 위쪽 빨간 선, 아래 경계선을 덮어 아래 표와 이어져 보이게 */
-.detailTabActive { top: 1px; border-color: #e0e6ef; background: #fff; box-shadow: inset 0 2px #e45159; color: #c9373d; font-weight: 700; }
-.detailTab:hover { background: #eef2f7; color: #26364e; }
+.detailTabActive { top: 1px; border-color: var(--dk-ln-e0e6ef, #e0e6ef); background: var(--dk-bg-ffffff, #fff); box-shadow: inset 0 2px #e45159; color: var(--dk-tx-c9373d, #c9373d); font-weight: 700; }
+.detailTab:hover { background: var(--dk-bg-eef2f7, #eef2f7); color: var(--dk-tx-26364e, #26364e); }
 .detailTab:focus-visible,
 .detailTabActive:focus-visible { outline: 2px solid #e45159; outline-offset: -2px; }
 .expenseTabPanel {
@@ -203,11 +203,11 @@
   overflow: hidden;
   padding-top: 0;
 }
-.expenseToolbar { min-height: 42px; flex: 0 0 42px; padding: 0 10px; border-bottom: 1px solid #dce3eb; }
+.expenseToolbar { min-height: 42px; flex: 0 0 42px; padding: 0 10px; border-bottom: 1px solid var(--dk-ln-dce3eb, #dce3eb); }
 .expenseTabPanel > .expenseTableWrap { width: 100%; height: 0; min-height: 0; flex: 1 1 auto; overflow: hidden; border: 0; }
 .expenseTableWrap :global(table) { width: 100%; }
-.expenseTableWrap :global(thead th) { position: sticky; top: 0; z-index: 2; background: #f0f3f6; color: #42566f; white-space: nowrap; }
-.expenseTableWrap :global(tbody td) { color: #293a52; font-size: 11px; }
+.expenseTableWrap :global(thead th) { position: sticky; top: 0; z-index: 2; background: var(--dk-bg-f0f3f6, #f0f3f6); color: var(--dk-tx-42566f, #42566f); white-space: nowrap; }
+.expenseTableWrap :global(tbody td) { color: var(--dk-tx-293a52, #293a52); font-size: 11px; }
 .expenseTableWrap :global(input),
 .expenseTableWrap :global(.mantine-Select-input) { font-size: 11px; }
 .expenseTableWrap :global(.mantine-Input-input) {
@@ -218,13 +218,13 @@
   border-radius: 0 !important;
   background-color: transparent !important;
   box-shadow: none !important;
-  color: #293a52 !important;
+  color: var(--dk-tx-293a52, #293a52) !important;
 }
-.expenseTableWrap :global(.mantine-Input-input:focus) { outline: 2px solid #4c83d3 !important; outline-offset: -2px; background-color: #fff !important; }
+.expenseTableWrap :global(.mantine-Input-input:focus) { outline: 2px solid #4c83d3 !important; outline-offset: -2px; background-color: var(--dk-bg-ffffff, #fff) !important; }
 .expenseTableWrap .newRow :global(input) { background-color: transparent !important; }
-.expenseTableWrap .newRow :global(input:focus) { background-color: #fff !important; }
+.expenseTableWrap .newRow :global(input:focus) { background-color: var(--dk-bg-ffffff, #fff) !important; }
 /* 선택란·No. 칸 = 입고상세와 같게: 새 행은 크림색(codeTable .newRow 와 같은 #fffbf4) */
-.expenseTableWrap .newRow:not(.selectedRow) > td:nth-child(-n+2) { background: #fffbf4 !important; }
+.expenseTableWrap .newRow:not(.selectedRow) > td:nth-child(-n+2) { background: var(--dk-bg-fffbf4, #fffbf4) !important; }
 .expenseTableWrap .expenseCostInput {
   height: 33px !important;
   padding-right: 27px !important;
@@ -236,17 +236,17 @@
 /* 돋보기 칸(비용구분·거래처) 바탕색 = 입고상세 돋보기 칸(.itemCodePickerInput)과 같게. 새 행·포커스에서도 유지 */
 .expenseTableWrap .expenseCostInput,
 .expenseTableWrap .newRow input.expenseCostInput,
-.expenseTableWrap .newRow input.expenseCostInput:focus { background-color: #fff9f8 !important; }
+.expenseTableWrap .newRow input.expenseCostInput:focus { background-color: var(--dk-bg-fff9f8, #fff9f8) !important; }
 .expenseTableWrap .expenseCostInput:hover,
-.expenseTableWrap .newRow input.expenseCostInput:hover { background-color: #fff2f1 !important; }
-.expenseTableWrap .expenseCostInput:focus { outline: 2px solid #4c83d3 !important; outline-offset: -2px; background-color: #fff9f8 !important; }
+.expenseTableWrap .newRow input.expenseCostInput:hover { background-color: var(--dk-bg-fff2f1, #fff2f1) !important; }
+.expenseTableWrap .expenseCostInput:focus { outline: 2px solid #4c83d3 !important; outline-offset: -2px; background-color: var(--dk-bg-fff9f8, #fff9f8) !important; }
 /* Disabled lookup cells (e.g. 거래처 when 비용여부 = 아니오) use the normal disabled look; the transparent
    rules above would otherwise hide it. */
 .expenseTableWrap .expenseCostInput:disabled,
 .expenseTableWrap .newRow input.expenseCostInput:disabled {
-  background-color: #f1f3f5 !important;
+  background-color: var(--dk-bg-f1f3f5, #f1f3f5) !important;
   background-image: none !important;
-  color: #8b95a3 !important;
+  color: var(--dk-tx-8b95a3, #8b95a3) !important;
   cursor: not-allowed !important;
 }
 
@@ -274,9 +274,9 @@
 
 /* 출고 기본 제목 줄의 거래명세서·송장 출력 버튼 */
 .printActions { flex: 0 0 auto; margin-left: auto; }
-.printActions :global(.mantine-Button-root) { height: 28px; overflow: visible; padding: 0 10px; border-color: #d3dbe6; color: #3a4d68; font-size: 12px; font-weight: 600; }
-.printActions :global(.mantine-Button-root:not(:disabled):hover) { border-color: #e45159; background: #fff5f5; color: #c9373d; }
-.printActions :global(.mantine-Button-section) { color: #e45159; }
+.printActions :global(.mantine-Button-root) { height: 28px; overflow: visible; padding: 0 10px; border-color: var(--dk-ln-d3dbe6, #d3dbe6); color: var(--dk-tx-3a4d68, #3a4d68); font-size: 12px; font-weight: 600; }
+.printActions :global(.mantine-Button-root:not(:disabled):hover) { border-color: #e45159; background: var(--dk-bg-fff5f5, #fff5f5); color: var(--dk-tx-c9373d, #c9373d); }
+.printActions :global(.mantine-Button-section) { color: var(--dk-tx-e45159, #e45159); }
 .printActions :global(.mantine-Button-root:disabled .mantine-Button-section) { color: inherit; }
 /* 출고 기본 제목 줄에 출력 버튼(28px)이 들어가도 줄 높이(42px)가 그대로이도록 위아래 여백만 줄인다 */
 .receiptToolbarWithActions { padding-top: 7px !important; padding-bottom: 7px !important; }
@@ -288,39 +288,39 @@
    ─────────────────────────────────────────────────────────────────────────── */
 
 /* 기본 목록의 선택 행 (출고 기본 · 가공 목록) */
-.receiptFinderRow:hover > td { background: #f5f9ff; }
+.receiptFinderRow:hover > td { background: var(--dk-bg-f5f9ff, #f5f9ff); }
 .receiptFinderRowActive > td,
-.receiptFinderRowActive:hover > td { background: #fff0f1 !important; }
+.receiptFinderRowActive:hover > td { background: var(--dk-bg-fff0f1, #fff0f1) !important; }
 .receiptFinderRowActive > td:first-child { box-shadow: inset 3px 0 #e45159; }
-.receiptFinderAmount { color: #1e2e45; font-weight: 650; }
+.receiptFinderAmount { color: var(--dk-tx-1e2e45, #1e2e45); font-weight: 650; }
 
 /* 출고 상세 패널 */
-.editorPanel { border-color: #e0e6ef !important; border-radius: 8px !important; background: #fff !important; }
+.editorPanel { border-color: var(--dk-ln-e0e6ef, #e0e6ef) !important; border-radius: 8px !important; background: var(--dk-bg-ffffff, #fff) !important; }
 .editorPanel :global(.mantine-Badge-root) {
   min-height: 20px;
   padding: 3px 7px;
-  border: 1px solid #e1e6ee;
+  border: 1px solid var(--dk-ln-e1e6ee, #e1e6ee);
   border-radius: 20px;
-  background: #f8fafc;
-  color: #64758d;
+  background: var(--dk-bg-f8fafc, #f8fafc);
+  color: var(--dk-tx-64758d, #64758d);
   font-size: 11px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.editorPanel :global(.mantine-Badge-root[style*='green-light']) { border-color: #cbead9; background: #e9f7ef; color: #18794e; }
+.editorPanel :global(.mantine-Badge-root[style*='green-light']) { border-color: var(--dk-ln-cbead9, #cbead9); background: var(--dk-bg-e9f7ef, #e9f7ef); color: var(--dk-tx-18794e, #18794e); }
 
 /* 상세 편집 표 (출고 상세 · 기타비용) */
-.editorPanel :global(table) { --table-border-color: #dde3ea; --table-hover-color: #f5f9ff; }
+.editorPanel :global(table) { --table-border-color: var(--dk-ln-dde3ea, #dde3ea); --table-hover-color: var(--dk-bg-f5f9ff, #f5f9ff); }
 .editorPanel :global(table thead th) {
-  border-color: #e0e6ef !important;
-  border-bottom-color: #d6dee8 !important;
-  background: #f4f6f9 !important;
-  color: #4b5b70 !important;
+  border-color: var(--dk-ln-e0e6ef, #e0e6ef) !important;
+  border-bottom-color: var(--dk-ln-d6dee8, #d6dee8) !important;
+  background: var(--dk-bg-f4f6f9, #f4f6f9) !important;
+  color: var(--dk-tx-4b5b70, #4b5b70) !important;
   font-weight: 650 !important;
 }
 .editorPanel :global(thead th > span:not([role]):not([style])),
-.editorPanel :global(thead th > span[style] > span) { color: #e45159; }
-.editorPanel :global(table tbody td) { border-color: #e1e6ed !important; font-variant-numeric: tabular-nums; }
+.editorPanel :global(thead th > span[style] > span) { color: var(--dk-tx-e45159, #e45159); }
+.editorPanel :global(table tbody td) { border-color: var(--dk-ln-e1e6ed, #e1e6ed) !important; font-variant-numeric: tabular-nums; }
 .editorPanel :global(tbody td input:not([type='checkbox']):focus),
 .editorPanel :global(tbody td select:focus) {
   outline: 2px solid #e45159 !important;
@@ -331,20 +331,20 @@
 .editorPanel :global(thead th input[type='checkbox']:focus-visible) { outline: 2px solid #e45159; outline-offset: 2px; }
 
 /* 기타비용 탭 머리 · 합계 줄 */
-.expenseToolbar { border-bottom-color: #e0e6ef; }
-.expenseTableWrap :global(thead th) { color: #4b5b70; }
+.expenseToolbar { border-bottom-color: var(--dk-ln-e0e6ef, #e0e6ef); }
+.expenseTableWrap :global(thead th) { color: var(--dk-tx-4b5b70, #4b5b70); }
 
 /* 조회조건 안의 현재고 조회 묶음 */
 
 /* 거래처 자동완성 목록 */
-.stockCustomerSuggestions { border-color: #e0e6ef; border-radius: 6px; box-shadow: 0 8px 24px #1421351f; }
+.stockCustomerSuggestions { border-color: var(--dk-ln-e0e6ef, #e0e6ef); border-radius: 6px; box-shadow: 0 8px 24px #1421351f; }
 .stockCustomerSuggestion { border-radius: 4px; }
-.stockCustomerSuggestion:hover { background: #f5f9ff; }
+.stockCustomerSuggestion:hover { background: var(--dk-bg-f5f9ff, #f5f9ff); }
 
 /* 조회조건 아래 '현재고 조회' 카드 (출고등록 · 재고이동 · 가공등록 공통) */
-.outboundStockLookup { display: grid; gap: 4px; margin-top: 18px; padding: 12px 10px; border: 1px solid #f6dcdd; border-radius: 12px; background: linear-gradient(180deg, #fff8f8 0%, #ffffff 100%); }
-.outboundStockLookup :global(.mantine-Text-root:first-child) { color: #1e2e45; font-size: 13px; }
-.outboundStockLookup :global(.mantine-Text-root:nth-child(2)) { margin-bottom: 8px; color: #7b8797; font-size: 11.5px; line-height: 1.5; word-break: keep-all; }
+.outboundStockLookup { display: grid; gap: 4px; margin-top: 18px; padding: 12px 10px; border: 1px solid var(--dk-ln-f6dcdd, #f6dcdd); border-radius: 12px; background: linear-gradient(180deg, var(--dk-bg-fff8f8, #fff8f8) 0%, var(--dk-bg-ffffff, #ffffff) 100%); }
+.outboundStockLookup :global(.mantine-Text-root:first-child) { color: var(--dk-tx-1e2e45, #1e2e45); font-size: 13px; }
+.outboundStockLookup :global(.mantine-Text-root:nth-child(2)) { margin-bottom: 8px; color: var(--dk-tx-7b8797, #7b8797); font-size: 11.5px; line-height: 1.5; word-break: keep-all; }
 .outboundStockLookup :global(.mantine-Button-root) {
   --button-bg: #ef444c; --button-hover: #dc323a; --button-radius: 10px;
   height: 38px; min-height: 38px; padding-inline: 8px; box-shadow: 0 2px 8px #e23d4533; font-size: 12.5px; font-weight: 700;
@@ -353,12 +353,12 @@
 .outboundStockLookup :global(.mantine-Button-root:hover:not(:disabled):not([data-disabled])) { box-shadow: 0 6px 16px #e23d4547; transform: translateY(-1px); }
 .outboundStockLookup :global(.mantine-Button-root:disabled), .outboundStockLookup :global(.mantine-Button-root[data-disabled]) { box-shadow: none; }
 .outboundStockLookup :global(.mantine-Button-root + .mantine-Button-root) { margin-top: 4px; }
-.outboundStockLookup :global(.mantine-Button-root[data-variant="default"]) { border: 1px solid #dfe5ec; background: #fff; box-shadow: none; color: #3f4d61; }
-.outboundStockLookup :global(.mantine-Button-root[data-variant="default"]:hover:not(:disabled)) { border-color: #f2b7ba; background: #fff7f7; color: #d23a42; box-shadow: none; }
+.outboundStockLookup :global(.mantine-Button-root[data-variant="default"]) { border: 1px solid var(--dk-ln-dfe5ec, #dfe5ec); background: var(--dk-bg-ffffff, #fff); box-shadow: none; color: var(--dk-tx-3f4d61, #3f4d61); }
+.outboundStockLookup :global(.mantine-Button-root[data-variant="default"]:hover:not(:disabled)) { border-color: var(--dk-ln-f2b7ba, #f2b7ba); background: var(--dk-bg-fff7f7, #fff7f7); color: var(--dk-tx-d23a42, #d23a42); box-shadow: none; }
 .outboundStockLookup :global(.mantine-Button-section[data-position="left"]) { margin-inline-end: 6px; }
 .outboundStockLookup :global(.mantine-Button-label) { overflow: visible; }
 
 /* 매출 상세 셀 범위 선택 (Shift+방향키 · Shift+클릭) */
-.rangeCell { background: #fdecec !important; box-shadow: inset 0 0 0 1px #e8a3a6; }
+.rangeCell { background: var(--dk-bg-fdecec, #fdecec) !important; box-shadow: inset 0 0 0 1px #e8a3a6; }
 .rangeCell :global(input),
-.rangeCell :global(select) { background-color: #fdecec !important; }
+.rangeCell :global(select) { background-color: var(--dk-bg-fdecec, #fdecec) !important; }

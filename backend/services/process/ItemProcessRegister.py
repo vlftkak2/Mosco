@@ -1,11 +1,11 @@
 from services.control import reservation as reservation_module
 import logging
 from datetime import date
-from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP
 
 import json
 
-from services.ai.stock_links import _allocate, allocate_coil_run, ensure_not_linked, linked_orders_sql, plan_outstanding_sql
+from services.ai.stock_links import allocate_coil_run, ensure_not_linked, linked_orders_sql, plan_outstanding_sql
 import idempotency
 import db as _shared_db
 from services.ai import sheet_alloc as SA

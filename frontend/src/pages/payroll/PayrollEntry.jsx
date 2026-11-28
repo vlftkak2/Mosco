@@ -382,7 +382,6 @@ export default function PayrollEntry() {
     onAdd: view === 'detail' && !closed && data?.candidates?.length ? startAdd : undefined,
     onSave: view === 'grid' ? (gridDirty && !closed && !saving ? saveGrid : undefined) : draft && !closed && !saving && (dirty || adding) ? save : undefined,
     onDelete: view === 'detail' && current && !closed && !adding ? () => setDeleteOpen(true) : undefined,
-    showPrint: false,
     useSaveColor: false,
   });
 
@@ -394,9 +393,9 @@ export default function PayrollEntry() {
 
   return <Box className={`${simpleTheme.simple} ${simpleTheme.noIcons} ${sharedClasses.pageShell} ${classes.page}`}>
     <Box component="nav" className={classes.breadcrumb}>
-      <Text component="span" className={classes.breadcrumbParent}>급여관리</Text>
+      <Text component="span" className={classes.breadcrumbParent}>인사</Text>
       <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-      <Text component="span" className={classes.breadcrumbCurrent}>급여입력</Text>
+      <Text component="span" className={classes.breadcrumbCurrent}>급여등록</Text>
     </Box>
 
     {/* 월 머리: 월 이동 · 지급일 · 단계 · 월 동작 / 그달 합계 */}

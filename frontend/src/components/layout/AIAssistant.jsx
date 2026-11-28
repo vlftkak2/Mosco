@@ -2,18 +2,18 @@
 //  - 화면 오른쪽 가장자리 탭을 누르면 오른쪽 아래에 대화 창이 열리고 탭은 숨는다. X 를 누르면 닫히고 탭이 다시 보인다.
 //  - Enter 로 보낸다 (한글 조합 중 Enter 는 보내지 않음). 대화는 로그인해 있는 동안 유지된다 (탭을 옮겨도 그대로).
 //  - 답은 서버가 메뉴권한 안의 자료로만 만든다 (권한 없는 메뉴 자료는 서버가 막는다).
+//  - 질문 원문은 서버에 기록된다 (AI 비용현황 · 모스코 전용에서 열람). 답변은 저장하지 않는다.
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
-import axios from 'axios';
-import { IconRobot, IconSend, IconX } from '@tabler/icons-react';
+import AIBotIcon from './AIBotIcon';
+import { askAssistant } from './aiChatApi';
+import { IconRefresh, IconRobot, IconSend, IconX } from '@tabler/icons-react';
 import classes from '../../styles/layout/AIAssistant.module.css';
-import { apiErrorMessage } from '../../utils/apiError';
 
 const GREETING = '무엇을 도와드릴까요?';
 const AnswerChart = lazy(() => import('./AIAssistantChart'));
-const MAX_HISTORY = 12;
-const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 
-export default function AIAssistant() {
+// hideTab: 'AI 업무비서' 화면을 보고 있을 때는 가장자리 탭을 숨긴다 (열어 둔 대화창 · 대화는 그대로)
+export default function AIAssistant({ hideTab = false }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]);   // { role: 'user' | 'assistant', content, charts?, error? }
   const [text, setText] = useState('');
@@ -24,6 +24,12 @@ export default function AIAssistant() {
 
   useEffect(() => () => abortRef.current?.abort(), []);   // 로그아웃 등으로 화면이 사라지면 기다리던 요청을 끊는다
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
+  // 네비 메뉴 '홈 › AI 업무비서'를 누르면 열린다 (화면 · 탭은 따로 없음). 이미 열려 있으면 입력칸으로.
+  useEffect(() => {
+    const onOpen = () => { setOpen(true); inputRef.current?.focus(); };
+    window.addEventListener('open-ai-assistant', onOpen);
+    return () => window.removeEventListener('open-ai-assistant', onOpen);
+  }, []);
   useEffect(() => {
     const body = bodyRef.current;
     if (body) body.scrollTop = body.scrollHeight;
@@ -36,22 +42,23 @@ export default function AIAssistant() {
     setMessages(next);
     setText('');
     setSending(true);
-    // 오류 안내는 대화 기록으로 보내지 않는다
-    const history = next.filter((message) => !message.error).slice(-MAX_HISTORY)
-      .map((message) => ({ role: message.role, content: message.content.slice(0, 2000) }));
     const controller = new AbortController();
     abortRef.current = controller;
-    try {
-      const response = await axios.post('/api/ai-chat/messages', { messages: history }, { ...authConfig(), signal: controller.signal });
-      const data = response.data || {};
-      setMessages((current) => [...current, { role: 'assistant', content: data.answer || '', charts: Array.isArray(data.charts) ? data.charts : [] }]);
-    } catch (error) {
-      if (axios.isCancel(error)) return;
-      setMessages((current) => [...current, { role: 'assistant', content: apiErrorMessage(error, '답변을 받지 못했습니다. 잠시 후 다시 질문해 주세요.'), error: true }]);
-    } finally {
-      if (abortRef.current === controller) abortRef.current = null;
-      setSending(false);
-    }
+    const answer = await askAssistant(next, controller.signal);
+    if (!answer) return;   // 초기화로 끊은 요청 (초기화가 이미 정리했다)
+    setMessages((current) => [...current, answer]);
+    if (abortRef.current === controller) abortRef.current = null;
+    setSending(false);
+  };
+
+  // 대화 초기화: 기다리던 답변도 끊고 첫 인사만 남긴다 (서버에는 대화가 저장되지 않는다)
+  const reset = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setMessages([]);
+    setText('');
+    setSending(false);
+    inputRef.current?.focus();
   };
 
   const onKeyDown = (event) => {
@@ -62,19 +69,19 @@ export default function AIAssistant() {
   };
 
   return <div className={classes.root}>
-    {!open && <button type="button" className={classes.bot} title="AI 업무비서" aria-label="AI 업무비서 열기" onClick={() => setOpen(true)}>
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M6 6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2z" /><path d="M12 2v2" /><path d="M9 12v9" /><path d="M15 12v9" />
-        <path d="M5 16l4-2" /><path d="M15 14l4 2" /><path d="M9 18h6" /><path d="M10 8v.01" /><path d="M14 8v.01" />
-      </svg>
+    {!open && !hideTab && <button type="button" className={classes.bot} title="AI 업무비서" aria-label="AI 업무비서 열기" onClick={() => setOpen(true)}>
+      <AIBotIcon />
     </button>}
     {open && <div className={classes.panel} role="dialog" aria-label="AI 업무비서">
       <div className={classes.head}>
         <IconRobot size={18} stroke={1.5} />AI 업무비서
-        <button type="button" className={classes.close} aria-label="닫기" onClick={() => setOpen(false)}><IconX size={16} stroke={1.5} /></button>
+        <button type="button" className={`${classes.close} ${classes.reset}`} title="대화 초기화" aria-label="대화 초기화"
+          disabled={!messages.length && !sending} onClick={reset}><IconRefresh size={16} stroke={1.5} /></button>
+        <button type="button" className={classes.close} title="닫기" aria-label="닫기" onClick={() => setOpen(false)}><IconX size={16} stroke={1.5} /></button>
       </div>
       <div className={classes.body} ref={bodyRef}>
         <div className={`${classes.bubble} ${classes.assistant}`}>{GREETING}</div>
+        <div className={classes.notice}>질문 내용은 서비스 개선을 위해 기록됩니다 · 답변은 저장하지 않습니다</div>
         {messages.map((message, index) => {
           const charts = message.charts || [];
           const kind = message.role === 'user' ? classes.user : classes.assistant;

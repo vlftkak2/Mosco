@@ -13,7 +13,6 @@ import xlsxwriter
 
 from excel_safety import safe_workbook_options
 
-KIND_LABELS = {"INBOUND": "매입", "EXPENSE": "기타비용", "SALES_COST": "매출비용", "PROCESS_COST": "가공비"}
 
 
 def _rows_sql(include_sales_cost: bool, include_process_cost: bool) -> str:

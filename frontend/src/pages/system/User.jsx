@@ -383,7 +383,6 @@ export default function User() {
     onAdd: handleAdd,
     onSave: saving || (!isNew && !selectedEmail) || (isSubmaster && !isNew && readOnlyExisting) ? undefined : handleSave,
     onDelete: !isNew && selectedEmail && !deleting && (isPlatformMaster || canSubmasterDeleteSelected) ? handleDelete : undefined,
-    showPrint: false,
     showExcel: false,
     useSaveColor: false,
   });
@@ -401,9 +400,9 @@ export default function User() {
   return (
     <Box className={`${simpleTheme.simple} ${simpleTheme.noIcons} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
-        <Text component="span" className={classes.breadcrumbParent}>어드민</Text>
+        <Text component="span" className={classes.breadcrumbParent}>관리</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-        <Text component="span" className={classes.breadcrumbCurrent}>고객계정관리</Text>
+        <Text component="span" className={classes.breadcrumbCurrent}>계정관리</Text>
       </Box>
 
       <div className={classes.workspace}>

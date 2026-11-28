@@ -84,7 +84,7 @@ export default function MyPayroll() {
 
   return <Box className={`${simpleTheme.simple} ${simpleTheme.noIcons} ${sharedClasses.pageShell} ${classes.page}`}>
     <Box component="nav" className={classes.breadcrumb}>
-      <Text component="span" className={classes.breadcrumbParent}>급여관리</Text>
+      <Text component="span" className={classes.breadcrumbParent}>인사</Text>
       <Text component="span" className={classes.breadcrumbChevron}>›</Text>
       <Text component="span" className={classes.breadcrumbCurrent}>내 급여현황</Text>
     </Box>

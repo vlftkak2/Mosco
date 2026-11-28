@@ -718,7 +718,7 @@ function CustomerNameAutocompleteCell({ row, disabled, registerCellInput, onChan
           role="option"
           aria-selected={index === activeIndex}
           className={itemMasterClasses.shapeSuggestion}
-          style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          style={index === activeIndex ? { background: 'var(--dk-bg-edf3f8, #edf3f8)' } : undefined}
           onMouseDown={(event) => event.preventDefault()}
           onMouseEnter={() => setActiveIndex(index)}
           onClick={() => chooseCustomer(customer)}
@@ -1133,7 +1133,7 @@ export default function StockStandPage() {
   const loadingMoreRef = useRef(false);
   const hasMoreRowsRef = useRef(false);
   const nextCursorRef = useRef(0);
-  const { hasNewRows, changedPriceRows, hasChanges } = useMemo(() => {
+  const { changedPriceRows, hasChanges } = useMemo(() => {
     const hasNew = rows.some((row) => !row.lineno && hasRowInput(row));
     const changedPrices = rows.filter((row) => {
       if (!row.lineno) return false;
@@ -2355,12 +2355,11 @@ export default function StockStandPage() {
     onSave: save,
     onDelete: deleteFromRibbon,
     onExcel: exportRows,
-    showPrint: false,
     useSaveColor: false,
   });
 
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="재고관리" current="기초재고등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+    <ErpBreadcrumb parent="재고" current="기초재고 등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
 
     <Box className={`${classes.workspace} ${filterOpen ? classes.workspaceWithFilter : ''}`}>
     <Paper className={`${sharedClasses.panel} ${codeClasses.codePanel} ${classes.editorPanel}`} withBorder>

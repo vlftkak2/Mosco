@@ -1,4 +1,4 @@
-import { Suspense, lazy, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { loadXLSXOrNotify } from '../../utils/excelSafe';
@@ -6,7 +6,8 @@ import { Badge, Box, Button, Group, HoverCard, Loader, Paper, SegmentedControl, 
 import { notifications } from '@mantine/notifications';
 import {
   IconAlertTriangle, IconBulb, IconCash, IconCoins, IconCopy, IconDeviceFloppy, IconPercentage, IconReceipt, IconScale,
-  IconFileSpreadsheet, IconPlus, IconSearch, IconTrash, IconX,
+  IconFileSpreadsheet, IconPlus, IconSearch, IconTrash,
+  IconPrinter,
 } from '@tabler/icons-react';
 import { CustomerPicker, DashboardHeader, HOVER_PROPS, KPI_PALETTE, KpiBreakdown, KpiCard, KpiGrid, PeriodFilter, PillNote, TrendPill, useCustomerPicker } from '../../components/common/DashboardKit';
 import usePageReactivated from '../../components/common/usePageReactivated';
@@ -43,7 +44,6 @@ const defaultPeriod = () => {
 };
 const shortDate = (value) => (value ? `${String(value).slice(5, 7)}.${String(value).slice(8, 10)}` : '');
 const dateText = (value) => (value ? String(value).slice(0, 10) : '');
-const monthLabel = (month) => `${month.slice(2, 4)}.${month.slice(5)}`;
 
 function Panel({ title, sub, action, children, className = '' }) {
   return <Paper className={`${classes.panel} ${className}`} withBorder>
@@ -228,7 +228,6 @@ function buildInsights(data) {
 export default function CustomerBalanceDashboard() {
   const ribbon = useContext(PageRibbonContext);
   const registerRibbon = ribbon?.registerPageRibbon;
-  const closePage = ribbon?.closeActivePage;
   const navigate = useNavigate();
   const [inputs, setInputs] = useState(defaultPeriod);
   const [period, setPeriod] = useState(defaultPeriod);
@@ -314,12 +313,11 @@ export default function CustomerBalanceDashboard() {
         <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
         <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
         <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={() => ribbonActions.current.excel()} disabled={excelDisabled}>엑셀</Button>
-        <span className={searchClasses.ribbonSeparator} />
-        <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closePage}>닫기</Button>
+        <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} disabled>인쇄</Button>
       </Group>,
     );
     return () => registerRibbon(null);
-  }, [registerRibbon, closePage, excelDisabled]);
+  }, [registerRibbon, excelDisabled]);
 
   // 비교 기준 = 시작일 전날 잔액 (서버 summary.open_*), 회수율 = 기간 수금 ÷ 기간 매출
   const derived = useMemo(() => {
@@ -348,7 +346,7 @@ export default function CustomerBalanceDashboard() {
   const net = toNumber(summary?.net);
   return (
     <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${searchClasses.page} ${classes.page}`}>
-      <DashboardHeader parent="거래처관리" title="채권채무요약" note="잔액은 종료일 기준 · 증감은 시작일 전날 대비">
+      <DashboardHeader parent="자금" title="채권채무 분석" note="잔액은 종료일 기준 · 증감은 시작일 전날 대비">
         <PeriodFilter value={inputs} onChange={setInputs} onSearch={() => { void search(); }} loading={loading}>
           <CustomerPicker picker={picker} onPick={pickCustomer} onClear={clearCustomer} onEnter={() => { void search(); }} />
         </PeriodFilter>

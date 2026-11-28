@@ -5,6 +5,7 @@ import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconCalendar, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconInbox, IconPlus, IconSearch, IconTrash, IconX,
+  IconPrinter,
 } from '@tabler/icons-react';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
@@ -146,7 +147,6 @@ const DetailFilterSidebar = memo(function DetailFilterSidebar({ filterInputs, se
 export default function ReceiptPaymentSearch() {
   const ribbon = useContext(PageRibbonContext);
   const registerRibbon = ribbon?.registerPageRibbon;
-  const closePage = ribbon?.closeActivePage;
   const [filterInputs, setFilterInputs] = useState(makeDefaultFilters);
   const [filters, setFilters] = useState(makeDefaultFilters);
   const [items, setItems] = useState([]);
@@ -278,21 +278,20 @@ export default function ReceiptPaymentSearch() {
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />}
           onClick={() => ribbonActions.current.excel()} loading={exporting} disabled={excelDisabled}>엑셀</Button>
-        <span className={classes.ribbonSeparator} />
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closePage}>닫기</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} disabled>인쇄</Button>
       </Group>,
     );
     return () => registerRibbon(null);
-  }, [registerRibbon, closePage, exporting, excelDisabled]);
+  }, [registerRibbon, exporting, excelDisabled]);
 
 
   return (
     <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>자금관리</Text>
+          <Text component="span" className={classes.breadcrumbParent}>자금</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-          <Text component="span" className={classes.breadcrumbCurrent}>수금/지급현황</Text>
+          <Text component="span" className={classes.breadcrumbCurrent}>수금지급 현황</Text>
         </Group>
         {!filterOpen && <Button className={classes.filterToggle} variant="subtle" size="xs" leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
       </Box>

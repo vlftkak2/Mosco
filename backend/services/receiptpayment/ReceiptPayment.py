@@ -684,8 +684,6 @@ _EFFECTIVE_STATUS_SQL = """CASE
     WHEN d.instrumentamt > 0 AND COALESCE(d.instrumentstatus, '') = ''
          AND h.transactiontype = 'PAYMENT' AND d.issuekind = 'OWN' THEN 'HELD'
     ELSE NULLIF(d.instrumentstatus, '') END"""
-_USED_RECEIPTNO_SQL = """(SELECT p.receiptno FROM ReceiptPayment02t p WHERE p.companyid = d.companyid
-    AND p.source_receiptno = d.receiptno AND p.source_lineno = d.lineno LIMIT 1)"""
 INSTRUMENT_STATUS_FILTERS = ("OPEN", "HELD", "ENDORSED", "SETTLED", "DISCOUNTED", "DISHONORED")
 
 

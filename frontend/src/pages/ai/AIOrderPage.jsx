@@ -1269,12 +1269,11 @@ export default function AIOrderPage() {
   useErpPageRibbon({
     onAdd: () => fileInputRef.current?.click(),
     onDelete: requestClearDocuments,
-    showPrint: false,
     useSaveColor: false,
   });
 
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page} ${classes.aiLook} ${classes.batchPage} ${documents.length ? classes.batchPageWithDocuments : ''}`}>
-    <ErpBreadcrumb parent="가공관리" current="AI주문서인식">
+    <ErpBreadcrumb parent="가공" current="주문서 자동인식">
       {/* 화면 안내: 메뉴 이름 바로 옆 (가공주문관리와 같은 자리 · 모양) */}
       <button type="button" className={`${manageClasses.guideLink} ${manageClasses.guideLinkCrumb}`} onClick={() => setGuideOpen(true)}><IconHelpCircle size={14} stroke={2} />진행 상태 안내</button>
     </ErpBreadcrumb>

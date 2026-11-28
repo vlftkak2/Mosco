@@ -3,61 +3,61 @@
 .workspace { min-height: 0; flex: 1 1 0; }
 
 /* 탭: 매출등록 상세 탭 스타일(OutboundRegister.module.css detailTabsBar)을 그대로 쓰고, 화면 위쪽에 맞게 테두리 · 간격만 */
-.tabBar { flex: 0 0 36px; margin: -2px 0 12px; border: 1px solid #e0e6ef; border-radius: 8px 8px 0 0; }
+.tabBar { flex: 0 0 36px; margin: -2px 0 12px; border: 1px solid var(--dk-ln-e0e6ef, #e0e6ef); border-radius: 8px 8px 0 0; }
 
 /* 보기 전환 (규격별 합계 / 로트 상세, 고객사별 / 품명별, 월말 재고 / 입고 / 판매 출고) */
-.viewTabs { display: inline-flex; padding: 3px; border-radius: 8px; background: #f1f4f8; }
-.viewTab { height: 28px; padding: 0 13px; border: 0; border-radius: 6px; background: transparent; color: #6b788b; font: inherit; font-size: 12.5px; font-weight: 700; white-space: nowrap; cursor: pointer; }
-.viewTab:hover { color: #26364e; }
-.viewTabActive { background: #fff; box-shadow: 0 1px 2px #1f2a3a1f; color: #c4363f; }
+.viewTabs { display: inline-flex; padding: 3px; border-radius: 8px; background: var(--dk-bg-f1f4f8, #f1f4f8); }
+.viewTab { height: 28px; padding: 0 13px; border: 0; border-radius: 6px; background: transparent; color: var(--dk-tx-6b788b, #6b788b); font: inherit; font-size: 12.5px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.viewTab:hover { color: var(--dk-tx-26364e, #26364e); }
+.viewTabActive { background: var(--dk-bg-ffffff, #fff); box-shadow: 0 1px 2px #1f2a3a1f; color: var(--dk-tx-c4363f, #c4363f); }
 .trendTools { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* 표 공통: 결과 칸 안에서 가로/세로 스크롤 · 머리글 고정 */
 .stockScroll { position: absolute; inset: 0; overflow: auto; }
 .stockTable, .trendTable { min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; table-layout: fixed; }
-.stockTable th, .trendTable th { position: sticky; z-index: 2; top: 0; height: 36px; padding: 0 11px; border-bottom: 1px solid #dfe5ed; background: #f6f8fb; color: #4b5b70; font-size: 12px; font-weight: 700; text-align: left; white-space: nowrap; }
-.stockTable td, .trendTable td { height: 34px; padding: 0 11px; overflow: hidden; border-bottom: 1px solid #eef1f5; background: #fff; color: #26364e; text-overflow: ellipsis; white-space: nowrap; }
+.stockTable th, .trendTable th { position: sticky; z-index: 2; top: 0; height: 36px; padding: 0 11px; border-bottom: 1px solid var(--dk-ln-dfe5ed, #dfe5ed); background: var(--dk-bg-f6f8fb, #f6f8fb); color: var(--dk-tx-4b5b70, #4b5b70); font-size: 12px; font-weight: 700; text-align: left; white-space: nowrap; }
+.stockTable td, .trendTable td { height: 34px; padding: 0 11px; overflow: hidden; border-bottom: 1px solid var(--dk-ln-eef1f5, #eef1f5); background: var(--dk-bg-ffffff, #fff); color: var(--dk-tx-26364e, #26364e); text-overflow: ellipsis; white-space: nowrap; }
 .stockTable th, .trendTable th { overflow: hidden; text-overflow: ellipsis; }
-.stockTable tbody tr:hover td, .trendTable tbody tr:hover td { background: #fff5f5; }
+.stockTable tbody tr:hover td, .trendTable tbody tr:hover td { background: var(--dk-bg-fff5f5, #fff5f5); }
 .num { text-align: right !important; font-variant-numeric: tabular-nums; }
 .center { text-align: center !important; font-variant-numeric: tabular-nums; }
-.strong { color: #182538; font-weight: 700; }
-.spec { color: #33425a; font-variant-numeric: tabular-nums; letter-spacing: -.1px; }
-.weightCell { background: #fbfcfd; color: #182538; font-weight: 800; }
-.stockTable tbody tr:hover td.weightCell { background: #fff0f0; }
-.oldCell { color: #c4363f; font-weight: 700; }
+.strong { color: var(--dk-tx-182538, #182538); font-weight: 700; }
+.spec { color: var(--dk-tx-33425a, #33425a); font-variant-numeric: tabular-nums; letter-spacing: -.1px; }
+.weightCell { background: var(--dk-bg-fbfcfd, #fbfcfd); color: var(--dk-tx-182538, #182538); font-weight: 800; }
+.stockTable tbody tr:hover td.weightCell { background: var(--dk-bg-fff0f0, #fff0f0); }
+.oldCell { color: var(--dk-tx-c4363f, #c4363f); font-weight: 700; }
 
 /* 재고 추이 표: 첫 칸 고정 · 합계 줄 아래 고정 · 줄을 누르면 펼침 */
-.stickyCol { position: sticky !important; z-index: 1; left: 0; box-shadow: 1px 0 0 #e6ebf1; }
+.stickyCol { position: sticky !important; z-index: 1; left: 0; box-shadow: 1px 0 0 var(--dk-ln-e6ebf1, #e6ebf1); }
 .trendTable th.stickyCol { z-index: 3; }
-.strongCell { color: #182538; font-weight: 700; }
-.mutedCell { color: #6b788b; font-variant-numeric: tabular-nums; }
-.zero { color: #c3cad4; }
-.flat { color: #8b95a3; }
-.up { color: #11774f; font-weight: 600; }
-.down { color: #c4363f; font-weight: 600; }
-.totalCol { min-width: 104px; background: #f8f9fb !important; font-weight: 700; }
-.currentHead { color: #c4363f !important; }
+.strongCell { color: var(--dk-tx-182538, #182538); font-weight: 700; }
+.mutedCell { color: var(--dk-tx-6b788b, #6b788b); font-variant-numeric: tabular-nums; }
+.zero { color: var(--dk-tx-c3cad4, #c3cad4); }
+.flat { color: var(--dk-tx-8b95a3, #8b95a3); }
+.up { color: var(--dk-tx-11774f, #11774f); font-weight: 600; }
+.down { color: var(--dk-tx-c4363f, #c4363f); font-weight: 600; }
+.totalCol { min-width: 104px; background: var(--dk-bg-f8f9fb, #f8f9fb) !important; font-weight: 700; }
+.currentHead { color: var(--dk-tx-c4363f, #c4363f) !important; }
 .currentHead small { margin-left: 2px; font-size: 10.5px; font-weight: 600; }
-.currentCell { background: #fffafa !important; }
+.currentCell { background: var(--dk-bg-fffafa, #fffafa) !important; }
 .clickRow { cursor: pointer; }
-.openRow td { background: #fff7f7 !important; }
+.openRow td { background: var(--dk-bg-fff7f7, #fff7f7) !important; }
 .treeName { display: inline-flex; min-width: 0; max-width: 100%; align-items: center; gap: 6px; }
 .treeName b { overflow: hidden; font-weight: 700; text-overflow: ellipsis; }
-.chevron { flex: none; width: 12px; color: #c4363f; font-size: 11px; }
-.childRow td { height: 31px; background: #fcfcfd; color: #4b5b70; font-size: 12px; }
-.childName { display: block; overflow: hidden; padding-left: 18px; color: #4b5b70; text-overflow: ellipsis; }
-.childName::before { margin-right: 6px; color: #c3cad4; content: '└'; }
-.trendTable tfoot td { position: sticky; z-index: 1; bottom: 0; height: 36px; border-top: 1px solid #dfe5ed; border-bottom: 0; background: #f6f8fb; color: #182538; font-weight: 800; }
+.chevron { flex: none; width: 12px; color: var(--dk-tx-c4363f, #c4363f); font-size: 11px; }
+.childRow td { height: 31px; background: var(--dk-bg-fcfcfd, #fcfcfd); color: var(--dk-tx-4b5b70, #4b5b70); font-size: 12px; }
+.childName { display: block; overflow: hidden; padding-left: 18px; color: var(--dk-tx-4b5b70, #4b5b70); text-overflow: ellipsis; }
+.childName::before { margin-right: 6px; color: var(--dk-tx-c3cad4, #c3cad4); content: '└'; }
+.trendTable tfoot td { position: sticky; z-index: 1; bottom: 0; height: 36px; border-top: 1px solid var(--dk-ln-dfe5ed, #dfe5ed); border-bottom: 0; background: var(--dk-bg-f6f8fb, #f6f8fb); color: var(--dk-tx-182538, #182538); font-weight: 800; }
 .trendTable tfoot td.stickyCol { z-index: 3; }
 
 /* 데이터가 없을 때: 머리글은 그대로, 표 안에 안내 한 줄 */
-.emptyRow td { height: 120px !important; background: #fff !important; color: #8b95a3 !important; font-size: 12.5px; text-align: center !important; }
-.stockTable tbody tr.emptyRow:hover td, .trendTable tbody tr.emptyRow:hover td { background: #fff !important; }
+.emptyRow td { height: 120px !important; background: var(--dk-bg-ffffff, #fff) !important; color: var(--dk-tx-8b95a3, #8b95a3) !important; font-size: 12.5px; text-align: center !important; }
+.stockTable tbody tr.emptyRow:hover td, .trendTable tbody tr.emptyRow:hover td { background: var(--dk-bg-ffffff, #fff) !important; }
 
 /* 세로줄 (매입등록 등 다른 표와 같은 가는 선) */
-.stockTable th, .trendTable th { border-right: 1px solid #e3e8ef; }
-.stockTable td, .trendTable td { border-right: 1px solid #edf0f4; }
-.trendTable tfoot td { border-right-color: #e3e8ef; }
+.stockTable th, .trendTable th { border-right: 1px solid var(--dk-ln-e3e8ef, #e3e8ef); }
+.stockTable td, .trendTable td { border-right: 1px solid var(--dk-ln-edf0f4, #edf0f4); }
+.trendTable tfoot td { border-right-color: var(--dk-ln-e3e8ef, #e3e8ef); }
 .stockTable th:last-child, .stockTable td:last-child, .trendTable th:last-child, .trendTable td:last-child { border-right: 0; }
 .emptyRow td { border-right: 0 !important; }

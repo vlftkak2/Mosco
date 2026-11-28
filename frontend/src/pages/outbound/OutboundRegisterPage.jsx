@@ -8,7 +8,7 @@ import { ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Popov
 import { notifications } from '@mantine/notifications';
 import {
   IconBox, IconBuildingStore, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconListDetails,
-  IconFileInvoice, IconPlus, IconSearch, IconTrash, IconTruckDelivery, IconX,
+  IconFileInvoice, IconPlus, IconSearch, IconTrash, IconTruckDelivery, IconX, IconPrinter,
 } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
 import { loadXLSXOrNotify } from '../../utils/excelSafe';
@@ -327,7 +327,7 @@ export const ExpenseCostAutocompleteCell = memo(function ExpenseCostAutocomplete
     <Popover.Dropdown className={classes.stockCustomerSuggestions}>
       <div role="listbox" aria-label="비용 구분 검색 결과">
         {matches.map((option, index) => <button key={option.code} type="button" role="option" aria-selected={index === activeIndex}
-          className={classes.stockCustomerSuggestion} style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          className={classes.stockCustomerSuggestion} style={index === activeIndex ? { background: 'var(--dk-bg-edf3f8, #edf3f8)' } : undefined}
           onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(option)}>
           <span>{option.name || option.code}</span>
         </button>)}
@@ -437,7 +437,7 @@ export const ExpenseCustomerAutocompleteCell = memo(function ExpenseCustomerAuto
     <Popover.Dropdown className={classes.stockCustomerSuggestions}>
       <div role="listbox" aria-label="비용 거래처 검색 결과">
         {matches.map((customer, index) => <button key={customer.customercode} type="button" role="option" aria-selected={index === activeIndex}
-          className={classes.stockCustomerSuggestion} style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          className={classes.stockCustomerSuggestion} style={index === activeIndex ? { background: 'var(--dk-bg-edf3f8, #edf3f8)' } : undefined}
           onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(customer)}>
           <span>{customer.customername}</span>
         </button>)}
@@ -1099,7 +1099,7 @@ const CustomerAutocompleteInput = memo(function CustomerAutocompleteInput({ row,
           role="option"
           aria-selected={index === activeIndex}
           className={classes.stockCustomerSuggestion}
-          style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          style={index === activeIndex ? { background: 'var(--dk-bg-edf3f8, #edf3f8)' } : undefined}
           onMouseDown={(event) => event.preventDefault()}
           onMouseEnter={() => setActiveIndex(index)}
           onClick={() => selectCustomer(customer)}
@@ -1273,7 +1273,6 @@ export default function OutboundRegisterPage() {
   const pageActivation = usePageActivation(); // 탭에 돌아올 때마다 목록(코드·거래처)을 다시 불러온다
   const pageLayout = useContext(PageRibbonContext);
   const registerPageRibbon = pageLayout?.registerPageRibbon;
-  const closeActivePage = pageLayout?.closeActivePage;
   const [receipts, setReceipts] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -2936,7 +2935,8 @@ export default function OutboundRegisterPage() {
   }, [detailTab, selectedExpenseIds.length, removeSelectedExpenses, selectedReceiptno, selectedIds.length, removeSelectedDraftDetails, hasPendingChanges]);
 
   const ribbonActionsRef = useRef({});
-  ribbonActionsRef.current = { runSearch, handleAddAction, copySelectedDetails, exportDocument, saveDocument, requestToolbarDelete, closeActivePage };
+  ribbonActionsRef.current = { runSearch, handleAddAction, copySelectedDetails, exportDocument, saveDocument, requestToolbarDelete,
+    printStatement: () => openPrint('statement') };   // 인쇄 = 거래명세서 출력 (저장된 전표 기준 · 저장 안 한 변경이 있으면 막음)
   const invokeRibbonAction = useCallback((action) => ribbonActionsRef.current[action]?.(), []);
   const hasExportableRows = Boolean(selectedReceiptno && rows.length);
 
@@ -2951,8 +2951,7 @@ export default function OutboundRegisterPage() {
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={() => invokeRibbonAction('saveDocument')} loading={saving} disabled={selectedReceiptno ? (locked || detailLoading || !(hasManagerChanges || hasPendingChanges)) : (readOnly || detailLoading)}>저장</Button>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={() => invokeRibbonAction('requestToolbarDelete')} disabled={saving || (detailTab === 'expenses' ? (readOnly || !selectedExpenseIds.length) : (selectedReceiptno ? confirmed : !selectedIds.length))}>삭제</Button>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={() => invokeRibbonAction('exportDocument')} loading={exporting} disabled={!hasExportableRows || loading || detailLoading}>엑셀</Button>
-        <span className={inboundClasses.ribbonSeparator} />
-        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={() => invokeRibbonAction('closeActivePage')}>닫기</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} onClick={() => invokeRibbonAction('printStatement')} disabled={!selectedReceiptno || detailLoading}>인쇄</Button>
       </Group>,
     );
     return () => registerPageRibbon(null);
@@ -3235,7 +3234,7 @@ export default function OutboundRegisterPage() {
     <Box className={`${sharedClasses.pageShell} ${classes.page} ${simpleTheme.simple}`}>
       <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
         <Group className={inboundClasses.breadcrumbTrail} gap={7}>
-          <Text component="span" className={inboundClasses.breadcrumbParent}>매출관리</Text>
+          <Text component="span" className={inboundClasses.breadcrumbParent}>매출</Text>
           <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
           <Text component="span" className={inboundClasses.breadcrumbCurrent}>매출등록</Text>
         </Group>

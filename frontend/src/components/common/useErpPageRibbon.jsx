@@ -5,7 +5,7 @@ import { PageRibbonContext } from '../layout/MainLayout';
 export default function useErpPageRibbon(actions) {
   const context = useContext(PageRibbonContext);
   const actionsRef = useRef(actions);
-  const { registerPageRibbon, closeActivePage } = context || {};
+  const { registerPageRibbon } = context || {};
   useEffect(() => {
     actionsRef.current = actions;
   }, [actions]);
@@ -22,15 +22,11 @@ export default function useErpPageRibbon(actions) {
     const keys = ['onSearch', 'onAdd', 'onCopy', 'onSave', 'onDelete', 'onPrint', 'onExcel'];
     return Object.fromEntries(keys.map((key) => [key, (...args) => actionsRef.current?.[key]?.(...args)]));
   }, []);
-  const showPrint = actions?.showPrint !== false;
   const showExcel = Boolean(actions?.showExcel);
-  const closeDisabled = Boolean(actions?.disableClose);
   const useSaveColor = actions?.useSaveColor !== false;
   const ribbon = useMemo(() => (
     <ErpRibbon
       {...ribbonActions}
-      onClose={closeActivePage}
-      showPrint={showPrint}
       showExcel={showExcel}
       useSaveColor={useSaveColor}
       disabled={{
@@ -41,15 +37,11 @@ export default function useErpPageRibbon(actions) {
         delete: !availability.delete,
         print: !availability.print,
         excel: !availability.excel,
-        close: closeDisabled,
       }}
     />
   ), [
     ribbonActions,
-    closeActivePage,
-    showPrint,
     showExcel,
-    closeDisabled,
     useSaveColor,
     availability.search,
     availability.add,

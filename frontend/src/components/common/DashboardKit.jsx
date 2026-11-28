@@ -16,12 +16,12 @@ import classes from '../../styles/components/DashboardKit.module.css';
 
 // 검증된 범주 팔레트 + 각 색의 옅은 바탕 · 미니 막대용 연한 색
 export const KPI_PALETTE = {
-  blue: { color: '#2a78d6', tint: '#e9f2fc', soft: '#bcd6f3' },
-  orange: { color: '#eb6834', tint: '#fdeee7', soft: '#f6c7b2' },
-  green: { color: '#1baf7a', tint: '#e4f6ee', soft: '#aee3cd' },
-  amber: { color: '#d99400', tint: '#fdf3dc', soft: '#f3d99a' },
-  slate: { color: '#52607a', tint: '#eef1f5', soft: '#c9d0da' },
-  pink: { color: '#d4609a', tint: '#fbeaf3', soft: '#efbfd7' },
+  blue: { color: '#2a78d6', tint: 'var(--dk-bg-e9f2fc, #e9f2fc)', soft: '#bcd6f3' },
+  orange: { color: '#eb6834', tint: 'var(--dk-bg-fdeee7, #fdeee7)', soft: '#f6c7b2' },
+  green: { color: '#1baf7a', tint: 'var(--dk-bg-e4f6ee, #e4f6ee)', soft: '#aee3cd' },
+  amber: { color: '#d99400', tint: 'var(--dk-bg-fdf3dc, #fdf3dc)', soft: '#f3d99a' },
+  slate: { color: '#52607a', tint: 'var(--dk-bg-eef1f5, #eef1f5)', soft: '#c9d0da' },
+  pink: { color: '#d4609a', tint: 'var(--dk-bg-fbeaf3, #fbeaf3)', soft: '#efbfd7' },
 };
 
 const toNumber = (value) => {
@@ -45,8 +45,6 @@ export function DashboardHeader({ parent, title, subtitle, note, children }) {
   </>;
 }
 
-export const SubSep = () => <span className={classes.dotSep} />;
-
 export function FilterBox({ label = '조회기간', children, onSearch, loading = false }) {
   return <div className={classes.filterGroup}>
     <span className={classes.filterLabel}><IconCalendar size={15} stroke={1.9} />{label}</span>
@@ -56,7 +54,6 @@ export function FilterBox({ label = '조회기간', children, onSearch, loading 
     </button>
   </div>;
 }
-export const FilterTilde = () => <span className={classes.tilde}>~</span>;
 
 // ── 조회 줄 ─────────────────────────────────────────────
 export function PeriodFilter({ value, onChange, onSearch, loading = false, children }) {

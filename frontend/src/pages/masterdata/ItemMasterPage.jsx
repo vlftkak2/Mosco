@@ -358,7 +358,6 @@ const virtuosoComponents = {
 export default function ItemMaster() {
   const pageLayout = useContext(PageRibbonContext);
   const registerPageRibbon = pageLayout?.registerPageRibbon;
-  const closeActivePage = pageLayout?.closeActivePage;
   const [rows, setRows] = useState(() => toItemRows(peekMaster(ITEM_ROWS_CACHE)));
   // 캐시 행으로 연 첫 새로고침 동안만 표를 보인다 (저장 뒤 다시 불러올 때는 예전처럼 불러오는 중 표시)
   const [showCachedRows, setShowCachedRows] = useState(() => rows.length > 0);
@@ -832,15 +831,13 @@ export default function ItemMaster() {
         onExcel={exportExcel}
         onSave={saveRows}
         onDelete={deleteSelectedRows}
-        showPrint={false}
-        onClose={closeActivePage}
         useSaveColor={false}
         disabled={{ search: loading, add: loading || saving || uploading, copy: selectedIds.length !== 1 || saving || uploading, excel: loading || exporting, save: loading || uploading || saving, delete: !selectedIds.length || saving || uploading }}
         loading={{ excel: exporting, save: saving }}
       />,
     );
     return () => registerPageRibbon(null);
-  }, [registerPageRibbon, closeActivePage, applySearch, addRow, copySelectedRow, exportExcel, saveRows, deleteSelectedRows, loading, saving, uploading, exporting, selectedIds.length]);
+  }, [registerPageRibbon, applySearch, addRow, copySelectedRow, exportExcel, saveRows, deleteSelectedRows, loading, saving, uploading, exporting, selectedIds.length]);
 
   const uploadExcel = useCallback(async (event) => {
     const file = event.currentTarget.files?.[0];
@@ -986,7 +983,7 @@ export default function ItemMaster() {
 
   return (
     <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page} ${s.screen}`}>
-      <ErpBreadcrumb parent="기준정보" current="품목코드관리" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+      <ErpBreadcrumb parent="설정" current="품목코드 관리" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
 
       <Box className={s.workspace}>
       <Paper className={s.panel} withBorder>

@@ -19,7 +19,6 @@ from db import connect
 Category = Literal['notice', 'stock', 'ai', 'system']
 Status = Literal['', 'waiting', 'followup', 'answered']
 CATEGORIES = ('notice', 'stock', 'ai', 'system')
-OPERATOR_ONLY = ('notice', 'ai')   # 운영사만 보는 탭
 COMPANY_TABS = ('stock', 'system')  # 회사가 쓰는 문의 탭
 NO_REPLY = ('notice', 'ai')         # 답글 없는 탭
 PINNABLE = ('notice',)              # 상단 고정할 수 있는 탭

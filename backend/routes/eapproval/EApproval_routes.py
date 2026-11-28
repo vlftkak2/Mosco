@@ -114,6 +114,36 @@ def save_admin(data: AdminInput, user: dict = Depends(security_module.get_curren
     return _call(eapproval_module.save_admin, user, data.forms, data.year, data.leaves, data.times)
 
 
+class FormInput(BaseModel):
+    formname: str = Field(min_length=1, max_length=100)
+    fields: list[dict] = Field(default_factory=list, max_length=30)
+    template: str = Field(default="", max_length=200_000)
+
+
+class TemplateInput(BaseModel):
+    template: str = Field(default="", max_length=200_000)
+
+
+@router.post("/admin/forms")
+def create_form(data: FormInput, user: dict = Depends(security_module.get_current_user)):
+    return _call(eapproval_module.create_form, user, data.formname, data.fields, data.template)
+
+
+@router.put("/admin/forms/{formcode}")
+def update_form(formcode: str, data: FormInput, user: dict = Depends(security_module.get_current_user)):
+    return _call(eapproval_module.update_form, user, formcode, data.formname, data.fields, data.template)
+
+
+@router.delete("/admin/forms/{formcode}")
+def delete_form(formcode: str, user: dict = Depends(security_module.get_current_user)):
+    return _call(eapproval_module.delete_form, user, formcode)
+
+
+@router.post("/admin/forms/preview")
+def preview_template(data: TemplateInput, user: dict = Depends(security_module.get_current_user)):
+    return _call(eapproval_module.preview_template, user, data.template)
+
+
 class ApproverInput(BaseModel):
     step: int = Field(ge=1, le=50)
     approver: str = Field(min_length=1, max_length=100)

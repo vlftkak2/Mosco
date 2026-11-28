@@ -6,10 +6,7 @@ import ErpDateInput from '../../components/common/ErpDateInput';
 import { SelectPickerModal } from '../../components/common/PickerModal';
 import { ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Popover, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import {
-  IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus,
-  IconBox, IconBuildingStore, IconFilter, IconListDetails, IconSearch, IconTrash, IconX,
-} from '@tabler/icons-react';
+import { IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus, IconBox, IconBuildingStore, IconFilter, IconListDetails, IconSearch, IconTrash, IconX, IconPrinter } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
 import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
@@ -728,7 +725,7 @@ const ItemNameAutocompleteCell = memo(function ItemNameAutocompleteCell({ row, d
       <div id={`item-suggestions-${row.id}`} role="listbox" aria-label="품목 검색 결과">
         {items.map((item, index) => <button key={item.itemcode} type="button" role="option" aria-selected={index === activeIndex}
           className={itemMasterClasses.shapeSuggestion}
-          style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          style={index === activeIndex ? { background: 'var(--dk-bg-edf3f8, #edf3f8)' } : undefined}
           onMouseDown={(event) => event.preventDefault()}
           onMouseEnter={() => setActiveIndex(index)}
           onClick={() => chooseItem(item)}>
@@ -896,7 +893,7 @@ const CustomerNameAutocompleteCell = memo(function CustomerNameAutocompleteCell(
       <div id={`customer-suggestions-${row.id}`} role="listbox" aria-label="매입처 검색 결과">
         {visibleCustomers.map((customer, index) => <button key={customer.customercode} type="button" role="option" aria-selected={index === activeIndex}
           className={itemMasterClasses.shapeSuggestion}
-          style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          style={index === activeIndex ? { background: 'var(--dk-bg-edf3f8, #edf3f8)' } : undefined}
           onMouseDown={(event) => event.preventDefault()}
           onMouseEnter={() => setActiveIndex(index)}
           onClick={() => chooseCustomer(customer)}>
@@ -1015,7 +1012,7 @@ const WarehouseNameAutocompleteCell = memo(function WarehouseNameAutocompleteCel
       <div role="listbox" aria-label="창고명 검색 결과">
         {matches.map((option, index) => <button key={option.code} type="button" role="option" aria-selected={index === activeIndex}
           className={itemMasterClasses.shapeSuggestion}
-          style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          style={index === activeIndex ? { background: 'var(--dk-bg-edf3f8, #edf3f8)' } : undefined}
           onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(option)}>
           <span>{option.name}</span>
         </button>)}
@@ -1135,7 +1132,7 @@ const GeneralCodeNameAutocompleteCell = memo(function GeneralCodeNameAutocomplet
       <div role="listbox" aria-label={`${field === 'material' ? '강종' : '표면'} 검색 결과`}>
         {matches.map((option, index) => <button key={option.code} type="button" role="option" aria-selected={index === activeIndex}
           className={itemMasterClasses.shapeSuggestion}
-          style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          style={index === activeIndex ? { background: 'var(--dk-bg-edf3f8, #edf3f8)' } : undefined}
           onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(option)}>
           <span>{option.name}</span>
         </button>)}
@@ -1452,7 +1449,6 @@ export default function InboundRegisterPage() {
   const pageActivation = usePageActivation(); // 탭에 돌아올 때마다 목록(코드·거래처)을 다시 불러온다
   const pageLayout = useContext(PageRibbonContext);
   const registerPageRibbon = pageLayout?.registerPageRibbon;
-  const closeActivePage = pageLayout?.closeActivePage;
   const [receipts, setReceipts] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -3149,7 +3145,7 @@ export default function InboundRegisterPage() {
   }, [detailTab, selectedExpenseIds.length, removeSelectedExpenses, selectedIds.length, readOnly, deleteSelectedDetails, selectedReceiptno, hasPendingChanges]);
 
   const ribbonActionsRef = useRef({});
-  ribbonActionsRef.current = { runSearch, handleAddAction, copySelectedDetails, exportDocument, saveDocument, requestToolbarDelete, closeActivePage };
+  ribbonActionsRef.current = { runSearch, handleAddAction, copySelectedDetails, exportDocument, saveDocument, requestToolbarDelete };
   const invokeRibbonAction = useCallback((action) => ribbonActionsRef.current[action]?.(), []);
   const hasExportableRows = Boolean(selectedReceiptno && rows.length);
 
@@ -3164,8 +3160,7 @@ export default function InboundRegisterPage() {
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={() => invokeRibbonAction('saveDocument')} loading={saving} disabled={selectedReceiptno ? (locked || detailLoading || !hasManagerChanges) : (readOnly || detailLoading)}>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={() => invokeRibbonAction('requestToolbarDelete')} disabled={saving || (detailTab === 'expenses' ? (readOnly || !selectedExpenseIds.length) : (locked || (!selectedReceiptno && (!selectedIds.length || readOnly))))}>삭제</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={() => invokeRibbonAction('exportDocument')} loading={exporting} disabled={!hasExportableRows || loading || detailLoading}>엑셀</Button>
-        <span className={classes.ribbonSeparator} />
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={() => invokeRibbonAction('closeActivePage')}>닫기</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} disabled>인쇄</Button>
       </Group>,
     );
     return () => registerPageRibbon(null);
@@ -3426,7 +3421,7 @@ export default function InboundRegisterPage() {
     <Box className={`${sharedClasses.pageShell} ${classes.page} ${simpleTheme.simple}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>매입관리</Text>
+          <Text component="span" className={classes.breadcrumbParent}>매입</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
           <Text component="span" className={classes.breadcrumbCurrent}>매입등록</Text>
         </Group>

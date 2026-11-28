@@ -10,7 +10,7 @@ import { notifications } from '@mantine/notifications';
 import {
   IconCalendar,
   IconCoin, IconCopy, IconDeviceFloppy, IconFileInvoice, IconFileSpreadsheet, IconFilter, IconListDetails, IconPlus,
-  IconScale, IconSearch, IconSearchOff, IconStack2, IconTrash, IconX,
+  IconScale, IconSearch, IconSearchOff, IconStack2, IconTrash, IconX, IconPrinter,
 } from '@tabler/icons-react';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
@@ -79,7 +79,6 @@ const FILTERS = [
 export default function ItemProcessSearch() {
   const pageLayout = useContext(PageRibbonContext);
   const registerPageRibbon = pageLayout?.registerPageRibbon;
-  const closeActivePage = pageLayout?.closeActivePage;
   const [filterInputs, setFilterInputs] = useState(makeDefaultFilters);
   const [filters, setFilters] = useState(makeDefaultFilters);
   const [items, setItems] = useState([]);
@@ -202,12 +201,11 @@ export default function ItemProcessSearch() {
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>엑셀</Button>
-        <span className={classes.ribbonSeparator} />
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closeActivePage}>닫기</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} disabled>인쇄</Button>
       </Group>,
     );
     return () => registerPageRibbon(null);
-  }, [registerPageRibbon, closeActivePage, runSearch, loading, exportExcel, exporting, total]);
+  }, [registerPageRibbon, runSearch, loading, exportExcel, exporting, total]);
 
   const renderHeader = (column) => (
     <Table.Th key={column.key} style={{ width: columnWidths[column.key] ?? column.width }}>
@@ -222,9 +220,9 @@ export default function ItemProcessSearch() {
     <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>가공관리</Text>
+          <Text component="span" className={classes.breadcrumbParent}>가공</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-          <Text component="span" className={classes.breadcrumbCurrent}>재고가공현황</Text>
+          <Text component="span" className={classes.breadcrumbCurrent}>재고가공 현황</Text>
         </Group>
         {!filterOpen && <Button className={classes.filterToggle} variant="subtle" size="xs" leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
       </Box>

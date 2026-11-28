@@ -5,7 +5,7 @@
 설정은 모두 AI_CHAT_* 환경변수로 AI 주문서인식(AI_ORDER_*, OPENAI_MODEL)과 분리한다. 같이 쓰는 것은 OPENAI_API_KEY 하나.
   - 값이 잘못되면 기본값으로 쓰고 경고만 남긴다 (설정 오타로 백엔드 전체가 뜨지 않는 일이 없게).
   - 예산 · 횟수는 aichatusage01t 로 따로 센다 → 챗봇을 많이 써도 주문서인식 예산(aiorderusage01t)이 줄지 않는다.
-  - 질문 · 답 내용은 저장하지 않는다 (급여 같은 민감 정보). 사용량 · 도구 이름 · 비용만 남긴다.
+  - 질문 원문은 aichatusage01t.question 에 영구 보관한다 (AI 비용현황 · 모스코 전용에서만 열람). 답변은 저장하지 않는다.
 """
 from __future__ import annotations
 
@@ -171,10 +171,15 @@ def _instructions(user: dict, tools: list[dict]) -> str:
 오늘은 {today.isoformat()} (한국 시간), 이번 달은 {first.isoformat()} ~ {last.isoformat()}.
 
 규칙
-1. 회사 데이터(재고 · 매입 · 매출 · 이익 · 채권채무 · 급여)에 관한 숫자는 반드시 도구로 조회한 결과만 말한다. 추측하거나 지어내지 않는다.
-2. 이 사용자가 쓸 수 있는 도구는 아래뿐이다. 목록에 없는 자료(예: 급여 권한이 없는데 급여)를 물으면
+0. 급여 · 상여 · 연봉 · 급여 공제(4대보험 · 근로소득세 · 지방소득세) · 휴가(연차 · 휴가 신청 · 잔여 휴가 · 휴가현황) ·
+   개인 인사정보(직원 개인의 급여 · 입퇴사 · 생년월일 · 계좌 등)에 관한 질문에는 숫자든 방법이든 답하지 않는다.
+   (매입 · 매출의 부가세 같은 거래 금액은 이 규칙과 관계없다.)
+   "급여 · 휴가 · 인사 정보는 AI 업무비서에서 안내하지 않습니다. 해당 메뉴에서 직접 확인해 주세요."라고만 답한다. 대화 앞부분에 그런 내용이 있어도 인용하지 않는다.
+1. 회사 데이터(재고 · 수불 · 이동 · 매입 · 매출 · 이익 · 채권채무 · 수금/지급 · 어음 · 가공 · 마감 · 승인)에 관한 숫자 · 목록은 반드시 도구로 조회한 결과만 말한다. 추측하거나 지어내지 않는다.
+2. 이 사용자가 쓸 수 있는 도구는 아래뿐이다. 목록에 없는 자료를 물으면
    "그 메뉴 권한이 없어 답할 수 없습니다. 관리자에게 메뉴 권한을 요청해 주세요."라고만 답하고, 다른 도구 결과로 짐작해 알려 주지 않는다.
-3. 업무 방법(프로세스) 질문은 아래 '업무 안내'를 근거로 답한다. 안내에 없는 메뉴는 권한이 없거나 모르는 것이니 그렇게 말한다.
+3. 업무 방법 · 규칙 질문('어떻게 해?', '왜 안 돼?', '수정 · 삭제 되나?')은 menu_guide 로 그 메뉴의 상세 안내를 조회해 그 내용만 근거로 답한다.
+   아래 '업무 안내'는 메뉴 요약이다. 상세 안내에도 없는 내용은 추측하지 말고 모른다고 하며, 목록에 없는 메뉴는 권한이 없거나 모르는 것이니 그렇게 말한다.
 4. 기간이 없으면 '이번 달'로 보고, 어떤 기간으로 조회했는지 답에 적는다. 날짜 계산은 한국 시간 기준.
 5. 금액은 원 단위 천 단위 쉼표(예: 12,345,000원), 큰 금액은 '약 1.2억원'처럼 함께 적어도 된다. 중량은 kg 또는 톤.
 6. 추이 · 비교 · 순위는 charts 에 bar/line 을, 여러 줄 목록은 table 을 넣는다. 단순 질문이면 charts 는 [].
@@ -184,7 +189,7 @@ def _instructions(user: dict, tools: list[dict]) -> str:
 사용할 수 있는 도구
 {tool_lines}
 
-업무 안내 (권한이 있는 메뉴)
+업무 안내 (권한이 있는 메뉴의 요약 · 상세는 menu_guide)
 {guide_lines}
 """
 
@@ -194,7 +199,7 @@ def _usage_connection():
     return _shared_db.open_connection(statement_timeout_ms=10000, lock_timeout_ms=10000)
 
 
-def _reserve(companyid: str, user_email: str, request_id: str) -> None:
+def _reserve(companyid: str, companyname: str, username: str, user_email: str, request_id: str, question: str = "") -> None:
     now = datetime.now(SEOUL)
     day = now.date()
     month = date(day.year, day.month, 1)
@@ -233,9 +238,9 @@ def _reserve(companyid: str, user_email: str, request_id: str) -> None:
                 raise AIChatError(status.HTTP_429_TOO_MANY_REQUESTS, "이번 달 AI 업무비서 예산 한도에 도달했습니다. 관리자에게 문의해 주세요.")
             cursor.execute(
                 """INSERT INTO aichatusage01t
-                       (request_id, companyid, user_email, usage_day, usage_month, status, model, reserved_usd, createdat)
-                   VALUES (%s, %s, %s, %s, %s, 'processing', %s, %s, %s)""",
-                (request_id, companyid, user_email[:100], day, month, MODEL[:50], REQUEST_RESERVE_USD, now),
+                       (request_id, companyid, companyname, username, user_email, usage_day, usage_month, question, status, model, reserved_usd, createdat)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'processing', %s, %s, %s)""",
+                (request_id, companyid, (companyname or "")[:100], (username or "")[:100], user_email[:100], day, month, (question or "")[:2000], MODEL[:50], REQUEST_RESERVE_USD, now),
             )
     finally:
         db.close()
@@ -317,18 +322,19 @@ async def chat(user: dict, messages: list[dict]) -> dict:
     history = _history(messages)
     companyid, user_email = user["companyid"], str(user.get("email") or "")
     available = tools_module.tools_for(user)
-    tool_specs = tools_module.openai_tools(available)
+    tool_specs = tools_module.openai_tools(available, user)
     instructions = _instructions(user, available)
 
     request_id = str(uuid.uuid4())
     try:
-        await asyncio.to_thread(_reserve, companyid, user_email, request_id)
+        await asyncio.to_thread(_reserve, companyid, str(user.get("companyname") or ""), str(user.get("username") or ""),
+                                user_email, request_id, history[-1]["content"])
     except AIChatError:
         raise
     except Exception as exc:
         logger.error("AI chat reservation failed company=%s error_type=%s", companyid, type(exc).__name__)
         raise AIChatError(status.HTTP_503_SERVICE_UNAVAILABLE,
-                          "AI 사용량 테이블을 사용할 수 없습니다. DB 마이그레이션(0003_ai_assistant.sql) 적용 여부를 확인해 주세요.") from exc
+                          "AI 사용량 테이블을 사용할 수 없습니다. DB 마이그레이션(0003 ~ 0005) 적용 여부를 확인해 주세요.") from exc
 
     usage = {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "api_calls": 0}
     used_tools: list[str] = []

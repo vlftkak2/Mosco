@@ -83,7 +83,7 @@ export default function LeaveStatus() {
   const runLoad = useEffectEvent(() => { void load(null); });
   useEffect(() => { runLoad(); }, []);
   usePageReactivated(() => { void load(data?.year); });
-  useErpPageRibbon({ onSearch: () => { void load(data?.year); }, showPrint: false });
+  useErpPageRibbon({ onSearch: () => { void load(data?.year); } });
   const pickYear = (year) => { if (year !== data?.year) void load(year); };
 
   const cur = data?.current;
@@ -96,7 +96,7 @@ export default function LeaveStatus() {
   return <Box className={`${sharedClasses.pageShell} ${classes.page} ${simpleTheme.simple} ${own.page}`}>
     <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
       <Group className={classes.breadcrumbTrail} gap={7}>
-        <Text component="span" className={classes.breadcrumbParent}>전자결재</Text>
+        <Text component="span" className={classes.breadcrumbParent}>인사</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
         <Text component="span" className={classes.breadcrumbCurrent}>휴가현황</Text>
       </Group>

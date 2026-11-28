@@ -417,7 +417,6 @@ export default function Company() {
     onAdd: handleAdd,
     onSave: saving ? undefined : handleSave,
     onDelete: canDelete ? () => setDeleteOpen(true) : undefined,
-    showPrint: false,
     showExcel: false,
     useSaveColor: false,
   });
@@ -436,7 +435,7 @@ export default function Company() {
   return (
     <Box className={`${simpleTheme.simple} ${simpleTheme.noIcons} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
-        <Text component="span" className={classes.breadcrumbParent}>어드민</Text>
+        <Text component="span" className={classes.breadcrumbParent}>관리</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
         <Text component="span" className={classes.breadcrumbCurrent}>고객사등록</Text>
       </Box>

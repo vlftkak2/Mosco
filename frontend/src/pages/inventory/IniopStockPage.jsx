@@ -91,10 +91,10 @@ export default function IniopStockPage() {
   const fields = [["customname", "거래처명"], ["item_search", "품목"], ["thickness", "두께"], ["width", "폭"], ["length", "길이"], ["product_search", "제품번호"], ["warehouse_search", "창고"], ["receiptno", "전표"]];
   const placeholders = { receiptno: "전표 검색", customname: "거래처명 검색", item_search: "품목코드 또는 품목명", product_search: "제품번호 검색", warehouse_search: "창고코드 또는 창고명", thickness: "두께 검색", width: "폭 검색", length: "길이 검색" };
 
-  useErpPageRibbon({ onSearch: search, onExcel: exportExcel, showPrint: false, useSaveColor: false });
+  useErpPageRibbon({ onSearch: search, onExcel: exportExcel, useSaveColor: false });
 
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="재고관리" current="재고수불현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+    <ErpBreadcrumb parent="재고" current="재고수불 현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
     <Box className={classes.inboundWorkspace}>
     {filterOpen && <Paper component="aside" className={classes.filterSidebar} withBorder>
       <Group className={classes.filterHeader} justify="space-between" align="center">

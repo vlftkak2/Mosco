@@ -322,7 +322,7 @@ export default function SharedStock() {
     }
   }, [filters, trendFilters]);
 
-  useErpPageRibbon({ onSearch: search, onExcel: exportExcel, showExcel: true, showPrint: false, useSaveColor: false });
+  useErpPageRibbon({ onSearch: search, onExcel: exportExcel, showExcel: true, useSaveColor: false });
 
   const companyOptions = [{ value: '', label: '전체 고객사' }, ...(list.companies || []).map((row) => ({ value: row.companyid, label: row.companyname }))];
   const pageCount = Math.max(1, Math.ceil(toNumber(list.total) / pageSize));
@@ -336,7 +336,7 @@ export default function SharedStock() {
   };
 
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${searchClasses.page} ${classes.page}`}>
-    <ErpBreadcrumb parent="어드민" current="타사 재고현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+    <ErpBreadcrumb parent="관리" current="타사재고 현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
 
     {/* 탭: 매출등록 상세 탭(매출 상세 · 기타비용)과 같은 모양 */}
     <div className={`${outboundClasses.detailTabsBar} ${classes.tabBar}`} role="tablist" aria-label="보기">

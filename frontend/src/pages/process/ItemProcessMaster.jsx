@@ -210,7 +210,7 @@ function ItemAutoComplete({ row, disabled, onChange, onSelect, onOpenPicker, inp
       <Popover.Dropdown className={classes.suggestions}>
         {items.map((item, index) => (
           <button type="button" className={classes.suggestion} key={item.itemcode}
-            aria-selected={index === activeIndex} style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+            aria-selected={index === activeIndex} style={index === activeIndex ? { background: 'var(--dk-bg-edf3f8, #edf3f8)' } : undefined}
             onMouseDown={(event) => event.preventDefault()} onClick={() => choose(item)}>
             <span>{item.itemname}</span>
           </button>
@@ -301,7 +301,7 @@ function ProcessAutoComplete({ row, disabled, options, onChange, onSelect, onOpe
       <Popover.Dropdown className={classes.suggestions}>
         {matches.map((option, index) => (
           <button type="button" className={classes.suggestion} key={option.code}
-            aria-selected={index === activeIndex} style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+            aria-selected={index === activeIndex} style={index === activeIndex ? { background: 'var(--dk-bg-edf3f8, #edf3f8)' } : undefined}
             onMouseDown={(event) => event.preventDefault()} onClick={() => choose(option)}>
             <span>{option.name}</span>
           </button>
@@ -343,7 +343,6 @@ const ProcessRuleTableRow = memo(function ProcessRuleTableRow({
 export default function ItemProcessMaster() {
   const pageLayout = useContext(PageRibbonContext);
   const registerPageRibbon = pageLayout?.registerPageRibbon;
-  const closeActivePage = pageLayout?.closeActivePage;
   const [rows, setRows] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -570,11 +569,11 @@ export default function ItemProcessMaster() {
   useEffect(() => {
     if (!registerPageRibbon) return undefined;
     registerPageRibbon(<ErpRibbon onSearch={applySearch} onAdd={addRow} onCopy={copyRow} onExcel={exportRows} useSaveColor={false}
-      onSave={saveRows} onDelete={requestDelete} showPrint={false} onClose={closeActivePage}
+      onSave={saveRows} onDelete={requestDelete}
       disabled={{ search: loading, add: loading || saving, copy: selectedIds.length !== 1 || saving, excel: loading || !rows.length,
         save: loading || saving, delete: selectedIds.length === 0 || saving }} loading={{ save: saving }} />);
     return () => registerPageRibbon(null);
-  }, [registerPageRibbon, closeActivePage, applySearch, addRow, copyRow, exportRows, saveRows, requestDelete, loading, saving, rows.length, selectedIds.length]);
+  }, [registerPageRibbon, applySearch, addRow, copyRow, exportRows, saveRows, requestDelete, loading, saving, rows.length, selectedIds.length]);
 
   const allSelected = rows.length > 0 && rows.every((row) => selectedIds.includes(row.id));
   const tableWidth = columnWidths.reduce((sum, width) => sum + width, 0);
@@ -810,7 +809,7 @@ export default function ItemProcessMaster() {
 
   return (
     <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
-      <ErpBreadcrumb parent="가공관리" current="가공공정관리" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+      <ErpBreadcrumb parent="가공" current="가공공정 관리" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
       <Box className={classes.workspace}>
         <Paper className={`${sharedClasses.panel} ${classes.panel}`} withBorder>
           <Group className={classes.header} justify="space-between" align="flex-start">

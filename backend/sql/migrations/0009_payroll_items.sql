@@ -1,9 +1,7 @@
--- 급여 지급항목 추가 (2026-11-28) · 여러 번 실행해도 같은 결과 · payroll_migration.sql 다음에 실행
+-- 급여 지급항목 추가 (2026-11-28) · 여러 번 실행해도 같은 결과 · 0008 다음
 --  pay_duty     업무분담수당 (과세)
 --  pay_research 연구수당     (월 20만원까지 비과세 — 기업부설연구소 연구원 등 비과세 대상자에게만 지급)
 --  등록 · 수정 칸(createdat, updatedat, created_by, updated_by)은 테이블 맨 오른쪽에 둔다 → 새 칸을 넣은 뒤 감사 칸을 뒤로 옮긴다.
-BEGIN;
-
 ALTER TABLE pay_slip01t ADD COLUMN IF NOT EXISTS pay_duty     bigint NOT NULL DEFAULT 0;
 ALTER TABLE pay_slip01t ADD COLUMN IF NOT EXISTS pay_research bigint NOT NULL DEFAULT 0;
 
@@ -35,5 +33,3 @@ BEGIN
         ALTER TABLE pay_slip01t DROP COLUMN updated_by_old;
     END IF;
 END $$;
-
-COMMIT;

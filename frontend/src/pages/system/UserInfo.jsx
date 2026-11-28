@@ -188,7 +188,6 @@ export default function UserInfo() {
   useErpPageRibbon({
     onSearch: search,
     onSave: detail && draft && !saving ? handleSave : undefined,
-    showPrint: false,
     showExcel: false,
     useSaveColor: false,
   });
@@ -227,9 +226,9 @@ export default function UserInfo() {
   return (
     <Box className={`${simpleTheme.simple} ${simpleTheme.noIcons} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
-        <Text component="span" className={classes.breadcrumbParent}>기준정보</Text>
+        <Text component="span" className={classes.breadcrumbParent}>인사</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-        <Text component="span" className={classes.breadcrumbCurrent}>직원관리</Text>
+        <Text component="span" className={classes.breadcrumbCurrent}>인사기록부 등록</Text>
       </Box>
 
       <div className={`${classes.workspace} ${own.workspace}`}>

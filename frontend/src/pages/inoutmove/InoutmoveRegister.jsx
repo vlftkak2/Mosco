@@ -5,9 +5,9 @@ import { LinkedOrderBadge } from '../../components/common/LinkedOrderNotice';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import PickerModal, { PickerEmpty, pickerClasses } from '../../components/common/PickerModal';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
-import { ActionIcon, Box, Button, Group, Modal, Pagination, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
+import { ActionIcon, Box, Button, Group, Pagination, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconArrowsExchange, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { IconArrowsExchange, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus, IconSearch, IconTrash, IconX, IconPrinter } from '@tabler/icons-react';
 import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
@@ -852,8 +852,7 @@ export default function InoutmoveRegister() {
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={saveDocument} loading={saving} disabled={readOnly || !items.length}>저장</Button>
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={requestDelete} disabled={saving || (!selectedReceiptno && !selectedIds.length)}>삭제</Button>
       <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportDocument} disabled={!items.length}>엑셀</Button>
-      <span className={inboundClasses.ribbonSeparator} />
-      <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={pageLayout.closeActivePage}>닫기</Button>
+      <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} disabled>인쇄</Button>
     </Group>);
     return () => pageLayout.registerPageRibbon(null);
   }, [pageLayout, runSearch, loading, addDraft, saving, readOnly, items.length, requestDelete, selectedReceiptno, selectedIds.length, exportDocument, saveDocument]);
@@ -915,9 +914,9 @@ export default function InoutmoveRegister() {
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
     <Box component="nav" aria-label="현재 위치" className={inboundClasses.pageBreadcrumb}>
       <Group className={inboundClasses.breadcrumbTrail} gap={7}>
-        <Text component="span" className={inboundClasses.breadcrumbParent}>재고관리</Text>
+        <Text component="span" className={inboundClasses.breadcrumbParent}>재고</Text>
         <Text component="span" className={inboundClasses.breadcrumbChevron}>›</Text>
-        <Text component="span" className={inboundClasses.breadcrumbCurrent}>재고이동등록</Text>
+        <Text component="span" className={inboundClasses.breadcrumbCurrent}>재고이동 등록</Text>
       </Group>
       {!filterOpen && <Button className={inboundClasses.receiptFilterToggle} variant="subtle" size="xs" leftSection={<IconSearch size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
     </Box>

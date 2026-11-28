@@ -15,13 +15,15 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import db as _db
+from services.eapproval import CustomForm as custom_form
 
 KST = ZoneInfo("Asia/Seoul")
 MENU_DOC = "EAPPROVAL"
 MENU_FORM = "EAPPROVAL_FORM"
 
 FORMS = [("LEAVE", "휴가신청서", 1), ("TRIP", "출장신청서", 2), ("REPORT", "업무보고서", 3)]
-FORM_NAME = {code: name for code, name, _ in FORMS}
+FORM_NAME = {code: name for code, name, _ in FORMS}   # 기본 양식 (입력칸 · 검사를 코드가 정함). 그 밖의 formcode(C001 …)는 추가 양식
+PLATFORM_COMPANY = "001"   # HTML 서식은 모스코 회사만
 STATUS_LABEL = {"DRAFT": "임시저장", "PENDING": "결재중", "APPROVED": "완료", "REJECTED": "반려"}
 STEP_LABEL = {"WAIT": "대기", "APPROVED": "승인", "REJECTED": "반려"}
 
@@ -55,12 +57,6 @@ def _require(user: dict, menuid: str, what: str):
         raise PermissionError(f"{what} 권한이 없습니다.")
 
 
-def _company_name(cursor, companyid: str) -> str:
-    cursor.execute("SELECT companyname FROM company01t WHERE companyid = %s", (companyid,))
-    row = cursor.fetchone()
-    return (row and row[0]) or companyid
-
-
 def _ensure_forms(cursor, companyid: str):
     """회사에 양식 행이 없으면 기본 3종을 만든다 (처음 쓸 때 한 번)."""
     for code, name, order in FORMS:
@@ -70,6 +66,29 @@ def _ensure_forms(cursor, companyid: str):
                ON CONFLICT (companyid, formcode) DO NOTHING""",
             (companyid, companyid, code, name, order),
         )
+
+
+def _form_def(cursor, companyid: str, formcode: str) -> dict | None:
+    """양식 한 개: 이름 · 사용 여부 · (추가 양식) 입력칸 · HTML 서식."""
+    cursor.execute("SELECT formname, useyn, fields, template FROM eappr_form01t WHERE companyid = %s AND formcode = %s", (companyid, formcode))
+    row = cursor.fetchone()
+    if not row:
+        return None
+    return {"formcode": formcode, "formname": row[0], "useyn": row[1], "fields": row[2] or [], "template": row[3] or "",
+            "custom": formcode not in FORM_NAME}
+
+
+def _prepare(cursor, companyid: str, formcode: str, content: dict, strict: bool) -> tuple[dict, str, str]:
+    """작성 내용 정리 → (저장할 content, 제목, 양식 이름). 추가 양식은 그 시점 입력칸 · 서식을 문서에 같이 담는다."""
+    if formcode in FORM_NAME:
+        normalized, title = _normalize(formcode, content, strict)
+        return normalized, title, FORM_NAME[formcode]
+    form = _form_def(cursor, companyid, formcode)
+    if not form:
+        raise ValueError("양식을 선택해 주세요.")
+    values = custom_form.normalize_values(form["fields"], (content or {}).get("values"), strict)
+    snapshot = {"name": form["formname"], "fields": form["fields"], "template": form["template"]}
+    return {"values": values, "_form": snapshot}, custom_form.title_of(form["fields"], values, form["formname"]), form["formname"]
 
 
 def _user_names(cursor, companyid: str) -> dict:
@@ -296,10 +315,8 @@ def save_draft(user: dict, formcode: str, content: dict, docno: str | None = Non
     _require(user, MENU_DOC, "전자결재")
     companyid, email = user["companyid"], user.get("email")
     formcode = str(formcode or "").upper()
-    if formcode not in FORM_NAME:
-        raise ValueError("양식을 선택해 주세요.")
-    normalized, title = _normalize(formcode, content, strict=False)
     with _db.connect() as connection, connection.cursor() as cursor:
+        normalized, title, _name = _prepare(cursor, companyid, formcode, content, strict=False)
         if docno:
             _lock_own_draft(cursor, companyid, docno, email)
             cursor.execute(
@@ -322,8 +339,6 @@ def submit(user: dict, formcode: str, content: dict, docno: str | None = None) -
     _require(user, MENU_DOC, "전자결재")
     companyid, email = user["companyid"], user.get("email")
     formcode = str(formcode or "").upper()
-    if formcode not in FORM_NAME:
-        raise ValueError("양식을 선택해 주세요.")
     content = dict(content or {})
     kind = str(content.get("kind") or "").upper()
     if formcode == "LEAVE" and kind in ("HALF_AM", "HALF_PM") and not content.get("time_from"):
@@ -331,16 +346,16 @@ def submit(user: dict, formcode: str, content: dict, docno: str | None = None) -
         with _db.connect() as connection, connection.cursor() as cursor:
             slot = leave_times(cursor, companyid)[kind][0]
         content.update({"time_from": slot["from"], "time_to": slot["to"]})
-    normalized, title = _normalize(formcode, content, strict=True)
     with _db.connect() as connection, connection.cursor() as cursor:
         _ensure_forms(cursor, companyid)
+        normalized, title, formname = _prepare(cursor, companyid, formcode, content, strict=True)
         cursor.execute("SELECT useyn FROM eappr_form01t WHERE companyid = %s AND formcode = %s", (companyid, formcode))
         row = cursor.fetchone()
         if not row or row[0] != "Y":
-            raise ValueError(f"{FORM_NAME[formcode]}는 지금 사용하지 않는 양식입니다.")
+            raise ValueError(f"{formname}는 지금 사용하지 않는 양식입니다.")
         line = _form_lines(cursor, companyid).get(formcode) or []
         if not line:
-            raise ValueError(f"{FORM_NAME[formcode]}의 결재선이 없습니다. 결재양식관리에서 결재선을 먼저 정해 주세요.")
+            raise ValueError(f"{formname}의 결재선이 없습니다. 결재양식관리에서 결재선을 먼저 정해 주세요.")
         names = _user_names(cursor, companyid)
         inactive = [names.get(a, {}).get("name", a) for a in line if not names.get(a, {}).get("active")]
         if inactive:
@@ -497,7 +512,8 @@ def withdraw(user: dict, docno: str) -> dict:
 
 
 # ── 조회 ────────────────────────────────────────────────────────────
-_DOC_COLUMNS = """d.docno, d.formcode, d.title, d.status, d.current_step, d.submitted_at, d.completed_at, d.createdat, d.updatedat,
+_DOC_COLUMNS = """d.docno, d.formcode,
+    (SELECT f.formname FROM eappr_form01t f WHERE f.companyid = d.companyid AND f.formcode = d.formcode) AS formname, d.title, d.status, d.current_step, d.submitted_at, d.completed_at, d.createdat, d.updatedat,
     d.created_by AS writer, COALESCE(w.username, d.created_by) AS writer_name, w.team AS writer_team,
     (SELECT s.approver FROM eappr_step01t s WHERE s.companyid = d.companyid AND s.docno = d.docno AND s.step = d.current_step) AS current_approver,
     (SELECT COUNT(*) FROM eappr_step01t s WHERE s.companyid = d.companyid AND s.docno = d.docno) AS step_total,
@@ -506,7 +522,7 @@ _DOC_FROM = "eappr_doc01t d LEFT JOIN user01t w ON w.companyid = d.companyid AND
 
 
 def _decorate(row: dict, names: dict) -> dict:
-    row["formname"] = FORM_NAME.get(row["formcode"], row["formcode"])
+    row["formname"] = row.get("formname") or FORM_NAME.get(row["formcode"], row["formcode"])
     row["status_label"] = STATUS_LABEL.get(row["status"], row["status"])
     approver = row.get("current_approver")
     row["current_approver_name"] = names.get(approver, {}).get("name", approver) if approver else ""
@@ -652,12 +668,13 @@ def forms_for_writer(user: dict) -> dict:
         _ensure_forms(cursor, companyid)
         names = _user_names(cursor, companyid)
         lines = _form_lines(cursor, companyid)
-        cursor.execute("SELECT formcode, formname, useyn FROM eappr_form01t WHERE companyid = %s ORDER BY sort_order, formcode", (companyid,))
+        cursor.execute("SELECT formcode, formname, useyn, fields, template FROM eappr_form01t WHERE companyid = %s ORDER BY sort_order, formcode", (companyid,))
         mine = user.get("email")
         own_line = lambda code: [a for a in lines.get(code) or [] if a != mine] or (lines.get(code) or [])[:1]   # noqa: E731 — 신청자 본인 단계는 빠진다
-        forms = [{"formcode": code, "formname": name, "line": [{"step": i, "approver": a, **names.get(a, {"name": a})}
-                                                             for i, a in enumerate(own_line(code), start=1)]}
-                 for code, name, useyn in cursor.fetchall() if useyn == "Y"]
+        forms = [{"formcode": code, "formname": name, "custom": code not in FORM_NAME,
+                  **({"fields": fields or [], "template": template or ""} if code not in FORM_NAME else {}),
+                  "line": [{"step": i, "approver": a, **names.get(a, {"name": a})} for i, a in enumerate(own_line(code), start=1)]}
+                 for code, name, useyn, fields, template in cursor.fetchall() if useyn == "Y"]
         me = names.get(user.get("email"), {})
         times = leave_times(cursor, companyid)
     return {"forms": forms, "leave_kinds": LEAVE_KINDS, "leave_times": times, "report_types": REPORT_TYPES, "leave": leave_status(user),
@@ -673,13 +690,15 @@ def admin_settings(user: dict, year: int | None = None) -> dict:
         _ensure_forms(cursor, companyid)
         lines = _form_lines(cursor, companyid)
         cursor.execute(
-            """SELECT f.formcode, f.formname, f.useyn, COALESCE(f.updatedat, f.createdat) AS changed_at,
-                      COALESCE(u.username, f.updated_by, f.created_by) AS changed_by
+            """SELECT f.formcode, f.formname, f.useyn, f.fields, f.template, COALESCE(f.updatedat, f.createdat) AS changed_at,
+                      COALESCE(u.username, f.updated_by, f.created_by) AS changed_by,
+                      (SELECT COUNT(*) FROM eappr_doc01t d WHERE d.companyid = f.companyid AND d.formcode = f.formcode) AS doc_count
                FROM eappr_form01t f LEFT JOIN user01t u ON u.companyid = f.companyid AND u.email = COALESCE(f.updated_by, f.created_by)
                WHERE f.companyid = %s ORDER BY f.sort_order, f.formcode""",
             (companyid,),
         )
-        forms = [{**r, "useyn": r["useyn"] == "Y", "line": lines.get(r["formcode"]) or []} for r in _rows(cursor)]
+        forms = [{**r, "useyn": r["useyn"] == "Y", "custom": r["formcode"] not in FORM_NAME, "line": lines.get(r["formcode"]) or []}
+                 for r in _rows(cursor)]
         cursor.execute(
             """SELECT u.email, u.username, u.team, u.position, u.hiredate, l.granted_days
                FROM user01t u LEFT JOIN eappr_leave01t l ON l.companyid = u.companyid AND l.useremail = u.email AND l.leaveyear = %s
@@ -695,7 +714,8 @@ def admin_settings(user: dict, year: int | None = None) -> dict:
                         "remain": float(max((granted or 0) - used - pending, 0)) if granted is not None else None})
             row.pop("granted_days", None)
         times = leave_times(cursor, companyid)
-    return {"year": year, "forms": forms, "users": users, "leave_times": times}
+    return {"year": year, "forms": forms, "users": users, "leave_times": times,
+            "field_types": custom_form.FIELD_TYPES, "can_template": companyid == PLATFORM_COMPANY}
 
 
 def _clean_times(times: dict) -> dict:
@@ -730,18 +750,20 @@ def save_admin(user: dict, forms: list[dict] | None = None, year: int | None = N
     with _db.connect() as connection, connection.cursor() as cursor:
         _ensure_forms(cursor, companyid)
         names = _user_names(cursor, companyid)
+        cursor.execute("SELECT formcode, formname FROM eappr_form01t WHERE companyid = %s", (companyid,))
+        form_names = dict(cursor.fetchall())
         for form in forms or []:
             code = str(form.get("formcode") or "").upper()
-            if code not in FORM_NAME:
+            if code not in form_names:
                 continue
             approvers = [str(a or "").strip() for a in form.get("line") or [] if str(a or "").strip()]
             if len(set(approvers)) != len(approvers):
-                raise ValueError(f"{FORM_NAME[code]} 결재선에 같은 사람이 두 번 있습니다.")
+                raise ValueError(f"{form_names[code]} 결재선에 같은 사람이 두 번 있습니다.")
             bad = [a for a in approvers if not names.get(a, {}).get("active")]
             if bad:
-                raise ValueError(f"{FORM_NAME[code]} 결재선에 사용할 수 없는 계정이 있습니다: {', '.join(bad)}")
+                raise ValueError(f"{form_names[code]} 결재선에 사용할 수 없는 계정이 있습니다: {', '.join(bad)}")
             if form.get("useyn") and not approvers:
-                raise ValueError(f"{FORM_NAME[code]}을(를) 사용하려면 결재자를 1명 이상 정해 주세요.")
+                raise ValueError(f"{form_names[code]}을(를) 사용하려면 결재자를 1명 이상 정해 주세요.")
             cursor.execute(
                 """UPDATE eappr_form01t SET useyn = %s, updatedat = CURRENT_TIMESTAMP, updated_by = %s
                    WHERE companyid = %s AND formcode = %s AND useyn IS DISTINCT FROM %s""",
@@ -794,6 +816,96 @@ def save_admin(user: dict, forms: list[dict] | None = None, year: int | None = N
                     (companyid, companyid, email, year, days, actor, actor),
                 )
     return admin_settings(user, year)
+
+
+# ── 결재양식관리 · 추가 양식 ────────────────────────────────────────
+def _clean_form_input(user: dict, name: str, fields: list, template: str, existing: list | None = None) -> tuple[str, list, str, list]:
+    name = str(name or "").strip()[:100]
+    if not name:
+        raise ValueError("양식 이름을 입력해 주세요.")
+    clean = custom_form.clean_fields(fields, existing)
+    template = str(template or "")
+    if template.strip() and user["companyid"] != PLATFORM_COMPANY:
+        raise PermissionError("HTML 서식은 쓸 수 없습니다.")
+    template = custom_form.sanitize_template(template) if template.strip() else ""
+    return name, clean, template, custom_form.template_problems(template, clean)
+
+
+def create_form(user: dict, name: str, fields: list, template: str = "") -> dict:
+    """양식 추가: C001, C002 … (회사별). 처음에는 사용 안 함 — 결재선을 정하고 켠다."""
+    _require(user, MENU_FORM, "결재양식관리")
+    companyid, actor = user["companyid"], user.get("email")
+    name, clean, template, problems = _clean_form_input(user, name, fields, template)
+    with _db.connect() as connection, connection.cursor() as cursor:
+        _ensure_forms(cursor, companyid)
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"eappr-form:{companyid}",))
+        cursor.execute("SELECT 1 FROM eappr_form01t WHERE companyid = %s AND formname = %s", (companyid, name))
+        if cursor.fetchone():
+            raise ValueError(f"같은 이름의 양식이 있습니다: {name}")
+        cursor.execute(
+            """SELECT COALESCE(MAX(CAST(SUBSTRING(formcode FROM 2) AS integer)), 0), COALESCE(MAX(sort_order), 0)
+               FROM eappr_form01t WHERE companyid = %s AND formcode ~ '^C[0-9]+$'""", (companyid,))
+        last_no, _ = cursor.fetchone()
+        cursor.execute("SELECT COALESCE(MAX(sort_order), 0) FROM eappr_form01t WHERE companyid = %s", (companyid,))
+        order = cursor.fetchone()[0] + 1
+        code = f"C{last_no + 1:03d}"
+        cursor.execute(
+            """INSERT INTO eappr_form01t (companyid, companyname, formcode, formname, useyn, sort_order, fields, template, created_by)
+               VALUES (%s, (SELECT companyname FROM company01t WHERE companyid = %s), %s, %s, 'N', %s, %s::jsonb, %s, %s)""",
+            (companyid, companyid, code, name, order, json.dumps(clean, ensure_ascii=False), template, actor),
+        )
+    return {"formcode": code, "problems": problems}
+
+
+def update_form(user: dict, formcode: str, name: str, fields: list, template: str = "") -> dict:
+    """추가 양식 고치기. 이미 신청한 문서는 신청 때 저장한 양식 그대로 보인다."""
+    _require(user, MENU_FORM, "결재양식관리")
+    companyid, actor = user["companyid"], user.get("email")
+    formcode = str(formcode or "").upper()
+    if formcode in FORM_NAME:
+        raise ValueError("기본 양식은 고칠 수 없습니다.")
+    with _db.connect() as connection, connection.cursor() as cursor:
+        form = _form_def(cursor, companyid, formcode)
+        if not form:
+            raise LookupError("양식을 찾을 수 없습니다.")
+        if user["companyid"] != PLATFORM_COMPANY:
+            template = ""   # 다른 회사는 HTML 서식을 쓰지 않는다 (예전에 있던 것도 비운다)
+        name, clean, template, problems = _clean_form_input(user, name, fields, template, form["fields"])
+        cursor.execute("SELECT 1 FROM eappr_form01t WHERE companyid = %s AND formname = %s AND formcode <> %s", (companyid, name, formcode))
+        if cursor.fetchone():
+            raise ValueError(f"같은 이름의 양식이 있습니다: {name}")
+        cursor.execute(
+            """UPDATE eappr_form01t SET formname = %s, fields = %s::jsonb, template = %s, updatedat = CURRENT_TIMESTAMP, updated_by = %s
+               WHERE companyid = %s AND formcode = %s""",
+            (name, json.dumps(clean, ensure_ascii=False), template, actor, companyid, formcode),
+        )
+    return {"formcode": formcode, "problems": problems}
+
+
+def delete_form(user: dict, formcode: str) -> dict:
+    """추가 양식 지우기: 문서가 하나도 없을 때만 (있으면 '사용 안 함'으로 끈다)."""
+    _require(user, MENU_FORM, "결재양식관리")
+    companyid = user["companyid"]
+    formcode = str(formcode or "").upper()
+    if formcode in FORM_NAME:
+        raise ValueError("기본 양식은 지울 수 없습니다. 사용 여부로 끄세요.")
+    with _db.connect() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) FROM eappr_doc01t WHERE companyid = %s AND formcode = %s", (companyid, formcode))
+        if cursor.fetchone()[0]:
+            raise ValueError("이 양식으로 작성한 문서가 있어 지울 수 없습니다. 사용 여부로 끄세요.")
+        cursor.execute("DELETE FROM eappr_line01t WHERE companyid = %s AND formcode = %s", (companyid, formcode))
+        cursor.execute("DELETE FROM eappr_form01t WHERE companyid = %s AND formcode = %s", (companyid, formcode))
+        if cursor.rowcount == 0:
+            raise LookupError("양식을 찾을 수 없습니다.")
+    return {"deleted": formcode}
+
+
+def preview_template(user: dict, template: str) -> dict:
+    """HTML 서식 미리보기용 정리 결과 (모스코만) — 저장 전 화면이 서버와 같은 결과를 보여 준다."""
+    _require(user, MENU_FORM, "결재양식관리")
+    if user["companyid"] != PLATFORM_COMPANY:
+        raise PermissionError("HTML 서식은 쓸 수 없습니다.")
+    return {"template": custom_form.sanitize_template(template)}
 
 
 # ── 결재양식관리 · 진행 문서 (멈춘 문서 풀기) ───────────────────────
@@ -862,8 +974,9 @@ def admin_pending(user: dict, q: str = "", formcode: str = "", date_from=None, d
         if docnos:
             # 2) 이 페이지 문서만 내용 · 결재선
             cursor.execute(
-                """SELECT docno, formcode, title, created_by AS writer, current_step, submitted_at FROM eappr_doc01t
-                   WHERE companyid = %s AND docno = ANY(%s)""",
+                """SELECT d.docno, d.formcode, d.title, d.created_by AS writer, d.current_step, d.submitted_at,
+                          (SELECT f.formname FROM eappr_form01t f WHERE f.companyid = d.companyid AND f.formcode = d.formcode) AS formname
+                   FROM eappr_doc01t d WHERE d.companyid = %s AND d.docno = ANY(%s)""",
                 (companyid, docnos),
             )
             by_no = {r["docno"]: r for r in _rows(cursor)}
@@ -875,7 +988,7 @@ def admin_pending(user: dict, q: str = "", formcode: str = "", date_from=None, d
                 steps.setdefault(row["docno"], []).append({**row, "name": info["name"], "team": info["team"], "position": info["position"],
                                                            "problem": info["problem"] if row["status"] == "WAIT" else ""})
     for doc in docs:
-        doc["formname"] = FORM_NAME.get(doc["formcode"], doc["formcode"])
+        doc["formname"] = doc.get("formname") or FORM_NAME.get(doc["formcode"], doc["formcode"])
         doc["writer_name"] = state.get(doc["writer"], {}).get("name", doc["writer"])
         doc["steps"] = steps.get(doc["docno"], [])
         current = next((x for x in doc["steps"] if x["step"] == doc["current_step"]), None)

@@ -217,10 +217,10 @@ export default function CurrentStockPage() {
     finally { setExporting(false); }
   };
 
-  useErpPageRibbon({ onSearch: search, onSave: saveRemarks, onExcel: exportExcel, showPrint: false, useSaveColor: false });
+  useErpPageRibbon({ onSearch: search, onSave: saveRemarks, onExcel: exportExcel, useSaveColor: false });
 
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="재고관리" current="현재고현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+    <ErpBreadcrumb parent="재고" current="현재고현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
     <Box className={classes.inboundWorkspace}>
     {filterOpen && <Paper component="aside" className={classes.filterSidebar} withBorder>
       <Group className={classes.filterHeader} justify="space-between">

@@ -195,7 +195,6 @@ function RequestLines({ item }) {
     </>;
   }
   if (['delete', 'manager', 'sales_fields'].includes(item.op) && !(item.lines || []).length) return null;   // 수금/지급 삭제 등 품목 없는 전표
-  const lines = body.items || [];
   if (item.target === 'RECEIPT_PAYMENT') {
     // 매입처럼 한 줄씩: [결제수단 · 어음 종류/번호 ······ 금액] / [수단별 금액 · 만기 · 발행처 · 비고]
     const rpRows = item.lines || [];
@@ -709,14 +708,13 @@ export default function ControlManagement() {
   useErpPageRibbon({
     onSearch: () => { setReloadKey((value) => value + 1); void loadSummary(); },
     onSave: activeTab === 'settings' ? () => saveRef.current?.() : undefined,   // 통제 설정 탭에서만 [저장]
-    showPrint: false,
   });
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page} ${simpleTheme.simple} ${own.page}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>어드민</Text>
+          <Text component="span" className={classes.breadcrumbParent}>관리</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
           <Text component="span" className={classes.breadcrumbCurrent}>통제관리</Text>
         </Group>

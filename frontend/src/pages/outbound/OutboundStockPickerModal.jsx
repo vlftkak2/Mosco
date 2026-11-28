@@ -334,7 +334,7 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
             <td title={stock.sourceno || ''}>{stock.sourceno}</td>
             <td className={pickerClasses.right}>{stock.sourceline}</td>
             {/* 승인요청에 예약된 중량 · 요청번호 · 요청자 (승인 통제를 쓰는 고객사만) */}
-            <td title={stock.reserved_requests || ''} style={Number(stock.reserved_weight || 0) > 0 ? { color: '#a36a00', fontWeight: 700 } : undefined}>
+            <td title={stock.reserved_requests || ''} style={Number(stock.reserved_weight || 0) > 0 ? { color: 'var(--dk-tx-a36a00, #a36a00)', fontWeight: 700 } : undefined}>
               {Number(stock.reserved_weight || 0) > 0 ? `${numberText(stock.reserved_weight)}kg · ${stock.reserved_requests || ''}` : ''}
             </td>
             <td className={pickerClasses.right}>{numberText(stock.current_qty)}</td>

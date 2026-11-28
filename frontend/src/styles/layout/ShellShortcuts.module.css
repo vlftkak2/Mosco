@@ -1,0 +1,21 @@
+/* 헤더 단축키 버튼 · 단축키 표 (셸 토큰 --sh-*, 다크 자동) */
+.btn { display: grid; width: 34px; height: 32px; flex: none; place-items: center; padding: 0; border: 0; border-radius: 9px; background: none; color: var(--sh-t2); cursor: pointer; }
+.btn:hover, .btn[data-expanded] { background: var(--sh-pill); color: var(--sh-t1); }
+.btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--sh-red) 55%, transparent); outline-offset: -2px; }
+
+.pop { padding: 0 !important; overflow: hidden; border: 1px solid var(--sh-ln) !important; border-radius: 12px !important; background: var(--sh-pop) !important; box-shadow: var(--sh-shadow) !important; color: var(--sh-t1); }
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 12px 16px 10px; border-bottom: 1px solid var(--sh-ln); }
+.head b { font-size: 14px; }
+.head span { color: var(--sh-t3); font-size: 11px; }
+.group { padding: 8px 16px 10px; }
+.group + .group { border-top: 1px solid var(--sh-ln); }
+.group h4 { margin: 2px 0 4px; color: var(--sh-t3); font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+.row { display: flex; height: 28px; align-items: center; justify-content: space-between; gap: 12px; color: var(--sh-t2); font-size: 13px; }
+.keys { display: inline-flex; flex: none; align-items: center; gap: 4px; }
+.combo { display: inline-flex; align-items: center; gap: 3px; }
+.or { margin: 0 2px; color: var(--sh-t3); font-size: 11px; font-style: normal; }
+.keys kbd {
+  display: inline-grid; min-width: 22px; height: 20px; place-items: center; padding: 0 6px; box-sizing: border-box;
+  border: 1px solid var(--sh-fb); border-bottom-width: 2px; border-radius: 5px; background: var(--sh-fld); color: var(--sh-t1);
+  font: 600 11px/1 'Segoe UI', 'Malgun Gothic', sans-serif;
+}

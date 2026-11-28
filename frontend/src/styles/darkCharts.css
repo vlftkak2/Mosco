@@ -1,0 +1,40 @@
+/* 다크 모드: 그래프(recharts) 색.
+   recharts 는 색을 SVG 속성(fill="#…")으로 넣어 var() 를 못 쓰므로, CSS 로 덮는다 (CSS 가 SVG 속성보다 우선).
+   라이트에서는 아무것도 바뀌지 않는다. 인쇄할 때는 원래 색 (screen 에서만). */
+@media screen {
+  /* 눈금선 · 축 · 축 글자 · 마우스 올린 칸 */
+  [data-steel-theme='dark'] .recharts-cartesian-grid line { stroke: #262a31; }
+  [data-steel-theme='dark'] .recharts-cartesian-axis-line { stroke: #363c47; }
+  [data-steel-theme='dark'] .recharts-cartesian-axis-tick text,
+  [data-steel-theme='dark'] .recharts-cartesian-axis-tick-value { fill: #8b95a5; }
+  [data-steel-theme='dark'] .recharts-tooltip-cursor { fill: rgba(255, 255, 255, .05); }
+
+  /* 흐린 막대(지난 달 · 비교) · 막대 바탕: 밝은 색 → 같은 계열의 어두운 색 (강조 막대는 그대로) */
+  [data-steel-theme='dark'] svg [fill='#dbe3ee' i] { fill: #3b4656; }
+  [data-steel-theme='dark'] svg [fill='#a9e0c9' i] { fill: #2f6b56; }
+  [data-steel-theme='dark'] svg [fill='#bcd6f3' i] { fill: #2f5378; }
+  [data-steel-theme='dark'] svg [fill='#f6c7b2' i] { fill: #7a4a36; }
+  [data-steel-theme='dark'] svg [fill='#aee3cd' i] { fill: #2f6b56; }
+  [data-steel-theme='dark'] svg [fill='#f3d99a' i] { fill: #6e5a2a; }
+  [data-steel-theme='dark'] svg [fill='#c9d0da' i] { fill: #4a5260; }
+  [data-steel-theme='dark'] svg [fill='#efbfd7' i] { fill: #6e3f57; }
+  [data-steel-theme='dark'] svg [fill='#b8c0cc' i],
+  [data-steel-theme='dark'] svg [fill='#c3cad4' i] { fill: #59616e; }
+  [data-steel-theme='dark'] svg [fill='#aab6c4' i] { fill: #5a6676; }
+  [data-steel-theme='dark'] svg [fill='#f3f5f8' i] { fill: #20242b; }
+
+  /* 막대 끝 · 위 숫자 (직접 그린 글자 · LabelList) */
+  [data-steel-theme='dark'] svg text[fill='#26364e' i],
+  [data-steel-theme='dark'] svg text[fill='#5d6b80' i],
+  [data-steel-theme='dark'] svg text[fill='#8290a5' i] { fill: #aeb5c0; }
+  [data-steel-theme='dark'] .recharts-label-list text[style*='rgb(51, 66, 90)'] { fill: #c9ced6 !important; }
+  [data-steel-theme='dark'] .recharts-label-list text[style*='rgb(29, 95, 174)'] { fill: #6ea8ef !important; }
+  [data-steel-theme='dark'] .recharts-label-list text[style*='rgb(181, 72, 28)'] { fill: #f08a5d !important; }
+
+  /* 대시보드 재고 나이 막대 (div 바탕, var 로 받음) */
+  [data-steel-theme='dark'] {
+    --dk-chart-cfe1f7: #2a4566;
+    --dk-chart-9cc2ee: #3a6496;
+    --dk-chart-c3cad4: #59616e;
+  }
+}

@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { ActionIcon, Badge, Box, Button, Checkbox, Group, Loader, Paper, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus, IconSearch, IconTrash, IconX, IconPrinter } from '@tabler/icons-react';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import { ColumnResizeHandle, useResizableColumns } from '../../components/common/PickerModal';
@@ -144,7 +144,7 @@ const LedgerTable = memo(function LedgerTable({ ledger, columns }) {
         })}
         <td title={line.description || ''}>{line.description || ''}</td>
       </tr>)}
-      {!ledger.lines.length && <tr><td colSpan={LEDGER_COLUMNS.length} className={classes.center} style={{ height: 70, color: '#8290a5' }}>기간 안에 거래가 없습니다.</td></tr>}
+      {!ledger.lines.length && <tr><td colSpan={LEDGER_COLUMNS.length} className={classes.center} style={{ height: 70, color: 'var(--dk-tx-8290a5, #8290a5)' }}>기간 안에 거래가 없습니다.</td></tr>}
     </tbody>
     <tfoot><tr>
       <td colSpan={4} className={classes.center}>기간 합계 · 기말 잔액</td>
@@ -211,7 +211,6 @@ const FilterSidebar = memo(function FilterSidebar({ filterInputs, setFilterInput
 export default function CustomerLedger() {
   const ribbon = useContext(PageRibbonContext);
   const registerRibbon = ribbon?.registerPageRibbon;
-  const closePage = ribbon?.closeActivePage;
   // 원장 시작일: 관리자(MASTER · SUBMASTER)만 바꿀 수 있다 (서버도 같은 규칙 · 월마감이 있으면 서버가 거절)
   const menuAccess = useContext(MenuAccessContext);
   const authority = String(menuAccess?.authority || localStorage.getItem('user_authority') || '').toUpperCase();
@@ -357,20 +356,19 @@ export default function CustomerLedger() {
         <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
         <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />}
           onClick={() => ribbonActions.current.excel()} loading={exporting} disabled={excelDisabled}>엑셀</Button>
-        <span className={searchClasses.ribbonSeparator} />
-        <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closePage}>닫기</Button>
+        <Button className={searchClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} disabled>인쇄</Button>
       </Group>,
     );
     return () => registerRibbon(null);
-  }, [registerRibbon, closePage, exporting, excelDisabled]);
+  }, [registerRibbon, exporting, excelDisabled]);
 
   return (
     <Box className={`${simpleTheme.simple} ${searchClasses.page}`}>
       <Box component="nav" aria-label="현재 위치" className={searchClasses.pageBreadcrumb}>
         <Group className={searchClasses.breadcrumbTrail} gap={7}>
-          <Text component="span" className={searchClasses.breadcrumbParent}>거래처관리</Text>
+          <Text component="span" className={searchClasses.breadcrumbParent}>자금</Text>
           <Text component="span" className={searchClasses.breadcrumbChevron}>›</Text>
-          <Text component="span" className={searchClasses.breadcrumbCurrent}>거래처원장</Text>
+          <Text component="span" className={searchClasses.breadcrumbCurrent}>채권채무 현황</Text>
         </Group>
         {!filterOpen && <Button className={searchClasses.filterToggle} variant="subtle" size="xs" leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
       </Box>

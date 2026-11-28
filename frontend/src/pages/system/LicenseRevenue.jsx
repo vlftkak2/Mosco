@@ -10,7 +10,7 @@ import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { Box, Loader, Pagination, Paper, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconBuildingSkyscraper, IconCalendarStats, IconCoin, IconLicense } from '@tabler/icons-react';
-import { CustomerPicker, DashboardHeader, KPI_PALETTE, PeriodFilter, useCustomerPicker, KpiCard, KpiGrid, PillNote } from '../../components/common/DashboardKit';
+import { CustomerPicker, DashboardHeader, KPI_PALETTE, PeriodFilter, useCustomerPicker, KpiCard, KpiGrid } from '../../components/common/DashboardKit';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
@@ -22,8 +22,6 @@ import { ColumnResizeHandle, pickerClasses, useResizableColumns } from '../../co
 import { apiErrorMessage } from '../../utils/apiError';
 import { yearKST } from '../../utils/dateFormat';
 
-const pad = (value) => String(value).padStart(2, '0');
-const toDate = (value) => `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
 // 기본 조회기간: 올해 1월 1일 ~ 12월 31일 (해가 바뀌면 그해로)
 const defaultPeriod = () => {
   const year = yearKST();
@@ -281,14 +279,14 @@ export default function LicenseRevenue() {
     XLSX.writeFile(workbook, `라이선스매출_${data.month_from.replace('-', '')}_${data.month_to.replace('-', '')}.xlsx`);
   }, [data]);
 
-  useErpPageRibbon({ onSearch: search, onExcel: data ? exportExcel : undefined, showExcel: true, showPrint: false, useSaveColor: false });
+  useErpPageRibbon({ onSearch: search, onExcel: data ? exportExcel : undefined, showExcel: true, useSaveColor: false });
 
   const s = data?.summary;
   const baseMonth = data ? `${monthNo(data.base_month || data.month_to)}월` : '';
 
   return (
     <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${searchClasses.page} ${classes.page}`}>
-      <DashboardHeader parent="어드민" title="라이선스 매출현황">
+      <DashboardHeader parent="관리" title="라이선스 현황">
         <PeriodFilter value={inputs} onChange={setInputs} onSearch={() => { void search(); }} loading={loading}>
           <CustomerPicker label="고객사" picker={picker} onPick={pickCustomer} onClear={clearCustomer} onEnter={() => { void search(); }} />
         </PeriodFilter>

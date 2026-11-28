@@ -1,6 +1,7 @@
 // 결재양식관리 (메뉴: EAPPROVAL_FORM) — 양식 사용 여부 · 양식별 기본 결재선(고정) · 직원별 연차 발생 일수
 // 서버: backend/services/eapproval/EApproval.py (admin_settings · save_admin)
-import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
+import CustomFormEditor from './CustomFormEditor';
 import axios from 'axios';
 import { Box, Group, Loader, Modal, NumberInput, Pagination, Paper, Select, Switch, Text, TextInput, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -222,7 +223,7 @@ function PendingTab({ reloadKey }) {
               <button type="button" className={`${ea.rowBtn} ${ea.rowBtnDanger}`} onClick={() => setReject({ doc, reason: '' })}>반려</button>
             </td>
           </tr>)}
-          {!rows.length && <tr><td colSpan={PENDING_COLUMNS.length} className={own.center} style={{ height: 110, color: '#9aa3af' }}>
+          {!rows.length && <tr><td colSpan={PENDING_COLUMNS.length} className={own.center} style={{ height: 110, color: 'var(--dk-tx-9aa3af, #9aa3af)' }}>
             {searched ? '조건에 맞는 결재중 문서가 없습니다' : '결재중인 문서가 없습니다'}</td></tr>}
       </GridTable>
     </div>
@@ -291,12 +292,22 @@ function PendingTab({ reloadKey }) {
   </section>;
 }
 
-export default function EApprovalForm() {
-  const [tab, setTab] = useState('forms');
+// 한 화면을 두 메뉴로 나눠 쓴다 (탭 → 메뉴 분리). 저장은 보고 있는 탭 부분만 보내므로 두 메뉴가 서로의 설정을 덮어쓰지 않는다.
+//  결재 › 결재설정 (/EApprovalForm): 양식 · 결재선 / 진행 문서
+//  인사 › 휴가설정 (/LeaveSetting):  휴가 시간 / 연차 관리
+const FORM_SCREENS = {
+  approval: { group: '결재', title: '결재설정', tabs: [['forms', '양식 · 결재선'], ['pending', '진행 문서']] },
+  leave: { group: '인사', title: '휴가설정', tabs: [['times', '휴가 시간'], ['leave', '연차 관리']] },
+};
+
+export default function EApprovalForm({ screen = 'approval' }) {
+  const view = FORM_SCREENS[screen] || FORM_SCREENS.approval;
+  const [tab, setTab] = useState(view.tabs[0][0]);
   const [pendingKey, setPendingKey] = useState(0);
   const [year, setYear] = useState(THIS_YEAR);
   const [data, setData] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [editor, setEditor] = useState(null);   // 양식 추가 · 수정 창: { form } (form 이 없으면 새 양식)
   const load = useCallback(async (targetYear) => {
     try {
       const { data: result } = await axios.get('/api/eapproval/admin', { ...authConfig(), params: { year: targetYear } });
@@ -305,6 +316,16 @@ export default function EApprovalForm() {
       notifications.show({ title: '설정 조회 실패', message: errorText(error), color: 'red' });
     }
   }, []);
+  // 양식 추가 · 수정 · 삭제 뒤: 양식 목록만 새로 (아직 저장하지 않은 다른 양식의 사용 여부 · 결재선은 그대로)
+  const refreshForms = useCallback(async () => {
+    try {
+      const { data: result } = await axios.get('/api/eapproval/admin', { ...authConfig(), params: { year } });
+      setData((current) => ({ ...result, users: current?.users || result.users, leave_times: current?.leave_times || result.leave_times,
+        forms: result.forms.map((f) => { const mine = current?.forms.find((x) => x.formcode === f.formcode); return mine ? { ...f, useyn: mine.useyn, line: mine.line } : f; }) }));
+    } catch (error) {
+      notifications.show({ title: '설정 조회 실패', message: errorText(error), color: 'red' });
+    }
+  }, [year]);
   const runLoad = useEffectEvent((y) => { void load(y); });
   useEffect(() => { runLoad(year); }, [year]);
   usePageReactivated(() => { void load(year); });
@@ -326,107 +347,156 @@ export default function EApprovalForm() {
   }, [data, saving, tab, year]);
   const saveRef = useRef(save);
   useEffect(() => { saveRef.current = save; }, [save]);
-  useErpPageRibbon({ onSearch: () => { void load(year); setPendingKey((v) => v + 1); }, onSave: () => saveRef.current?.(), showPrint: false });
+  useErpPageRibbon({ onSearch: () => { void load(year); setPendingKey((v) => v + 1); }, onSave: () => saveRef.current?.() });
 
-  const setSlots = (kind, slots) => setData((current) => ({ ...current, leave_times: { ...current.leave_times, [kind]: slots } }));
-  const timeSelect = (value, onChange, label) => <Select size="xs" className={ea.timeInput} data={TIME_OPTIONS} value={value} allowDeselect={false} searchable aria-label={label}
-    withCheckIcon={false} rightSection={<span />} rightSectionWidth={4} comboboxProps={{ width: 96 }} maxDropdownHeight={220}
-    onChange={(next) => { if (next) onChange(next); }} />;
-  const setForm = (code, patch) => setData((current) => ({ ...current, forms: current.forms.map((f) => (f.formcode === code ? { ...f, ...patch } : f)) }));
-  const nameOf = (email) => data?.users.find((u) => u.email === email);
-  const userOptions = (exclude) => (data?.users || []).filter((u) => !exclude.includes(u.email))
-    .map((u) => ({ value: u.email, label: `${u.username}${u.team ? ` · ${u.team}` : ''}${u.position ? ` ${u.position}` : ''}` }));
+  // 탭 전환: 한 번 연 탭은 그대로 두고 숨기기만 한다 (매번 다시 그리면 시간 고르기 · 연차 입력칸이 많아 버벅인다)
+  const [opened, setOpened] = useState(() => new Set([view.tabs[0][0]]));
+  const selectTab = (key) => {
+    setTab(key);
+    setOpened((current) => (current.has(key) ? current : new Set(current).add(key)));
+  };
+  // 첫 조회가 끝나면 쉬는 시간에 나머지 탭도 미리 그려 둔다 (첫 전환도 바로). 진행 문서는 열 때 조회하므로 미리 그리지 않는다.
+  const hasData = Boolean(data);
+  useEffect(() => {
+    if (!hasData) return undefined;
+    const prepare = () => setOpened((current) => {
+      const next = new Set(current);
+      view.tabs.forEach(([key]) => { if (key !== 'pending') next.add(key); });
+      return next.size === current.size ? current : next;
+    });
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(prepare, { timeout: 1500 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(prepare, 200);
+    return () => window.clearTimeout(id);
+  }, [hasData, view]);
+  const pane = (key, node) => (opened.has(key) ? <div key={key} hidden={tab !== key}>{node}</div> : null);
 
   return <Box className={`${sharedClasses.pageShell} ${classes.page} ${simpleTheme.simple} ${own.page}`}>
     <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
       <Group className={classes.breadcrumbTrail} gap={7}>
-        <Text component="span" className={classes.breadcrumbParent}>전자결재</Text>
+        <Text component="span" className={classes.breadcrumbParent}>{view.group}</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-        <Text component="span" className={classes.breadcrumbCurrent}>결재양식관리</Text>
+        <Text component="span" className={classes.breadcrumbCurrent}>{view.title}</Text>
       </Group>
     </Box>
     <div className={own.tabs} role="tablist">
-      {[['forms', '양식 · 결재선'], ['times', '휴가 시간'], ['leave', '연차 관리'], ['pending', '진행 문서']].map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={tab === key}
-        className={`${own.tab} ${tab === key ? own.tabOn : ''}`} onClick={() => setTab(key)}>{label}</button>)}
+      {view.tabs.map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={tab === key}
+        className={`${own.tab} ${tab === key ? own.tabOn : ''}`} onClick={() => selectTab(key)}>{label}</button>)}
     </div>
     <div className={own.body}>
       {!data ? <div className={own.empty}><Loader size="sm" color="red" /></div> : <Paper className={`${sharedClasses.panel} ${own.sheet}`} withBorder>
-        {tab === 'pending' ? <PendingTab reloadKey={pendingKey} /> : tab === 'forms' ? <section className={own.block}>
-          <div className={own.blockHead}><h3>양식 · 결재선</h3></div>
-          <div className={ea.gridScroll}><GridTable columns={FORM_COLUMNS} className={own.ruleTable}>
-              {data.forms.map((form) => <tr key={form.formcode}>
-                <th scope="row">{form.formname}</th>
-                <td><Switch color="red" size="sm" checked={form.useyn} className={own.switch} withThumbIndicator={false}
-                  onChange={(event) => setForm(form.formcode, { useyn: event.currentTarget.checked })} aria-label={`${form.formname} 사용`} /></td>
-                <td>
-                  <div className={ea.lineEditor} style={{ padding: '8px 0' }}>
-                    {form.line.map((email, index) => <span key={email} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      {index > 0 && <span className={ea.lineArrow}>→</span>}
-                      <span className={ea.lineChip}><em>{index + 1}차</em>{nameOf(email)?.username || email}
-                        <button type="button" aria-label="결재자 빼기" onClick={() => setForm(form.formcode, { line: form.line.filter((e) => e !== email) })}>×</button>
-                      </span>
-                    </span>)}
-                    <Select className={ea.addSelect} size="xs" placeholder={form.line.length ? '+ 결재자 추가' : '+ 1차 결재자'} searchable value={null}
-                      data={userOptions(form.line)} onChange={(value) => { if (value) setForm(form.formcode, { line: [...form.line, value] }); }} />
-                  </div>
-                </td>
-              </tr>)}
-          </GridTable></div>
-          <div className={own.blockHead}><span>신청하면 이 결재선이 문서에 그대로 복사되어 1차부터 차례로 결재됩니다. 저장은 위 [저장]</span></div>
-        </section> : tab === 'times' ? <section className={own.block}>
-          <div className={own.blockHead}><h3>휴가 시간</h3><span>반차 · 반반차를 신청할 때 쓰는 시간대입니다. 바꾼 시간대는 이후 신청부터 적용됩니다.</span></div>
-          <div className={ea.timeBoard}>
-            {TIME_ROWS.map(([kind, label, deduct]) => {
-              const slots = data.leave_times?.[kind] || [];
-              const multi = kind === 'QUARTER';
-              const clash = overlaps(slots);
-              return <div key={kind} className={ea.timeRow}>
-                <div className={ea.timeKind}><b>{label}</b><span>{deduct} 차감</span></div>
-                <div className={ea.timeSlots}>
-                  {slots.map((slot, index) => {
-                    const reversed = toMin(slot.from) >= toMin(slot.to);
-                    const bad = reversed || clash.has(index);
-                    return <div key={`${kind}-${index}`} className={`${ea.timeSlot} ${bad ? ea.timeSlotBad : ''}`}>
-                      {multi && <span className={ea.timeNo}>{index + 1}</span>}
-                      {timeSelect(slot.from, (from) => setSlots(kind, slots.map((x, i) => (i === index ? { ...x, from } : x))), `${label} 시작`)}
-                      <span className={ea.timeTilde}>~</span>
-                      {timeSelect(slot.to, (to) => setSlots(kind, slots.map((x, i) => (i === index ? { ...x, to } : x))), `${label} 종료`)}
-                      <span className={ea.timeLen}>{reversed ? '시간 확인' : clash.has(index) ? '겹침' : duration(slot)}</span>
-                      {multi && slots.length > 1 && <button type="button" className={ea.timeRemove} aria-label={`${index + 1}번 시간대 빼기`}
-                        onClick={() => setSlots(kind, slots.filter((_, i) => i !== index))}>×</button>}
-                    </div>;
-                  })}
-                  {multi && slots.length < 8 && <button type="button" className={ea.timeAdd} onClick={() => setSlots(kind, [...slots, nextSlot(slots)])}>+ 시간대 추가</button>}
-                </div>
-                <TimeBar slots={slots} kind={kind} />
-              </div>;
-            })}
-          </div>
-          <div className={own.blockHead}><span>저장은 위 [저장]</span></div>
-        </section> : <section className={own.block}>
-          <div className={own.blockHead}><h3>연차 관리</h3>
-            <Select size="xs" style={{ width: 110 }} value={String(year)} allowDeselect={false}
-              data={[THIS_YEAR - 1, THIS_YEAR, THIS_YEAR + 1].map((y) => ({ value: String(y), label: `${y}년` }))} onChange={(value) => setYear(Number(value))} />
-          </div>
-          <div className={own.tableWrap} style={{ maxWidth: 1080 }}>
-            <GridTable columns={LEAVE_COLUMNS} className={own.table}>
-                {data.users.map((u) => <tr key={u.email}>
-                  <td><b>{u.username}</b></td>
-                  <td className={own.ellipsis}>{[u.team, u.position].filter(Boolean).join(' · ')}</td>
-                  <td className={`${own.mono} ${own.center}`}>{u.hiredate ? String(u.hiredate).slice(0, 10) : ''}</td>
-                  <td className={own.num}>
-                    <NumberInput className={ea.leaveInput} value={u.granted ?? ''} min={0} max={99} step={0.5} decimalScale={1} hideControls placeholder="미등록"
-                      onChange={(value) => setData((current) => ({ ...current, users: current.users.map((x) => (x.email === u.email ? { ...x, granted: value === '' ? null : Number(value) } : x)) }))} />
-                  </td>
-                  <td className={own.num}>{num(u.used)}</td>
-                  <td className={own.num}>{num(u.pending)}</td>
-                  <td className={own.num}><b>{u.granted === null || u.granted === undefined ? '-' : num(Math.max(u.granted - u.used - u.pending, 0))}</b></td>
-                </tr>)}
-            </GridTable>
-          </div>
-          <div className={own.blockHead}><span>사용 · 결재중은 휴가신청서(연차 · 반차)로 자동 계산됩니다. 저장은 위 [저장]</span></div>
-        </section>}
+        {screen === 'leave' ? <>
+          {pane('times', <TimesSection leaveTimes={data.leave_times} setData={setData} />)}
+          {pane('leave', <LeaveSection users={data.users} year={year} setYear={setYear} setData={setData} />)}
+        </> : <>
+          {pane('forms', <FormsSection forms={data.forms} users={data.users} setData={setData} onEdit={setEditor} />)}
+          {pane('pending', <PendingTab reloadKey={pendingKey} />)}
+        </>}
       </Paper>}
     </div>
+    {editor && <CustomFormEditor form={editor.form} canTemplate={Boolean(data?.can_template)} onClose={() => setEditor(null)}
+      onSaved={() => { setEditor(null); void refreshForms(); }} />}
   </Box>;
 }
+
+// 각 탭은 자기 데이터가 바뀔 때만 다시 그린다 (다른 탭 입력이 이 탭을 다시 그리지 않게)
+const FormsSection = memo(function FormsSection({ forms, users, setData, onEdit }) {
+  const setForm = (code, patch) => setData((current) => ({ ...current, forms: current.forms.map((f) => (f.formcode === code ? { ...f, ...patch } : f)) }));
+  const nameOf = (email) => users.find((u) => u.email === email);
+  const userOptions = (exclude) => users.filter((u) => !exclude.includes(u.email))
+    .map((u) => ({ value: u.email, label: `${u.username}${u.team ? ` · ${u.team}` : ''}${u.position ? ` ${u.position}` : ''}` }));
+  return <section className={own.block}>
+    <div className={own.blockHead}><h3>양식 · 결재선</h3>
+      <button type="button" className={ea.cfAddForm} onClick={() => onEdit({ form: null })}>+ 양식 추가</button></div>
+    <div className={ea.gridScroll}><GridTable columns={FORM_COLUMNS} className={own.ruleTable}>
+        {forms.map((form) => <tr key={form.formcode}>
+          <th scope="row">{form.formname}
+            {form.custom && <><span className={ea.cfTag}>추가</span>
+              <button type="button" className={ea.cfEdit} onClick={() => onEdit({ form })}>수정</button></>}</th>
+          <td><Switch color="red" size="sm" checked={form.useyn} className={own.switch} withThumbIndicator={false}
+            onChange={(event) => setForm(form.formcode, { useyn: event.currentTarget.checked })} aria-label={`${form.formname} 사용`} /></td>
+          <td>
+            <div className={ea.lineEditor} style={{ padding: '8px 0' }}>
+              {form.line.map((email, index) => <span key={email} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {index > 0 && <span className={ea.lineArrow}>→</span>}
+                <span className={ea.lineChip}><em>{index + 1}차</em>{nameOf(email)?.username || email}
+                  <button type="button" aria-label="결재자 빼기" onClick={() => setForm(form.formcode, { line: form.line.filter((e) => e !== email) })}>×</button>
+                </span>
+              </span>)}
+              <Select className={ea.addSelect} size="xs" placeholder={form.line.length ? '+ 결재자 추가' : '+ 1차 결재자'} searchable value={null}
+                data={userOptions(form.line)} onChange={(value) => { if (value) setForm(form.formcode, { line: [...form.line, value] }); }} />
+            </div>
+          </td>
+        </tr>)}
+    </GridTable></div>
+    <div className={own.blockHead}><span>신청하면 이 결재선이 문서에 그대로 복사되어 1차부터 차례로 결재됩니다. 새로 추가한 양식은 결재선을 정하고 사용을 켠 뒤 저장하세요. 저장은 위 [저장]</span></div>
+  </section>;
+});
+
+const timeSelect = (value, onChange, label) => <Select size="xs" className={ea.timeInput} data={TIME_OPTIONS} value={value} allowDeselect={false} searchable aria-label={label}
+  withCheckIcon={false} rightSection={<span />} rightSectionWidth={4} comboboxProps={{ width: 96 }} maxDropdownHeight={220}
+  onChange={(next) => { if (next) onChange(next); }} />;
+
+const TimesSection = memo(function TimesSection({ leaveTimes, setData }) {
+  const setSlots = (kind, slots) => setData((current) => ({ ...current, leave_times: { ...current.leave_times, [kind]: slots } }));
+  return <section className={own.block}>
+    <div className={own.blockHead}><h3>휴가 시간</h3><span>반차 · 반반차를 신청할 때 쓰는 시간대입니다. 바꾼 시간대는 이후 신청부터 적용됩니다.</span></div>
+    <div className={ea.timeBoard}>
+      {TIME_ROWS.map(([kind, label, deduct]) => {
+        const slots = leaveTimes?.[kind] || [];
+        const multi = kind === 'QUARTER';
+        const clash = overlaps(slots);
+        return <div key={kind} className={ea.timeRow}>
+          <div className={ea.timeKind}><b>{label}</b><span>{deduct} 차감</span></div>
+          <div className={ea.timeSlots}>
+            {slots.map((slot, index) => {
+              const reversed = toMin(slot.from) >= toMin(slot.to);
+              const bad = reversed || clash.has(index);
+              return <div key={`${kind}-${index}`} className={`${ea.timeSlot} ${bad ? ea.timeSlotBad : ''}`}>
+                {multi && <span className={ea.timeNo}>{index + 1}</span>}
+                {timeSelect(slot.from, (from) => setSlots(kind, slots.map((x, i) => (i === index ? { ...x, from } : x))), `${label} 시작`)}
+                <span className={ea.timeTilde}>~</span>
+                {timeSelect(slot.to, (to) => setSlots(kind, slots.map((x, i) => (i === index ? { ...x, to } : x))), `${label} 종료`)}
+                <span className={ea.timeLen}>{reversed ? '시간 확인' : clash.has(index) ? '겹침' : duration(slot)}</span>
+                {multi && slots.length > 1 && <button type="button" className={ea.timeRemove} aria-label={`${index + 1}번 시간대 빼기`}
+                  onClick={() => setSlots(kind, slots.filter((_, i) => i !== index))}>×</button>}
+              </div>;
+            })}
+            {multi && slots.length < 8 && <button type="button" className={ea.timeAdd} onClick={() => setSlots(kind, [...slots, nextSlot(slots)])}>+ 시간대 추가</button>}
+          </div>
+          <TimeBar slots={slots} kind={kind} />
+        </div>;
+      })}
+    </div>
+    <div className={own.blockHead}><span>저장은 위 [저장]</span></div>
+  </section>;
+});
+
+const YEAR_OPTIONS = [THIS_YEAR - 1, THIS_YEAR, THIS_YEAR + 1].map((y) => ({ value: String(y), label: `${y}년` }));
+const LeaveSection = memo(function LeaveSection({ users, year, setYear, setData }) {
+  return <section className={own.block}>
+    <div className={own.blockHead}><h3>연차 관리</h3>
+      <Select size="xs" style={{ width: 110 }} value={String(year)} allowDeselect={false}
+        data={YEAR_OPTIONS} onChange={(value) => setYear(Number(value))} />
+    </div>
+    <div className={own.tableWrap} style={{ maxWidth: 1080 }}>
+      <GridTable columns={LEAVE_COLUMNS} className={own.table}>
+          {users.map((u) => <tr key={u.email}>
+            <td><b>{u.username}</b></td>
+            <td className={own.ellipsis}>{[u.team, u.position].filter(Boolean).join(' · ')}</td>
+            <td className={`${own.mono} ${own.center}`}>{u.hiredate ? String(u.hiredate).slice(0, 10) : ''}</td>
+            <td className={own.num}>
+              <NumberInput className={ea.leaveInput} value={u.granted ?? ''} min={0} max={99} step={0.5} decimalScale={1} hideControls placeholder="미등록"
+                onChange={(value) => setData((current) => ({ ...current, users: current.users.map((x) => (x.email === u.email ? { ...x, granted: value === '' ? null : Number(value) } : x)) }))} />
+            </td>
+            <td className={own.num}>{num(u.used)}</td>
+            <td className={own.num}>{num(u.pending)}</td>
+            <td className={own.num}><b>{u.granted === null || u.granted === undefined ? '-' : num(Math.max(u.granted - u.used - u.pending, 0))}</b></td>
+          </tr>)}
+      </GridTable>
+    </div>
+    <div className={own.blockHead}><span>사용 · 결재중은 휴가신청서(연차 · 반차)로 자동 계산됩니다. 저장은 위 [저장]</span></div>
+  </section>;
+});

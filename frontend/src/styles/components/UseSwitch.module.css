@@ -2,10 +2,10 @@
 .switch:disabled { cursor: not-allowed; opacity: .55; }
 .switch:focus { outline: none; }
 .switch:focus-visible { outline: 2px solid #f0a3a7; outline-offset: 1px; }
-.track { position: relative; display: inline-block; width: 38px; height: 18px; flex: none; border-radius: 999px; background: #ccd2da; transition: background-color 140ms ease; }
-.thumb { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #0003; transition: transform 140ms ease; }
+.track { position: relative; display: inline-block; width: 38px; height: 18px; flex: none; border-radius: 999px; background: var(--dk-bg-ccd2da, #ccd2da); transition: background-color 140ms ease; }
+.thumb { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--dk-bg-ffffff, #fff); box-shadow: 0 1px 2px #0003; transition: transform 140ms ease; }
 .on .track { background: #e0434b; }
 .on .thumb { transform: translateX(20px); }
 .text { min-width: 24px; font-size: 13px; font-weight: 600; text-align: left; }
-.on .text { color: #222; }
-.off .text { color: #9b959f; }
+.on .text { color: var(--dk-tx-222222, #222); }
+.off .text { color: var(--dk-tx-9b959f, #9b959f); }

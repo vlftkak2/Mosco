@@ -127,25 +127,6 @@ def is_master(companyid: str, email: str) -> bool:
         return cursor.fetchone() is not None
 
 
-def is_submaster(companyid: str, email: str) -> bool:
-    if not companyid or companyid == "001":
-        return False
-    with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute(
-            """SELECT 1
-               FROM user01t u
-               JOIN company01t c ON c.companyid = u.companyid
-               WHERE u.companyid = %s
-                 AND LOWER(u.email) = LOWER(%s)
-                 AND UPPER(COALESCE(u.authority, '')) = 'SUBMASTER'
-                 AND UPPER(COALESCE(u.useyn, 'N')) = 'Y'
-                 AND UPPER(COALESCE(c.company_status, '')) = 'ACTIVE'
-               LIMIT 1""",
-            (companyid, email),
-        )
-        return cursor.fetchone() is not None
-
-
 _COLUMN_NAMES: list[str] | None = None
 
 

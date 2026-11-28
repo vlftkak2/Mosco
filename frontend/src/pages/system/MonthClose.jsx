@@ -6,7 +6,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'r
 import axios from 'axios';
 import { Box, Button, Group, Loader, Paper, Select, Table, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
+import { IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus, IconSearch, IconTrash, IconPrinter } from '@tabler/icons-react';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
@@ -46,7 +46,6 @@ const YEAR_OPTIONS = Array.from({ length: 8 }, (_, index) => String(thisYear - i
 export default function MonthClose() {
   const ribbon = useContext(PageRibbonContext);
   const registerPageRibbon = ribbon?.registerPageRibbon;
-  const closeActivePage = ribbon?.closeActivePage;
   const [year, setYear] = useState(String(thisYear));
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -70,7 +69,7 @@ export default function MonthClose() {
   usePageReactivated(() => { void load(year); });
 
   const ribbonActionsRef = useRef({});
-  ribbonActionsRef.current = { search: () => void load(year), close: closeActivePage };
+  ribbonActionsRef.current = { search: () => void load(year) };
   useEffect(() => {
     if (!registerPageRibbon) return undefined;
     registerPageRibbon(
@@ -82,8 +81,7 @@ export default function MonthClose() {
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} disabled>엑셀</Button>
-        <span className={classes.ribbonSeparator} />
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={() => ribbonActionsRef.current.close?.()}>닫기</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} disabled>인쇄</Button>
       </Group>,
     );
     return () => registerPageRibbon(null);
@@ -136,7 +134,7 @@ export default function MonthClose() {
     <Box className={`${sharedClasses.pageShell} ${classes.page} ${simpleTheme.simple}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>기준정보</Text>
+          <Text component="span" className={classes.breadcrumbParent}>설정</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
           <Text component="span" className={classes.breadcrumbCurrent}>월마감관리</Text>
         </Group>

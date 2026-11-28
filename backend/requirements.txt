@@ -25,3 +25,5 @@ numpy==2.2.6
 
 # time zones for zoneinfo("Asia/Seoul") even if the OS image has no tz database
 tzdata==2026.5
+# 결재 양식 HTML 서식 정리 (허용한 태그만 남김)
+nh3==0.3.8

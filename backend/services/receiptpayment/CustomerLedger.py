@@ -25,7 +25,7 @@
 회사별 원장 시작일(company01t.ledgerstartdate)이 있으면 그날부터의 전표만 쌓고, 그 이전 잔액은
 거래처 기초잔액(customer01t.openingreceivable / openingpayable)으로 본다.
 """
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
 import db as _shared_db
@@ -410,10 +410,6 @@ def update_start_date(companyid: str, start: date | None, actor: str) -> dict:
             (start, actor or None, companyid),
         )
     return get_settings(companyid)
-
-
-def _effective_from(start: date | None, date_from: date) -> date:
-    return max(start, date_from) if start else date_from
 
 
 def list_balances(companyid: str, date_from: date, date_to: date, keyword: str = "", balance_only: bool = False,

@@ -42,7 +42,7 @@
   min-height: 42px;
   align-items: center;
   padding: 5px 13px;
-  background: #fff;
+  background: var(--dk-bg-ffffff, #fff);
 }
 .editorPanel .codeHeader {
   display: flex;
@@ -65,24 +65,24 @@
   min-height: 33px;
   font-size: 12px;
 }
-.dateFilter :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: #526079; font-size: 12px; font-weight: 600; }
+.dateFilter :global(.mantine-InputWrapper-label) { margin-bottom: 4px; color: var(--dk-tx-526079, #526079); font-size: 12px; font-weight: 600; }
 .listActions { min-width: 0; flex: 0 1 auto; align-self: flex-end; }
-.detailToolbar { min-height: 42px; flex: 0 0 auto; padding: 9px 13px; background: #fff; }
-.sectionTitle { color: #252a32 !important; font-size: 14px !important; font-weight: 700 !important; line-height: 1.25; }
+.detailToolbar { min-height: 42px; flex: 0 0 auto; padding: 9px 13px; background: var(--dk-bg-ffffff, #fff); }
+.sectionTitle { color: var(--dk-tx-252a32, #252a32) !important; font-size: 14px !important; font-weight: 700 !important; line-height: 1.25; }
 .editorPanel :global(.mantine-Badge-root) {
   min-height: 20px;
   padding: 3px 7px;
   border-radius: 12px;
-  background: #eef2f7;
-  color: #738098;
+  background: var(--dk-bg-eef2f7, #eef2f7);
+  color: var(--dk-tx-738098, #738098);
   font-size: 11px;
   font-weight: 400;
 }
 .tableViewport { height: 0; min-height: 0; flex: 1 1 auto; overflow: hidden; }
-.tableViewport.savedTableViewport { overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #aab6c4 #f1f4f7; }
+.tableViewport.savedTableViewport { overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #aab6c4 var(--dk-ln-f1f4f7, #f1f4f7); }
 .savedTableViewport::-webkit-scrollbar { width: 12px; height: 12px; }
-.savedTableViewport::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
-.savedTableViewport::-webkit-scrollbar-track { background: #f1f4f7; }
+.savedTableViewport::-webkit-scrollbar-thumb { background: var(--dk-bg-aab6c4, #aab6c4); border: 3px solid var(--dk-ln-f1f4f7, #f1f4f7); border-radius: 8px; }
+.savedTableViewport::-webkit-scrollbar-track { background: var(--dk-bg-f1f4f7, #f1f4f7); }
 .savedTableViewport :global(thead th) { position: sticky; top: 0; z-index: 3; }
 /* 표 맨 위 선은 위 제목줄 아랫선 하나만: 표 윗테두리·헤더 윗선 겹침 제거 */
 .tableViewport :global(table) { border-top: 0 !important; }
@@ -90,45 +90,45 @@
 .savedValue { display: block; height: 33px; overflow: hidden; padding: 0 7px; font-size: 11px; line-height: 33px; text-overflow: ellipsis; white-space: nowrap; }
 .savedAmountValue { text-align: right; }
 .emptyTableState { display: flex; width: 100%; height: 100%; min-height: 0; flex-direction: column; overflow: auto; }
-.emptyTableMessage { display: flex; min-height: 0; flex: 1 1 auto; align-items: center; justify-content: center; color: #7c899b; font-size: 13px; text-align: center; }
+.emptyTableMessage { display: flex; min-height: 0; flex: 1 1 auto; align-items: center; justify-content: center; color: var(--dk-tx-7c899b, #7c899b); font-size: 13px; text-align: center; }
 .tableViewport :global([data-virtuoso-scroller]),
 .emptyTableState {
   overflow-x: auto;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: #aab6c4 #f1f4f7;
+  scrollbar-color: #aab6c4 var(--dk-ln-f1f4f7, #f1f4f7);
 }
 .tableViewport :global([data-virtuoso-scroller])::-webkit-scrollbar,
 .emptyTableState::-webkit-scrollbar { width: 12px; height: 12px; }
 .tableViewport :global([data-virtuoso-scroller])::-webkit-scrollbar-thumb,
-.emptyTableState::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
+.emptyTableState::-webkit-scrollbar-thumb { background: var(--dk-bg-aab6c4, #aab6c4); border: 3px solid var(--dk-ln-f1f4f7, #f1f4f7); border-radius: 8px; }
 .tableViewport :global([data-virtuoso-scroller])::-webkit-scrollbar-track,
-.emptyTableState::-webkit-scrollbar-track { background: #f1f4f7; }
+.emptyTableState::-webkit-scrollbar-track { background: var(--dk-bg-f1f4f7, #f1f4f7); }
 .table { table-layout: fixed; }
 .table :global(tbody td),
 .table :global(tbody input),
 .table :global(tbody select) { font-size: 11px; }
-.newRow > td { background: #fffbf4 !important; }
-.newRowNumber { background: #fffbf4 !important; }
+.newRow > td { background: var(--dk-bg-fffbf4, #fffbf4) !important; }
+.newRowNumber { background: var(--dk-bg-fffbf4, #fffbf4) !important; }
 /* New rows: optional (non-*) input cells are plain white instead of the new-row tint / gray amount style.
    Lookup cells (거래처·표면) keep their search-icon style; the calculated 합계금액 stays gray. */
 /* Mantine's highlightOnHover paints the row #f1f3f5 (= the disabled gray); new input rows keep their own colors. */
 .table.table tbody tr.newRow { --tr-hover-bg: transparent; }
 /* (class only set on unsaved rows; doubled .table outranks the `.codeTable tbody tr.newRow > td` tint) */
-.table.table tbody tr > td.optionalNewCell { background: #fff !important; }
+.table.table tbody tr > td.optionalNewCell { background: var(--dk-bg-ffffff, #fff) !important; }
 .table.table tbody tr > td.optionalNewCell input:not(:focus):not(:disabled),
-.table.table tbody tr > td.optionalNewCell select:not(:disabled) { background-color: #fff; color: #293a52; }
+.table.table tbody tr > td.optionalNewCell select:not(:disabled) { background-color: var(--dk-bg-ffffff, #fff); color: var(--dk-tx-293a52, #293a52); }
 .table td input, .table td select { width: 100%; min-width: 0; }
-.savedEditableCell { background: #fff !important; }
-.savedEditableCell :global(input) { background: #fff !important; color: #23344d !important; cursor: text; }
-.savedEditableCell:focus-within { background: #fffaf0 !important; }
-.savedEditableCell:focus-within :global(input) { background: #fffaf0 !important; }
+.savedEditableCell { background: var(--dk-bg-ffffff, #fff) !important; }
+.savedEditableCell :global(input) { background: var(--dk-bg-ffffff, #fff) !important; color: var(--dk-tx-23344d, #23344d) !important; cursor: text; }
+.savedEditableCell:focus-within { background: var(--dk-bg-fffaf0, #fffaf0) !important; }
+.savedEditableCell:focus-within :global(input) { background: var(--dk-bg-fffaf0, #fffaf0) !important; }
 /* Unsaved-changes confirm: same card as the app's bottom-right notifications. */
 .discardConfirm { position: fixed; z-index: 1000; right: 16px; bottom: 16px; width: min(400px, calc(100vw - 32px)); }
 .discardConfirm :global(.mantine-Notification-root) { box-shadow: 0 8px 28px #1a2b4433; }
-.footer { flex: 0 0 auto; padding: 9px 14px; border-top: 1px solid #e5e9ef; }
-.stockFooter { position: static; z-index: auto; width: 100%; min-width: 0; min-height: 38px; flex: 0 0 auto; align-self: stretch; gap: 8px 16px; margin-top: auto; padding: 5px 12px; background: #fff; }
+.footer { flex: 0 0 auto; padding: 9px 14px; border-top: 1px solid var(--dk-ln-e5e9ef, #e5e9ef); }
+.stockFooter { position: static; z-index: auto; width: 100%; min-width: 0; min-height: 38px; flex: 0 0 auto; align-self: stretch; gap: 8px 16px; margin-top: auto; padding: 5px 12px; background: var(--dk-bg-ffffff, #fff); }
 .paginationBar { min-width: 0; margin-left: auto; }
 .footerNotice { flex: 1 1 520px; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
 .loading { display: grid; height: 100%; min-height: 300px; place-items: center; }
@@ -144,7 +144,7 @@
 }
 
 @media (max-width: 760px) {
-  .page.page { height: auto; min-height: calc(100dvh - 90px); flex: 0 0 auto; overflow: visible; }
+  .page.page { height: auto; min-height: calc(100dvh - 96px); flex: 0 0 auto; overflow: visible; }
   .workspace, .workspaceWithFilter { height: auto; min-height: 0; flex: 0 0 auto; overflow: visible; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(640px, auto) auto; }
   .editorPanel { height: 640px; min-height: 640px; max-height: 640px; }
   .headerActions { width: 100%; justify-content: flex-start; }
@@ -159,28 +159,28 @@
 /* ───────────────────────────────────────────────────────────────────────────
    등록 화면 공통 다듬기 (매입·매출등록과 같은 표 디자인). 색·선만 바꾸고 높이·가상 스크롤은 그대로.
    ─────────────────────────────────────────────────────────────────────────── */
-.editorPanel { border-color: #e0e6ef !important; border-radius: 8px !important; background: #fff !important; box-shadow: none; }
-.codeHeader { border-bottom: 1px solid #e0e6ef; }
-.sectionTitle { color: #1e2e45 !important; letter-spacing: -0.2px; }
+.editorPanel { border-color: var(--dk-ln-e0e6ef, #e0e6ef) !important; border-radius: 8px !important; background: var(--dk-bg-ffffff, #fff) !important; box-shadow: none; }
+.codeHeader { border-bottom: 1px solid var(--dk-ln-e0e6ef, #e0e6ef); }
+.sectionTitle { color: var(--dk-tx-1e2e45, #1e2e45) !important; letter-spacing: -0.2px; }
 .editorPanel :global(.mantine-Badge-root) {
-  border: 1px solid #e1e6ee;
+  border: 1px solid var(--dk-ln-e1e6ee, #e1e6ee);
   border-radius: 20px;
-  background: #f8fafc;
-  color: #64758d;
+  background: var(--dk-bg-f8fafc, #f8fafc);
+  color: var(--dk-tx-64758d, #64758d);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
 /* 편집 표: 머리 · 칸 선 · 마우스 올림(회색 = 비활성 색과 겹치지 않게 연한 파랑) */
-.editorPanel :global(table) { --table-border-color: #dde3ea; --table-hover-color: #f5f9ff; }
+.editorPanel :global(table) { --table-border-color: var(--dk-ln-dde3ea, #dde3ea); --table-hover-color: var(--dk-bg-f5f9ff, #f5f9ff); }
 .editorPanel :global(table thead th) {
-  border-color: #e0e6ef !important;
-  border-bottom-color: #d6dee8 !important;
-  background: #f4f6f9 !important;
-  color: #4b5b70 !important;
+  border-color: var(--dk-ln-e0e6ef, #e0e6ef) !important;
+  border-bottom-color: var(--dk-ln-d6dee8, #d6dee8) !important;
+  background: var(--dk-bg-f4f6f9, #f4f6f9) !important;
+  color: var(--dk-tx-4b5b70, #4b5b70) !important;
   font-weight: 650 !important;
 }
-.editorPanel :global(table tbody td) { border-color: #e1e6ed !important; font-variant-numeric: tabular-nums; }
+.editorPanel :global(table tbody td) { border-color: var(--dk-ln-e1e6ed, #e1e6ed) !important; font-variant-numeric: tabular-nums; }
 .editorPanel :global(tbody td input:not([type='checkbox']):focus),
 .editorPanel :global(tbody td select:focus) {
   outline: 2px solid #e45159 !important;
@@ -189,13 +189,13 @@
 }
 .editorPanel :global(tbody td input[type='checkbox']:focus-visible),
 .editorPanel :global(thead th input[type='checkbox']:focus-visible) { outline: 2px solid #e45159; outline-offset: 2px; }
-.emptyTableMessage { color: #8290a5; }
-.stockFooter { border-top-color: #e0e6ef; background: #fbfcfd; }
+.emptyTableMessage { color: var(--dk-tx-8290a5, #8290a5); }
+.stockFooter { border-top-color: var(--dk-ln-e0e6ef, #e0e6ef); background: var(--dk-bg-fbfcfd, #fbfcfd); }
 
 /* 기초재고 셀 범위 선택 (Shift+방향키 · Shift+클릭) — 신규 행 색 · 저장된 회색 칸 위에도 보이게 (.table.table … td.optionalNewCell 보다 앞서게) */
-.table.table tbody tr > td.rangeCell { background: #fdecec !important; box-shadow: inset 0 0 0 1px #e8a3a6; }
+.table.table tbody tr > td.rangeCell { background: var(--dk-bg-fdecec, #fdecec) !important; box-shadow: inset 0 0 0 1px #e8a3a6; }
 .table.table tbody tr > td.rangeCell input,
 .table.table tbody tr > td.rangeCell select,
-.table.table tbody tr > td.rangeCell span { background-color: #fdecec !important; }
+.table.table tbody tr > td.rangeCell span { background-color: var(--dk-bg-fdecec, #fdecec) !important; }
 .emptyPasteTarget { cursor: text; outline: none; }
 .emptyPasteTarget:focus-visible { box-shadow: inset 0 0 0 2px #e8a3a6; }

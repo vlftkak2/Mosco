@@ -1,19 +1,19 @@
-.content { overflow: hidden; border: 1px solid #edf0f4; box-shadow: 0 28px 70px #0f172a38, 0 6px 18px #0f172a1a; }
+.content { overflow: hidden; border: 1px solid var(--dk-ln-edf0f4, #edf0f4); box-shadow: 0 28px 70px #0f172a38, 0 6px 18px #0f172a1a; }
 .top { display: flex; flex-direction: column; align-items: center; padding: 28px 26px 20px; text-align: center; }
-.icon { display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; margin-bottom: 14px; border-radius: 50%; background: #ffe3e4; box-shadow: 0 0 0 7px #fff2f2; color: #e0434b; }
-.top h2 { margin: 0 0 10px; color: #18212f; font-size: 17px; font-weight: 800; letter-spacing: -.3px; }
-.target { max-width: 100%; margin-bottom: 10px; overflow: hidden; padding: 3px 10px; border-radius: 999px; background: #f2f4f7; color: #2b3747; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .2px; text-overflow: ellipsis; white-space: nowrap; }
-.top p { margin: 0; color: #6b7889; font-size: 13px; line-height: 1.6; word-break: keep-all; }
+.icon { display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; margin-bottom: 14px; border-radius: 50%; background: var(--dk-bg-ffe3e4, #ffe3e4); box-shadow: 0 0 0 7px var(--dk-ln-fff2f2, #fff2f2); color: var(--dk-tx-e0434b, #e0434b); }
+.top h2 { margin: 0 0 10px; color: var(--sh-t1, #18212f); font-size: 17px; font-weight: 800; letter-spacing: -.3px; }
+.target { max-width: 100%; margin-bottom: 10px; overflow: hidden; padding: 3px 10px; border-radius: 999px; background: var(--dk-bg-f2f4f7, #f2f4f7); color: var(--dk-tx-2b3747, #2b3747); font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .2px; text-overflow: ellipsis; white-space: nowrap; }
+.top p { margin: 0; color: var(--dk-tx-6b7889, #6b7889); font-size: 13px; line-height: 1.6; word-break: keep-all; }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 22px 22px; }
 .cancel, .confirm { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 42px; border: 0; border-radius: 10px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; transition: background-color 120ms ease, box-shadow 120ms ease; }
-.cancel { background: #f1f3f6; color: #3f4d61; }
-.cancel:hover:not(:disabled) { background: #e7eaef; }
+.cancel { background: var(--dk-bg-f1f3f6, #f1f3f6); color: var(--dk-tx-3f4d61, #3f4d61); }
+.cancel:hover:not(:disabled) { background: var(--dk-bg-e7eaef, #e7eaef); }
 .confirm { background: #ef444c; color: #fff; }
 .confirm:hover:not(:disabled) { background: #dc323a; box-shadow: 0 4px 12px #e23d4540; }
 .cancel:disabled, .confirm:disabled { cursor: not-allowed; opacity: .6; }
 .cancel:focus, .confirm:focus { outline: none; }
 .cancel:focus-visible, .confirm:focus-visible { outline: 2px solid #f0a3a7; outline-offset: 2px; }
-.spinner { width: 15px; height: 15px; border: 2px solid #ffffff66; border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+.spinner { width: 15px; height: 15px; border: 2px solid #ffffff66; border-top-color: var(--dk-ln-ffffff, #fff); border-radius: 50%; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* 삭제할 수 없음: [확인] 하나를 창 너비에 맞춰 (삭제 버튼과 같은 빨강) */

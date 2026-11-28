@@ -10,6 +10,7 @@ import { notifications } from '@mantine/notifications';
 import {
   IconAlertTriangle, IconCalendarDue, IconCashBanknote, IconCopy, IconDeviceFloppy, IconFileInvoice, IconFileSpreadsheet,
   IconFilter, IconPlus, IconRefresh, IconSearch, IconTrash, IconX,
+  IconPrinter,
 } from '@tabler/icons-react';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { KPI_PALETTE, KpiBreakdown } from '../../components/common/DashboardKit';
@@ -183,7 +184,6 @@ const AgingSection = memo(function AgingSection({ chartData, agingTotals, showLo
 export default function InstrumentStatus() {
   const ribbon = useContext(PageRibbonContext);
   const registerRibbon = ribbon?.registerPageRibbon;
-  const closePage = ribbon?.closeActivePage;
   const [filterOpen, setFilterOpen] = useState(true);
   const closeFilter = useCallback(() => setFilterOpen(false), []);
   const [filterInputs, setFilterInputs] = useState(makeFilters);
@@ -272,12 +272,11 @@ export default function InstrumentStatus() {
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={() => void ribbonActions.current.exportExcel()} disabled={!hasItems}>엑셀</Button>
-        <span className={classes.ribbonSeparator} />
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closePage}>닫기</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} disabled>인쇄</Button>
       </Group>,
     );
     return () => registerRibbon(null);
-  }, [registerRibbon, closePage, hasItems]);
+  }, [registerRibbon, hasItems]);
 
   const agingKey = JSON.stringify(data.aging);
   const chartData = useMemo(() => {
@@ -374,9 +373,9 @@ export default function InstrumentStatus() {
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page} ${pageClasses.page}`}>
     <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
       <Group className={classes.breadcrumbTrail} gap={7}>
-        <Text component="span" className={classes.breadcrumbParent}>자금관리</Text>
+        <Text component="span" className={classes.breadcrumbParent}>자금</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-        <Text component="span" className={classes.breadcrumbCurrent}>수표/어음관리</Text>
+        <Text component="span" className={classes.breadcrumbCurrent}>어음수표 관리</Text>
       </Group>
       {!filterOpen && <Button className={classes.filterToggle} variant="subtle" size="xs" leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
     </Box>
@@ -412,7 +411,7 @@ export default function InstrumentStatus() {
           <Group justify="space-between" wrap="nowrap" className={pageClasses.panelHeader}>
             <Group gap={8} wrap="nowrap"><Text className={classes.sectionTitle} fw={700}>만기 구간별 금액</Text><Text size="xs" c="dimmed">진행 중인 받을 채권·지급 채무 · {filters.maturity_from || filters.maturity_to ? `만기 ${filters.maturity_from || '…'} ~ ${filters.maturity_to || '…'}` : '전체 기간'}</Text></Group>
             <Group gap={14} wrap="nowrap">{SERIES.map((series) => <Group key={series.key} gap={6} wrap="nowrap">
-              <span className={pageClasses.legendSwatch} style={{ background: series.color }} /><Text size="xs" c="#52514e">{series.label}</Text></Group>)}</Group>
+              <span className={pageClasses.legendSwatch} style={{ background: series.color }} /><Text size="xs" c="var(--dk-tx-52514e, #52514e)">{series.label}</Text></Group>)}</Group>
           </Group>
           <AgingSection chartData={chartData} agingTotals={agingTotals} showLoader={loading && !hasAging} activeBucket={filters.bucket} onPickBucket={onPickBucket} />
         </Paper>
@@ -422,7 +421,7 @@ export default function InstrumentStatus() {
             <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
               <Text className={classes.sectionTitle} fw={700}>채권/채무 목록</Text>
               <Badge color="gray" variant="light">{data.total.toLocaleString()}건</Badge>
-              <Text size="xs" fw={700} c="#25334a">{formatNumber(data.total_amount)}원</Text>
+              <Text size="xs" fw={700} c="var(--dk-tx-25334a, #25334a)">{formatNumber(data.total_amount)}원</Text>
               <Group gap={4} wrap="nowrap" className={pageClasses.filterChips}>{filterParts.map((part) => <span key={part} className={pageClasses.filterChip}>{part}</span>)}</Group>
             </Group>
             <Button size="xs" variant="subtle" color="gray" leftSection={<IconRefresh size={13} />} disabled={isDefaultFilter} onClick={resetFilters}>조건 초기화</Button>
@@ -434,7 +433,7 @@ export default function InstrumentStatus() {
                 <colgroup>{COLUMNS.map((column) => <col key={column.key} style={{ width: `${column.width}px` }} />)}</colgroup>
                 <Table.Thead><Table.Tr>{COLUMNS.map((column) => <Table.Th key={column.key} style={{ position: 'sticky', top: 0, zIndex: 3 }}
                   ta={['instrumentamt', 'discountfee'].includes(column.key) ? 'right' : ['dday', 'status'].includes(column.key) ? 'center' : undefined}>{column.label}</Table.Th>)}</Table.Tr></Table.Thead>
-                <Table.Tbody>{data.items.length ? data.items.map((item) => <InstrumentRow key={`${item.receiptno}:${item.lineno}`} item={item} />) : !loading && <Table.Tr><Table.Td colSpan={COLUMNS.length} style={{ height: 140, textAlign: 'center', color: '#7c899b' }}>조건에 맞는 채권/채무가 없습니다.</Table.Td></Table.Tr>}</Table.Tbody>
+                <Table.Tbody>{data.items.length ? data.items.map((item) => <InstrumentRow key={`${item.receiptno}:${item.lineno}`} item={item} />) : !loading && <Table.Tr><Table.Td colSpan={COLUMNS.length} style={{ height: 140, textAlign: 'center', color: 'var(--dk-tx-7c899b, #7c899b)' }}>조건에 맞는 채권/채무가 없습니다.</Table.Td></Table.Tr>}</Table.Tbody>
               </Table>
             </Box>
           </Box>

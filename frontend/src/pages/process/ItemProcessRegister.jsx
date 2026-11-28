@@ -70,17 +70,6 @@ const formatNumericInput = (value) => {
   const groupedInteger = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return decimal === undefined ? groupedInteger : `${groupedInteger}.${decimal}`;
 };
-const formatExcelDateTime = (value) => {
-  if (!value) return '';
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return String(value);
-  const parts = cachedDateFormat('en-CA', {
-    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-  }).formatToParts(date);
-  const part = (type) => parts.find((entry) => entry.type === type)?.value || '';
-  return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}:${part('second')}`;
-};
 function handleDetailGridKeyDown(event) {
   const field = event.currentTarget.dataset.detailField;
   const currentRow = event.currentTarget.closest('tr');
@@ -367,7 +356,7 @@ function ProcessMethodCell({ product, options, disabled, onSelect }) {
       </Popover.Target>
       <Popover.Dropdown className={classes.processSuggestions}>
         {matches.map((option, index) => <button type="button" className={classes.processSuggestion} key={option.processid}
-          aria-selected={index === activeIndex} style={index === activeIndex ? { background: '#edf3f8' } : undefined}
+          aria-selected={index === activeIndex} style={index === activeIndex ? { background: 'var(--dk-bg-edf3f8, #edf3f8)' } : undefined}
           onMouseDown={(event) => event.preventDefault()} onClick={() => choose(option)}><span>{option.processname}</span></button>)}
       </Popover.Dropdown>
     </Popover>
@@ -1375,8 +1364,7 @@ export default function ItemProcessRegister() {
   useEffect(() => {
     if (!pageLayout?.registerPageRibbon) return undefined;
     const [copy, excel, del, save, searchLoading, saveLoading] = [...ribbonState].map((flag) => flag === '1');
-    pageLayout.registerPageRibbon(<ErpRibbon {...ribbonHandlers} onClose={pageLayout.closeActivePage}
-      showPrint={false} useSaveColor={false} disabled={{ copy, excel, delete: del, save }} loading={{ search: searchLoading, save: saveLoading, delete: saveLoading }} />);
+    pageLayout.registerPageRibbon(<ErpRibbon {...ribbonHandlers} useSaveColor={false} disabled={{ copy, excel, delete: del, save }} loading={{ search: searchLoading, save: saveLoading, delete: saveLoading }} />);
     return () => pageLayout.registerPageRibbon(null);
   }, [pageLayout, ribbonHandlers, ribbonState]);
 
@@ -1505,7 +1493,7 @@ export default function ItemProcessRegister() {
   ), [filters, loadDocuments, openStockLookup]);
 
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="가공관리" current="재고가공등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+    <ErpBreadcrumb parent="가공" current="재고가공 등록" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
     <Box className={classes.workspace}>
       <Stack gap="sm" className={classes.main}>
         {documentListPanel}

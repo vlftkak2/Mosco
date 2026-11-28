@@ -10,6 +10,7 @@ import { notifications } from '@mantine/notifications';
 import {
   IconCalendar, IconChartBar, IconChevronDown, IconChevronRight, IconCoin, IconCopy, IconDeviceFloppy, IconFileSpreadsheet,
   IconFilter, IconPercentage, IconPlus, IconSearch, IconShoppingCart, IconTrash, IconTrendingUp, IconTruckDelivery, IconX,
+  IconPrinter,
 } from '@tabler/icons-react';
 import { useLocation } from 'react-router-dom';
 import ErpDateInput from '../../components/common/ErpDateInput';
@@ -182,7 +183,6 @@ const FilterSidebar = memo(function FilterSidebar({ inputs, setInputs, onSearch,
 export default function GrossProfit() {
   const ribbon = useContext(PageRibbonContext);
   const registerRibbon = ribbon?.registerPageRibbon;
-  const closePage = ribbon?.closeActivePage;
   const [filterOpen, setFilterOpen] = useState(true);
   const [inputs, setInputs] = useState(makeFilters);
   const [filters, setFilters] = useState(makeFilters);
@@ -311,12 +311,11 @@ export default function GrossProfit() {
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={() => actions.current.exportExcel()} disabled={!hasItems}>엑셀</Button>
-        <span className={classes.ribbonSeparator} />
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closePage}>닫기</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} disabled>인쇄</Button>
       </Group>,
     );
     return () => registerRibbon(null);
-  }, [registerRibbon, closePage, hasItems]);
+  }, [registerRibbon, hasItems]);
 
   const salesTotal = Number(total?.sales_amt || 0) + Number(total?.sales_plus || 0); // 매출비용(+)도 매출
   const cards = [
@@ -331,9 +330,9 @@ export default function GrossProfit() {
     <Box className={`${sharedClasses.pageShell} ${classes.page} ${pageClasses.page} ${simpleTheme.simple}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>매출관리</Text>
+          <Text component="span" className={classes.breadcrumbParent}>매출</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-          <Text component="span" className={classes.breadcrumbCurrent}>매출이익분석</Text>
+          <Text component="span" className={classes.breadcrumbCurrent}>매출이익 현황</Text>
         </Group>
         {!filterOpen && <Button className={classes.filterToggle} variant="subtle" size="xs" leftSection={<IconFilter size={15} />} onClick={() => setFilterOpen(true)}>조회조건</Button>}
       </Box>

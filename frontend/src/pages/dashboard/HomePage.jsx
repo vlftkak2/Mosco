@@ -28,7 +28,7 @@ const KPI_COLOR = { sales: KPI_PALETTE.blue, purchase: KPI_PALETTE.orange, profi
 const COST_COLOR = { past: '#dbe3ee', current: '#9fb1c8' };
 const PROFIT_COLOR = { past: '#a9e0c9', current: '#1baf7a' };
 const SALES_COLOR = { past: '#bcd6f3', current: '#2a78d6' };
-const AGING_COLORS = { m3: '#cfe1f7', m6: '#9cc2ee', m9: '#5f9be0', y1: '#2a78d6', over1: '#1a4f94', unknown: '#c3cad4' };
+const AGING_COLORS = { m3: 'var(--dk-chart-cfe1f7, #cfe1f7)', m6: 'var(--dk-chart-9cc2ee, #9cc2ee)', m9: '#5f9be0', y1: '#2a78d6', over1: '#1a4f94', unknown: 'var(--dk-chart-c3cad4, #c3cad4)' };   // var: 다크일 때 어두운 같은 계열 (darkCharts.css)
 
 const pad = (value) => String(value).padStart(2, '0');
 const toDate = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -265,7 +265,7 @@ export default function HomePage() {
     if (period.customer) apply(inputs, null);
     picker.inputRef.current?.focus();
   }, [picker, period.customer, inputs, apply]);
-  useErpPageRibbon({ onSearch: search, showPrint: false, useSaveColor: false, disableClose: true });
+  useErpPageRibbon({ onSearch: search, useSaveColor: false });
 
   const sales = data?.sales;
   const purchase = data?.purchase;

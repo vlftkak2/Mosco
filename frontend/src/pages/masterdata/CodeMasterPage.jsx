@@ -879,13 +879,12 @@ export default function CodeMasterPage() {
     onSave: saveRows,
     onDelete: requestDeleteSelected,
     onExcel: exportCodes,
-    showPrint: false,
     useSaveColor: false,
   });
 
   return (
     <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page} ${s.screen}`}>
-      <ErpBreadcrumb parent="기준정보" current="공통코드관리" />
+      <ErpBreadcrumb parent="설정" current="기초코드 관리" />
 
       <div className={s.workspace}>
         <CodeMasterGroupPanel groups={groups} visibleGroups={visibleGroups} groupQuery={groupQuery} setGroupQuery={setGroupQuery} totalCodes={totalCodes} loading={loading && !showCachedGroups} uploadProgress={uploadProgress} selectedId={selectedId} onSelectGroup={handleSelectGroup} />

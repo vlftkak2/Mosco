@@ -46,23 +46,24 @@ const DEFAULT_PAGE_SIZE = 15;
 
 // 화면 표시용 묶음: 사이드 메뉴의 대메뉴 구성과 같은 순서 (권한 저장 값과는 무관)
 const MENU_SECTIONS = [
-  { label: '대시보드', menuids: ['HOME'] },
-  { label: '매입관리', menuids: ['INBOUND_REGISTER', 'INBOUND_SEARCH'] },
-  { label: '매출관리', menuids: ['OUTBOUND_REGISTER', 'OUTBOUND_SEARCH', 'GROSS_PROFIT', 'GROSS_PROFIT_DASHBOARD'] },
-  { label: '재고관리', menuids: ['STOCK_INITIAL', 'STOCK_CURRENT', 'STOCK_HISTORY', 'INOUTMOVE_REGISTER', 'INOUTMOVE_SEARCH'] },
+  // 네비게이션과 같은 묶음 · 순서 (모스코 전용 메뉴는 서버가 모스코(001) 직원을 고를 때만 내려준다)
+  { label: '홈', menuids: ['HOME', 'AI_ASSISTANT'] },
+  { label: '매입', menuids: ['INBOUND_REGISTER', 'INBOUND_SEARCH'] },
+  { label: '매출', menuids: ['OUTBOUND_REGISTER', 'OUTBOUND_SEARCH', 'GROSS_PROFIT', 'GROSS_PROFIT_DASHBOARD'] },
   {
-    label: '가공관리',
-    menuids: ['AI_ORDER_RECOGNITION', 'AI_ORDER_MANAGEMENT', 'AI_OPTIMIZATION', 'ITEM_PROCESS_MASTER', 'ITEM_PROCESS_REGISTER', 'ITEM_PROCESS_SEARCH'],
+    label: '가공',
+    menuids: ['AI_ORDER_RECOGNITION', 'AI_ORDER_MANAGEMENT', 'AI_OPTIMIZATION', 'ITEM_PROCESS_REGISTER', 'ITEM_PROCESS_SEARCH', 'ITEM_PROCESS_MASTER'],
   },
-  { label: '거래처관리', menuids: ['DATA_CUSTOMER', 'CUSTOMER_LEDGER', 'CUSTOMER_BALANCE_DASHBOARD'] },
-  { label: '자금관리', menuids: ['RECEIPT_PAYMENT', 'RECEIPT_PAYMENT_SEARCH', 'INSTRUMENT_STATUS'] },
-  { label: '기준정보', menuids: ['DATA_CODE', 'DATA_ITEM', 'WORKPLACE_MANAGEMENT', 'MONTH_CLOSING', 'USER_MANAGEMENT'] },
-  { label: '게시판', menuids: ['CUSTOMER_SUPPORT'] },
-  { label: '전자결재', menuids: ['EAPPROVAL', 'EAPPROVAL_FORM'] },
-  { label: '급여관리', menuids: ['PAYROLL', 'PAYROLL_MY'] },
-  { label: '어드민', menuids: ['CONTROL_MANAGEMENT', 'COMPANY_USER_MANAGEMENT', 'USER_MENU_PERMISSION'] },
-  // 모스코(001) 직원을 고를 때만 서버가 내려준다
-  { label: '모스코 전용', menuids: ['COMPANY_REGISTRATION', 'LICENSE_REVENUE', 'AI_COST', 'SHARED_STOCK', 'AI_ASSISTANT'] },
+  { label: '재고', menuids: ['STOCK_CURRENT', 'STOCK_HISTORY', 'STOCK_INITIAL', 'INOUTMOVE_REGISTER', 'INOUTMOVE_SEARCH'] },
+  { label: '자금', menuids: ['RECEIPT_PAYMENT', 'RECEIPT_PAYMENT_SEARCH', 'INSTRUMENT_STATUS', 'CUSTOMER_LEDGER', 'CUSTOMER_BALANCE_DASHBOARD'] },
+  { label: '인사', menuids: ['USER_MANAGEMENT', 'PAYROLL', 'PAYROLL_MY'] },
+  { label: '결재', menuids: ['EAPPROVAL', 'EAPPROVAL_FORM'] },
+  { label: '소통', menuids: ['CUSTOMER_SUPPORT'] },
+  { label: '설정', menuids: ['DATA_CODE', 'DATA_ITEM', 'DATA_CUSTOMER', 'WORKPLACE_MANAGEMENT', 'MONTH_CLOSING'] },
+  {
+    label: '관리',
+    menuids: ['COMPANY_REGISTRATION', 'COMPANY_USER_MANAGEMENT', 'USER_MENU_PERMISSION', 'CONTROL_MANAGEMENT', 'LICENSE_REVENUE', 'SHARED_STOCK', 'AI_COST'],
+  },
 ];
 const MENU_SECTION_BY_ID = Object.fromEntries(
   MENU_SECTIONS.flatMap((section, index) => section.menuids.map((menuid) => [menuid, index])),
@@ -309,7 +310,6 @@ export default function UserMenu() {
   useErpPageRibbon({
     onSearch: handleSearch,
     onSave: selectedUser && !saving ? handleSave : undefined,
-    showPrint: false,
     showExcel: false,
     useSaveColor: false,
   });
@@ -317,9 +317,9 @@ export default function UserMenu() {
   return (
     <Box className={`${simpleTheme.simple} ${simpleTheme.noIcons} ${sharedClasses.pageShell} ${classes.page}`}>
       <Box component="nav" className={classes.breadcrumb}>
-        <Text component="span" className={classes.breadcrumbParent}>어드민</Text>
+        <Text component="span" className={classes.breadcrumbParent}>관리</Text>
         <Text component="span" className={classes.breadcrumbChevron}>›</Text>
-        <Text component="span" className={classes.breadcrumbCurrent}>메뉴권한관리</Text>
+        <Text component="span" className={classes.breadcrumbCurrent}>메뉴별 권한</Text>
       </Box>
 
       <div className={classes.workspace}>
@@ -514,7 +514,8 @@ export default function UserMenu() {
                         className={`${menu.useyn === 'Y' ? '' : classes.inactiveMenuRow}`}
                         title={menu.useyn === 'Y' ? undefined : '전역 메뉴 운영상태가 사용중지입니다. 사용자 권한과 별도로 유지됩니다.'}
                       >
-                        <Table.Td className={classes.nameCell} title={menu.menuname}><span className={classes.treeMark}>└</span>{menu.menuname}</Table.Td>
+                        <Table.Td className={classes.nameCell} title={menu.menuname}><span className={classes.treeMark}>└</span>{menu.menuname}
+                          {menu.access_scope === 'PLATFORM' && <span className={classes.platformTag}>모스코 전용</span>}</Table.Td>
                         <Table.Td className={classes.checkColumn}>
                           <Checkbox size="xs" color="red" radius={3}
                             checked={selectedMenuSet.has(menu.menuid)}

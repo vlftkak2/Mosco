@@ -211,7 +211,7 @@ export default function PayrollLedger() {
     if (!printPayslip(row)) notifications.show({ title: '명세서 인쇄', message: '팝업이 막혀 있습니다. 브라우저에서 팝업을 허용해 주세요.', color: 'red' });
   };
 
-  useErpPageRibbon({ onSearch: () => (isPeriod ? searchPeriod() : reload()), onExcel: rows.length ? exportExcel : undefined, showExcel: true, showPrint: false });
+  useErpPageRibbon({ onSearch: () => (isPeriod ? searchPeriod() : reload()), onExcel: rows.length ? exportExcel : undefined, showExcel: true });
 
   const head = (column, extra = {}) => {
     const fixedIndex = fixedColumns.findIndex((c) => c.key === column.key);
@@ -232,7 +232,7 @@ export default function PayrollLedger() {
 
   return <Box className={`${simpleTheme.simple} ${simpleTheme.noIcons} ${sharedClasses.pageShell} ${classes.page}`}>
     <Box component="nav" className={classes.breadcrumb}>
-      <Text component="span" className={classes.breadcrumbParent}>급여관리</Text>
+      <Text component="span" className={classes.breadcrumbParent}>인사</Text>
       <Text component="span" className={classes.breadcrumbChevron}>›</Text>
       <Text component="span" className={classes.breadcrumbCurrent}>급여대장</Text>
     </Box>

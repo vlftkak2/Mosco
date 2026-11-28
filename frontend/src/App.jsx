@@ -1,5 +1,4 @@
 import { lazy, useContext } from "react";
-import { ModalsProvider } from '@mantine/modals';
 import { BrowserRouter, Navigate, Routes, Route,Outlet } from 'react-router-dom';
 
 import MainLayout, { MenuAccessContext } from "./components/layout/MainLayout";
@@ -47,6 +46,7 @@ const PayrollEntry = lazy(pageLoaders['/PayrollEntry']);
 const PayrollLedger = lazy(pageLoaders['/PayrollLedger']);
 const MyPayroll = lazy(pageLoaders['/MyPayroll']);
 const AiCost = lazy(pageLoaders['/AiCost']);
+const AIAssistantPage = lazy(pageLoaders['/AIAssistant']);
 const UserInfo = lazy(pageLoaders['/UserInfo']);
 const InoutmoveRegister = lazy(pageLoaders['/InoutmoveRegister']);
 const InoutmoveSearch = lazy(pageLoaders['/InoutmoveSearch']);
@@ -78,7 +78,6 @@ function App() {
   return (
     // MantineProvider(테마 · 빨강 기본색)는 main.jsx 에 하나만 둔다
     <ErrorBoundary fullPage>
-      <ModalsProvider>
       <BrowserRouter>
         <Routes>
           {/* 로그인 페이지 */}
@@ -131,8 +130,14 @@ function App() {
           <Route path="/MonthClose" element={menuPage('MONTH_CLOSING', <MonthClose />)} />
           {/* 통제관리: 고객사에 승인 통제가 허용된 경우 (화면이 직접 확인) */}
           <Route path="/ControlManagement" element={<ControlManagement />} />
-          <Route path="/EApproval" element={menuPage('EAPPROVAL', <EApproval />)} />
-          <Route path="/EApprovalForm" element={menuPage('EAPPROVAL_FORM', <EApprovalForm />)} />
+          {/* 결재 문서 메뉴 4개: 같은 화면을 메뉴별로 (권한은 전자결재 하나) */}
+          <Route path="/EApproval" element={menuPage('EAPPROVAL', <EApproval box="write" />)} />
+          <Route path="/EApprovalDrafts" element={menuPage('EAPPROVAL', <EApproval box="drafts" />)} />
+          <Route path="/EApprovalMine" element={menuPage('EAPPROVAL', <EApproval box="mine" />)} />
+          <Route path="/EApprovalInbox" element={menuPage('EAPPROVAL', <EApproval box="inbox" />)} />
+          {/* 결재설정 / 휴가설정: 같은 화면을 탭 묶음별로 (권한은 결재양식관리 하나) */}
+          <Route path="/EApprovalForm" element={menuPage('EAPPROVAL_FORM', <EApprovalForm screen="approval" />)} />
+          <Route path="/LeaveSetting" element={menuPage('EAPPROVAL_FORM', <EApprovalForm screen="leave" />)} />
           <Route path="/LeaveStatus" element={menuPage('EAPPROVAL', <LeaveStatus />)} />
           <Route path="/PayrollEntry" element={menuPage('PAYROLL', <PayrollEntry />)} />
           <Route path="/PayrollLedger" element={menuPage('PAYROLL', <PayrollLedger />)} />
@@ -141,11 +146,11 @@ function App() {
           <Route path="/Company" element={menuPage('COMPANY_REGISTRATION', <Company />)} />
           <Route path="/LicenseRevenue" element={menuPage('LICENSE_REVENUE', <LicenseRevenue />)} />
           <Route path="/AiCost" element={menuPage('AI_COST', <AiCost />)} />
+          <Route path="/AIAssistant" element={menuPage('AI_ASSISTANT', <AIAssistantPage />)} />
 
           </Route>
         </Routes>
       </BrowserRouter>
-      </ModalsProvider>
     </ErrorBoundary>
   );
 }

@@ -407,17 +407,6 @@ def update_user(data: UserUpdateInput, *, actor: dict | None = None, actor_email
         return dict(cursor.fetchone())
 
 
-def get_user_authority(companyid: str, email: str):
-    with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute(
-            """SELECT authority FROM user01t
-               WHERE companyid = %s AND LOWER(email) = LOWER(%s)""",
-            (companyid, email),
-        )
-        row = cursor.fetchone()
-        return str(row[0] or "USER").upper() if row else None
-
-
 def delete_user(companyid: str, email: str, *, actor: dict | None = None):
     with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute(

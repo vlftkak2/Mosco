@@ -151,13 +151,13 @@ export default function InoutmoveSearch() {
     } finally { setExporting(false); }
   }, [exporting, filters, total]);
 
-  useErpPageRibbon({ onSearch: search, onExcel: exportExcel, showPrint: false, useSaveColor: false });
+  useErpPageRibbon({ onSearch: search, onExcel: exportExcel, useSaveColor: false });
 
   const updateInput = (key, value) => setInputs((current) => ({ ...current, [key]: value }));
   const searchOnEnter = (event) => { if (event.key === 'Enter') search(); };
 
   return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="재고관리" current="재고이동현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
+    <ErpBreadcrumb parent="재고" current="재고이동 현황" filterOpen={filterOpen} onOpenFilters={() => setFilterOpen(true)} />
     <Box className={classes.inboundWorkspace}>
       {filterOpen && <Paper component="aside" className={classes.filterSidebar} withBorder>
         <Group className={classes.filterHeader} justify="space-between">

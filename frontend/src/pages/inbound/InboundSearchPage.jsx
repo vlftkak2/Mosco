@@ -6,10 +6,7 @@ import {
   ActionIcon, Box, Button, Checkbox, Group, Loader, Pagination, Paper, Select, Stack, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import {
-  IconCalendar, IconCoin, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconInbox,
-  IconPlus, IconReceipt, IconScale, IconSearch, IconStack2, IconTrash, IconX,
-} from '@tabler/icons-react';
+import { IconCalendar, IconCoin, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconInbox, IconPlus, IconReceipt, IconScale, IconSearch, IconStack2, IconTrash, IconX, IconPrinter } from '@tabler/icons-react';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
@@ -114,7 +111,6 @@ function SummaryCard({ label, value, unit, icon: Icon, accent }) {
 export default function InboundSearchPage() {
   const pageLayout = useContext(PageRibbonContext);
   const registerPageRibbon = pageLayout?.registerPageRibbon;
-  const closeActivePage = pageLayout?.closeActivePage;
   const [filterInputs, setFilterInputs] = useState(makeDefaultFilters);
   const [filters, setFilters] = useState(makeDefaultFilters);
   const [items, setItems] = useState([]);
@@ -278,18 +274,17 @@ export default function InboundSearchPage() {
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} disabled>저장</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} disabled>삭제</Button>
         <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={exportExcel} loading={exporting} disabled={!total || loading}>엑셀</Button>
-        <span className={classes.ribbonSeparator} />
-        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={closeActivePage}>닫기</Button>
+        <Button className={classes.ribbonTool} variant="subtle" size="sm" leftSection={<IconPrinter size={15} />} disabled>인쇄</Button>
       </Group>,
     );
     return () => registerPageRibbon(null);
-  }, [registerPageRibbon, closeActivePage, runSearch, loading, exportExcel, exporting, total]);
+  }, [registerPageRibbon, runSearch, loading, exportExcel, exporting, total]);
 
   return (
     <Box className={`${sharedClasses.pageShell} ${classes.page} ${simpleTheme.simple}`}>
       <Box component="nav" aria-label="현재 위치" className={classes.pageBreadcrumb}>
         <Group className={classes.breadcrumbTrail} gap={7}>
-          <Text component="span" className={classes.breadcrumbParent}>매입관리</Text>
+          <Text component="span" className={classes.breadcrumbParent}>매입</Text>
           <Text component="span" className={classes.breadcrumbChevron}>›</Text>
           <Text component="span" className={classes.breadcrumbCurrent}>매입현황</Text>
         </Group>

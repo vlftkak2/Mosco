@@ -58,6 +58,8 @@ export default defineConfig(({ mode }) => {
       __APP_VERSION__: JSON.stringify(appVersion),
     },
     server: { host, proxy },
+    // 3D 보기(three.js): 개발 서버가 처음부터 준비해 둔다 (켜진 채 처음 불러오면 504 'Outdated Optimize Dep' 로 화면이 깨지던 것 방지)
+    optimizeDeps: { include: ['three', 'three/examples/jsm/controls/OrbitControls.js', 'three/examples/jsm/renderers/CSS2DRenderer.js'] },
     // vite preview(빌드 결과 시연 서버)도 같은 규칙: 허용 IP 만
     preview: { host, proxy },
     plugins: [react(), appVersionPlugin(), ipAllowlistPlugin(shareIps)],
@@ -73,6 +75,7 @@ export default defineConfig(({ mode }) => {
             const path = id.replace(/\\/g, '/');
             if (path.includes('/node_modules/xlsx-js-style/')) return 'vendor-xlsx';
             if (path.includes('/node_modules/pdfjs-dist/')) return 'vendor-pdf';
+            if (path.includes('/node_modules/three/')) return 'vendor-three';   // 3D 보기를 열 때만 받는다
             // 차트: recharts 와 그것만 쓰는 라이브러리 (redux · immer 등 함께 쓰는 것은 rollup 이 알아서 나눈다)
             if (/\/node_modules\/(recharts|victory-vendor|d3-[^/]+|internmap|decimal\.js-light)\//.test(path)) return 'vendor-charts';
             // react 묶음: 첫 화면에 늘 필요한 것 (clsx 는 Mantine · 차트가 같이 써서 여기 둔다 — 차트 묶음에 들어가면 첫 화면에서 차트까지 받는다)

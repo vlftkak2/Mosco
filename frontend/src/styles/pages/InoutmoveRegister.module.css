@@ -1,35 +1,35 @@
-.page.page { height: 100%; min-height: 0; flex: 1 1 0; display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; overflow: hidden; color: #173b67; }
-.breadcrumb { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; height: 38px; color: #8a9bb0; font-size: 13px; }
-.breadcrumb strong { color: #14365c; font-weight: 600; }
+.page.page { height: 100%; min-height: 0; flex: 1 1 0; display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; overflow: hidden; color: var(--dk-tx-173b67, #173b67); }
+.breadcrumb { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; height: 38px; color: var(--dk-tx-8a9bb0, #8a9bb0); font-size: 13px; }
+.breadcrumb strong { color: var(--dk-tx-14365c, #14365c); font-weight: 600; }
 .content { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 218px; gap: 10px; }
 .mainColumn { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(250px, 0.9fr) minmax(300px, 1.1fr); gap: 10px; }
-.panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-color: #d7e0e9; }
+.panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-color: var(--dk-ln-d7e0e9, #d7e0e9); }
 .listPanel { grid-template-rows: 42px minmax(100px, 1fr) 12px 38px !important; padding: 0 0 3px !important; }
 .outboundWorkspace { height: 0; min-height: 0; flex: 1 1 0; }
 .outboundPrimaryColumn { display: flex; height: 100%; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 10px; }
 .outboundFilterSidebar { height: 100%; }
 .editorPanel { display: flex !important; width: 100%; min-width: 0; height: 100%; min-height: 0; flex: 1 1 0; flex-direction: column; overflow: hidden; }
-.panelHeader { flex: 0 0 42px; padding: 0 12px; border-bottom: 1px solid #d7e0e9; }
-.count { display: inline-flex; align-items: center; height: 20px; padding: 0 9px; border-radius: 12px; color: #6d829b; background: #edf2f7; font-size: 11px; }
-.searchRow { flex: 0 0 auto; padding: 8px 10px; border-bottom: 1px solid #e1e7ee; }
+.panelHeader { flex: 0 0 42px; padding: 0 12px; border-bottom: 1px solid var(--dk-ln-d7e0e9, #d7e0e9); }
+.count { display: inline-flex; align-items: center; height: 20px; padding: 0 9px; border-radius: 12px; color: var(--dk-tx-6d829b, #6d829b); background: var(--dk-bg-edf2f7, #edf2f7); font-size: 11px; }
+.searchRow { flex: 0 0 auto; padding: 8px 10px; border-bottom: 1px solid var(--dk-ln-e1e7ee, #e1e7ee); }
 .searchRow :global(.mantine-TextInput-root) { width: 150px; }
 .listViewport { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .detailViewport { flex: 1 1 auto; min-height: 100px; overflow: auto; }
 .table { min-width: 1050px; font-size: 12px; }
-.table thead th { position: sticky; top: 0; z-index: 2; height: 34px; background: #f0f3f6; color: #42566f; font-weight: 600; white-space: nowrap; }
+.table thead th { position: sticky; top: 0; z-index: 2; height: 34px; background: var(--dk-bg-f0f3f6, #f0f3f6); color: var(--dk-tx-42566f, #42566f); font-weight: 600; white-space: nowrap; }
 .table tbody td { height: 34px; white-space: nowrap; }
 .listTable { width: 100%; table-layout: fixed; font-size: 11px; }
 .listTable thead th,
-.detailTable thead th { height: 34px; padding: 6px 8px; border-color: #e0e6ef !important; background: #f0f3f7 !important; color: #354052 !important; font-size: 11px !important; font-weight: 700 !important; }
+.detailTable thead th { height: 34px; padding: 6px 8px; border-color: var(--dk-ln-e0e6ef, #e0e6ef) !important; background: var(--dk-bg-f0f3f7, #f0f3f7) !important; color: var(--dk-tx-354052, #354052) !important; font-size: 11px !important; font-weight: 700 !important; }
 .listTable tbody td,
-.detailTable tbody td { height: 34px; padding: 0 8px !important; border-color: #e0e6ef !important; color: #252a32; font-size: 11px; }
+.detailTable tbody td { height: 34px; padding: 0 8px !important; border-color: var(--dk-ln-e0e6ef, #e0e6ef) !important; color: var(--dk-tx-252a32, #252a32); font-size: 11px; }
 .listTable tbody td { overflow: hidden; text-overflow: ellipsis; }
 .detailTable { width: max-content; min-width: 1250px; table-layout: fixed; }
-.receiptFinderRowActive > td { background: #fceff0 !important; }
+.receiptFinderRowActive > td { background: var(--dk-bg-fceff0, #fceff0) !important; }
 .receiptFinderRowActive > td:first-child { box-shadow: inset 3px 0 #f0444c; }
-.detailTable .selectedRow > td { background: #e8f1ff !important; }
+.detailTable .selectedRow > td { background: var(--dk-bg-e8f1ff, #e8f1ff) !important; }
 /* Saved document: detail rows shown disabled (same gray as saved rows in 입고/출고등록). */
-.detailTable .savedRow > td { background: #f1f3f5 !important; color: #8b95a3 !important; }
+.detailTable .savedRow > td { background: var(--dk-bg-f1f3f5, #f1f3f5) !important; color: var(--dk-tx-8b95a3, #8b95a3) !important; }
 /* Selection column: no side padding / default checkbox margin, so the 16px checkbox fits the 38px column
    (the overflow used to render as an ellipsis "dot" next to the box). Header box = same red 16px box as rows. */
 .detailTable th.checkCell,
@@ -38,29 +38,29 @@
 .listViewport,
 .detailViewport {
   scrollbar-width: thin;
-  scrollbar-color: #aab6c4 #f1f4f7;
+  scrollbar-color: #aab6c4 var(--dk-ln-f1f4f7, #f1f4f7);
 }
 .listViewport::-webkit-scrollbar,
 .detailViewport::-webkit-scrollbar { width: 12px; height: 12px; }
 .listViewport::-webkit-scrollbar-thumb,
-.detailViewport::-webkit-scrollbar-thumb { background: #aab6c4; border: 3px solid #f1f4f7; border-radius: 8px; }
+.detailViewport::-webkit-scrollbar-thumb { background: var(--dk-bg-aab6c4, #aab6c4); border: 3px solid var(--dk-ln-f1f4f7, #f1f4f7); border-radius: 8px; }
 .listViewport::-webkit-scrollbar-track,
-.detailViewport::-webkit-scrollbar-track { background: #f1f4f7; }
+.detailViewport::-webkit-scrollbar-track { background: var(--dk-bg-f1f4f7, #f1f4f7); }
 .listViewport { position: relative; overflow-x: hidden; overflow-y: auto; }
 .detailViewport { position: relative; }
 .table tbody tr { cursor: default; }
 .clickableRow { cursor: pointer !important; }
 .checkColumn { width: 38px; }
-.empty { height: 115px !important; color: #8798ad; text-align: center; }
-.listFooter { flex: 0 0 38px; padding: 0 10px; border-top: 1px solid #e1e7ee; }
-.headerFields { flex: 0 0 auto; display: grid; grid-template-columns: 142px minmax(145px, 1fr) minmax(145px, 1fr) 140px minmax(150px, 1fr) auto; align-items: end; gap: 8px; padding: 9px 10px; border-bottom: 1px solid #d7e0e9; }
-.headerFields :global(.mantine-InputWrapper-label) { color: #596e87; font-size: 11px; }
+.empty { height: 115px !important; color: var(--dk-tx-8798ad, #8798ad); text-align: center; }
+.listFooter { flex: 0 0 38px; padding: 0 10px; border-top: 1px solid var(--dk-ln-e1e7ee, #e1e7ee); }
+.headerFields { flex: 0 0 auto; display: grid; grid-template-columns: 142px minmax(145px, 1fr) minmax(145px, 1fr) 140px minmax(150px, 1fr) auto; align-items: end; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--dk-ln-d7e0e9, #d7e0e9); }
+.headerFields :global(.mantine-InputWrapper-label) { color: var(--dk-tx-596e87, #596e87); font-size: 11px; }
 .headerFields :global(.mantine-Input-input), .searchRow :global(.mantine-Input-input), .filterSidebar :global(.mantine-Input-input) { min-height: 34px; height: 34px; font-size: 12px; }
-.summary { flex: 0 0 38px; padding: 0 12px; border-top: 1px solid #d7e0e9; background: #fafbfd; }
-.filterSidebar { min-height: 0; overflow: auto; border-color: #d7e0e9; }
-.filterHeader { height: 42px; padding: 0 10px; border-bottom: 1px solid #d7e0e9; }
+.summary { flex: 0 0 38px; padding: 0 12px; border-top: 1px solid var(--dk-ln-d7e0e9, #d7e0e9); background: var(--dk-bg-fafbfd, #fafbfd); }
+.filterSidebar { min-height: 0; overflow: auto; border-color: var(--dk-ln-d7e0e9, #d7e0e9); }
+.filterHeader { height: 42px; padding: 0 10px; border-bottom: 1px solid var(--dk-ln-d7e0e9, #d7e0e9); }
 .editorPanel > :global(.mantine-Group-root:first-child) { min-height: 42px; padding: 8px 13px; }
-.editorPanel :global(.mantine-InputWrapper-label) { color: #596e87; font-size: 11px; }
+.editorPanel :global(.mantine-InputWrapper-label) { color: var(--dk-tx-596e87, #596e87); font-size: 11px; }
 .editorPanel :global(.mantine-Input-input) { min-height: 34px; height: 34px; font-size: 12px; }
 .editorPanel :global(.mantine-Table-thead th) { position: sticky; top: 0; z-index: 2; }
 .editorPanel :global(.mantine-Table-table) { min-width: 1250px; }
@@ -68,7 +68,7 @@
 .editorPanel :global(.mantine-Table-tbody td) { height: 34px; white-space: nowrap; }
 .ribbon { height: 100%; }
 .ribbon button { height: 38px; font-size: 12px; }
-.separator { width: 1px; height: 22px; margin: 0 5px; background: #d8e0e9; }
+.separator { width: 1px; height: 22px; margin: 0 5px; background: var(--dk-bg-d8e0e9, #d8e0e9); }
 .modalContent { max-width: 95vw; }
 .modalBody { padding: 12px; }
 .modalHeader { min-height: 48px; }
@@ -77,7 +77,7 @@
 .stockFilters > * { min-width: 86px; flex: 1 1 110px; }
 .stockFilters > :first-child, .stockFilters > :nth-child(2), .stockFilters > :nth-child(4) { flex-basis: 175px; }
 .stockColumnHeader { position: relative; }
-.alreadyAddedStock > td { background: #f1f3f6 !important; color: #9aa5b1 !important; }
+.alreadyAddedStock > td { background: var(--dk-bg-f1f3f6, #f1f3f6) !important; color: var(--dk-tx-9aa5b1, #9aa5b1) !important; }
 .alreadyAddedStock { cursor: not-allowed !important; }
 .alreadyAddedStock input[type="checkbox"] { cursor: not-allowed; }
 
@@ -114,29 +114,29 @@
 /* ───────────────────────────────────────────────────────────────────────────
    등록 화면 공통 다듬기 (매입·매출등록과 같은 표 디자인). 색·선만 바꾸고 높이·grid·열 너비는 그대로.
    ─────────────────────────────────────────────────────────────────────────── */
-.count { border: 1px solid #e1e6ee; border-radius: 20px; background: #f8fafc; color: #64758d; font-weight: 600; font-variant-numeric: tabular-nums; }
-.editorPanel { border-color: #e0e6ef !important; border-radius: 8px !important; background: #fff !important; }
+.count { border: 1px solid var(--dk-ln-e1e6ee, #e1e6ee); border-radius: 20px; background: var(--dk-bg-f8fafc, #f8fafc); color: var(--dk-tx-64758d, #64758d); font-weight: 600; font-variant-numeric: tabular-nums; }
+.editorPanel { border-color: var(--dk-ln-e0e6ef, #e0e6ef) !important; border-radius: 8px !important; background: var(--dk-bg-ffffff, #fff) !important; }
 
 /* 목록 · 상세 표 머리와 칸 */
 .listTable thead th,
-.detailTable thead th { border-color: #e3e8ef !important; border-bottom-color: #d6dee8 !important; background: #f4f6f9 !important; color: #4b5b70 !important; font-weight: 650 !important; }
-.listTable tbody td { border-color: #edf0f4 !important; color: #26364e; font-variant-numeric: tabular-nums; }
+.detailTable thead th { border-color: var(--dk-ln-e3e8ef, #e3e8ef) !important; border-bottom-color: var(--dk-ln-d6dee8, #d6dee8) !important; background: var(--dk-bg-f4f6f9, #f4f6f9) !important; color: var(--dk-tx-4b5b70, #4b5b70) !important; font-weight: 650 !important; }
+.listTable tbody td { border-color: var(--dk-ln-edf0f4, #edf0f4) !important; color: var(--dk-tx-26364e, #26364e); font-variant-numeric: tabular-nums; }
 /* 목록 맨 위 선은 제목줄 아랫선 하나만 (매입·매출·가공 등록 목록과 같게): 표 윗테두리·헤더 윗선·Mantine stickyHeader 윗선 제거 */
 .listTable { border-top: 0 !important; }
 .listTable thead th { border-top: 0 !important; }
 .listTable thead::before { display: none !important; }
-.detailTable tbody td { border-color: #e1e6ed !important; font-variant-numeric: tabular-nums; }
+.detailTable tbody td { border-color: var(--dk-ln-e1e6ed, #e1e6ed) !important; font-variant-numeric: tabular-nums; }
 .listViewport :global(table),
-.detailViewport :global(table) { --table-border-color: #e3e8ef; }
+.detailViewport :global(table) { --table-border-color: var(--dk-ln-e3e8ef, #e3e8ef); }
 
 /* 목록: 마우스 올림 + 선택 행 (연한 빨강 + 왼쪽 빨간 막대) */
-.listTable tbody tr.clickableRow:hover > td { background: #f5f9ff; }
+.listTable tbody tr.clickableRow:hover > td { background: var(--dk-bg-f5f9ff, #f5f9ff); }
 .receiptFinderRowActive > td,
-.listTable tbody tr.receiptFinderRowActive:hover > td { background: #fff0f1 !important; }
+.listTable tbody tr.receiptFinderRowActive:hover > td { background: var(--dk-bg-fff0f1, #fff0f1) !important; }
 .receiptFinderRowActive > td:first-child { box-shadow: inset 3px 0 #e45159; }
 
 /* 상세: 체크한 행 */
-.detailTable .selectedRow > td { background: #fff0f1 !important; }
+.detailTable .selectedRow > td { background: var(--dk-bg-fff0f1, #fff0f1) !important; }
 .detailTable .selectedRow > td:first-child { box-shadow: inset 3px 0 #e45159; }
 .detailTable tbody td input:not([type='checkbox']):focus {
   outline: 2px solid #e45159 !important;
@@ -150,5 +150,5 @@
 .detailTable tbody td.qtyInputCell input { width: 100%; height: 34px; padding: 0 8px; text-align: right; font-size: 11px; }
 
 /* 재고이전 상세 셀 범위 선택 (Shift+방향키 · Shift+클릭) */
-.detailTable tbody tr > td.rangeCell { background: #fdecec !important; box-shadow: inset 0 0 0 1px #e8a3a6; }
-.detailTable tbody tr > td.rangeCell input:not([type="checkbox"]) { background-color: #fdecec !important; }
+.detailTable tbody tr > td.rangeCell { background: var(--dk-bg-fdecec, #fdecec) !important; box-shadow: inset 0 0 0 1px #e8a3a6; }
+.detailTable tbody tr > td.rangeCell input:not([type="checkbox"]) { background-color: var(--dk-bg-fdecec, #fdecec) !important; }

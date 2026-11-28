@@ -184,7 +184,7 @@ export default function Workplace() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form, apply, saving]);
 
-  useErpPageRibbon({ onSearch: () => void load(), onSave: () => void save(), showPrint: false });
+  useErpPageRibbon({ onSearch: () => void load(), onSave: () => void save() });
 
   const set = (key, format) => (event) => {
     const { value } = event.currentTarget;
@@ -252,7 +252,7 @@ export default function Workplace() {
   }, []);
 
   return <Box className={`${sharedClasses.pageShell} ${classes.page}`}>
-    <ErpBreadcrumb parent="기준정보" current="사업장관리" />
+    <ErpBreadcrumb parent="설정" current="사업장관리" />
 
     <Paper className={`${classes.panel} ${own.panel}`} withBorder>
       <div className={own.body}>

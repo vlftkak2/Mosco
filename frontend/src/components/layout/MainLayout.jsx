@@ -3,14 +3,17 @@ import { AppShell, Burger, Text, Box, Modal, PasswordInput, Menu, Popover } from
 import { useDisclosure } from '@mantine/hooks';
 import { SidebarNav } from './MainLayoutLink';
 import ConfirmDeleteModal from '../common/ConfirmDeleteModal';
+import '../../styles/layout/shellTheme.css';
 import classes from '../../styles/layout/MainLayout.module.css';
-import { Suspense, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import usePointerSort from './usePointerSort';
 import { useNavigate, useLocation, useOutlet, UNSAFE_LocationContext as LocationContext } from 'react-router-dom';
 import { clearAIOrderPageSession } from '../../pages/ai/AIOrderPageSession';
 import { clearAIOrderDraft } from '../../pages/ai/AIOrderDraft';
 import {
-  IconAdjustmentsHorizontal, IconBox, IconChevronDown, IconClipboardText, IconCreditCard, IconFileCheck, IconHome, IconKey, IconLayoutSidebar, IconLogout,
-  IconBell, IconHourglass, IconMoon, IconSearch, IconShieldLock, IconShoppingBag, IconStack2, IconTrendingUp, IconUserCircle, IconUsers, IconWallet,
+  IconBox, IconChevronDown, IconClipboardCheck, IconCoin, IconHome, IconKey, IconLayoutSidebar, IconLogout, IconMessages, IconSettings,
+  IconBell, IconDots, IconHourglass, IconReload, IconSearch, IconShieldLock, IconShoppingCart, IconTool, IconTrendingUp, IconUserCircle, IconUsers,
 } from '@tabler/icons-react';
 import '@mantine/notifications/styles.css';
 import { notifications } from '@mantine/notifications';
@@ -18,6 +21,7 @@ import axios from 'axios'; // axios 추가
 import { IconCheck, IconX } from '@tabler/icons-react'; // 아이콘 추가
 import Steel119Logo from './Steel119Logo';
 import AIAssistant from './AIAssistant';
+import { ShortcutHelp, useRibbonShortcutTitles, useShellShortcuts } from './ShellShortcuts';
 import ErrorBoundary from '../common/ErrorBoundary';
 import { PagePathContext, anyDirty, clearDirty, isDirty } from '../../utils/dirtyRegistry';
 import { clearAuthStorage, logoutOnServer } from '../../utils/sessionGuard';
@@ -34,11 +38,10 @@ export const PageActiveContext = createContext(true);
 // 탭이 화면에 다시 나타난 횟수 (처음 열 때 1, 다른 탭에 갔다 돌아올 때마다 +1)
 export const PageActivationContext = createContext(0);
 
-const KeepAlivePage = memo(function KeepAlivePage({ path, active, activation, element, setRibbons, closeTabRef }) {
+const KeepAlivePage = memo(function KeepAlivePage({ path, active, activation, element, setRibbons }) {
   const ribbonContext = useMemo(() => ({
     registerPageRibbon: (content) => setRibbons((current) => ({ ...current, [path]: content })),
-    closeActivePage: () => closeTabRef.current?.(null, path),
-  }), [path, setRibbons, closeTabRef]);
+  }), [path, setRibbons]);
   // 숨은 탭에는 마지막으로 보였을 때의 주소를 그대로 준다. useNavigate · useLocation 은 주소가 바뀔 때마다 다시 그려지므로,
   // 그대로 두면 열린 탭 전체가(숨어 있어도) 탭을 옮길 때마다 다시 그려져 이동이 느려진다.
   const liveLocation = useContext(LocationContext);
@@ -60,124 +63,163 @@ const KeepAlivePage = memo(function KeepAlivePage({ path, active, activation, el
 });
 export const MenuAccessContext = createContext({ menuids: [], loaded: false, authority: 'USER', fallbackPath: null });
 
-// 메뉴 구성: 대메뉴 > 화면 (네비 디자인 최종 시안 기준, 소제목 없음). 대시보드는 하위 없이 바로 열린다.
-// 이름을 바꾸면 backend/sql/menu_catalog_seed.sql 의 menuname 도 같이 맞춘다.
-const ic = { size: 20, stroke: 1.5 };
-// 어드민: 시안과 같은 방패 + 체크 (Tabler 기본 방패보다 둥근 모양, 선 굵게)
-const AdminShieldIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M12 2.8C9.7 4.8 6.8 5.5 4 6v5.5c0 4.6 3.2 8.2 8 10 4.8-1.8 8-5.4 8-10V6c-2.8-.5-5.7-1.2-8-3.2Z" />
-    <path d="m8.4 12 2.4 2.4 4.8-5" />
-  </svg>
-);
+// 메뉴 구성: 대메뉴 > 소제목 > 화면 (네비 시안 '네비 메뉴 명칭.html' 기준 이름 · 아이콘 · 순서).
+// MenuID 는 그대로 (권한 · 내메뉴가 그대로 이어진다). 이름을 바꾸면 backend/sql/migrations 의 메뉴 카탈로그(menuname · sort_order)도 같이 맞춘다.
+//  access: 다른 메뉴의 권한을 그대로 쓰는 화면 (MenuID 는 내메뉴 저장용)
+//  disabled: 화면을 만들기 전 자리 (흐리게 보이고 누를 수 없음)
+//  action: 화면 대신 동작 (AI 업무비서 = 오른쪽 대화창 열기)
+//  ai: 메뉴 옆 AI 배지
+const ic = { size: 18, stroke: 2.25 };   // 시안 아이콘(Tabler 웹폰트) 굵기: SVG 는 웹폰트보다 가늘게 그려져 2 → 2.25
 const mockdata = [
-  { label: '대시보드', icon: <IconHome {...ic} />, link: '/HomePage', MenuID: 'HOME' },
   {
-    label: '매입관리',
-    icon: <IconShoppingBag {...ic} />,
+    label: '홈',
+    icon: <IconHome {...ic} />,
     links: [
-      { label: '매입등록', link: '/InboundRegisterPage', MenuID: 'INBOUND_REGISTER' },
-      { label: '매입현황', link: '/InboundSearchPage', MenuID: 'INBOUND_SEARCH' },
+      { label: '대시보드', link: '/HomePage', MenuID: 'HOME' },
+      { label: 'AI 업무비서', link: '/AIAssistant', MenuID: 'AI_ASSISTANT', ai: true },
     ],
   },
   {
-    label: '매출관리',
+    label: '매입',
+    icon: <IconShoppingCart {...ic} />,
+    links: [
+      { label: '매입 관리', links: [
+        { label: '매입등록', link: '/InboundRegisterPage', MenuID: 'INBOUND_REGISTER' },
+        { label: '매입현황', link: '/InboundSearchPage', MenuID: 'INBOUND_SEARCH' },
+      ] },
+    ],
+  },
+  {
+    label: '매출',
     icon: <IconTrendingUp {...ic} />,
     links: [
-      { label: '매출등록', link: '/OutboundRegisterPage', MenuID: 'OUTBOUND_REGISTER' },
-      { label: '매출현황', link: '/OutboundSearchPage', MenuID: 'OUTBOUND_SEARCH' },
-      { label: '매출이익분석', link: '/GrossProfit', MenuID: 'GROSS_PROFIT' },
-      { label: '매출이익요약', link: '/GrossProfitDashboard', MenuID: 'GROSS_PROFIT_DASHBOARD' },
+      { label: '매출·이익', links: [
+        { label: '매출등록', link: '/OutboundRegisterPage', MenuID: 'OUTBOUND_REGISTER' },
+        { label: '매출현황', link: '/OutboundSearchPage', MenuID: 'OUTBOUND_SEARCH' },
+        { label: '매출이익 현황', link: '/GrossProfit', MenuID: 'GROSS_PROFIT' },
+        { label: '매출이익 분석', link: '/GrossProfitDashboard', MenuID: 'GROSS_PROFIT_DASHBOARD' },
+      ] },
     ],
   },
   {
-    label: '재고관리',
+    label: '가공',
+    icon: <IconTool {...ic} />,
+    links: [
+      { label: 'AI 가공솔루션', links: [
+        { label: '주문서 자동인식', link: '/AIOrderPage', MenuID: 'AI_ORDER_RECOGNITION', ai: true },
+        { label: '주문서 통합관리', link: '/AIOrderManage', MenuID: 'AI_ORDER_MANAGEMENT' },
+        { label: 'AI 가공최적화', link: '/AIOrderOptimization', MenuID: 'AI_OPTIMIZATION', ai: true },
+      ] },
+      { label: '재고가공 공정', links: [
+        { label: '재고가공 등록', link: '/ItemProcessRegister', MenuID: 'ITEM_PROCESS_REGISTER' },
+        { label: '재고가공 현황', link: '/ItemProcessSearch', MenuID: 'ITEM_PROCESS_SEARCH' },
+        { label: '가공공정 관리', link: '/ItemProcessMaster', MenuID: 'ITEM_PROCESS_MASTER' },
+      ] },
+    ],
+  },
+  {
+    label: '재고',
     icon: <IconBox {...ic} />,
     links: [
-      { label: '기초재고등록', link: '/StockStandPage', MenuID: 'STOCK_INITIAL' },
-      { label: '현재고현황', link: '/CurrentStockPage', MenuID: 'STOCK_CURRENT' },
-      { label: '재고수불현황', link: '/IniopStockPage', MenuID: 'STOCK_HISTORY' },
-      { label: '재고이동등록', link: '/InoutmoveRegister', MenuID: 'INOUTMOVE_REGISTER' },
-      { label: '재고이동현황', link: '/InoutmoveSearch', MenuID: 'INOUTMOVE_SEARCH' },
+      { label: '재고 조회', links: [
+        { label: '현재고현황', link: '/CurrentStockPage', MenuID: 'STOCK_CURRENT' },
+        { label: '재고수불 현황', link: '/IniopStockPage', MenuID: 'STOCK_HISTORY' },
+        { label: '기초재고 등록', link: '/StockStandPage', MenuID: 'STOCK_INITIAL' },
+      ] },
+      { label: '창고 이동', links: [
+        { label: '재고이동 등록', link: '/InoutmoveRegister', MenuID: 'INOUTMOVE_REGISTER' },
+        { label: '재고이동 현황', link: '/InoutmoveSearch', MenuID: 'INOUTMOVE_SEARCH' },
+      ] },
     ],
   },
   {
-    label: '가공관리',
-    icon: <IconStack2 {...ic} />,
+    label: '자금',
+    icon: <IconCoin {...ic} />,
     links: [
-      { label: 'AI 주문서인식', link: '/AIOrderPage', MenuID: 'AI_ORDER_RECOGNITION' },
-      { label: '가공주문관리', link: '/AIOrderManage', MenuID: 'AI_ORDER_MANAGEMENT' },
-      { label: '가공최적화', link: '/AIOrderOptimization', MenuID: 'AI_OPTIMIZATION' },
-      { label: '가공공정관리', link: '/ItemProcessMaster', MenuID: 'ITEM_PROCESS_MASTER' },
-      { label: '재고가공등록', link: '/ItemProcessRegister', MenuID: 'ITEM_PROCESS_REGISTER' },
-      { label: '재고가공현황', link: '/ItemProcessSearch', MenuID: 'ITEM_PROCESS_SEARCH' },
+      { label: '자금 관리', links: [
+        { label: '수금지급 등록', link: '/ReceiptPayment', MenuID: 'RECEIPT_PAYMENT' },
+        { label: '수금지급 현황', link: '/ReceiptPaymentSearch', MenuID: 'RECEIPT_PAYMENT_SEARCH' },
+        { label: '어음수표 관리', link: '/InstrumentStatus', MenuID: 'INSTRUMENT_STATUS' },
+        { label: '채권채무 현황', link: '/CustomerLedger', MenuID: 'CUSTOMER_LEDGER' },
+        { label: '채권채무 분석', link: '/CustomerBalanceDashboard', MenuID: 'CUSTOMER_BALANCE_DASHBOARD' },
+      ] },
+      { label: '계산서 관리', links: [
+        { label: '세금계산서 발행', disabled: true },
+      ] },
     ],
   },
   {
-    label: '거래처관리',
+    label: '인사',
     icon: <IconUsers {...ic} />,
     links: [
-      { label: '거래처등록', link: '/CustomerPage', MenuID: 'DATA_CUSTOMER' },
-      { label: '거래처원장', link: '/CustomerLedger', MenuID: 'CUSTOMER_LEDGER' },
-      { label: '채권채무요약', link: '/CustomerBalanceDashboard', MenuID: 'CUSTOMER_BALANCE_DASHBOARD' },
+      { label: '인사·휴가', links: [
+        { label: '인사기록부 등록', link: '/UserInfo', MenuID: 'USER_MANAGEMENT' },
+        { label: '휴가현황', link: '/LeaveStatus', MenuID: 'EAPPROVAL_LEAVE', access: 'EAPPROVAL' },
+        { label: '휴가설정', link: '/LeaveSetting', MenuID: 'EAPPROVAL_LEAVE_SETTING', access: 'EAPPROVAL_FORM' },
+      ] },
+      { label: '급여 관리', links: [
+        { label: '급여등록', link: '/PayrollEntry', MenuID: 'PAYROLL' },
+        { label: '급여대장', link: '/PayrollLedger', MenuID: 'PAYROLL_LEDGER', access: 'PAYROLL' },
+        { label: '내 급여현황', link: '/MyPayroll', MenuID: 'PAYROLL_MY' },
+      ] },
     ],
   },
   {
-    label: '자금관리',
-    icon: <IconCreditCard {...ic} />,
+    label: '결재',
+    icon: <IconClipboardCheck {...ic} />,
     links: [
-      { label: '수금/지급등록', link: '/ReceiptPayment', MenuID: 'RECEIPT_PAYMENT' },
-      { label: '수금/지급현황', link: '/ReceiptPaymentSearch', MenuID: 'RECEIPT_PAYMENT_SEARCH' },
-      { label: '수표/어음관리', link: '/InstrumentStatus', MenuID: 'INSTRUMENT_STATUS' },
+      { label: '결재 문서', links: [
+        { label: '새 문서 작성', link: '/EApproval', MenuID: 'EAPPROVAL' },
+        { label: '임시저장함', link: '/EApprovalDrafts', MenuID: 'EAPPROVAL_DRAFTS', access: 'EAPPROVAL' },
+        { label: '내 결재현황', link: '/EApprovalMine', MenuID: 'EAPPROVAL_MINE', access: 'EAPPROVAL' },
+        { label: '결재함', link: '/EApprovalInbox', MenuID: 'EAPPROVAL_INBOX', access: 'EAPPROVAL' },
+      ] },
+      { label: '결재 관리', links: [
+        { label: '양식관리', disabled: true },
+        { label: '결재설정', link: '/EApprovalForm', MenuID: 'EAPPROVAL_FORM' },
+      ] },
     ],
   },
   {
-    label: '기준정보',
-    icon: <IconAdjustmentsHorizontal {...ic} />,
+    label: '소통',
+    icon: <IconMessages {...ic} />,
     links: [
-      { label: '공통코드관리', link: '/CodeMasterPage', MenuID: 'DATA_CODE' },
-      { label: '품목코드관리', link: '/ItemMasterPage', MenuID: 'DATA_ITEM' },
-      { label: '사업장관리', link: '/Workplace', MenuID: 'WORKPLACE_MANAGEMENT' },
-      { label: '월마감관리', link: '/MonthClose', MenuID: 'MONTH_CLOSING' },
-      { label: '직원관리', link: '/UserInfo', MenuID: 'USER_MANAGEMENT' },
+      { label: '게시판', links: [
+        { label: '상담게시판', link: '/CustomerSupport', MenuID: 'CUSTOMER_SUPPORT' },
+        { label: '자료실', disabled: true },
+      ] },
     ],
   },
   {
-    label: '게시판',
-    icon: <IconClipboardText {...ic} />,
+    label: '설정',
+    icon: <IconSettings {...ic} />,
     links: [
-      { label: '상담게시판', link: '/CustomerSupport', MenuID: 'CUSTOMER_SUPPORT' },
+      { label: '시스템 설정', links: [
+        { label: '기초코드 관리', link: '/CodeMasterPage', MenuID: 'DATA_CODE' },
+        { label: '품목코드 관리', link: '/ItemMasterPage', MenuID: 'DATA_ITEM' },
+        { label: '거래처관리', link: '/CustomerPage', MenuID: 'DATA_CUSTOMER' },
+        { label: '사업장관리', link: '/Workplace', MenuID: 'WORKPLACE_MANAGEMENT' },
+        { label: '월마감관리', link: '/MonthClose', MenuID: 'MONTH_CLOSING' },
+      ] },
     ],
   },
   {
-    label: '전자결재',
-    icon: <IconFileCheck {...ic} />,
+    label: '관리',
+    icon: <IconShieldLock {...ic} />,
     links: [
-      { label: '전자결재', link: '/EApproval', MenuID: 'EAPPROVAL' },
-      { label: '휴가현황', link: '/LeaveStatus', MenuID: 'EAPPROVAL_LEAVE', access: 'EAPPROVAL' },   // 보이는 권한은 전자결재와 같음 (MenuID 는 즐겨찾기용)
-      { label: '결재양식관리', link: '/EApprovalForm', MenuID: 'EAPPROVAL_FORM' },
-    ],
-  },
-  {
-    label: '급여관리',
-    icon: <IconWallet {...ic} />,
-    links: [
-      { label: '급여입력', link: '/PayrollEntry', MenuID: 'PAYROLL' },
-      { label: '급여대장', link: '/PayrollLedger', MenuID: 'PAYROLL_LEDGER', access: 'PAYROLL' },   // 보이는 권한은 급여입력과 같음 (MenuID 는 즐겨찾기용)
-      { label: '내 급여현황', link: '/MyPayroll', MenuID: 'PAYROLL_MY' },
-    ],
-  },
-  {
-    label: '어드민',
-    icon: <AdminShieldIcon />,
-    links: [
-      { label: '고객사등록', link: '/Company', MenuID: 'COMPANY_REGISTRATION' },
-      { label: '고객계정관리', link: '/User', MenuID: 'COMPANY_USER_MANAGEMENT' },
-      { label: '메뉴권한관리', link: '/UserMenu', MenuID: 'USER_MENU_PERMISSION' },
-      { label: '라이선스 매출현황', link: '/LicenseRevenue', MenuID: 'LICENSE_REVENUE' },
-      { label: 'AI 비용현황', link: '/AiCost', MenuID: 'AI_COST' },
-      { label: '타사 재고현황', link: '/SharedStock', MenuID: 'SHARED_STOCK' },
-      { label: '통제관리', link: '/ControlManagement', MenuID: 'CONTROL_MANAGEMENT' },
+      { label: '고객사 관리', links: [
+        { label: '고객사등록', link: '/Company', MenuID: 'COMPANY_REGISTRATION' },
+        { label: '계정관리', link: '/User', MenuID: 'COMPANY_USER_MANAGEMENT' },
+      ] },
+      { label: '권한·통제', links: [
+        { label: '메뉴별 권한', link: '/UserMenu', MenuID: 'USER_MENU_PERMISSION' },
+        { label: '통제관리', link: '/ControlManagement', MenuID: 'CONTROL_MANAGEMENT' },
+      ] },
+      { label: '서비스 모니터링', links: [
+        { label: '라이선스 현황', link: '/LicenseRevenue', MenuID: 'LICENSE_REVENUE' },
+        { label: '타사재고 현황', link: '/SharedStock', MenuID: 'SHARED_STOCK' },
+        { label: 'AI 비용현황', link: '/AiCost', MenuID: 'AI_COST' },
+      ] },
     ],
   },
 ];
@@ -220,25 +262,20 @@ export default function MainLayout({ children }) {
     }
   });
   const [pwModalOpened, { open: openPwModal, close: closePwModal }] = useDisclosure(false);
-  // 네비 · 헤더 색: 다크(기본) / 라이트 (이 브라우저에 기억)
-  const [navTheme, setNavTheme] = useState(() => {
-    try { return localStorage.getItem('steel119-nav-theme') === 'light' ? 'light' : 'dark'; } catch { return 'dark'; }
-  });
-  const toggleNavTheme = () => setNavTheme((current) => {
-    const next = current === 'light' ? 'dark' : 'light';
-    try { localStorage.setItem('steel119-nav-theme', next); } catch { /* 기억 못 해도 지금 화면은 바뀐다 */ }
-    return next;
-  });
-  // 메뉴 검색 (헤더 검색칸 → 왼쪽 메뉴를 거름, Ctrl+K 로 바로 이동)
+  // 화면 색(라이트 / 다크)은 네비 아래 스위치(ThemeSwitch)가 혼자 맡는다 → 전환할 때 이 화면 전체를 다시 그리지 않음
+  // 메뉴 검색 (헤더 검색칸 → 왼쪽 메뉴를 거름, '/' 로 바로 이동)
+  // '/' 는 입력칸 · 표 등 화면 안에 포커스가 없을 때(바탕 · 네비 · 헤더 · 탭줄)만 받는다 → 화면에서 '/' 를 입력하는 데 방해되지 않음
   const [menuQuery, setMenuQuery] = useState('');
   const menuSearchRef = useRef(null);
   useEffect(() => {
     const onKey = (event) => {
-      if ((event.ctrlKey || event.metaKey) && String(event.key).toLowerCase() === 'k') {
-        event.preventDefault();
-        menuSearchRef.current?.focus();
-        menuSearchRef.current?.select();
-      }
+      if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.defaultPrevented) return;
+      const el = document.activeElement;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      if (el && el !== document.body && !el.closest?.('[data-shell-chrome]')) return;
+      event.preventDefault();
+      menuSearchRef.current?.focus();
+      menuSearchRef.current?.select();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -269,7 +306,7 @@ export default function MainLayout({ children }) {
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
     '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage',
     '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/itemprocessmaster', '/itemprocessregister', '/itemprocesssearch', '/customersupport', '/board',
-    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/instrumentstatus', '/customerledger', '/customerbalancedashboard', '/grossprofit', '/grossprofitdashboard', '/company', '/licenserevenue', '/aicost', '/sharedstock', '/user', '/usermenu', '/workplace', '/monthclose', '/userinfo', '/controlmanagement', '/eapproval', '/eapprovalform', '/leavestatus', '/payrollentry', '/payrollledger', '/mypayroll',
+    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/instrumentstatus', '/customerledger', '/customerbalancedashboard', '/grossprofit', '/grossprofitdashboard', '/company', '/licenserevenue', '/aicost', '/aiassistant', '/sharedstock', '/user', '/usermenu', '/workplace', '/monthclose', '/userinfo', '/controlmanagement', '/eapproval', '/eapprovaldrafts', '/eapprovalmine', '/eapprovalinbox', '/eapprovalform', '/leavesetting', '/leavestatus', '/payrollentry', '/payrollledger', '/mypayroll',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
   // 탭별 화면 / 리본 보관 (key = 경로)
   const [pageCache, setPageCache] = useState({});
@@ -301,27 +338,20 @@ export default function MainLayout({ children }) {
     () => workTabs.filter((tab) => !visiblePageTabs.some((visibleTab) => visibleTab.path === tab.path)),
     [workTabs, visiblePageTabs],
   );
-  // 탭 끌어서 순서 바꾸기: 끄는 동안 지나가는 탭 자리로 바로 옮긴다
-  const dragTabRef = useRef(null);
-  const [draggingTab, setDraggingTab] = useState(null);
-  const moveDraggedTab = (event, targetPath) => {
-    const dragged = dragTabRef.current;
-    if (!dragged) return;
-    event.preventDefault();
-    if (dragged === targetPath) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const after = event.clientX > rect.left + rect.width / 2;
-    setTabState((current) => {
-      const tabs = current.tabs.filter((tab) => tab.path !== dragged);
-      const moving = current.tabs.find((tab) => tab.path === dragged);
-      let index = tabs.findIndex((tab) => tab.path === targetPath);
-      if (!moving || index < 0) return current;
-      if (after) index += 1;
-      tabs.splice(index, 0, moving);
-      const same = tabs.every((tab, i) => tab.path === current.tabs[i].path);
-      return same ? current : { ...current, tabs };
-    });
-  };
+  // 탭 끌어서 순서 바꾸기 (홈 탭은 끌 수 없고 홈 앞으로 옮길 수 없음): 원래 자리는 빈 칸, 끄는 모습은 화면 위에 따로
+  const tabsRowRef = useRef(null);
+  const visibleTabPaths = useMemo(() => visiblePageTabs.map((tab) => tab.path), [visiblePageTabs]);
+  const commitTabOrder = useCallback((order) => setTabState((current) => {
+    // 보이는 탭 자리만 새 순서로 채운다 (홈 · 더보기로 넘친 탭 자리는 그대로)
+    const moved = new Set(order);
+    const byPath = new Map(current.tabs.map((tab) => [tab.path, tab]));
+    let next = 0;
+    const tabs = current.tabs.map((tab) => (moved.has(tab.path) ? byPath.get(order[next++]) || tab : tab));
+    return { ...current, tabs };
+  }), []);
+  const tabSort = usePointerSort({ ids: visibleTabPaths, axis: 'x', containerRef: tabsRowRef, onCommit: commitTabOrder });
+  const sortedPageTabs = tabSort.order.map((path) => visiblePageTabs.find((tab) => tab.path === path)).filter(Boolean);
+
 
   // 저장하지 않은 변경이 있는 탭을 닫을 때 확인 창 ({ kind: 'one', path } | { kind: 'all' })
   const [pendingClose, setPendingClose] = useState(null);
@@ -344,23 +374,36 @@ export default function MainLayout({ children }) {
     setRibbons((current) => { const next = { ...current }; delete next[path]; return next; });
     if (pathname === path) navigate(remaining[remaining.length - 1].path);
   }, [pageTabs, pathname, navigate]);
-  // 탭 모두 닫기: 대시보드만 남기고 나머지 화면과 리본을 지운다 (각 탭을 닫을 때와 같은 정리)
-  const closeAllTabs = useCallback((force = false) => {
+  // 탭 모두 닫기 / 현재 탭 제외 모두 닫기: 대시보드(와 지금 탭)만 남기고 나머지 화면과 리본을 지운다 (각 탭을 닫을 때와 같은 정리)
+  const closeManyTabs = useCallback((keepCurrent, force = false) => {
     const home = pageTabs.find((tab) => isHomePath(tab.path)) || { path: '/HomePage', label: findMenuLabel(mockdata, '/HomePage') };
-    const closing = pageTabs.filter((tab) => tab.path !== home.path).map((tab) => tab.path);
-    if (force !== true && anyDirty(closing)) { setPendingClose({ kind: 'all' }); return; }
+    const keep = new Set([home.path, ...(keepCurrent ? [pathname] : [])]);
+    const closing = pageTabs.filter((tab) => !keep.has(tab.path)).map((tab) => tab.path);
+    if (!closing.length) return;
+    if (force !== true && anyDirty(closing)) { setPendingClose({ kind: keepCurrent ? 'others' : 'all' }); return; }
     closing.forEach(clearDirty);
-    const paths = pageTabs.map((tab) => String(tab.path || '').replace(/\/+$/, '').toLowerCase());
+    const paths = closing.map((path) => String(path || '').replace(/\/+$/, '').toLowerCase());
     if (paths.includes('/aiorderpage')) clearAIOrderPageSession();
     if (paths.includes('/aiordermanage')) clearAIOrderDraft();
-    setTabState({ pathname, tabs: [home] });
-    setPageCache((current) => (current[home.path] ? { [home.path]: current[home.path] } : {}));
-    setRibbons((current) => (current[home.path] ? { [home.path]: current[home.path] } : {}));
-    if (!isHomePath(pathname)) navigate(home.path);
+    const kept = pageTabs.filter((tab) => keep.has(tab.path));
+    setTabState({ pathname, tabs: kept.some((tab) => tab.path === home.path) ? kept : [home, ...kept] });
+    const pick = (current) => Object.fromEntries(Object.entries(current).filter(([path]) => keep.has(path)));
+    setPageCache(pick);
+    setRibbons(pick);
+    if (!keep.has(pathname)) navigate(home.path);
   }, [pageTabs, pathname, navigate]);
-  // 화면별 리본의 [닫기]가 항상 최신 closePageTab 을 쓰도록
-  const closeTabRef = useRef(closePageTab);
-  useLayoutEffect(() => { closeTabRef.current = closePageTab; }, [closePageTab]);
+  const closeAllTabs = useCallback((force = false) => closeManyTabs(false, force), [closeManyTabs]);
+  const closeOtherTabs = useCallback((force = false) => closeManyTabs(true, force), [closeManyTabs]);
+  // 새로고침: 지금 탭 화면만 처음 상태로 다시 띄운다 (다시 그리면서 최신 데이터를 읽음). 저장 안 한 변경이 있으면 먼저 묻는다.
+  const [refreshSpin, setRefreshSpin] = useState(0);
+  const refreshCurrentTab = useCallback((force = false) => {
+    if (force !== true && isDirty(pathname)) { setPendingClose({ kind: 'refresh', path: pathname }); return; }
+    setRefreshSpin((value) => value + 1);
+    clearDirty(pathname);
+    setPageCache((current) => (current[pathname]
+      ? { ...current, [pathname]: { ...current[pathname], version: current[pathname].version + 1 } }
+      : current));
+  }, [pathname]);
 
   // 전자결재: 내가 결재할 문서 · 최근 반려 (헤더 알림)
   const [eapprSummary, setEapprSummary] = useState(null);
@@ -429,6 +472,8 @@ export default function MainLayout({ children }) {
     email: localStorage.getItem('user_email') || '',
     companyname: localStorage.getItem('user_companyname') || '',
   }));
+  // 헤더 왼쪽 회사명 (사업장 전환은 이후 작업 — 지금은 표시만)
+  const [companyName, setCompanyName] = useState(userInfo.companyname);
 
   // 메뉴 즐겨찾기 (사용자별, 서버 usermenufavorite01t 에 저장). 첫 화면을 바로 그리려고 이 브라우저에도 사본을 둔다.
   const favoriteCacheKey = `steel119-menu-favorites:${localStorage.getItem('user_company') || ''}:${userInfo.email}`.toLowerCase();
@@ -463,7 +508,7 @@ export default function MainLayout({ children }) {
     }).catch((error) => {
       console.error('메뉴 즐겨찾기 저장 실패:', error);
       if (favoriteIdsRef.current === next) applyFavorites(previous);
-      notifications.show({ title: '즐겨찾기 저장 실패', message: '잠시 후 다시 시도해 주세요.', color: 'red', position: 'bottom-right' });
+      notifications.show({ title: '내메뉴 저장 실패', message: '잠시 후 다시 시도해 주세요.', color: 'red', position: 'bottom-right' });
     });
   }, [applyFavorites]);
   const toggleFavorite = useCallback((menuid) => {
@@ -513,7 +558,7 @@ export default function MainLayout({ children }) {
         setCurrentCompanyId(String(data.companyid || ''));
         localStorage.setItem('user_company', String(data.companyid || ''));
         if (data.username) localStorage.setItem('user_name', data.username);
-        if (data.companyname) localStorage.setItem('user_companyname', data.companyname);
+        if (data.companyname) { localStorage.setItem('user_companyname', data.companyname); setCompanyName(data.companyname); }
         setMyPermissionsLoaded(true);
       }
     }).catch((error) => {
@@ -642,6 +687,8 @@ const canSeeMenu = (link) => {
   // 모든 메뉴는 메뉴권한으로 (모스코 전용 메뉴는 모스코 직원만 받을 수 있다 — 서버가 막음). 모스코 MASTER 는 전체.
   // 통제관리: 메뉴 권한이 없어도 통제 설정에서 승인자로 지정된 직원은 보인다
   if (link.link === '/ControlManagement' && controlSummary?.is_approver) return true;
+  // AI 업무비서: 지금은 모스코(001) 직원 중 권한이 있는 사람만 (대화창과 같은 조건)
+  if (link.MenuID === 'AI_ASSISTANT') return canUseAssistant;
   if (isPlatformMaster) return true;
   const required = link.access || link.MenuID;   // access: 다른 메뉴의 권한을 그대로 쓰는 화면 (예: 휴가현황 = 전자결재)
   return !required || myPermissions.includes(required);
@@ -656,6 +703,33 @@ const filterMenu = (items, depth = 0) => items
     return depth === 0 ? item.links.some(hasEnabledLink) : item.links.length > 0;
   });
 const visibleMockdata = filterMenu(mockdata);
+
+  // 단축키 (F1 단축키 표 · 리본 F3~F9 · 탭 Alt+…): ShellShortcuts.jsx
+  const headerActionsRef = useRef(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const tabOrder = [pageTabs.find((tab) => isHomePath(tab.path))?.path || '/HomePage', ...workTabs.map((tab) => tab.path)];
+  const goTab = (step) => {
+    const index = tabOrder.indexOf(pathname);
+    const next = tabOrder[(Math.max(index, 0) + step + tabOrder.length) % tabOrder.length];
+    if (next && next !== pathname) navigate(next);
+  };
+  useShellShortcuts(headerActionsRef, {
+    toggleHelp: () => setHelpOpen((value) => !value),
+    prevTab: () => goTab(-1),
+    nextTab: () => goTab(1),
+    refreshTab: () => refreshCurrentTab(),
+    closeTab: () => { if (!isHomePath(pathname)) closePageTab(null, pathname); },
+    home: () => navigate('/HomePage'),
+    favorite: (index) => {
+      const byId = new Map();
+      const walk = (list) => list.forEach((item) => { if (item.links) walk(item.links); else if (item.MenuID && item.link && !item.disabled) byId.set(item.MenuID, item); });
+      walk(visibleMockdata);
+      const item = favoriteIds.map((id) => byId.get(id)).filter(Boolean)[index];
+      if (item) navigate(item.link);
+    },
+  });
+  useRibbonShortcutTitles(headerActionsRef, [pathname]);
+
 
 const firstAccessiblePath = flattenMenuLinks(visibleMockdata)
   .find((item) => item.link && item.link !== '/HomePage')?.link;
@@ -729,47 +803,51 @@ const menuAccessContextValue = useMemo(() => ({
       layout="alt"
       transitionDuration={220}
       transitionTimingFunction="ease"
-      className={`${classes.shell} ${navTheme === 'light' ? classes.themeLight : classes.themeDark} ${isInboundWorkspace || isDashboard ? classes.appShellInbound : ''} ${sidebarCollapsed ? `${classes.sidebarCollapsed} steel119-sidebar-collapsed` : ''}`}
-      header={{ height: 52 }}
+      className={`${classes.shell} ${isInboundWorkspace || isDashboard ? classes.appShellInbound : ''} ${sidebarCollapsed ? `${classes.sidebarCollapsed} steel119-sidebar-collapsed` : ''}`}
+      header={{ height: 56 }}
       navbar={{
-        width: sidebarCollapsed ? 76 : 224,
+        width: sidebarCollapsed ? 68 : 216,
         breakpoint: 'sm',
         collapsed: { mobile: !opened },
       }}
       padding="sm"
     >
-      <AppShell.Header className={classes.appHeader}>
+      <AppShell.Header className={classes.appHeader} data-shell-chrome="">
         <Burger className={classes.mobileBurger} opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
 
+        {companyName && <div className={classes.tn} title={companyName}>
+          <span className={classes.tdot} aria-hidden="true" /><span className={classes.tnName}>{companyName}</span>
+          <IconChevronDown className={classes.tnChev} size={14} stroke={2} />   {/* 사업장 전환 자리 (기능은 이후 작업) */}
+        </div>}
         <label className={classes.hsearch}>
-          <IconSearch size={18} stroke={1.5} />
-          <input ref={menuSearchRef} type="text" placeholder="메뉴 검색" autoComplete="off" aria-label="메뉴 검색" value={menuQuery}
+          <IconSearch size={16} stroke={2} />
+          <input ref={menuSearchRef} type="text" placeholder="메뉴 검색" autoComplete="off" aria-label="메뉴 검색 (단축키 /)" value={menuQuery}
             onChange={(event) => { setMenuQuery(event.target.value); if (sidebarCollapsed && event.target.value) expandSidebar(); }}
             onKeyDown={(event) => { if (event.key === 'Escape') { setMenuQuery(''); event.currentTarget.blur(); } }} />
-          <kbd>Ctrl K</kbd>
+          <kbd>/</kbd>
         </label>
 
         <div className={classes.hright}>
-          <Box className={classes.headerActions}>
+          <Box ref={headerActionsRef} className={classes.headerActions}>
             {ribbons[pathname] ?? null}
           </Box>
           <span className={classes.hsep} aria-hidden="true" />
+          <ShortcutHelp opened={helpOpen} onChange={setHelpOpen} />
           {(controlSummary?.active || eapprSummary?.enabled) && <ApprovalBell summary={controlSummary?.active ? controlSummary : null} eappr={eapprSummary?.enabled ? eapprSummary : null}
             onOpen={(item) => navigate(`/ControlManagement?tab=${controlSummary.can_manage || controlSummary.is_approver ? 'inbox' : 'mine'}`, { state: { request: item || null } })}
-            onOpenEappr={(item) => navigate('/EApproval?tab=inbox', { state: { doc: item || null } })} />}
+            onOpenEappr={(item) => navigate('/EApprovalInbox', { state: { doc: item || null } })} />}
           <Menu position="bottom-end" offset={8} width={248} shadow="md" withinPortal classNames={{ dropdown: classes.umenu }}>
             <Menu.Target>
               <button type="button" className={classes.ubtn} aria-label="사용자 메뉴">
-                <IconUserCircle className={classes.uav} size={24} stroke={1.5} />
+                <IconUserCircle className={classes.uav} size={22} stroke={1.5} />
                 <span>{userInfo.name ? `${userInfo.name}님` : '사용자'}</span>
-                <IconChevronDown className={classes.uchev} size={14} stroke={1.8} />
+                <IconChevronDown className={classes.uchev} size={13} stroke={2} />
               </button>
             </Menu.Target>
             <Menu.Dropdown>
               <div className={classes.uh}>
                 <b>{userInfo.name ? `${userInfo.name}님` : '사용자'}</b>
                 {userInfo.email && <span>{userInfo.email}</span>}
-                {userInfo.companyname && <span>{userInfo.companyname}</span>}
               </div>
               <Menu.Item className={classes.ui} leftSection={<IconKey size={18} stroke={1.7} />} onClick={openPwModal}>비밀번호 변경</Menu.Item>
               <Menu.Item className={`${classes.ui} ${classes.uiDanger}`} leftSection={<IconLogout size={18} stroke={1.7} />} onClick={handleLogout}>로그아웃</Menu.Item>
@@ -782,11 +860,16 @@ const menuAccessContextValue = useMemo(() => ({
             const target = pendingClose;
             setPendingClose(null);
             if (target?.kind === 'all') closeAllTabs(true);
+            else if (target?.kind === 'others') closeOtherTabs(true);
+            else if (target?.kind === 'refresh') { if (target.path === pathname) refreshCurrentTab(true); }
             else if (target?.path) closePageTab(null, target.path, true);
           }}
-          showIcon={false} title={pendingClose?.kind === 'all' ? '저장하지 않은 화면이 있습니다' : '저장하지 않은 변경이 있습니다'}
-          target={pendingClose?.kind === 'one' ? findMenuLabel(mockdata, pendingClose.path) : undefined}
-          message="닫으면 저장하지 않은 내용이 사라집니다." note="그래도 닫을까요?" confirmLabel="닫기" />
+          showIcon={false}
+          title={pendingClose?.kind === 'all' || pendingClose?.kind === 'others' ? '저장하지 않은 화면이 있습니다' : '저장하지 않은 변경이 있습니다'}
+          target={pendingClose?.kind === 'one' || pendingClose?.kind === 'refresh' ? findMenuLabel(mockdata, pendingClose.path) : undefined}
+          message={pendingClose?.kind === 'refresh' ? '새로고침하면 저장하지 않은 내용이 사라집니다.' : '닫으면 저장하지 않은 내용이 사라집니다.'}
+          note={pendingClose?.kind === 'refresh' ? '그래도 새로고침할까요?' : '그래도 닫을까요?'}
+          confirmLabel={pendingClose?.kind === 'refresh' ? '새로고침' : '닫기'} />
 
         <ConfirmDeleteModal opened={Boolean(approvalNotice)} onClose={() => setApprovalNotice(null)}
           onConfirm={() => {   // 내 요청 탭을 열고 방금 올린 요청을 골라 둔다
@@ -824,7 +907,7 @@ const menuAccessContextValue = useMemo(() => ({
         </Modal>
       </AppShell.Header>
 
-      <AppShell.Navbar className={classes.navBar} p={0}>
+      <AppShell.Navbar className={classes.navBar} p={0} data-shell-chrome="">
         <AppShell.Section className={classes.sideHead}>
           <div className={classes.logoSlot}>
             <Steel119Logo className={classes.brandLockup} redClass={classes.lgRed} inkClass={classes.lgInk} />
@@ -836,55 +919,57 @@ const menuAccessContextValue = useMemo(() => ({
             aria-label={sidebarCollapsed ? '사이드바 펼치기' : '사이드바 접기'}
             title={sidebarCollapsed ? '사이드바 펼치기' : '사이드바 접기'}
           >
-            <IconLayoutSidebar size={20} stroke={1.5} />
+            <IconLayoutSidebar size={18} stroke={ic.stroke} />
           </button>
         </AppShell.Section>
         <AppShell.Section grow className={classes.navScroll}>
           <SidebarNav items={visibleMockdata} pathname={pathname} collapsed={sidebarCollapsed} onExpand={expandSidebar} query={menuQuery}
             favoriteIds={favoriteIds} onToggleFavorite={toggleFavorite} onReorderFavorites={reorderFavorites} />
         </AppShell.Section>
-        <AppShell.Section className={classes.sFoot}>
-          <div className={classes.thm}>
-            <IconMoon className={classes.thmIcon} size={20} stroke={1.5} />
-            <span className={classes.thmText}>라이트 모드</span>
-            <button type="button" className={classes.sw} role="switch" aria-checked={navTheme === 'light'} aria-label="라이트 모드 전환"
-              title={navTheme === 'light' ? '다크 모드로' : '라이트 모드로'} onClick={toggleNavTheme} />
-          </div>
-          <button type="button" className={classes.lo} onClick={handleLogout} title="로그아웃">
-            <IconLogout size={20} stroke={1.5} /><span className={classes.thmText}>로그아웃</span>
-          </button>
-        </AppShell.Section>
       </AppShell.Navbar>
 
       <AppShell.Main className={`${classes.appMain} ${isDashboard ? classes.appMainDashboard : isInboundWorkspace ? classes.appMainInbound : ''}`}>
-        <div className={classes.pageTabs} role="tablist" aria-label="열린 메뉴">
+        <div className={classes.pageTabs} data-shell-chrome="">
+         <div ref={tabsRowRef} className={classes.tabsRow} role="tablist" aria-label="열린 메뉴" onClickCapture={tabSort.onClickCapture}>
           <button type="button" className={`${classes.pageTab} ${classes.homeTab} ${isDashboard ? classes.pageTabActive : ''}`}
             title="대시보드" aria-label="대시보드" aria-current={isDashboard ? 'page' : undefined} onClick={() => navigate('/HomePage')}>
-            <IconHome size={14} stroke={1.6} /><span className={classes.pageTabLabel}>대시보드</span>
+            <IconHome size={16} stroke={ic.stroke} />
           </button>
-          {visiblePageTabs.map((tab) => {
+          {sortedPageTabs.map((tab) => {
             const label = findMenuLabel(mockdata, tab.path);
+            // 끌리는 탭의 원래 자리: 같은 크기의 빈 칸 (이름 · 닫기 없음)
+            if (tabSort.draggingId === tab.path) return <div key={tab.path} data-sort-id={tab.path} className={classes.tabPlaceholder} style={tabSort.placeholderSize} aria-hidden="true" />;
             return (
-              <div key={tab.path} role="tab" aria-selected={pathname === tab.path} tabIndex={0} draggable
-                className={`${classes.pageTab} ${pathname === tab.path ? classes.pageTabActive : ''} ${draggingTab === tab.path ? classes.pageTabDragging : ''}`}
-                onDragStart={(event) => { dragTabRef.current = tab.path; setDraggingTab(tab.path); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', tab.path); }}
-                onDragOver={(event) => moveDraggedTab(event, tab.path)}
-                onDrop={(event) => event.preventDefault()}
-                onDragEnd={() => { dragTabRef.current = null; setDraggingTab(null); }}
+              <div key={tab.path} data-sort-id={tab.path} role="tab" aria-selected={pathname === tab.path} tabIndex={0}
+                className={`${classes.pageTab} ${pathname === tab.path ? classes.pageTabActive : ''}`}
+                {...tabSort.handleProps(tab.path)}
                 onClick={() => navigate(tab.path)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) navigate(tab.path); }}>
                 <span className={classes.pageTabLabel} title={label}>{label}</span>
                 <button type="button" className={classes.pageTabClose} aria-label={`${label} 닫기`}
-                  onClick={(event) => closePageTab(event, tab.path)}>×</button>
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => closePageTab(event, tab.path)}><IconX size={13} stroke={1.8} /></button>
               </div>
             );
           })}
-          <Menu position="bottom-end" withinPortal shadow="sm">
+         </div>
+         {/* 끌고 있는 탭: 화면 위에 따로 (그림자) */}
+         {tabSort.draggingId && createPortal(<div className={`${classes.pageTab} ${classes.pageTabActive} ${classes.tabFlying}`} style={tabSort.overlayStyle} aria-hidden="true">
+           <span className={classes.pageTabLabel}>{findMenuLabel(mockdata, tabSort.draggingId)}</span>
+           <span className={classes.pageTabClose}><IconX size={13} stroke={1.8} /></span>
+         </div>, document.body)}
+         <div className={classes.tabTools}>
+          <button type="button" className={classes.tabTool} title="새로고침" aria-label="지금 탭 새로고침"
+            onClick={() => refreshCurrentTab()} disabled={!pageCache[pathname] || undefined}>
+            <IconReload key={refreshSpin} className={refreshSpin ? classes.spin : undefined} size={16} stroke={ic.stroke} />
+          </button>
+          <Menu position="bottom-end" withinPortal shadow="none" classNames={{ dropdown: classes.moreTabsDropdown }}>
             <Menu.Target>
-              <button type="button" className={classes.moreTabsButton} aria-label={overflowPageTabs.length ? `탭 메뉴 · 나머지 열린 화면 ${overflowPageTabs.length}개` : '탭 메뉴'}>
-                ···{overflowPageTabs.length > 0 && <span>{overflowPageTabs.length}</span>}
+              <button type="button" className={classes.tabTool} title="탭 닫기"
+                aria-label={overflowPageTabs.length ? `탭 메뉴 · 나머지 열린 화면 ${overflowPageTabs.length}개` : '탭 메뉴'}>
+                <IconDots size={16} stroke={ic.stroke} />{overflowPageTabs.length > 0 && <span className={classes.moreCount}>{overflowPageTabs.length}</span>}
               </button>
             </Menu.Target>
-            <Menu.Dropdown className={classes.moreTabsDropdown}>
+            <Menu.Dropdown>
               {overflowPageTabs.length > 0 && <>
                 <div className={classes.moreTabsHeading}>열린 화면 {workTabs.length}개</div>
                 {overflowPageTabs.map((tab) => {
@@ -899,9 +984,12 @@ const menuAccessContextValue = useMemo(() => ({
                 })}
                 <div className={classes.moreTabsDivider} />
               </>}
+              <Menu.Item className={classes.closeAllItem} onClick={() => closeOtherTabs()}
+                disabled={!workTabs.some((tab) => tab.path !== pathname)}>현재 탭 제외 모두 닫기</Menu.Item>
               <Menu.Item className={classes.closeAllItem} onClick={() => closeAllTabs()} disabled={!workTabs.length}>탭 모두 닫기</Menu.Item>
             </Menu.Dropdown>
           </Menu>
+         </div>
         </div>
         {/* 클래스 적용 */}
         <div className={`${classes.contentCard} ${isDashboard ? classes.dashboardContentCard : isInboundWorkspace ? classes.inboundContentCard : ''}`}>
@@ -915,12 +1003,12 @@ const menuAccessContextValue = useMemo(() => ({
                 </Text>)}
             {Object.entries(pageCache).map(([path, entry]) => (
               <KeepAlivePage key={`${path}#${entry.version}`} path={path} active={path === pathname && !dashboardBlocked} activation={activations[path] || 0}
-                element={entry.element} setRibbons={setRibbons} closeTabRef={closeTabRef} />
+                element={entry.element} setRibbons={setRibbons} />
             ))}
           </MenuAccessContext.Provider>
         </div>
       </AppShell.Main>
-      {canUseAssistant && <AIAssistant />}
+      {canUseAssistant && <AIAssistant hideTab={String(pathname || '').replace(/\/+$/, '').toLowerCase() === '/aiassistant'} />}
     </AppShell>
   </>
   );
@@ -928,18 +1016,27 @@ const menuAccessContextValue = useMemo(() => ({
 }
 
 
-// ── 승인 알림 (헤더 종) ─────────────────────────────────────────
-// 승인자 · 관리자: 대기 중인 요청 / 담당자: 최근 2주 내 내 요청 결과. 줄을 누르면 통제관리에서 그 요청을 연다.
-const BELL_STATUS = { PENDING: 'wait', PROCESSING: 'wait', APPROVED: 'ok', REJECTED: 'no', CANCELED: 'muted' };
+// ── 헤더 알림 (종) — 시안 '헤더 알림' 기준 ─────────────────────────
+// [결재 | 통제] 탭으로 나눈다. 결재 = 내가 결재할 전자결재 문서, 통제 = 승인자는 대기 중 요청 / 담당자는 최근 2주 내 내 요청 결과.
+// 처리해야 할 줄(결재할 문서 · 승인 대기 · 반려된 내 요청)은 안 읽은 줄처럼 색 바탕 + 점. 줄을 누르면 그 화면에서 연다.
+const BELL_RESULT = { APPROVED: '승인되었습니다', REJECTED: '반려되었습니다', CANCELED: '취소되었습니다' };
+const KST_PARTS = (value) => Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+}).formatToParts(value).map((part) => [part.type, part.value]));
+// 오늘 오전 09:12 · 어제 오후 04:40 · 11월 27일 오전 11:08 (한국 시간)
 const bellTime = (value) => {
   if (!value) return '';
-  const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60000));
-  if (minutes < 1) return '방금';
-  if (minutes < 60) return `${minutes}분 전`;
-  if (minutes < 60 * 24) return `${Math.floor(minutes / 60)}시간 전`;
-  return `${Math.floor(minutes / (60 * 24))}일 전`;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const at = KST_PARTS(date);
+  const now = KST_PARTS(new Date());
+  const yesterday = KST_PARTS(new Date(Date.now() - 24 * 60 * 60 * 1000));
+  const sameDay = (a, b) => a.year === b.year && a.month === b.month && a.day === b.day;
+  const hour = Number(at.hour);
+  const clock = `${hour < 12 ? '오전' : '오후'} ${String(hour % 12 || 12).padStart(2, '0')}:${at.minute}`;
+  const day = sameDay(at, now) ? '오늘' : sameDay(at, yesterday) ? '어제' : `${Number(at.month)}월 ${Number(at.day)}일`;
+  return `${day} ${clock}`;
 };
-const bellWon = (value) => (value === null || value === undefined ? '' : `${Math.round(Number(value)).toLocaleString('ko-KR')}원`);
 
 function ApprovalBell({ summary, eappr, onOpen, onOpenEappr }) {
   const [opened, setOpened] = useState(false);
@@ -947,64 +1044,64 @@ function ApprovalBell({ summary, eappr, onOpen, onOpenEappr }) {
   const controlCount = summary ? (approverView ? summary.pending : summary.my_rejected) : 0;
   const eapprCount = eappr ? (eappr.todo || 0) : 0;
   const count = controlCount + eapprCount;
-  const items = summary?.items || [];
-  const label = [summary && (approverView ? `승인 대기 ${summary.pending}건` : `최근 반려 ${summary.my_rejected}건`), eappr && `결재할 문서 ${eapprCount}건`].filter(Boolean).join(' · ');
+  const label = [eappr && `결재할 문서 ${eapprCount}건`, summary && (approverView ? `승인 대기 ${summary.pending}건` : `최근 반려 ${summary.my_rejected}건`)].filter(Boolean).join(' · ');
+  // 열 때: 결재할 게 있거나 통제 알림이 없으면 결재 탭, 아니면 통제 탭 (시안과 같음)
+  const defaultTab = eappr && (eapprCount || !controlCount || !summary) ? 'a' : 'c';
+  const [tab, setTab] = useState(defaultTab);
+  const currentTab = (tab === 'a' && !eappr) ? 'c' : (tab === 'c' && !summary) ? 'a' : tab;
+  const toggle = () => setOpened((value) => { if (!value) setTab(defaultTab); return !value; });
   const open = (item) => { setOpened(false); onOpen(item); };
   const openEappr = (item) => { setOpened(false); onOpenEappr(item); };
-  return <Popover opened={opened} onChange={setOpened} position="bottom-end" offset={8} width={360} shadow="md" withinPortal>
+
+  const eapprRows = (eappr?.items || []).map((item) => ({
+    key: item.docno, kind: 'a', pending: true,
+    tag: item.formname,
+    title: `${item.writer_name || ''}${item.title ? ` · ${item.title}` : ''}`,
+    sub: bellTime(item.submitted_at),
+    onClick: () => openEappr(item),
+  }));
+  const controlRows = (summary?.items || []).map((item) => {
+    const kindLabel = `${item.target_label} ${item.action_label}`;
+    const pending = approverView ? ['PENDING', 'PROCESSING'].includes(item.status) : item.status === 'REJECTED';
+    // 내용(거래처 · 전표번호 등)은 빼고 사람만: 승인자에게는 요청자, 요청한 사람에게는 처리한 사람
+    const title = approverView
+      ? `승인 요청${item.requested_name ? ` · ${item.requested_name}` : ''}`
+      : `${BELL_RESULT[item.status] || '승인 대기 중입니다'}${item.decided_name ? ` · ${item.decided_name}` : ''}`;
+    return {
+      key: item.requestno, kind: 'c', pending, tag: kindLabel, title,
+      sub: bellTime(item.decided_at || item.requested_at),   // 시간만
+      onClick: () => open(item),
+    };
+  });
+  const rows = currentTab === 'a' ? eapprRows : controlRows;
+
+  return <Popover opened={opened} onChange={setOpened} position="bottom-end" offset={6} width={360} shadow="none" withinPortal>
     <Popover.Target>
-      <button type="button" className={classes.bell} title={label} aria-label={label} onClick={() => setOpened((value) => !value)}>
-        <IconBell size={18} stroke={1.5} />
+      <button type="button" className={classes.bell} title={label} aria-label={label} onClick={toggle}>
+        <IconBell size={18} stroke={2} />
         {count > 0 && <span className={classes.bellBadge}>{count > 99 ? '99+' : count}</span>}
       </button>
     </Popover.Target>
     <Popover.Dropdown className={classes.bellPanel}>
-      {/* 전자결재: 내가 결재할 문서 */}
-      {eappr && <>
-        <div className={classes.bellHead}>
-          <b>결재할 문서</b>
-          {eapprCount > 0 && <span>{eapprCount}건</span>}
-        </div>
-        <div className={classes.bellList}>
-          {(eappr.items || []).map((item) => <button key={item.docno} type="button" className={classes.bellItem} onClick={() => openEappr(item)}>
-            <span className={`${classes.bellDot} ${classes.bell_wait}`} aria-hidden="true" />
-            <span className={classes.bellBody}>
-              <span className={classes.bellTitle}><b>{item.formname}</b><i>{bellTime(item.submitted_at)}</i></span>
-              <span className={classes.bellSummary}>{item.title}</span>
-              <span className={classes.bellMeta}>{item.writer_name}{item.writer_team ? ` · ${item.writer_team}` : ''}<b>{item.step_done + 1}/{item.step_total}차</b></span>
-            </span>
-          </button>)}
-          {!eapprCount && <div className={classes.bellEmpty}>결재할 문서가 없습니다{eappr.my_rejected ? ` · 최근 반려 ${eappr.my_rejected}건` : ''}</div>}
-        </div>
-        <button type="button" className={classes.bellFoot} onClick={() => openEappr(null)}>전자결재에서 모두 보기</button>
-      </>}
-      {/* 통제관리 승인 */}
-      {summary && <>
-        <div className={classes.bellHead}>
-          <b>{approverView ? '승인 대기' : '내 요청'}</b>
-          {approverView && summary.pending > 0 && <span>{summary.pending}건</span>}
-        </div>
-        <div className={classes.bellList}>
-          {items.map((item) => <button key={item.requestno} type="button" className={classes.bellItem} onClick={() => open(item)}>
-            <span className={`${classes.bellDot} ${classes[`bell_${BELL_STATUS[item.status] || 'muted'}`]}`} aria-hidden="true" />
-            <span className={classes.bellBody}>
-              <span className={classes.bellTitle}>
-                <b>{item.target_label} {item.action_label}</b>
-                {!approverView && <em className={classes[`bellTag_${BELL_STATUS[item.status] || 'muted'}`]}>{item.status_label}</em>}
-                <i>{bellTime(item.decided_at || item.requested_at)}</i>
-              </span>
-              <span className={classes.bellSummary}>{item.summary}</span>
-              <span className={classes.bellMeta}>
-                {approverView ? item.requested_name : item.decided_name ? `${item.decided_name} 처리` : '승인 대기 중'}
-                {item.amount !== null && item.amount !== undefined && <b>{bellWon(item.amount)}</b>}
-              </span>
-              {!approverView && item.reject_reason && <span className={classes.bellReason}>{item.reject_reason}</span>}
-            </span>
-          </button>)}
-          {!items.length && <div className={classes.bellEmpty}>{approverView ? '대기 중인 요청이 없습니다' : '최근 요청이 없습니다'}</div>}
-        </div>
-        <button type="button" className={classes.bellFoot} onClick={() => open(null)}>통제관리에서 모두 보기</button>
-      </>}
+      <div className={classes.bellTabs} role="tablist" aria-label="알림 구분">
+        {eappr && <button type="button" role="tab" aria-selected={currentTab === 'a'} className={currentTab === 'a' ? classes.bellTabOn : ''} onClick={() => setTab('a')}>
+          결재 <em className={classes.bellCountA}>{eapprCount}</em></button>}
+        {summary && <button type="button" role="tab" aria-selected={currentTab === 'c'} className={currentTab === 'c' ? classes.bellTabOn : ''} onClick={() => setTab('c')}>
+          통제 <em className={classes.bellCountC}>{controlCount}</em></button>}
+      </div>
+      {rows.length ? <div className={classes.bellList}>
+        {rows.map((row) => <button key={row.key} type="button" onClick={row.onClick}
+          className={`${classes.bellItem} ${row.kind === 'a' ? classes.bellItemA : classes.bellItemC} ${row.pending ? classes.bellUnread : classes.bellRead}`}>
+          <span className={classes.bellDot} aria-hidden="true" />
+          <span className={classes.bellBody}>
+            <span className={classes.bellTitle}>{row.tag && <em className={classes.bellTag}>{row.tag}</em>}<span>{row.title}</span></span>
+            <span className={classes.bellSub}>{row.sub}</span>
+          </span>
+        </button>)}
+      </div> : <div className={classes.bellEmpty}>알림이 없습니다</div>}
+      <button type="button" className={classes.bellFoot} onClick={() => (currentTab === 'a' ? openEappr(null) : open(null))}>
+        {currentTab === 'a' ? '결재함에서 모두 보기 ›' : '통제관리에서 모두 보기 ›'}
+      </button>
     </Popover.Dropdown>
   </Popover>;
 }
