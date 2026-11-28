@@ -11,7 +11,7 @@ import {
   IconFileInvoice, IconPlus, IconSearch, IconTrash, IconTruckDelivery, IconX,
 } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
@@ -22,14 +22,26 @@ import { PageRibbonContext } from '../../components/layout/MainLayout';
 import OutboundStockPickerModal from './OutboundStockPickerModal';
 import OutboundPrintDocument from './OutboundPrintDocument';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
-import { cachedDateFormat } from '../../utils/dateFormat';
+import { cachedDateFormat, kstDate } from '../../utils/dateFormat';
+import { useUnsavedChanges } from '../../utils/dirtyRegistry';
+import { apiErrorMessage } from '../../utils/apiError';
+import { useRequestKey } from '../../utils/requestKey';
+import { fetchAllPages, loadMaster, peekMaster } from '../../utils/masterCache';
+
+// 코드 목록 캐시 키 (매출등록은 코드 속성까지 쓰므로 매입등록 캐시와 따로)
+const outboundCodeKey = (groupcode) => `code-props:${groupcode}`;
+const cachedOutboundUnitOptions = () => ({
+  price: peekMaster(outboundCodeKey('PRICE_UNIT')) || [],
+  quantity: peekMaster(outboundCodeKey('QTY')) || [],
+  warehouse: peekMaster(outboundCodeKey('WAREHOUSE')) || [],
+});
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' }, { value: '50', label: '50개씩' },
   { value: '100', label: '100개씩' }, { value: '200', label: '200개씩' },
 ];
 const createDefaultReceiptFilters = () => {
-  const today = new Date();
+  const today = kstDate();
   const year = today.getFullYear();
   const month = today.getMonth();
   const pad = (value) => String(value).padStart(2, '0');
@@ -45,7 +57,7 @@ const createDefaultReceiptFilters = () => {
 };
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const localDate = () => {
-  const date = new Date();
+  const date = kstDate();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 const EMPTY_HEADER = { receiptno: '', receptdate: localDate(), customcode: '', customname: '', warehousecode: '', warehousecodename: '', manager: '', destination: '', description: '', manager_dirty: false, destination_dirty: false, other_dirty: false };
@@ -138,7 +150,7 @@ const errorMessage = (error) => {
     .replaceAll('customcode', '\uB9E4\uCD9C\uCC98')
     .replaceAll('warehousecode', '\uCC3D\uACE0')
     .replaceAll('receptdate', '\uB9E4\uCD9C\uC77C\uC790');
-  return detail || error.response?.data?.message || error.message || '\uB9E4\uCD9C \uC694\uCCAD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.';
+  return apiErrorMessage(error, '\uB9E4\uCD9C \uC694\uCCAD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.');
 };
 const makeDetail = (source = EMPTY_DETAIL, lineNo = null) => ({
   ...EMPTY_DETAIL,
@@ -203,6 +215,11 @@ const formatWon = (value) => `${formatAmount(value)}원`;
 const EXCEL_NUMBER_KEYS = new Set(['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'adjweight', 'totalweight', 'unitprice', 'supplyamt', 'vat', 'unitamt', 'stocksourceline']);
 const NUMERIC_FIELDS = new Set(['thickness', 'width', 'length', 'qty', 'weight', 'adjweight', 'unitprice']);
 const cleanNumericInput = (value) => String(value ?? '').replace(/,/g, '').replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
+// 기타비용 공급가 · 부가세 저장값: 소수 둘째 자리까지 (서버 검증과 같음 · 예전 자료에 셋째 자리가 있어도 반올림해 보낸다)
+const expenseAmount2 = (value) => {
+  const amount = Number(cleanNumericInput(value));
+  return Number.isFinite(amount) && amount ? String(Math.round((amount + Number.EPSILON) * 100) / 100) : '0';
+};
 const formatNumericInput = (value) => {
   const raw = cleanNumericInput(value);
   if (!raw) return '';
@@ -565,6 +582,91 @@ const OutboundExpenseRow = memo(function OutboundExpenseRow({
     </Table.Tr>
   );
 });
+
+// ── 매출 상세 · 기타비용 엑셀식 입력 도우미 ──
+// 매출 상세 행은 [현재고 조회]로 담은 재고 라인(원천전표·순번·현재고)에 묶여 있다.
+// 그래서 행 추가·복제는 하지 않고, 값을 쓰는 것(채우기·붙여넣기·지우기)은 직접 입력할 수 있는 칸(조정·비고)에만 한다.
+// 범위 선택·복사는 모든 칸에서 된다.
+const DETAIL_FIELD_INDEX = Object.fromEntries(DETAIL_FIELDS.map(({ key }, index) => [key, index]));
+const EDITABLE_FIELD_SET = new Set(EDITABLE_FIELDS);
+const editableFieldsBetween = (left, right) => DETAIL_FIELDS.slice(left, right + 1).map(({ key }) => key).filter((key) => EDITABLE_FIELD_SET.has(key));
+// 한 칸 값을 옮기거나 지운다 — 손으로 칠 때(onChange)와 같은 규칙: 조정은 부호 있는 숫자, 비고는 글자
+const copyDetailField = (target, source, field) => {
+  if (field === 'adjweight') target.adjweight = cleanSignedInput(source.adjweight);
+  else if (field === 'description') target.description = String(source.description ?? '');
+};
+const clearDetailField = (target, field) => {
+  if (field === 'adjweight' || field === 'description') target[field] = '';
+};
+const plainAmountText = (value) => {
+  if (value === '' || value === null || value === undefined) return '';
+  const amount = Number(String(value).replace(/,/g, ''));
+  return Number.isFinite(amount) ? String(Math.round((amount + Number.EPSILON) * 100) / 100) : '';
+};
+// 복사(Ctrl+C) 글자: 화면 값과 같게, 숫자는 쉼표 없이 (엑셀에 그대로 붙여넣기)
+const detailCopyText = (row, field, unitOptions) => {
+  let value;
+  if (field === 'sourcetype') {
+    const type = row.sourcetype || row.stocksourcetype;
+    value = type === 'OPENING' ? '기초' : type === 'INBOUND' ? '입고' : type === 'PROCESS' ? '가공' : '';
+  } else if (field === 'stocksourceno') value = row.stocksourceno || row.sourceno || '';
+  else if (field === 'stocksourceline') value = row.stocksourceline ?? row.sourceline ?? '';
+  else if (field === 'receiptdate') value = String(row.receiptdate || '').slice(0, 10);
+  else if (field === 'qtyunit') value = unitOptions.quantity.find((option) => option.code === row.qtyunit)?.name || row.qtyunit || '';
+  else if (field === 'unit') value = unitOptions.price.find((option) => option.code === row.unit)?.name || row.unit || '';
+  else if (field === 'adjweight') value = cleanSignedInput(row.adjweight);
+  else if (field === 'totalweight') { const total = totalWeightOf(row); value = Number.isFinite(total) ? String(total) : ''; }
+  else if (field === 'supplyamt') value = plainAmountText(amountOf(row, unitOptions.price));
+  else if (field === 'vat') value = plainAmountText(vatAmountOf(row, unitOptions.price));
+  else if (field === 'unitamt') value = plainAmountText(totalAmountOf(row, unitOptions.price));
+  else value = row[field] ?? '';
+  return String(value).replace(/[\t\r\n]+/g, ' ');
+};
+const parseClipboardMatrix = (text) => String(text || '').replace(/\r/g, '').split('\n')
+  .filter((line, index, all) => line || index < all.length - 1).map((line) => line.split('\t'));
+const isMultiCellText = (text) => /[\t\n]/.test(String(text || '').replace(/\r?\n$/, ''));
+
+// 기타비용 표 칸 순서 (체크·No. 다음부터). 합계는 계산값이라 붙여넣기에서 건너뛴다.
+const EXPENSE_GRID_FIELDS = ['costname', 'supplyamt', 'vat', 'total', 'customname', 'purchaseyn', 'description'];
+const EXPENSE_FIRST_FIELD_COLUMN = 2;
+const expenseCellOf = (target) => {
+  const cell = target?.closest?.('td');
+  const row = cell?.parentElement;
+  if (!cell || !row || row.parentElement?.tagName !== 'TBODY') return null;
+  const field = EXPENSE_GRID_FIELDS[cell.cellIndex - EXPENSE_FIRST_FIELD_COLUMN];
+  return field ? { index: row.sectionRowIndex, column: cell.cellIndex, field } : null;
+};
+const cleanExpenseAmount = (value) => cleanNumericInput(value).replace(/(\.\d{2})\d+$/, '$1');
+// 비용여부 글자 → Y/N (못 알아보면 null)
+const parsePurchaseYn = (value) => {
+  const text = String(value ?? '').trim().toUpperCase();
+  if (['Y', 'YES', '예', '비용'].includes(text)) return 'Y';
+  if (['', 'N', 'NO', '아니오', '아니요'].includes(text)) return 'N';
+  return null;
+};
+// 한 칸 값을 옮긴다 — changeExpense 와 같은 규칙 (공급가 → 부가세 자동, 부가세 → 직접 입력, 비용구분·거래처는 코드와 이름 함께)
+// 거래처는 비용여부 '예'인 행에만 (아니오는 매출처를 따라가는 보기 전용 칸)
+const copyExpenseField = (target, source, field) => {
+  const next = { ...target, is_dirty: !target.is_new };
+  if (field === 'costname') { next.costcode = source.costcode || ''; next.costname = source.costname || ''; }
+  else if (field === 'customname') {
+    if (target.purchaseyn !== 'Y') return target;
+    next.customcode = source.customcode || ''; next.customname = source.customname || '';
+  } else if (field === 'supplyamt') {
+    next.supplyamt = source.supplyamt ?? '';
+    if (!target.vat_manual) next.vat = expenseVatOf(next.supplyamt);
+  } else if (field === 'vat') { next.vat = source.vat ?? ''; next.vat_manual = true; }
+  else if (field === 'purchaseyn') next.purchaseyn = source.purchaseyn || 'N';
+  else if (field === 'description') next.description = source.description || '';
+  else return target;
+  return next;
+};
+const findUniqueMatch = (list, text, keys) => {
+  const normalized = String(text ?? '').trim().toLocaleLowerCase();
+  if (!normalized) return null;
+  const matches = list.filter((entry) => keys.some((key) => String(entry[key] ?? '').trim().toLocaleLowerCase() === normalized));
+  return matches.length === 1 ? matches[0] : null;
+};
 
 const formatExcelDateTime = (value) => {
   if (!value) return '';
@@ -1022,17 +1124,17 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
       const raw = cleanSignedInput(row.adjweight);
       if (!raw || raw === '-' || raw.endsWith('.')) return raw;
       const value = Number(raw);
-      return Number.isFinite(value) ? `${value > 0 ? '+' : ''}${value.toLocaleString(undefined, { maximumFractionDigits: 3 })}` : '';
+      return Number.isFinite(value) ? `${value > 0 ? '+' : ''}${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '';
     }
     if (key === 'totalweight') {
       const total = totalWeightOf(row);
-      return Number.isFinite(total) ? total.toLocaleString(undefined, { maximumFractionDigits: 3 }) : '';
+      return Number.isFinite(total) ? total.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '';
     }
     if (key === 'weight') {
       const rawWeight = cleanNumericInput(row.weight);
       const weight = Number(rawWeight);
       return rawWeight && Number.isFinite(weight)
-        ? weight.toLocaleString(undefined, { maximumFractionDigits: 3 })
+        ? weight.toLocaleString(undefined, { maximumFractionDigits: 2 })
         : '';
     }
     if (['current_qty', 'current_weight', 'thickness', 'width', 'length', 'myrtle', 'qty', 'unitprice'].includes(key)) return formatNumericInput(row[key] ?? 0);
@@ -1074,7 +1176,7 @@ const DetailCells = memo(function DetailCells({ row, index, selected, disabled, 
         ) : key === 'receptdate' ? (
           <OutboundDateSegments row={row} disabled={disabled} onChange={onChange} registerCellInput={registerCellInput} onFocusCell={onFocusCell} />
         ) : ['supplyamt', 'vat', 'unitamt'].includes(key) ? (
-          <input className={`${codeClasses.cellInput} ${classes.amountInput} ${classes.autoFilledInput}`} aria-label={label}
+          <input ref={(element) => registerCellInput(row.id, key, element)} className={`${codeClasses.cellInput} ${classes.amountInput} ${classes.autoFilledInput}`} aria-label={label}
             value={formatAmount(key === 'supplyamt' ? amountOf(row, unitOptions.price) : key === 'vat' ? vatAmountOf(row, unitOptions.price) : totalAmountOf(row, unitOptions.price))} disabled />
         ) : (
           <input
@@ -1122,8 +1224,8 @@ export const DetailSubtotalTable = ({ columns, widths = {}, values, minWidth = '
   <Table.Tbody><DetailSubtotalRow columns={columns} values={values} /></Table.Tbody>
 </Table>;
 export const detailSubtotalValues = (totals) => ({
-  qty: totals.qty.toLocaleString(undefined, { maximumFractionDigits: 3 }),
-  weight: totals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 }),
+  qty: totals.qty.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+  weight: totals.weight.toLocaleString(undefined, { maximumFractionDigits: 2 }),
   supplyamt: formatWon(totals.amount.toFixed(2)),
   vat: formatWon(totals.vat.toFixed(2)),
   unitamt: formatWon(totals.total.toFixed(2)),
@@ -1179,13 +1281,15 @@ export default function OutboundRegisterPage() {
   const [filterInputs, setFilterInputs] = useState(createDefaultReceiptFilters);
   const [filters, setFilters] = useState(createDefaultReceiptFilters);
   const [header, setHeader] = useState(EMPTY_HEADER);
-  const [receiptCustomers, setReceiptCustomers] = useState([]);
+  const [receiptCustomers, setReceiptCustomers] = useState(() => peekMaster('customers:active') || []);
   const [receiptMetadata, setReceiptMetadata] = useState({ companyid: '', companyname: '', created_at: '', updated_at: '' });
   const [rows, setRows] = useState([]);
+  const detailRowsRef = useRef(rows);
+  useLayoutEffect(() => { detailRowsRef.current = rows; }, [rows]);
   const [expenses, setExpenses] = useState([]);
   const expenseRowsRef = useRef(expenses);
   useLayoutEffect(() => { expenseRowsRef.current = expenses; }, [expenses]);
-  const [expenseOptions, setExpenseOptions] = useState([]);
+  const [expenseOptions, setExpenseOptions] = useState(() => peekMaster(outboundCodeKey('OTHER_COST')) || []);
   const [expenseCostPickerId, setExpenseCostPickerId] = useState('');
   const [selectedExpenseIds, setSelectedExpenseIds] = useState([]);
   const [detailTab, setDetailTab] = useState('details');
@@ -1232,7 +1336,7 @@ export default function OutboundRegisterPage() {
   useEffect(() => { if (customerFocusTick) focusHeaderCustomer(); }, [customerFocusTick, focusHeaderCustomer]);
   const [itemPickerTargetId, setItemPickerTargetId] = useState('');
   const [masterPickerTarget, setMasterPickerTarget] = useState(null);
-  const [unitOptions, setUnitOptions] = useState({ price: [], quantity: [], warehouse: [] });
+  const [unitOptions, setUnitOptions] = useState(cachedOutboundUnitOptions);
   const virtuosoRef = useRef(null);
   const detailScrollerRef = useRef(null);
   const initialReceiptLoadRef = useRef(false);
@@ -1263,12 +1367,16 @@ export default function OutboundRegisterPage() {
     expenseCostInputsRef.current.get(expenseId)?.current?.focus();
     pendingExpenseFocusIdRef.current = '';
   }, [expenses.length]);
-  const locked = isReceiptConfirmed(subulyn);
+  const confirmed = isReceiptConfirmed(subulyn);
+  // 저장된 전표는 서버가 알려 준 사유(월마감 · 승인 대기)가 있으면 매출일자 · 단가 · 담당자 · 착지 · 삭제를 모두 잠근다
+  const locked = confirmed || Boolean(selectedReceiptno && header.edit_lock);
   const readOnly = Boolean(selectedReceiptno) || locked;
   const hasManagerChanges = Boolean(selectedReceiptno) && Boolean(header.manager_dirty);
   const hasNewDetails = useMemo(() => rows.some((row) => row.is_new), [rows]);
   const hasPendingExpenses = useMemo(() => expenses.some((row) => row.is_new || row.is_dirty), [expenses]);
   const hasPendingChanges = useMemo(() => documentDirty || rows.some((row) => row.is_new || row.is_dirty) || hasPendingExpenses, [documentDirty, rows, hasPendingExpenses]);
+  useUnsavedChanges(hasPendingChanges);   // 탭 닫기 · 브라우저 닫기 전에 확인
+  const requestKey = useRequestKey(!selectedReceiptno && hasPendingChanges);   // 새 전표 중복 저장 막기 (서버 request_key)
   // 출력은 항상 DB 에 저장된 전표 기준이므로, 화면에서 고친 내용이 있으면 먼저 저장하게 한다.
   const openPrint = useCallback((kind) => {
     if (!selectedReceiptno) {
@@ -1304,8 +1412,8 @@ export default function OutboundRegisterPage() {
   }, { qty: 0, weight: 0, adjweight: 0, totalweight: 0, amount: 0, vat: 0, total: 0 }), [rows, unitOptions.price]);
   const detailSubtotals = useMemo(() => ({
     ...detailSubtotalValues(detailTotals),
-    adjweight: detailTotals.adjweight.toLocaleString(undefined, { maximumFractionDigits: 3 }),
-    totalweight: detailTotals.totalweight.toLocaleString(undefined, { maximumFractionDigits: 3 }),
+    adjweight: detailTotals.adjweight.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+    totalweight: detailTotals.totalweight.toLocaleString(undefined, { maximumFractionDigits: 2 }),
   }), [detailTotals]);
   const quantitySummary = useMemo(() => {
     if (!rows.length) return '0';
@@ -1316,13 +1424,13 @@ export default function OutboundRegisterPage() {
       const quantity = Number(cleanNumericInput(row.qty)) || 0;
       totals.set(unit, (totals.get(unit) || 0) + quantity);
     });
-    return [...totals.entries()].map(([unit, quantity]) => `${quantity.toLocaleString(undefined, { maximumFractionDigits: 3 })}${unit}`).join(', ');
+    return [...totals.entries()].map(([unit, quantity]) => `${quantity.toLocaleString(undefined, { maximumFractionDigits: 2 })}${unit}`).join(', ');
   }, [rows, unitOptions.quantity]);
   const receiptAutoWidths = useMemo(() => Object.fromEntries(RECEIPT_COLUMNS.map((column) => {
     const values = receipts.map((receipt) => receipt[column.key]);
     if (column.key === 'total_weight') {
       const subtotal = receipts.reduce((sum, receipt) => sum + Number(receipt.total_weight || 0), 0);
-      values.push(subtotal.toLocaleString(undefined, { maximumFractionDigits: 3 }));
+      values.push(subtotal.toLocaleString(undefined, { maximumFractionDigits: 2 }));
     } else if (['supply_amount', 'vat_amount', 'total_amount', 'other_cost_amount'].includes(column.key)) {
       const subtotal = receipts.reduce((sum, receipt) => sum + Number(receipt[column.key] || 0), 0);
       values.push(formatWon(String(subtotal)));
@@ -1426,20 +1534,16 @@ export default function OutboundRegisterPage() {
     void loadReceipts(1, createDefaultReceiptFilters(), 15);
   }, [loadReceipts]);
 
-  const loadUnitOptions = useCallback(async (groupcode) => {
-    const items = [];
-    let pageNumber = 1;
-    let totalCount = 0;
-    do {
+  // 코드 목록: 지난번 값(메모리 캐시)으로 바로 채우고 서버 값으로 곧바로 바꾼다. 여러 쪽은 병렬로 받는다.
+  const loadUnitOptions = useCallback((groupcode) => loadMaster(outboundCodeKey(groupcode), async () => {
+    const items = await fetchAllPages(async (pageNumber) => {
       const { data } = await axios.get(`/api/code-master/groups/${groupcode}/items`, {
         ...authConfig(), params: { page: pageNumber, page_size: 200, include_total: true },
       });
-      items.push(...(data.items || []));
-      totalCount = data.total || 0;
-      pageNumber += 1;
-    } while (items.length < totalCount && pageNumber <= 100);
+      return { items: data.items || [], total: data.total || 0 };
+    }, 200);
     return items.filter((item) => item.use).map((item) => ({ code: item.code, name: item.name, property: item.properties?.[0] || '' }));
-  }, []);
+  }), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1519,6 +1623,169 @@ export default function OutboundRegisterPage() {
     notifications.show({ title: '선택 행 제거 완료', message: `기타비용 ${removedCount}행을 제거했습니다. 저장하면 반영됩니다.`, color: 'teal' });
   }, [saving, readOnly, selectedExpenseIds, expenses]);
 
+  // ── 기타비용 표 엑셀식 입력 ──
+  // 칸(공급가·부가세·비고·거래처·비용구분)은 벗어날 때 값을 확정하므로, 값을 바꾸기 전에 먼저 포커스를 빼서 확정시키고 바꾼 뒤 다시 돌아온다.
+  const focusExpenseCell = useCallback((index, column) => {
+    requestAnimationFrame(() => {
+      const input = expenseTableScrollerRef.current?.querySelector('tbody')?.rows[index]?.cells[column]?.querySelector(EXPENSE_CELL_INPUT);
+      if (!input) return;
+      input.focus();
+      if (!input.readOnly) input.select?.();
+    });
+  }, []);
+
+  // Ctrl+D: 체크한 행이 있으면 현재 칸 값을 그 아래 체크한 행들에, 없으면 바로 윗행 값을 현재 칸에
+  const fillExpenseDown = useCallback((cell, element) => {
+    if (saving || readOnly || cell.field === 'total') return;
+    const list = expenseRowsRef.current;
+    const selected = new Set(selectedExpenseIds);
+    const useSelection = selected.size > 0;
+    const sourceIndex = useSelection ? cell.index : cell.index - 1;
+    const targets = useSelection
+      ? new Set(list.map((expense, index) => (index > cell.index && selected.has(expense.id) ? index : -1)).filter((index) => index >= 0))
+      : new Set([cell.index]);
+    if (sourceIndex < 0 || !targets.size) return;
+    element?.blur();
+    setExpenses((current) => current.map((expense, index) => (targets.has(index) && current[sourceIndex]
+      ? copyExpenseField(expense, current[sourceIndex], cell.field) : expense)));
+    setDocumentDirty(true);
+    focusExpenseCell(cell.index, cell.column);
+    if (useSelection) notifications.show({ title: '아래로 채우기 완료', message: `기타비용 ${targets.size.toLocaleString()}개 행에 현재 칸의 값을 복사했습니다.`, color: 'teal' });
+  }, [saving, readOnly, selectedExpenseIds, focusExpenseCell]);
+
+  // Ctrl+Enter: 아래에 빈 행 · Ctrl+Shift+Enter: 현재 행 복제
+  const insertExpenseBelow = useCallback((index, duplicate, element) => {
+    if (saving || readOnly) return;
+    if (duplicate) element?.blur();
+    const fresh = makeExpense();
+    setExpenses((current) => {
+      const source = current[index];
+      const row = duplicate && source
+        ? makeExpense({
+          id: fresh.id, costcode: source.costcode, costname: source.costname, supplyamt: source.supplyamt, vat: source.vat,
+          vat_manual: source.vat_manual, customcode: source.customcode, customname: source.customname,
+          purchaseyn: source.purchaseyn, description: source.description,
+        })
+        : fresh;
+      const next = [...current];
+      next.splice(Math.min(index + 1, next.length), 0, row);
+      return next;
+    });
+    setDocumentDirty(true);
+    pendingExpenseFocusIdRef.current = fresh.id;
+  }, [saving, readOnly]);
+
+  const handleExpenseKeyDown = useCallback((event) => {
+    if (event.defaultPrevented || event.altKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
+    const cell = expenseCellOf(event.target);
+    if (!cell) return;
+    const ctrl = event.ctrlKey || event.metaKey;
+    const { key } = event;
+    if (ctrl && key.toLowerCase() === 'd') { event.preventDefault(); fillExpenseDown(cell, event.target); return; }
+    if (ctrl && key === 'Enter') { event.preventDefault(); insertExpenseBelow(cell.index, event.shiftKey, event.target); return; }
+    if (ctrl && !event.shiftKey && (key === 'ArrowUp' || key === 'ArrowDown')) {
+      const count = expenseRowsRef.current.length;
+      if (!count) return;
+      event.preventDefault();
+      focusExpenseCell(key === 'ArrowUp' ? 0 : count - 1, cell.column);
+      return;
+    }
+    // 비용여부 목록 칸은 Enter 를 목록 열기·고르기에 쓴다
+    if (key === 'Enter' && !ctrl && cell.field !== 'purchaseyn') {
+      // Enter / Shift+Enter: 아래·위 행 같은 칸. 마지막 행에서 Enter 는 새 행을 붙인다.
+      event.preventDefault();
+      const nextIndex = cell.index + (event.shiftKey ? -1 : 1);
+      if (nextIndex < 0) return;
+      if (nextIndex >= expenseRowsRef.current.length) {
+        if (!event.shiftKey) { event.target.blur?.(); addExpense(); }
+        return;
+      }
+      focusExpenseCell(nextIndex, cell.column);
+    }
+  }, [fillExpenseDown, insertExpenseBelow, focusExpenseCell, addExpense]);
+
+  // 엑셀 범위 붙여넣기: 현재 칸부터 오른쪽·아래로 (비용구분 · 공급가 · 부가세 · 합계(건너뜀) · 거래처 · 비용여부 · 비고). 모자란 행은 새로 만든다.
+  // 비용구분·거래처는 이름이나 코드가 정확히 하나로 맞을 때만 넣고, 못 찾으면 비워 두고 알려 준다.
+  // 거래처는 비용여부 '예'인 행에만 넣는다 ('아니오'는 저장할 때 매출처로 저장되는 보기 전용 칸).
+  const handleExpensePasteCapture = useCallback((event) => {
+    if (saving || readOnly) return;
+    const text = event.clipboardData.getData('text/plain');
+    if (!isMultiCellText(text)) return;   // 값 하나는 칸 기본 붙여넣기
+    const cell = expenseCellOf(event.target);
+    if (!cell) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const matrix = parseClipboardMatrix(text);
+    if (cell.index + matrix.length > 1000) {
+      notifications.show({ title: '붙여넣기 제한', message: '기타비용은 한 번에 최대 1,000행까지 입력할 수 있습니다.', color: 'orange' });
+      return;
+    }
+    const startField = EXPENSE_GRID_FIELDS.indexOf(cell.field);
+    const unresolved = [];
+    const patches = matrix.map((line, offset) => {
+      const patch = {};
+      const rowLabel = `${cell.index + offset + 1}행`;
+      line.forEach((value, columnOffset) => {
+        const field = EXPENSE_GRID_FIELDS[startField + columnOffset];
+        const raw = String(value ?? '').trim();
+        if (field === 'costname') {
+          const option = findUniqueMatch(expenseOptions, raw, ['name', 'code']);
+          patch.costcode = option?.code || '';
+          patch.costname = option ? option.name || option.code || '' : '';
+          if (raw && !option) unresolved.push(`${rowLabel} 비용구분: ${raw}`);
+        } else if (field === 'customname') {
+          const customer = findUniqueMatch(receiptCustomers, raw, ['customername', 'customercode']);
+          patch.customer = { customcode: customer?.customercode || '', customname: customer?.customername || '', raw, found: Boolean(customer) };
+        } else if (field === 'supplyamt' || field === 'vat') patch[field] = cleanExpenseAmount(raw);
+        else if (field === 'purchaseyn') {
+          const parsed = parsePurchaseYn(raw);
+          if (parsed) patch.purchaseyn = parsed;
+          else unresolved.push(`${rowLabel} 비용여부: ${raw} (예/아니오)`);
+        } else if (field === 'description') patch.description = String(value ?? '').slice(0, 500);
+      });
+      return patch;
+    });
+    event.target.blur?.();
+    const currentList = expenseRowsRef.current;
+    patches.forEach((patch, offset) => {
+      // 거래처를 못 찾은 경우는 그 행이 비용여부 '예'일 때만 알린다
+      const purchaseyn = patch.purchaseyn ?? currentList[cell.index + offset]?.purchaseyn ?? 'N';
+      if (patch.customer && purchaseyn === 'Y' && patch.customer.raw && !patch.customer.found) {
+        unresolved.push(`${cell.index + offset + 1}행 거래처: ${patch.customer.raw}`);
+      }
+    });
+    setExpenses((current) => {
+      const next = [...current];
+      patches.forEach((patch, offset) => {
+        const index = cell.index + offset;
+        const base = next[index] ? { ...next[index] } : makeExpense();
+        const { customer, ...values } = patch;
+        Object.assign(base, values);
+        if (customer && base.purchaseyn === 'Y') { base.customcode = customer.customcode; base.customname = customer.customname; }
+        if ('vat' in values) {
+          // 부가세: 비우거나 공급가의 10% 와 같으면 자동계산, 다르면 직접 입력 (손으로 친 것과 같음)
+          const autoVat = expenseVatOf(base.supplyamt);
+          base.vat_manual = values.vat !== '' && Math.abs((Number(values.vat) || 0) - Number(autoVat)) > 0.004;
+          if (!base.vat_manual) base.vat = autoVat;
+        } else if ('supplyamt' in values && !base.vat_manual) base.vat = expenseVatOf(base.supplyamt);
+        base.is_dirty = !base.is_new;
+        if (next[index]) next[index] = base;
+        else next.push(base);
+      });
+      return next;
+    });
+    setDocumentDirty(true);
+    focusExpenseCell(cell.index, cell.column);
+    if (unresolved.length) {
+      notifications.show({
+        title: '코드 확인 필요',
+        message: `${unresolved.slice(0, 5).join(' · ')}${unresolved.length > 5 ? ` 외 ${unresolved.length - 5}건` : ''}. 사용 중인 비용구분·거래처만 들어가므로 해당 칸은 비워 두었습니다 (비용여부는 그대로).`,
+        color: 'orange',
+        autoClose: 8000,
+      });
+    }
+  }, [saving, readOnly, expenseOptions, receiptCustomers, focusExpenseCell]);
+
   const openCustomerPicker = useCallback((rowId) => {
     if (!readOnly && !saving) {
       setCustomerPickerTargetId(rowId);
@@ -1554,6 +1821,10 @@ export default function OutboundRegisterPage() {
       setHeader((current) => ({ ...current, customcode: value || '', customname, other_dirty: true }));
       setRows((current) => current.map((row) => ({ ...row, customcode: value || '', customname, is_dirty: !row.is_new })));
     } else if (key === 'receptdate') {
+      if (selectedReceiptno && value && header.min_receptdate && value < header.min_receptdate) {
+        notifications.show({ title: '매출일자 확인', message: `${header.min_receptdate} 이후 날짜만 선택할 수 있습니다. (재고 입고일 · 월마감 기준)`, color: 'orange' });
+        return;
+      }
       setHeader((current) => ({ ...current, receptdate: value, other_dirty: true }));
       setRows((current) => current.map((row) => ({ ...row, receptdate: value, is_dirty: !row.is_new })));
     } else {
@@ -1564,7 +1835,7 @@ export default function OutboundRegisterPage() {
       }));
     }
     setDocumentDirty(true);
-  }, [receiptCustomers]);
+  }, [receiptCustomers, selectedReceiptno, header.min_receptdate]);
   const markReceiptHeaderEdited = useCallback((key) => {
     setHeader((current) => ({
       ...current,
@@ -1627,6 +1898,8 @@ export default function OutboundRegisterPage() {
         manager_dirty: false,
         destination_dirty: false,
         other_dirty: false,
+        edit_lock: receipt.edit_lock || '',                 // 수정 · 삭제를 막는 사유 (없으면 수정 가능)
+        min_receptdate: receipt.min_receptdate || '',       // 바꿀 수 있는 가장 이른 매출일자 (마감 다음날 · 재고 입고일)
       });
       setReceiptMetadata({
         companyid: receipt.companyid || '',
@@ -1661,19 +1934,15 @@ export default function OutboundRegisterPage() {
 
   useEffect(() => {
     let cancelled = false;
+    // 사용 중 매출처 전체: 캐시로 바로 채우고(초기값) 첫 쪽 뒤 나머지 쪽은 병렬로 받아 바꾼다 (매입등록과 같은 캐시)
     const loadCustomers = async () => {
-      const customers = [];
-      let pageNumber = 1;
-      let totalCount = 0;
-      do {
+      const customers = await loadMaster('customers:active', () => fetchAllPages(async (pageNumber) => {
         const { data } = await axios.get('/api/list', {
           ...authConfig(),
           params: { status: 'Y', page: pageNumber, page_size: 200, include_total: true },
         });
-        customers.push(...(data.data || []));
-        totalCount = data.total || 0;
-        pageNumber += 1;
-      } while (customers.length < totalCount && pageNumber <= 100);
+        return { items: data.data || [], total: data.total || 0 };
+      }, 200));
       if (!cancelled) setReceiptCustomers(customers);
     };
     void loadCustomers().catch((error) => {
@@ -1698,16 +1967,62 @@ export default function OutboundRegisterPage() {
     } else codeInputsRef.current.delete(id);
   }, []);
 
+  // ── 셀 범위 선택 (Shift+방향키 · Shift+클릭). 포커스는 시작 칸에 두고 범위만 칠한다 (다시 그리기 없이 DOM 클래스로) ──
+  // rangeRef: { anchorId, anchorColumn, focusId, focusColumn } — 열 번호는 DETAIL_FIELDS 순서
+  const rangeRef = useRef(null);
+  const paintedCellsRef = useRef(new Set());
+  const paintFrameRef = useRef(0);
+  const cellByElementRef = useRef(new WeakMap());
+  const getRangeBounds = useCallback(() => {
+    const range = rangeRef.current;
+    if (!range) return null;
+    const currentRows = detailRowsRef.current;
+    const anchorIndex = currentRows.findIndex((row) => row.id === range.anchorId);
+    const focusIndex = range.focusId === range.anchorId ? anchorIndex : currentRows.findIndex((row) => row.id === range.focusId);
+    if (anchorIndex < 0 || focusIndex < 0) return null;
+    return {
+      top: Math.min(anchorIndex, focusIndex), bottom: Math.max(anchorIndex, focusIndex),
+      left: Math.min(range.anchorColumn, range.focusColumn), right: Math.max(range.anchorColumn, range.focusColumn),
+    };
+  }, []);
+  const isMultiCellRange = useCallback((bounds = getRangeBounds()) => Boolean(bounds && (bounds.top !== bounds.bottom || bounds.left !== bounds.right)), [getRangeBounds]);
+  const paintRange = useCallback(() => {
+    paintFrameRef.current = 0;
+    paintedCellsRef.current.forEach((cell) => cell.classList.remove(classes.rangeCell));
+    paintedCellsRef.current.clear();
+    const bounds = getRangeBounds();
+    if (!isMultiCellRange(bounds)) return;
+    const currentRows = detailRowsRef.current;
+    for (let rowIndex = bounds.top; rowIndex <= bounds.bottom; rowIndex += 1) {
+      for (let column = bounds.left; column <= bounds.right; column += 1) {
+        const cell = cellInputsRef.current.get(`${currentRows[rowIndex].id}:${DETAIL_FIELDS[column].key}`)?.closest('td');
+        if (cell) { cell.classList.add(classes.rangeCell); paintedCellsRef.current.add(cell); }
+      }
+    }
+  }, [getRangeBounds, isMultiCellRange]);
+  const schedulePaintRange = useCallback(() => {
+    if (!paintFrameRef.current) paintFrameRef.current = requestAnimationFrame(paintRange);
+  }, [paintRange]);
+  const clearRange = useCallback(() => {
+    if (!rangeRef.current && !paintedCellsRef.current.size) return;
+    rangeRef.current = null;
+    paintRange();
+  }, [paintRange]);
+  useEffect(() => { if (rangeRef.current) schedulePaintRange(); }, [rows, schedulePaintRange]);
+  useEffect(() => () => { if (paintFrameRef.current) cancelAnimationFrame(paintFrameRef.current); }, []);
+
   const registerCellInput = useCallback((id, field, element) => {
     const key = `${id}:${field}`;
     if (element) {
+      cellByElementRef.current.set(element, { id, field });
+      if (rangeRef.current) schedulePaintRange();   // 가상 스크롤로 새로 그려진 칸도 범위 색을 입힌다
       cellInputsRef.current.set(key, element);
       if (pendingCellFocusRef.current?.key === key) {
         element.focus();
         pendingCellFocusRef.current = null;
       }
     } else cellInputsRef.current.delete(key);
-  }, []);
+  }, [schedulePaintRange]);
 
   const changeDetail = useCallback((id, key, value) => {
     if (key === 'unitprice' && selectedReceiptno) {
@@ -1781,48 +2096,81 @@ export default function OutboundRegisterPage() {
   }, [lookupItemNames, unitOptions, selectedIds, selectedSet, selectedReceiptno]);
 
   const setActiveCell = useCallback((id, field) => {
+    const previous = activeCellRef.current;
     activeCellRef.current = { id, field };
-  }, []);
+    if (previous?.id !== id || previous?.field !== field) clearRange();
+  }, [clearRange]);
 
+  // Ctrl+D 아래로 채우기 (엑셀과 같음) — 입력 칸(조정·비고)만. 재고에서 온 칸(품목·수량·중량·단가·단위·창고 등)은 옮기지 않는다.
+  //  - 셀 범위가 여러 행이면: 범위 맨 윗행 값을 범위 안 아래 행들에 (열마다)
+  //  - 체크한 행이 있으면: 현재 칸 값을 그 아래 체크한 행들에
+  //  - 그 밖에는: 바로 윗행 값을 현재 칸에
   const fillDown = useCallback(() => {
     const activeCell = activeCellRef.current;
-    if (!activeCell || readOnly || saving || !selectedIds.length) return;
-    const field = activeCell.field;
-    if (field === 'itemname' || field === 'warehousecodename' || field === 'unitamt') return;
-    const sourceIndex = rows.findIndex((row) => row.id === activeCell.id);
-    if (sourceIndex < 0) return;
-    const sourceValue = rows[sourceIndex][field] ?? '';
-    const targetRows = rows.filter((row, index) => index > sourceIndex && selectedSet.has(row.id));
-    if (!targetRows.length) return;
-
-    let value = sourceValue;
-    let warehouseName = '';
-    if (field === 'warehousecode') {
-      value = resolveMasterCode('warehouse', sourceValue, unitOptions) || sourceValue;
-      warehouseName = unitOptions.warehouse.find((option) => option.code === value)?.name || '';
-    } else if (field === 'qtyunit' || field === 'unit') {
-      value = resolveMasterCode(field, sourceValue, unitOptions) || sourceValue;
+    if (!activeCell || readOnly || saving) return;
+    const bounds = getRangeBounds();
+    const activeIndex = rows.findIndex((row) => row.id === activeCell.id);
+    if (activeIndex < 0) return;
+    const rangeFields = bounds ? editableFieldsBetween(bounds.left, bounds.right) : (EDITABLE_FIELD_SET.has(activeCell.field) ? [activeCell.field] : []);
+    let sourceRow;
+    let targetRows;
+    let mode;
+    if (bounds && bounds.bottom > bounds.top) {
+      mode = 'range';
+      sourceRow = rows[bounds.top];
+      targetRows = rows.slice(bounds.top + 1, bounds.bottom + 1);
+    } else if (selectedIds.length) {
+      mode = 'selected';
+      sourceRow = rows[activeIndex];
+      targetRows = rows.filter((row, index) => index > activeIndex && selectedSet.has(row.id));
+    } else {
+      mode = 'above';
+      sourceRow = rows[activeIndex - 1];
+      targetRows = [rows[activeIndex]];
     }
+    if (!sourceRow || !targetRows.length || !rangeFields.length) return;
+    const updates = new Map(targetRows.map((row) => {
+      const target = { ...row };
+      rangeFields.forEach((field) => copyDetailField(target, sourceRow, field));
+      target.is_dirty = !target.is_new;
+      return [row.id, target];
+    }));
+    setRows((current) => current.map((row) => updates.get(row.id) || row));
+    setDocumentDirty(true);
+    if (mode !== 'above') {
+      notifications.show({
+        title: '아래로 채우기 완료',
+        message: `${targetRows.length.toLocaleString()}개 행에 ${mode === 'range' ? '범위 맨 윗행' : '현재 칸'}의 값을 복사했습니다.`,
+        color: 'teal',
+      });
+    }
+  }, [readOnly, saving, selectedIds.length, rows, selectedSet, getRangeBounds]);
 
-    const targetIds = new Set(targetRows.map((row) => row.id));
-    targetRows.forEach((row) => {
-      if (field === 'unit' || field === 'qtyunit') masterPasteErrorsRef.current.delete(masterPasteErrorKey(row.id, field));
-      if (field === 'warehousecode') masterPasteErrorsRef.current.delete(masterPasteErrorKey(row.id, 'warehouse'));
-    });
+  // 범위 지우기 (Delete · 잘라내기): 조정·비고만 지운다
+  const clearRangeCells = useCallback(() => {
+    if (readOnly || saving) return;
+    const bounds = getRangeBounds();
+    if (!bounds) return;
+    const fields = editableFieldsBetween(bounds.left, bounds.right);
+    if (!fields.length) return;
+    const targetIds = new Set(rows.slice(bounds.top, bounds.bottom + 1).map((row) => row.id));
     setRows((current) => current.map((row) => {
       if (!targetIds.has(row.id)) return row;
-      const updated = field === 'warehousecode'
-        ? { ...row, warehousecode: value, warehousecodename: warehouseName }
-        : { ...row, [field]: value };
-      return { ...updated, is_dirty: !updated.is_new };
+      const target = { ...row };
+      fields.forEach((field) => clearDetailField(target, field));
+      target.is_dirty = !target.is_new;
+      return target;
     }));
     setDocumentDirty(true);
-    notifications.show({
-      title: '아래로 채우기 완료',
-      message: `${targetRows.length.toLocaleString()}개 행에 현재 셀의 값을 복사했습니다.`,
-      color: 'teal',
-    });
-  }, [readOnly, saving, selectedIds.length, rows, selectedSet, unitOptions]);
+  }, [readOnly, saving, rows, getRangeBounds]);
+
+  const rangeCopyText = useCallback(() => {
+    const bounds = getRangeBounds();
+    if (!bounds) return '';
+    return rows.slice(bounds.top, bounds.bottom + 1)
+      .map((row) => DETAIL_FIELDS.slice(bounds.left, bounds.right + 1).map(({ key }) => detailCopyText(row, key, unitOptions)).join('\t'))
+      .join('\n');
+  }, [rows, unitOptions, getRangeBounds]);
 
   const focusGridCell = useCallback((rowId, field) => {
     const cellKey = `${rowId}:${field}`;
@@ -1855,12 +2203,91 @@ export default function OutboundRegisterPage() {
     return true;
   }, [rows, focusGridCell]);
 
-  const handleTableKeyDown = useCallback((event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') {
-      event.preventDefault();
-      fillDown();
+  // 엑셀식 단축키 — 칸 자체 처리보다 먼저 받는다 (새 전표의 입력 칸에서만)
+  const handleTableKeyDownCapture = useCallback((event) => {
+    if (readOnly || event.nativeEvent.isComposing || event.keyCode === 229 || event.altKey) return;
+    // 표 안의 Ctrl+D 는 채울 칸이 없어도(저장된 전표 등) 브라우저 즐겨찾기 추가로 넘기지 않는다
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'd') event.preventDefault();
+    const activeCell = activeCellRef.current;
+    if (!activeCell || !cellInputsRef.current.has(`${activeCell.id}:${activeCell.field}`)) return;
+    const ctrl = event.ctrlKey || event.metaKey;
+    const { key } = event;
+    const arrow = key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight';
+    const stop = () => { event.preventDefault(); event.stopPropagation(); };
+
+    if (event.shiftKey && !ctrl && arrow) {
+      // 좌/우는 글자 안에서 커서가 움직일 수 있으면 글자 선택으로 둔다 (이미 범위가 있거나 글자 끝·전체 선택일 때만 범위 확장)
+      const target = event.target;
+      if ((key === 'ArrowLeft' || key === 'ArrowRight') && !isMultiCellRange() && target instanceof HTMLInputElement && !target.readOnly && target.selectionStart !== null) {
+        const { selectionStart: start, selectionEnd: end, value } = target;
+        const allSelected = start === 0 && end === value.length;
+        if (!allSelected && (key === 'ArrowLeft' ? start !== 0 : end !== value.length)) return;
+      }
+      const currentRows = detailRowsRef.current;
+      const range = rangeRef.current || { anchorId: activeCell.id, anchorColumn: DETAIL_FIELD_INDEX[activeCell.field], focusId: activeCell.id, focusColumn: DETAIL_FIELD_INDEX[activeCell.field] };
+      if (range.anchorColumn === undefined) return;
+      const focusIndex = currentRows.findIndex((row) => row.id === range.focusId);
+      if (focusIndex < 0) return;
+      const nextIndex = Math.max(0, Math.min(currentRows.length - 1, focusIndex + (key === 'ArrowDown' ? 1 : key === 'ArrowUp' ? -1 : 0)));
+      const nextColumn = Math.max(0, Math.min(DETAIL_FIELDS.length - 1, range.focusColumn + (key === 'ArrowRight' ? 1 : key === 'ArrowLeft' ? -1 : 0)));
+      stop();
+      rangeRef.current = { ...range, focusId: currentRows[nextIndex].id, focusColumn: nextColumn };
+      paintRange();
+      const focusCell = cellInputsRef.current.get(`${currentRows[nextIndex].id}:${DETAIL_FIELDS[nextColumn].key}`)?.closest('td');
+      if (focusCell) focusCell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      else virtuosoRef.current?.scrollToIndex({ index: nextIndex, align: 'center', behavior: 'auto' });
       return;
     }
+    if (ctrl && !event.shiftKey && (key === 'ArrowUp' || key === 'ArrowDown')) {
+      // Ctrl+위/아래: 맨 처음 / 마지막 행으로
+      const currentRows = detailRowsRef.current;
+      if (!currentRows.length) return;
+      stop();
+      focusGridCell(currentRows[key === 'ArrowUp' ? 0 : currentRows.length - 1].id, activeCell.field);
+      return;
+    }
+    if (ctrl && key.toLowerCase() === 'd') { stop(); fillDown(); return; }
+    if (ctrl && key === 'Enter') {
+      // 매출 상세 행은 재고 라인에 묶여 있어 빈 행 삽입·복제를 하지 않는다
+      stop();
+      notifications.show({ title: '행 추가는 현재고 조회로', message: '매출 상세는 [현재고 조회]에서 재고를 담아야 행이 생깁니다. 빈 행 삽입·복제는 할 수 없습니다.', color: 'orange' });
+      return;
+    }
+    if (key === 'Delete' && !ctrl && isMultiCellRange()) { stop(); clearRangeCells(); return; }
+    if (key === 'Escape' && rangeRef.current) clearRange();   // 칸의 Esc 도 그대로 동작
+  }, [readOnly, isMultiCellRange, paintRange, focusGridCell, fillDown, clearRangeCells, clearRange]);
+
+  // Shift+클릭: 현재 칸부터 클릭한 칸까지 범위 선택 (포커스는 그대로). 그냥 클릭하면 범위를 푼다.
+  // 보기 전용(비활성) 칸은 브라우저가 입력칸 대신 칸(td)에 클릭을 주기도 해서 칸 안의 입력칸으로 찾는다.
+  const handleTableMouseDownCapture = useCallback((event) => {
+    const origin = event.target instanceof Element ? event.target : null;
+    const element = origin?.closest('input, select') || origin?.closest('td')?.querySelector('input, select');
+    const cell = element ? cellByElementRef.current.get(element) : null;
+    if (!event.shiftKey || !cell || readOnly) { if (rangeRef.current) clearRange(); return; }
+    const activeCell = activeCellRef.current;
+    if (!activeCell || !cellInputsRef.current.has(`${activeCell.id}:${activeCell.field}`)) return;
+    const anchorColumn = DETAIL_FIELD_INDEX[activeCell.field];
+    const focusColumn = DETAIL_FIELD_INDEX[cell.field];
+    if (anchorColumn === undefined || focusColumn === undefined) return;
+    event.preventDefault();
+    rangeRef.current = { anchorId: rangeRef.current?.anchorId || activeCell.id, anchorColumn: rangeRef.current?.anchorColumn ?? anchorColumn, focusId: cell.id, focusColumn };
+    paintRange();
+  }, [readOnly, clearRange, paintRange]);
+
+  // 범위 복사·잘라내기: 엑셀에 그대로 붙일 수 있는 탭 구분 글자
+  const handleTableCopyCapture = useCallback((event) => {
+    if (!isMultiCellRange()) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', rangeCopyText());
+  }, [isMultiCellRange, rangeCopyText]);
+  const handleTableCutCapture = useCallback((event) => {
+    if (!isMultiCellRange()) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', rangeCopyText());
+    clearRangeCells();
+  }, [isMultiCellRange, rangeCopyText, clearRangeCells]);
+
+  const handleTableKeyDown = useCallback((event) => {
     const target = event.target instanceof HTMLInputElement ? event.target : null;
     const activeCell = target?.dataset.rowId && target?.dataset.field
       ? { id: target.dataset.rowId, field: target.dataset.field }
@@ -1884,7 +2311,7 @@ export default function OutboundRegisterPage() {
     } else return;
 
     if (moveGridCell(activeCell.id, activeCell.field, rowDelta, columnDelta)) event.preventDefault();
-  }, [fillDown, moveGridCell]);
+  }, [moveGridCell]);
 
   const selectMasterOption = useCallback((option) => {
     if (!masterPickerTarget) return;
@@ -2067,7 +2494,10 @@ export default function OutboundRegisterPage() {
               target[key] = code;
               masterPasteErrorsRef.current.delete(masterPasteErrorKey(target.id, errorField));
             }
-          } else if (key && key !== 'itemname' && key !== 'unitamt') target[key] = NUMERIC_FIELDS.has(key) ? cleanNumericInput(value) : value;
+          } else if (key && key !== 'itemname' && key !== 'unitamt') {
+            // 조정(kg)은 손으로 칠 때처럼 부호(+/-)를 지킨다 (예전에는 붙여넣으면 '-' 가 빠져 빼야 할 중량이 더해졌다)
+            target[key] = key === 'adjweight' ? cleanSignedInput(value) : NUMERIC_FIELDS.has(key) ? cleanNumericInput(value) : value;
+          }
         });
         target.is_dirty = !target.is_new;
         if (next[startIndex + offset]) next[startIndex + offset] = target;
@@ -2089,6 +2519,27 @@ export default function OutboundRegisterPage() {
       }).catch(() => {});
     }
   }, [rows, readOnly, lookupItemNames, unitOptions]);
+
+  // 범위를 고른 채 붙여넣기 — 범위 안의 입력 칸(조정·비고)에만:
+  // 엑셀 범위는 범위 맨 윗행의 첫 입력 칸부터, 값 하나는 범위의 입력 칸 전체에 채운다
+  const handleTablePasteCapture = useCallback((event) => {
+    if (readOnly || saving || !isMultiCellRange()) return;
+    const bounds = getRangeBounds();
+    const text = event.clipboardData.getData('text/plain');
+    event.preventDefault();
+    event.stopPropagation();
+    const fields = editableFieldsBetween(bounds.left, bounds.right);
+    if (!fields.length) {
+      notifications.show({ title: '붙여넣을 칸 없음', message: '매출 상세에서 붙여넣을 수 있는 칸은 조정(kg)·비고입니다.', color: 'orange' });
+      return;
+    }
+    const startId = detailRowsRef.current[bounds.top].id;
+    if (isMultiCellText(text)) { pasteRange(startId, fields[0], text); return; }
+    const value = text.replace(/\r?\n$/, '');
+    if (!value.trim()) { clearRangeCells(); return; }
+    const line = Array(fields.length).fill(value).join('\t');
+    pasteRange(startId, fields[0], Array(bounds.bottom - bounds.top + 1).fill(line).join('\n'));
+  }, [readOnly, saving, isMultiCellRange, getRangeBounds, pasteRange, clearRangeCells]);
 
   const validateDocument = useCallback(() => {
     const missing = [];
@@ -2155,7 +2606,7 @@ export default function OutboundRegisterPage() {
         const total = totalWeightOf(row);
         const stockWeight = Number(cleanNumericInput(row.current_weight));
         if (!Number.isFinite(total) || total <= 0) errors.push('총중량(0 초과)');
-        else if (row.is_new && total > stockWeight + 1e-9) errors.push(`총중량이 현재고중량(${stockWeight.toLocaleString(undefined, { maximumFractionDigits: 3 })}kg) 초과`);
+        else if (row.is_new && total > stockWeight + 1e-9) errors.push(`총중량이 현재고중량(${stockWeight.toLocaleString(undefined, { maximumFractionDigits: 2 })}kg) 초과`);
       }
       const unitprice = Number(row.unitprice);
       if (!String(row.unitprice || '').trim() || !Number.isFinite(unitprice) || unitprice < 0) errors.push('판매단가(0 이상)');
@@ -2241,7 +2692,7 @@ export default function OutboundRegisterPage() {
       }
     }
     if (locked) {
-      notifications.show({ title: '수불 확정 전표', message: '수불 확정된 매출전표는 수정할 수 없습니다.', color: 'orange' });
+      notifications.show({ title: '수정할 수 없는 전표', message: confirmed ? '수불 확정된 매출전표는 수정할 수 없습니다.' : header.edit_lock, color: 'orange' });
       return false;
     }
     if (selectedReceiptno && !hasPendingChanges) {
@@ -2262,6 +2713,10 @@ export default function OutboundRegisterPage() {
         manager: String(sourceHeader.manager || '').trim(),
         destination: String(sourceHeader.destination || '').trim(),
         is_new: !selectedReceiptno,
+        // 새 전표: 중복 저장 막기 키 / 저장된 전표 수정: 열 때 받은 수정시각 (그 사이 다른 사람이 고쳤으면 서버가 거절)
+        ...(selectedReceiptno
+          ? { expected_updated_at: receiptMetadata.updated_at || receiptMetadata.created_at || undefined }
+          : { request_key: requestKey.take() }),
         items: sourceRows.map((row) => ({
           stocksourcetype: String(row.stocksourcetype || '').trim(),
           stocksourceno: String(row.stocksourceno || '').trim(),
@@ -2281,8 +2736,8 @@ export default function OutboundRegisterPage() {
           return {
           costcode: String(expense.costcode || '').trim(),
           costname: String(expense.costname || '').trim(),
-          supplyamt: cleanNumericInput(expense.supplyamt) || '0',
-          vat: cleanNumericInput(expense.vat) || '0',
+          supplyamt: expenseAmount2(expense.supplyamt),   // 서버: 소수 둘째 자리까지
+          vat: expenseAmount2(expense.vat),
           // 비용여부 '아니오' = 매출처 부담 → 매출 헤더의 매출처로 저장
           customcode: String((isCost ? expense.customcode : sourceHeader.customcode) || '').trim(),
           customname: String((isCost ? expense.customname : sourceHeader.customname) || '').trim(),
@@ -2295,6 +2750,7 @@ export default function OutboundRegisterPage() {
         ? axios.put('/api/outbound-register/receipts', payload, authConfig())
         : axios.post('/api/outbound-register/receipts', payload, authConfig());
       const { data } = await saveRequest;
+      requestKey.reset();
       masterPasteErrorsRef.current.clear();
       // 승인 통제: 승인요청으로 보관 · 재고 예약됨 → 입력칸을 비운다 (승인되면 전표가 생김)
       if (isApprovalPending(data)) {
@@ -2333,15 +2789,17 @@ export default function OutboundRegisterPage() {
     } finally {
       setSaving(false);
     }
-  }, [locked, selectedReceiptno, hasManagerChanges, hasNewDetails, hasPendingExpenses, hasPendingChanges, rows, expenses, header, unitOptions, validateDetailMasters, validateDocument, loadReceipts, openReceipt, pageSize, page, filters]);
+  }, [locked, confirmed, selectedReceiptno, hasManagerChanges, hasNewDetails, hasPendingExpenses, hasPendingChanges, rows, expenses, header, unitOptions, validateDetailMasters, validateDocument, loadReceipts, openReceipt, pageSize, page, filters, receiptMetadata, requestKey]);
 
-  const exportDocument = useCallback(() => {
+  const exportDocument = useCallback(async () => {
     if (!header.receiptno || !rows.length) {
       notifications.show({ title: '다운로드할 매출전표 없음', message: '먼저 저장된 매출전표를 선택해 주세요.', color: 'orange' });
       return;
     }
     setExporting(true);
     try {
+      const XLSX = await loadXLSXOrNotify();
+      if (!XLSX) return;
       const workbook = XLSX.utils.book_new();
       // 매입등록 엑셀과 같은 틀: No. / 전표 / 일자 / 거래처 / 창고 / 담당자 (+ 착지) / 상세 칸 / 등록·수정 정보
       // 창고는 행마다 (한 매출전표에 창고가 여럿일 수 있음). 현재고 수량·중량은 저장 시점 값이 아니라 빼고, 창고는 앞쪽 칸과 겹쳐 뺀다.
@@ -2453,6 +2911,7 @@ export default function OutboundRegisterPage() {
     notifications.show({ title: '선택 행 제거 완료', message: `저장 전 재고 ${removedCount}행을 매출 상세에서 제거했습니다.`, color: 'teal' });
   }, [saving, selectedIds, rows]);
 
+  const [deleteBlocked, setDeleteBlocked] = useState('');   // 삭제할 수 없는 사유 (삭제 창에 표시)
   const requestToolbarDelete = useCallback(() => {
     if (detailTab === 'expenses') {
       if (selectedExpenseIds.length) removeSelectedExpenses();
@@ -2471,6 +2930,8 @@ export default function OutboundRegisterPage() {
       notifications.show({ title: '저장되지 않은 변경사항', message: '삭제 전에 현재 변경사항을 먼저 정리해 주세요.', color: 'orange' });
       return;
     }
+    // 매입등록과 같게: 먼저 삭제 확인 → [삭제]를 눌렀는데 막히면(월마감 · 승인 대기 등) 같은 창에 사유
+    setDeleteBlocked('');
     setDeleteOpen(true);
   }, [detailTab, selectedExpenseIds.length, removeSelectedExpenses, selectedReceiptno, selectedIds.length, removeSelectedDraftDetails, hasPendingChanges]);
 
@@ -2488,18 +2949,18 @@ export default function OutboundRegisterPage() {
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconPlus size={15} />} onClick={() => invokeRibbonAction('handleAddAction')} disabled={saving}>&#xCD94;&#xAC00;</Button>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconCopy size={15} />} onClick={() => invokeRibbonAction('copySelectedDetails')} disabled>복사</Button>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconDeviceFloppy size={15} />} onClick={() => invokeRibbonAction('saveDocument')} loading={saving} disabled={selectedReceiptno ? (locked || detailLoading || !(hasManagerChanges || hasPendingChanges)) : (readOnly || detailLoading)}>저장</Button>
-        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={() => invokeRibbonAction('requestToolbarDelete')} disabled={saving || (detailTab === 'expenses' ? (readOnly || !selectedExpenseIds.length) : (selectedReceiptno ? locked : !selectedIds.length))}>삭제</Button>
+        <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconTrash size={15} />} onClick={() => invokeRibbonAction('requestToolbarDelete')} disabled={saving || (detailTab === 'expenses' ? (readOnly || !selectedExpenseIds.length) : (selectedReceiptno ? confirmed : !selectedIds.length))}>삭제</Button>
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconFileSpreadsheet size={15} />} onClick={() => invokeRibbonAction('exportDocument')} loading={exporting} disabled={!hasExportableRows || loading || detailLoading}>엑셀</Button>
         <span className={inboundClasses.ribbonSeparator} />
         <Button className={inboundClasses.ribbonTool} variant="subtle" size="sm" leftSection={<IconX size={15} />} onClick={() => invokeRibbonAction('closeActivePage')}>닫기</Button>
       </Group>,
     );
     return () => registerPageRibbon(null);
-  }, [registerPageRibbon, invokeRibbonAction, loading, readOnly, saving, selectedIds.length, exporting, hasExportableRows, selectedReceiptno, detailLoading, locked, hasManagerChanges, hasPendingChanges, detailTab, selectedExpenseIds.length]);
+  }, [registerPageRibbon, invokeRibbonAction, loading, readOnly, saving, selectedIds.length, exporting, hasExportableRows, selectedReceiptno, detailLoading, locked, confirmed, hasManagerChanges, hasPendingChanges, detailTab, selectedExpenseIds.length]);
 
 
   const requestDeleteReceipt = useCallback(async () => {
-    if (!selectedReceiptno || locked) return;
+    if (!selectedReceiptno || confirmed) return;
     setSaving(true);
     try {
       const { data } = await axios.delete(`/api/outbound-register/receipts/${encodeURIComponent(selectedReceiptno)}`, authConfig());
@@ -2515,9 +2976,9 @@ export default function OutboundRegisterPage() {
       setRows([]); setExpenses([]); setSelectedExpenseIds([]); expenseSelectionAnchorRef.current = ''; setSelectedReceiptno(''); setSubulyn('N'); setDocumentDirty(false); setDetailTab('details');
       await loadReceipts(page, filters);
     } catch (error) {
-      notifications.show({ title: '매출 삭제 실패', message: errorMessage(error), color: 'red' });
+      setDeleteBlocked(errorMessage(error));   // 월마감 · 승인 대기 등: 같은 창에서 사유를 보여 준다
     } finally { setSaving(false); }
-  }, [selectedReceiptno, locked, loadReceipts, page, filters]);
+  }, [selectedReceiptno, confirmed, loadReceipts, page, filters]);
 
   const rowContent = useCallback((index, row) => (
     <DetailCells row={row} index={index} selected={selectedSet.has(row.id)} disabled={saving || locked || (Boolean(selectedReceiptno) && !row.is_new)} managerEditable={Boolean(selectedReceiptno) && !locked && !saving && !hasNewDetails} priceEditable={Boolean(selectedReceiptno) && !locked && !saving} saved={locked || (Boolean(selectedReceiptno) && !row.is_new)} unitOptions={unitOptions}
@@ -2587,8 +3048,8 @@ export default function OutboundRegisterPage() {
           <Table.Td>{receipt.customname || ''}</Table.Td>
           <Table.Td title={receipt.manager || ''}>{receipt.manager || ''}</Table.Td>
           <Table.Td title={receipt.destination || ''}>{receipt.destination || ''}</Table.Td>
-          <Table.Td ta="right">{Number(receipt.total_qty || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Table.Td>
-          <Table.Td ta="right">{Number(receipt.total_weight || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Table.Td>
+          <Table.Td ta="right">{Number(receipt.total_qty || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</Table.Td>
+          <Table.Td ta="right">{Number(receipt.total_weight || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</Table.Td>
           <Table.Td ta="right">{formatAmount(String(receipt.supply_amount ?? 0))}</Table.Td>
           <Table.Td ta="right">{formatAmount(String(receipt.vat_amount ?? 0))}</Table.Td>
           <Table.Td ta="right" className={classes.receiptFinderAmount}>{formatAmount(String(receipt.total_amount ?? 0))}</Table.Td>
@@ -2643,8 +3104,8 @@ export default function OutboundRegisterPage() {
                 <Table.Tbody><Table.Tr>
                   {RECEIPT_COLUMNS.map((column, index) => <Table.Td key={column.key} className={`${inboundClasses.topReceiptSubtotalCell} ${column.align === 'right' ? inboundClasses.topReceiptSubtotalNumber : ''}`} ta={column.align}>
                     {index === 0 ? '소계' : column.key === 'line_count' ? receiptTotals.line_count.toLocaleString()
-                      : column.key === 'total_qty' ? receiptTotals.total_qty.toLocaleString(undefined, { maximumFractionDigits: 3 })
-                      : column.key === 'total_weight' ? receiptTotals.total_weight.toLocaleString(undefined, { maximumFractionDigits: 3 })
+                      : column.key === 'total_qty' ? receiptTotals.total_qty.toLocaleString(undefined, { maximumFractionDigits: 2 })
+                      : column.key === 'total_weight' ? receiptTotals.total_weight.toLocaleString(undefined, { maximumFractionDigits: 2 })
                           : ['supply_amount', 'vat_amount', 'total_amount', 'other_cost_amount'].includes(column.key) ? formatWon(String(receiptTotals[column.key])) : ''}
                   </Table.Td>)}
                 </Table.Tr></Table.Tbody>
@@ -2820,7 +3281,9 @@ export default function OutboundRegisterPage() {
               {selectedReceiptno && <Badge color="gray" variant="light">{selectedReceiptno}</Badge>}
             </Group>
             <Group gap={8} align="center">
-              {selectedReceiptno && <Badge color={locked ? 'green' : 'gray'} variant="light">{locked ? '수불 확정' : '저장됨 · 수정 가능'}</Badge>}
+              {selectedReceiptno && <Badge color={confirmed ? 'green' : locked ? 'orange' : 'gray'} variant="light" title={locked && !confirmed ? header.edit_lock : undefined}>
+                {confirmed ? '수불 확정' : locked ? '수정 불가' : '저장됨 · 수정 가능'}
+              </Badge>}
               {selectedIds.length > 0 && <Badge color="gray" variant="light">{selectedIds.length}개 선택</Badge>}
             </Group>
           </Group>
@@ -2834,7 +3297,9 @@ export default function OutboundRegisterPage() {
               onClick={() => setDetailTab('expenses')}>기타비용 {expenses.length.toLocaleString()}건</button>
           </Box>
           {detailTab === 'details' && <>
-          <Box ref={detailScrollerRef} className={`${codeClasses.tableWrap} ${(rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? classes.savedDetailScroller : ''} ${!detailLoading && !rows.length ? inboundClasses.emptyDetailWrap : ''}`} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
+          <Box ref={detailScrollerRef} className={`${codeClasses.tableWrap} ${(rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? classes.savedDetailScroller : ''} ${!detailLoading && !rows.length ? inboundClasses.emptyDetailWrap : ''}`} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}
+            onKeyDownCapture={handleTableKeyDownCapture} onMouseDownCapture={handleTableMouseDownCapture}
+            onCopyCapture={handleTableCopyCapture} onCutCapture={handleTableCutCapture} onPasteCapture={handleTablePasteCapture}>
             {detailLoading ? <Box className={classes.receiptLoading}><Loader size="sm" color="red" /></Box> : rows.length ? (
               (rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? <Box className={inboundClasses.detailFillWrap}>
                 <Table className={`${sharedClasses.table} ${codeClasses.codeTable}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
@@ -2858,7 +3323,7 @@ export default function OutboundRegisterPage() {
           </Box>
           <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="flex-end" wrap="wrap">
             <Text size="xs" fw={700}>
-              총 수량 {quantitySummary} · 총중량 {detailTotals.totalweight.toLocaleString(undefined, { maximumFractionDigits: 3 })}{rows.length ? 'KG' : ''}
+              총 수량 {quantitySummary} · 총중량 {detailTotals.totalweight.toLocaleString(undefined, { maximumFractionDigits: 2 })}{rows.length ? 'KG' : ''}
               {' · '}총공급가 {formatWon(detailTotals.amount.toFixed(2))}
               {' · '}부가세 {formatWon(detailTotals.vat.toFixed(2))}
               {' · '}합계 {formatWon(detailTotals.total.toFixed(2))}
@@ -2866,7 +3331,7 @@ export default function OutboundRegisterPage() {
           </Group>
             </>}
           {detailTab === 'expenses' && <Box className={classes.expenseTabPanel}>
-              <Box ref={expenseTableScrollerRef} onKeyDownCapture={handleExpenseGridKeyDown} className={`${codeClasses.tableWrap} ${classes.expenseTableWrap} ${expenses.length <= 100 ? classes.savedDetailScroller : ''} ${!expenses.length ? inboundClasses.emptyDetailWrap : ''}`}>
+              <Box ref={expenseTableScrollerRef} onKeyDownCapture={handleExpenseGridKeyDown} onKeyDown={handleExpenseKeyDown} onPasteCapture={handleExpensePasteCapture} className={`${codeClasses.tableWrap} ${classes.expenseTableWrap} ${expenses.length <= 100 ? classes.savedDetailScroller : ''} ${!expenses.length ? inboundClasses.emptyDetailWrap : ''}`}>
                 <Box className={inboundClasses.detailFillWrap}>
                   <ExpenseRowsContext.Provider value={expenseRowsValue}>{expenseTable}</ExpenseRowsContext.Provider>
                   {expenses.length > 0 && <DetailSubtotalTable columns={OUTBOUND_EXPENSE_SUBTOTAL_COLUMNS} values={expenseSubtotalValues(expenseTotals)} minWidth={1120} />}
@@ -2890,7 +3355,7 @@ export default function OutboundRegisterPage() {
 
 
 
-      <ConfirmDeleteModal opened={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={requestDeleteReceipt} loading={saving}
+      <ConfirmDeleteModal opened={deleteOpen} onClose={() => { setDeleteOpen(false); setDeleteBlocked(''); }} onConfirm={requestDeleteReceipt} loading={saving} blocked={deleteBlocked}
         title="매출전표를 삭제할까요?" target={selectedReceiptno} message="전표와 상세 내역이 모두 삭제되며" note="삭제한 전표는 복구할 수 없습니다." />
 
 

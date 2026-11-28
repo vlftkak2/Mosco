@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from services.outbound import OutboundRegister as outbound_module
 import security as security_module
+import db as shared_db
 from services.control import Approval as approval_module
 
 router = APIRouter(
@@ -102,20 +103,22 @@ def _save_receipt(data: outbound_module.OutboundSaveRequest, user: dict, is_new:
         item = data.model_dump(mode="json")
         item["is_new"] = is_new
         weight = sum((line.weight or 0) for line in data.items)
-        pending = approval_module.intercept(
-            user, "OUTBOUND", "CREATE" if is_new else "UPDATE", "save", {"item": item},
-            f"{data.customname or data.items[0].customname} · {data.receptdate} · {len(data.items)}건 · {weight:,.0f}kg"
-            + ("" if is_new else f" ({data.receiptno} 수정)"),
-            ref_no=None if is_new else data.receiptno,
-            dates=[data.receptdate, *[line.receptdate for line in data.items if line.receptdate]],
-        )
-        if pending:
-            return pending
-        result = outbound_module.save_receipt(
-            user["companyid"], user.get("companyname") or user["companyid"],
-            payload,
-            actor=user.get("email"),
-        )
+        # 통제 확인(여신 · 예약 · 대기 전표)과 저장을 한 트랜잭션으로: 확인한 뒤 저장 사이에 다른 저장이 끼어들지 못한다
+        with shared_db.shared_transaction():
+            pending = approval_module.intercept(
+                user, "OUTBOUND", "CREATE" if is_new else "UPDATE", "save", {"item": item},
+                f"{data.customname or data.items[0].customname} · {data.receptdate} · {len(data.items)}건 · {weight:,.0f}kg"
+                + ("" if is_new else f" ({data.receiptno} 수정)"),
+                ref_no=None if is_new else data.receiptno,
+                dates=[data.receptdate, *[line.receptdate for line in data.items if line.receptdate]],
+            )
+            if pending:
+                return pending
+            result = outbound_module.save_receipt(
+                user["companyid"], user.get("companyname") or user["companyid"],
+                payload,
+                actor=user.get("email"),
+            )
         return {"success": True, **result}
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -174,14 +177,15 @@ def update_receipt_sales_fields(
         changed = [label for label, value in (("담당자", data.manager), ("착지", data.destination)) if value is not None]
         if data.prices:
             changed.append(f"단가 {len(data.prices)}건")
-        pending = approval_module.intercept(user, "OUTBOUND", "UPDATE", "sales_fields",
-                                            {"receiptno": receiptno, "item": data.model_dump(mode="json")},
-                                            f"{receiptno} 수정 ({', '.join(changed)})", ref_no=receiptno)
-        if pending:
-            return pending
-        result = outbound_module.update_receipt_sales_fields(
-            user["companyid"], receiptno, data, actor=user.get("email"),
-        )
+        with shared_db.shared_transaction():   # 여신 확인과 단가 수정을 한 트랜잭션으로
+            pending = approval_module.intercept(user, "OUTBOUND", "UPDATE", "sales_fields",
+                                                {"receiptno": receiptno, "item": data.model_dump(mode="json")},
+                                                f"{receiptno} 수정 ({', '.join(changed)})", ref_no=receiptno)
+            if pending:
+                return pending
+            result = outbound_module.update_receipt_sales_fields(
+                user["companyid"], receiptno, data, actor=user.get("email"),
+            )
         return {"success": True, **result}
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

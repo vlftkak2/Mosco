@@ -192,6 +192,90 @@ filtered AS (
     return sql, params
 
 
+# ---------------------------------------------------------------------------
+# 현황판 · 홈용 경량 계산: _build_query 와 금액 계산식(원가 · 기타비용 배분 · 끝전)은 똑같고,
+# 화면 표시용 칸(품명 · 규격 · 단가기준 판별 · 원가단가 등)만 뺐다 → 대량 데이터에서 같은 숫자를 훨씬 빨리 낸다.
+# 결과 칸: receiptno, receptdate, customcode, customname, weight + 금액 칸(AMOUNT_FIELDS).
+# ---------------------------------------------------------------------------
+def _build_summary_query(filters: dict):
+    params = {
+        "companyid": filters["companyid"],
+        "date_from": filters["date_from"],
+        "date_to": filters["date_to"],
+    }
+    sql = """
+WITH lines AS MATERIALIZED (
+    SELECT d.receiptno, d.lineno, h.receptdate, h.customcode, h.customname, d.weight,
+           d.stocksourcetype, d.stocksourceno, d.stocksourceline,
+           COALESCE(d.supplyamt, 0) AS sales_amt,
+           COALESCE(d.weight, 0) AS w, COALESCE(d.supplyamt, 0) AS a,
+           SUM(COALESCE(d.weight, 0)) OVER doc AS doc_w,
+           SUM(COALESCE(d.weight, 0)) OVER doc_cum AS cum_w,
+           SUM(COALESCE(d.supplyamt, 0)) OVER doc AS doc_a,
+           SUM(COALESCE(d.supplyamt, 0)) OVER doc_cum AS cum_a,
+           COUNT(*) OVER doc AS doc_n,
+           ROW_NUMBER() OVER doc_cum AS rn
+    FROM Outbound01t h
+    JOIN Outbound02t d ON d.companyid = h.companyid AND d.receiptno = h.receiptno
+    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(date_from)s AND %(date_to)s
+    WINDOW doc AS (PARTITION BY d.receiptno),
+           doc_cum AS (PARTITION BY d.receiptno ORDER BY d.lineno ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+),
+sales_cost AS MATERIALIZED (
+    SELECT x.receiptno,
+           COALESCE(SUM(x.supplyamt) FILTER (WHERE UPPER(COALESCE(x.purchaseyn, 'N')) = 'Y'), 0) AS cost_minus,
+           COALESCE(SUM(x.supplyamt) FILTER (WHERE UPPER(COALESCE(x.purchaseyn, 'N')) <> 'Y'), 0) AS cost_plus
+    FROM Outbound03t x
+    JOIN Outbound01t h ON h.companyid = x.companyid AND h.receiptno = x.receiptno
+    WHERE x.companyid = %(companyid)s AND h.receptdate BETWEEN %(date_from)s AND %(date_to)s
+    GROUP BY x.receiptno
+),
+calc AS (
+    SELECT l.receiptno, l.receptdate, l.customcode, l.customname, l.weight, l.sales_amt,
+           CASE WHEN COALESCE(os.stockkind, s.stockkind) IN ('OPENING', 'INBOUND', 'PROCESS')
+                THEN COALESCE(os.stockkind, s.stockkind) ELSE 'UNKNOWN' END AS origin_kind,
+           COALESCE(io.costamt, 0) AS cost_total,
+           COALESCE(io.expamt, 0) AS cost_exp,
+           COALESCE(io.feeamt, 0) AS cost_fee,
+           COALESCE(sc.cost_minus, 0) AS doc_cost_minus, COALESCE(sc.cost_plus, 0) AS doc_cost_plus,
+           CASE WHEN l.doc_w > 0 THEN l.cum_w / l.doc_w WHEN l.doc_a > 0 THEN l.cum_a / l.doc_a ELSE l.rn::numeric / l.doc_n END AS frac_cum,
+           CASE WHEN l.doc_w > 0 THEN (l.cum_w - l.w) / l.doc_w WHEN l.doc_a > 0 THEN (l.cum_a - l.a) / l.doc_a ELSE (l.rn - 1)::numeric / l.doc_n END AS frac_prev
+    FROM lines l
+    LEFT JOIN CurrentStock01t s ON s.companyid = %(companyid)s AND s.sourcetype = l.stocksourcetype
+                                AND s.sourceno = l.stocksourceno AND s.sourceline = l.stocksourceline
+    LEFT JOIN Iniop01t io ON io.companyid = %(companyid)s AND io.iniotype = 'OUT'
+                         AND io.receiptno = l.receiptno AND io.lineno = l.lineno
+    LEFT JOIN CurrentStock01t os ON s.originno IS NOT NULL AND os.companyid = s.companyid
+                                AND os.sourcetype = s.origintype AND os.sourceno = s.originno AND os.sourceline = s.originline
+    LEFT JOIN sales_cost sc ON sc.receiptno = l.receiptno
+),
+amounts AS (
+    SELECT c.receiptno, c.receptdate, c.customcode, c.customname, c.weight, c.sales_amt,
+           CASE WHEN c.origin_kind = 'PROCESS' THEN 0 ELSE c.cost_total - c.cost_exp - c.cost_fee END AS purchase_amt,
+           c.cost_fee AS process_amt,
+           CASE WHEN c.origin_kind = 'PROCESS' THEN c.cost_total - c.cost_exp - c.cost_fee ELSE 0 END AS material_amt,
+           c.cost_exp AS purchase_cost,
+           ROUND(c.doc_cost_minus * c.frac_cum) - ROUND(c.doc_cost_minus * c.frac_prev) AS sales_minus,
+           ROUND(c.doc_cost_plus * c.frac_cum) - ROUND(c.doc_cost_plus * c.frac_prev) AS sales_plus
+    FROM calc c
+),
+filtered AS (
+    SELECT a.*,
+           a.sales_amt + a.sales_plus - a.purchase_amt - a.purchase_cost - a.process_amt - a.material_amt - a.sales_minus AS profit_amt
+    FROM amounts a
+)
+"""
+    return sql, params
+
+
+def materialize_summary(cursor, filters: dict, table: str = "gp_summary") -> str:
+    """현황판 · 홈용: _build_summary_query 결과를 이 트랜잭션 동안만 있는 임시 테이블로 만든다."""
+    cte, params = _build_summary_query(filters)
+    _shared_db.use_report_memory(cursor)
+    cursor.execute(f"CREATE TEMP TABLE {table} ON COMMIT DROP AS {cte} SELECT * FROM filtered", params)
+    return f"pg_temp.{table}"
+
+
 def materialize(cursor, filters: dict, table: str = "gp_filtered") -> str:
     """_build_query 결과(`filtered`)를 이 트랜잭션 동안만 있는 임시 테이블로 한 번만 만든다.
 
@@ -199,6 +283,7 @@ def materialize(cursor, filters: dict, table: str = "gp_filtered") -> str:
     반환값은 쿼리에 쓸 테이블 이름 (pg_temp 스키마로 고정해 같은 이름의 일반 테이블과 섞이지 않게 한다).
     """
     cte, params = _build_query(filters, cursor)
+    _shared_db.use_report_memory(cursor)
     # ON COMMIT DROP: 커밋/롤백 때 사라지므로 풀로 돌아간 연결에 남지 않는다 (한 트랜잭션에 한 번만 호출).
     cursor.execute(f"CREATE TEMP TABLE {table} ON COMMIT DROP AS {cte} SELECT * FROM filtered", params)
     return f"pg_temp.{table}"

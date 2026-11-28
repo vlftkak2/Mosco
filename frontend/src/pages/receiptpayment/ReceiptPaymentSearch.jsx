@@ -1,7 +1,7 @@
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import usePageReactivated from '../../components/common/usePageReactivated';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { ActionIcon, Badge, Box, Button, Group, Loader, Pagination, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconCalendar, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconInbox, IconPlus, IconSearch, IconTrash, IconX,
@@ -14,7 +14,8 @@ import classes from '../../styles/pages/InboundSearch.module.css';
 import paymentClasses from '../../styles/pages/ReceiptPaymentSearch.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import { INSTRUMENT_OPTIONS_BY_FIELD, INSTRUMENT_TYPE_OPTIONS, instrumentLabel } from '../../utils/instrumentCodes';
-import { cachedDateFormat } from '../../utils/dateFormat';
+import { cachedDateFormat, kstDate } from '../../utils/dateFormat';
+import { apiErrorMessage } from '../../utils/apiError';
 
 const PAGE_SIZE_OPTIONS = [15, 50, 100, 200].map((value) => ({ value: String(value), label: `${value}개씩` }));
 const COLUMNS = [
@@ -41,7 +42,7 @@ const statusText = (item) => {
 };
 
 const makeDefaultFilters = () => {
-  const now = new Date();
+  const now = kstDate();
   const year = now.getFullYear();
   const month = now.getMonth();
   const pad = (value) => String(value).padStart(2, '0');
@@ -72,7 +73,7 @@ const displayDateTime = (value) => {
 const formatNumber = (value) => {
   if (value === null || value === undefined || value === '') return '';
   const number = Number(value);
-  return Number.isFinite(number) ? number.toLocaleString('ko-KR', { maximumFractionDigits: 3 }) : String(value);
+  return Number.isFinite(number) ? number.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) : String(value);
 };
 
 // 내역 행: Mantine Table.Td 대신 같은 스타일의 일반 td (페이지 이동이 가볍게)
@@ -208,7 +209,7 @@ export default function ReceiptPaymentSearch() {
       setTotal(data.total || 0);
       setSummary(data.summary || { receipt_count: 0, detail_count: 0, receipt_total: 0, payment_total: 0 });
     } catch (error) {
-      if (requestId === requestIdRef.current) notifications.show({ title: '수금/지급 현황 조회 실패', message: error.response?.data?.detail || '수금/지급 내역을 불러오지 못했습니다.', color: 'red' });
+      if (requestId === requestIdRef.current) notifications.show({ title: '수금/지급 현황 조회 실패', message: apiErrorMessage(error, '수금/지급 내역을 불러오지 못했습니다.'), color: 'red' });
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
@@ -243,11 +244,13 @@ export default function ReceiptPaymentSearch() {
         if (NUMERIC_COLUMNS.has(column.key)) return Number(item[column.key] || 0);
         return item[column.key] ?? '';
       })()])));
+      const XLSX = await loadXLSXOrNotify();
+      if (!XLSX) return;
       const workbook = XLSX.utils.book_new();
       const worksheet = XLSX.utils.json_to_sheet(rows);
       applyExcelHeaderStyle(worksheet, COLUMNS.length);
       XLSX.utils.book_append_sheet(workbook, worksheet, '수금지급현황');
-      const today = new Date();
+      const today = kstDate();
       XLSX.writeFile(workbook, `수금지급현황_${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}.xlsx`);
     } catch {
       notifications.show({ title: '엑셀 다운로드 실패', message: '현재 조회한 내역을 파일로 저장하지 못했습니다.', color: 'red' });

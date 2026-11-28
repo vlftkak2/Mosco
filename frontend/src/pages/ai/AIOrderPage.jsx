@@ -9,7 +9,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconAlertTriangle, IconBraces, IconCheck, IconCircleCheck, IconClipboardCheck, IconClipboardOff, IconFileSearch, IconFileTypePdf, IconFiles, IconPhoto, IconFileUpload,
-  IconFolderOpen, IconPlus, IconPlayerPlay, IconSparkles, IconTrash, IconZoomIn, IconZoomOut,
+  IconFolderOpen, IconPlus, IconPlayerPlay, IconSparkles, IconTrash, IconZoomIn, IconZoomOut, IconHelpCircle,
 } from '@tabler/icons-react';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
@@ -22,10 +22,27 @@ import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 import ConfirmActionModal, { ConfirmNotice, ConfirmSummary } from '../../components/common/ConfirmActionModal';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import { CodePickerModal, CodeSuggestInput, ItemNameSuggestInput, ItemPickerModal, loadCodeOptions } from './AIItemNameLookup';
+import { apiErrorMessage } from '../../utils/apiError';
+import useExcelGrid from './useExcelGrid';
+import AIOrderRecognitionGuide from './AIOrderRecognitionGuide';
+import manageClasses from '../../styles/pages/AIOrderManage.module.css';
 
 const MAX_FILE_BYTES = 30 * 1024 * 1024;
 const MAX_PDF_PAGES = 10;
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
+
+// 이번 달 AI 분석 횟수 (고객사등록의 AI 월 호출 한도 · 성공한 분석만 셈 · 같은 파일을 다시 올려 저장된 결과를 쓰면 안 셈) — 버튼 옆 작은 글자
+function AIQuotaText({ quota }) {
+  if (!quota) return null;
+  const month = Number(String(quota.month).slice(5, 7));
+  const used = quota.used + quota.running;
+  const unlimited = quota.monthly_limit === null || quota.monthly_limit === undefined;
+  const full = !unlimited && used >= quota.monthly_limit;
+  return <span className={`${classes.aiqText} ${full ? classes.aiqTextFull : ''}`}
+    title="고객사등록의 AI 월 호출 한도 기준 · 성공한 분석만 셉니다 · 이미 분석한 같은 파일은 다시 올려도 세지 않습니다">
+    {month}월 AI 분석 <b>{used.toLocaleString('ko-KR')}회</b>{unlimited ? ' · 제한 없음' : ` / ${quota.monthly_limit.toLocaleString('ko-KR')}회`}{full ? ' · 한도 소진' : ''}
+  </span>;
+}
 const HEADER_FIELDS = [
   ['buyer', '발주처'], ['recipient', '수신처'], ['order_date', '발주일자'],
   ['due_date', '납기일자'], ['delivery_location', '납품 장소'],
@@ -40,6 +57,8 @@ const LINE_COLUMNS = [
   ['thickness', '두께', 90], ['width', '폭', 90], ['length', '길이', 90],
   ['quantity', '수량', 110], ['weight_kg', '중량', 115], ['quantity_unit', '단위', 90], ['notes', '비고', 180],
 ];
+
+const LINE_FIELD_KEYS = LINE_COLUMNS.map(([key]) => key);
 
 function numberInputValue(value) {
   return value === null || value === undefined ? '' : String(value);
@@ -241,8 +260,8 @@ const sumOf = (items, key) => items.reduce((total, item) => {
 }, 0);
 const AIOrderSubtotalRow = memo(function AIOrderSubtotalRow({ columns, items }) {
   const values = {
-    quantity: sumOf(items, 'quantity').toLocaleString(undefined, { maximumFractionDigits: 3 }),
-    weight_kg: sumOf(items, 'weight_kg').toLocaleString(undefined, { maximumFractionDigits: 3 }),
+    quantity: sumOf(items, 'quantity').toLocaleString(undefined, { maximumFractionDigits: 2 }),
+    weight_kg: sumOf(items, 'weight_kg').toLocaleString(undefined, { maximumFractionDigits: 2 }),
   };
   return <Table.Tr>
     <Table.Td colSpan={2} className={`${inboundClasses.detailSubtotalCell} ${classes.subtotalLabel}`}>합계</Table.Td>
@@ -794,39 +813,79 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
     }
     return current.includes(index) ? current.filter((rowIndex) => rowIndex !== index) : [...current, index];
   }), []);
-  const pasteLineRange = useCallback((startIndex, startField, pastedText) => {
-    const matrix = pastedText.replace(/\r/g, '').split('\n').filter((line, index, all) => line || index < all.length - 1).map((line) => line.split('\t'));
-    const startColumn = LINE_COLUMNS.findIndex(([key]) => key === startField);
-    if (startIndex < 0 || startColumn < 0 || !matrix.length) return;
-    for (const [rowOffset, line] of matrix.entries()) {
-      for (const [columnOffset, rawValue] of line.entries()) {
-        const key = LINE_COLUMNS[startColumn + columnOffset]?.[0];
-        if (NUMERIC_LINE_FIELDS[key] && !isValidNumericValue(rawValue)) {
-          notifications.show({ title: '숫자 입력 확인', message: `${startIndex + rowOffset + 1}행 ${NUMERIC_LINE_FIELDS[key]}${koreanParticle(NUMERIC_LINE_FIELDS[key], '은', '는')} 숫자만 입력할 수 있으며 소수점은 셋째 자리까지 가능합니다.`, color: 'orange' });
-          return;
-        }
+  // 칸 값 쓰기 (붙여넣기 · 채우기 · 지우기 공용): 숫자 칸 검사 → 값 · 원문(_raw) · 입력값(__draft)을 함께 바꾼다.
+  // cells 는 행 순서대로. 끝 행 다음 칸이면 새 행(직접 추가 행)을 붙인다.
+  const writeLineCells = useCallback((cells) => {
+    for (const { index, field, text } of cells) {
+      if (NUMERIC_LINE_FIELDS[field] && !isValidNumericValue(text)) {
+        notifications.show({ title: '숫자 입력 확인', message: `${index + 1}행 ${NUMERIC_LINE_FIELDS[field]}${koreanParticle(NUMERIC_LINE_FIELDS[field], '은', '는')} 숫자만 입력할 수 있으며 소수점은 셋째 자리까지 가능합니다.`, color: 'orange' });
+        return;
       }
     }
+    if (!cells.length) return;
     updateExtraction((current) => {
       const items = [...current.items];
-      matrix.forEach((line, rowOffset) => {
-        const itemIndex = startIndex + rowOffset;
+      cells.forEach(({ index: itemIndex, field: key, text }) => {
         const item = { ...(items[itemIndex] || createManualOrderLine()) };
-        line.forEach((rawValue, columnOffset) => {
-          const key = LINE_COLUMNS[startColumn + columnOffset]?.[0];
-          if (!key) return;
-          const value = String(rawValue ?? '');
-          item[key] = NUMERIC_LINE_FIELDS[key] ? numericValue(value) : (value || null);
-          if (key === 'quantity') item.quantity_raw = value || null;
-          if (key === 'weight_kg') item.weight_raw = value || null;
-          item.__draft = { ...(item.__draft || {}), [key]: value };
-        });
+        const value = String(text ?? '');
+        item[key] = NUMERIC_LINE_FIELDS[key] ? numericValue(value) : (value || null);
+        if (key === 'quantity') item.quantity_raw = value || null;
+        if (key === 'weight_kg') item.weight_raw = value || null;
+        item.__draft = { ...(item.__draft || {}), [key]: value };
         if (itemIndex >= items.length) items.push(item);
         else items[itemIndex] = item;
       });
       return { ...current, items };
     });
   }, [updateExtraction]);
+  const pasteLineRange = useCallback((startIndex, startField, pastedText) => {
+    const matrix = pastedText.replace(/\r/g, '').split('\n').filter((line, index, all) => line || index < all.length - 1).map((line) => line.split('\t'));
+    const startColumn = LINE_COLUMNS.findIndex(([key]) => key === startField);
+    if (startIndex < 0 || startColumn < 0 || !matrix.length) return;
+    writeLineCells(matrix.flatMap((line, rowOffset) => line
+      .map((rawValue, columnOffset) => ({ index: startIndex + rowOffset, field: LINE_COLUMNS[startColumn + columnOffset]?.[0], text: rawValue }))
+      .filter((cell) => cell.field)));
+  }, [writeLineCells]);
+
+  // ── 엑셀식 입력 (매입등록과 같음) ──
+  const lineRowKeys = useMemo(() => (extractedItems || []).map((_, index) => String(index)), [extractedItems]);
+  const lineCellText = useCallback((rowKey, field) => {
+    const item = extractedItems?.[Number(rowKey)];
+    if (!item) return '';
+    return String(item.__draft?.[field] ?? (CODE_FIELDS[field] || field === 'source_product_name' ? item[field] ?? '' : numberInputValue(orderLineDisplayValue(item, field))));
+  }, [extractedItems]);
+  // Ctrl+Enter: 아래에 빈 행 · Ctrl+Shift+Enter: 현재 행 복제 (복제 행은 직접 추가 행 → AI 추출 표시 없음 · 원본 대조 필요)
+  const insertLine = useCallback((rowKey, field, duplicate) => {
+    const index = Number(rowKey);
+    updateExtraction((current) => {
+      const items = [...current.items];
+      const source = items[index];
+      if (!source) return current;
+      const line = duplicate
+        ? { ...createManualOrderLine(), ...Object.fromEntries(LINE_COLUMNS.map(([key]) => [key, source[key] ?? null])), quantity_raw: source.quantity_raw ?? null, weight_raw: source.weight_raw ?? null, __draft: source.__draft ? { ...source.__draft } : undefined }
+        : createManualOrderLine();
+      items.splice(index + 1, 0, line);
+      return { ...current, items };
+    });
+    setSelectedRows([]);   // 행 번호가 밀리므로 선택은 푼다 (선택 삭제와 같음)
+    rowSelectionAnchor.current = null;
+    requestAnimationFrame(() => focusGridCell(index + 1, field));
+  }, [updateExtraction, focusGridCell]);
+  const appendLine = useCallback((field) => {
+    const index = extractedItems?.length ?? 0;
+    updateExtraction((current) => ({ ...current, items: [...current.items, createManualOrderLine()] }));
+    requestAnimationFrame(() => focusGridCell(index, field));
+  }, [extractedItems, updateExtraction, focusGridCell]);
+  const checkedLineKeys = useMemo(() => selectedRows.map(String), [selectedRows]);
+  const { gridProps: lineGridProps } = useExcelGrid({
+    wrapRef: tableWrapRef, rowKeys: lineRowKeys, fields: LINE_FIELD_KEYS, rowAttr: 'data-row-index', fieldAttr: 'data-field',
+    getCellText: lineCellText,
+    writeCells: (cells) => writeLineCells(cells.map(({ rowKey, field, text }) => ({ index: Number(rowKey), field, text }))),
+    pasteText: (rowKey, field, text) => pasteLineRange(Number(rowKey), field, text),
+    insertRow: insertLine, appendRow: appendLine,
+    focusCell: (rowKey, field) => focusGridCell(Number(rowKey), field),
+    checkedRowKeys: checkedLineKeys, rangeClass: classes.rangeCell,
+  });
   const requestDeleteSelectedRows = () => {
     if (selectedRows.length) setDeleteRowsRequest([...selectedRows]);
   };
@@ -874,7 +933,14 @@ function OrderDocumentWorkspace({ doc, updateDocument, onConfirm, confirming }) 
             <Group className={`${sharedClasses.toolbar} ${outboundTableClasses.toolbar} ${classes.detailToolbar}`} justify="space-between" align="center" wrap="wrap"><Group gap={8}><Text size="sm" fw={700} className={classes.sectionTitle}>상세 품목</Text><Badge size="sm" variant="light" className={classes.countBadge}>{extraction.items.length.toLocaleString()}행</Badge>{extraction.items.some((item) => !item.__manual && LINE_COLUMNS.some(([key]) => aiSourceFor(item, key))) && <Badge className={classes.sectionAiBadge} size="sm" variant="light" color="gray">AI 추출</Badge>}</Group><Group gap={7} wrap="nowrap">
               <button type="button" className={classes.rowDeleteButton} disabled={!selectedRows.length} onClick={requestDeleteSelectedRows}><IconTrash size={14} stroke={1.9} />선택 삭제{selectedRows.length ? ` (${selectedRows.length})` : ''}</button><button type="button" className={classes.rowAddButton} onClick={addLine}><IconPlus size={14} stroke={2.2} />행 추가</button>
             </Group></Group>
-            {!extraction.items.length ? <Box className={classes.resultEmpty}><Box className={classes.promptInner}><span className={classes.promptIcon}><IconClipboardOff size={22} stroke={1.7} /></span><Text className={classes.promptTitle}>인식된 품목 행이 없습니다.</Text><Text className={classes.promptDescription}>[행 추가]로 원본을 보며 직접 입력할 수 있습니다.</Text></Box></Box> : <Box ref={tableWrapRef} className={`${outboundTableClasses.tableWrap} ${classes.gridScroll}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }} onKeyDown={handleGridKeyDown}>
+            {!extraction.items.length ? <Box className={classes.resultEmpty} tabIndex={0} role="textbox" aria-label="상세 품목 붙여넣기"
+              onPaste={(event) => {
+                // 빈 표에 엑셀 범위 붙여넣기 (품명 칸부터) — 칸 값은 붙여넣기 규칙(writeLineCells: 숫자 검사 · 원문 · 직접 추가 행)을 그대로 거친다
+                const text = event.clipboardData.getData('text/plain');
+                if (!text.trim()) return;
+                event.preventDefault();
+                pasteLineRange(0, LINE_COLUMNS[0][0], text);
+              }}><Box className={classes.promptInner}><span className={classes.promptIcon}><IconClipboardOff size={22} stroke={1.7} /></span><Text className={classes.promptTitle}>인식된 품목 행이 없습니다.</Text><Text className={classes.promptDescription}>[행 추가]로 원본을 보며 직접 입력할 수 있습니다.</Text></Box></Box> : <Box ref={tableWrapRef} className={`${outboundTableClasses.tableWrap} ${classes.gridScroll}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }} onKeyDown={handleGridKeyDown} {...lineGridProps}>
               <TableVirtuoso
                 ref={virtuosoRef}
                 data={extraction.items}
@@ -1014,7 +1080,7 @@ export default function AIOrderPage() {
           if (error.response?.data instanceof Blob) {
             try { message = JSON.parse(await error.response.data.text()).detail || message; } catch { /* Keep the HTTP error message. */ }
           } else {
-            message = error.response?.data?.detail || message;
+            message = apiErrorMessage(error, message);
           }
           notifications.show({ title: '이미지 변환 실패', message: `${file.name}: ${message}`, color: 'red' });
           continue;
@@ -1066,7 +1132,7 @@ export default function AIOrderPage() {
     } catch (error) {
       const message = error.message === 'AI_ORDER_EMPTY_EXTRACTION'
         ? '분석 응답에 표시할 추출 데이터가 없습니다. 서버 응답과 백엔드 로그를 확인해주세요.'
-        : error.response?.data?.detail || '분석 요청에 실패했습니다. 파일과 서버 설정을 확인해주세요.';
+        : apiErrorMessage(error, '분석 요청에 실패했습니다. 파일과 서버 설정을 확인해주세요.');
       updateDocument(doc.id, { status: 'failed', cacheHit: false, error: message });
     } finally {
       abortControllers.current.delete(doc.id);
@@ -1105,7 +1171,7 @@ export default function AIOrderPage() {
     } catch (error) {
       notifications.show({
         title: '저장 결과 조회 실패',
-        message: error.response?.data?.detail || '기존 분석 결과를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.',
+        message: apiErrorMessage(error, '기존 분석 결과를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.'),
         color: 'red',
       });
     } finally {
@@ -1155,6 +1221,7 @@ export default function AIOrderPage() {
   // 목록 비우기: 올린 주문서 · 분석 결과 · 수정 내용이 모두 지워지므로 반드시 한 번 확인한다
   // (위쪽 공통 버튼의 [삭제]도 여기로 온다 — 행 하나를 지우려면 상세 품목의 [선택 삭제])
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);   // 진행 상태 안내 (가공주문관리와 같은 창)
   const requestClearDocuments = () => {
     if (!documents.length || activeRequests.current.size) return;
     setClearConfirmOpen(true);
@@ -1172,6 +1239,15 @@ export default function AIOrderPage() {
 
   const runningCount = documents.filter((doc) => ['analyzing', 'queued'].includes(doc.status)).length;
   const completedCount = documents.filter((doc) => doc.status === 'completed').length;
+  // 이번 달 AI 분석 횟수: 화면을 열 때 · 분석이 시작 · 끝날 때마다 다시 읽는다
+  const [quota, setQuota] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    axios.get('/api/ai-order/quota', authConfig())
+      .then(({ data }) => { if (alive) setQuota(data); })
+      .catch(() => { /* 횟수만 못 보여 줌 */ });
+    return () => { alive = false; };
+  }, [runningCount, completedCount]);
   const workflowSteps = [
     {
       label: '주문서 등록',
@@ -1197,10 +1273,15 @@ export default function AIOrderPage() {
     useSaveColor: false,
   });
 
-  return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page} ${classes.batchPage} ${documents.length ? classes.batchPageWithDocuments : ''}`}>
-    <ErpBreadcrumb parent="가공관리" current="AI주문서인식" />
+  return <Box className={`${simpleTheme.simple} ${sharedClasses.pageShell} ${classes.page} ${classes.aiLook} ${classes.batchPage} ${documents.length ? classes.batchPageWithDocuments : ''}`}>
+    <ErpBreadcrumb parent="가공관리" current="AI주문서인식">
+      {/* 화면 안내: 메뉴 이름 바로 옆 (가공주문관리와 같은 자리 · 모양) */}
+      <button type="button" className={`${manageClasses.guideLink} ${manageClasses.guideLinkCrumb}`} onClick={() => setGuideOpen(true)}><IconHelpCircle size={14} stroke={2} />진행 상태 안내</button>
+    </ErpBreadcrumb>
+    <AIOrderRecognitionGuide opened={guideOpen} onClose={() => setGuideOpen(false)} />
 
     <Paper className={`${sharedClasses.panel} ${classes.uploadPanel}`} withBorder>
+      <AIQuotaText quota={quota} />
       <WorkflowSteps steps={workflowSteps} />
       <Group justify="space-between" align="center" wrap="wrap" gap="md">
         <Box className={`${classes.uploadDropzone} ${dragging ? classes.uploadDragging : ''}`} onClick={() => { if (!validating) fileInputRef.current?.click(); }}

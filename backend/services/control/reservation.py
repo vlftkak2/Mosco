@@ -27,3 +27,36 @@ def not_reserved_sql(alias: str) -> str:
         SELECT 1 FROM approval_request01t q CROSS JOIN LATERAL {_RECORD}
         WHERE q.companyid = {alias}.companyid AND q.status IN {_ACTIVE_SQL}
           AND r.sourcetype = {alias}.sourcetype AND r.sourceno = {alias}.sourceno AND r.sourceline = {alias}.sourceline)"""
+
+
+# 승인 실행 중인 요청 자신의 예약은 빼고 본다 (Approval.approve 가 같은 트랜잭션에 요청번호를 넣는다)
+_NOT_RUNNING = "q.requestno IS DISTINCT FROM NULLIF(current_setting('mosco.approval_request', true), '')"
+
+
+def reserved_by_others(cursor, companyid: str, keys) -> dict:
+    """{(sourcetype, sourceno, sourceline): '요청번호, …'} — 다른(대기 중) 승인요청이 예약한 재고만."""
+    keys = sorted({(str(t or "").strip().upper(), str(n or "").strip(), int(l or 0)) for t, n, l in keys})
+    if not keys:
+        return {}
+    cursor.execute(
+        f"""SELECT UPPER(r.sourcetype), r.sourceno, r.sourceline, STRING_AGG(DISTINCT q.requestno, ', ')
+            FROM approval_request01t q CROSS JOIN LATERAL {_RECORD}
+            JOIN unnest(%s::varchar[], %s::varchar[], %s::integer[]) AS k(t, n, l)
+              ON UPPER(r.sourcetype) = k.t AND r.sourceno = k.n AND r.sourceline = k.l
+            WHERE q.companyid = %s AND q.status IN {_ACTIVE_SQL} AND {_NOT_RUNNING}
+            GROUP BY 1, 2, 3""",
+        ([k[0] for k in keys], [k[1] for k in keys], [k[2] for k in keys], companyid),
+    )
+    return {(t, n, int(l)): requests for t, n, l, requests in cursor.fetchall()}
+
+
+def ensure_not_reserved(cursor, companyid: str, demands: dict, own: dict | None = None):
+    """매출 저장: 다른 승인요청에 예약된 재고(LOT)는 새로 쓸 수 없다.
+    demands / own = {(sourcetype, sourceno, sourceline): (qty, weight)} — 수정 전표가 원래 쓰던 양(own)까지는 그대로 둘 수 있다."""
+    own = own or {}
+    taken = reserved_by_others(cursor, companyid, demands.keys())
+    for key, requests in taken.items():
+        qty, weight = demands.get(key, (0, 0))
+        own_qty, own_weight = own.get(key, (0, 0))
+        if float(qty) > float(own_qty) + 0.0005 or float(weight) > float(own_weight) + 0.0005:
+            raise ValueError(f"재고 {key[1]} / 순번 {key[2]}은(는) 승인 대기 중인 요청({requests})에 예약되어 있어 선택할 수 없습니다.")

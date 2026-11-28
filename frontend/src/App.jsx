@@ -1,67 +1,63 @@
 import { lazy, useContext } from "react";
-import { MantineProvider } from '@mantine/core';
 import { ModalsProvider } from '@mantine/modals';
 import { BrowserRouter, Navigate, Routes, Route,Outlet } from 'react-router-dom';
 
 import MainLayout, { MenuAccessContext } from "./components/layout/MainLayout";
 import LoginPage from "./components/auth/LoginPage";
+import ErrorBoundary from "./components/common/ErrorBoundary";
 // 화면 CSS (Mantine 기본 스타일보다 먼저 — 순서 이유는 pageStyles.js 참고)
 import pageStyleModules from './pageStyles';
 
 // Mantine 기본 스타일 
 import '@mantine/core/styles.css';
 
+import { pageLoaders } from './utils/pagePreload';
 // 화면은 처음 열 때 내려받는다 (탭 보관 · Suspense 는 MainLayout 의 KeepAlivePage)
-const HomePage = lazy(() => import("./pages/dashboard/HomePage"));
+const HomePage = lazy(pageLoaders['/HomePage']);
 
-const User = lazy(() => import("./pages/system/User"));
-const UserMenu = lazy(() => import("./pages/system/UserMenu"));
-const CustomerPage = lazy(() => import("./pages/masterdata/CustomerPage"));
-const CodeMasterPage = lazy(() => import("./pages/masterdata/CodeMasterPage"));
-const ItemMaster = lazy(() => import("./pages/masterdata/ItemMasterPage"));
-const ItemProcessMaster = lazy(() => import("./pages/process/ItemProcessMaster"));
-const ItemProcessRegister = lazy(() => import("./pages/process/ItemProcessRegister"));
-const ItemProcessSearch = lazy(() => import("./pages/process/ItemProcessSearch"));
-const InboundRegisterPage = lazy(() => import("./pages/inbound/InboundRegisterPage"));
-const InboundSearchPage = lazy(() => import("./pages/inbound/InboundSearchPage"));
-const OutboundRegisterPage = lazy(() => import("./pages/outbound/OutboundRegisterPage"));
-const OutboundSearchPage = lazy(() => import("./pages/outbound/OutboundSearchPage"));
-const StockStandPage = lazy(() => import("./pages/inventory/StockStandPage"));
-const CurrentStockPage = lazy(() => import("./pages/inventory/CurrentStockPage"));
-const SharedStock = lazy(() => import("./pages/inventory/SharedStock"));
-const IniopStockPage = lazy(() => import("./pages/inventory/IniopStockPage"));
-const AIOrderPage = lazy(() => import("./pages/ai/AIOrderPage"));
-const AIOrderOptimization = lazy(() => import("./pages/ai/AIOrderOptimization"));
-const AIOrderManage = lazy(() => import("./pages/ai/AIOrderManage"));
-const Board = lazy(() => import("./pages/system/Board"));
-const Company = lazy(() => import("./pages/system/Company"));
-const LicenseRevenue = lazy(() => import("./pages/system/LicenseRevenue"));
-const Workplace = lazy(() => import("./pages/system/Workplace"));
-const MonthClose = lazy(() => import("./pages/system/MonthClose"));
-const ControlManagement = lazy(() => import("./pages/system/ControlManagement"));
-const UserInfo = lazy(() => import("./pages/system/UserInfo"));
-const InoutmoveRegister = lazy(() => import("./pages/inoutmove/InoutmoveRegister"));
-const InoutmoveSearch = lazy(() => import("./pages/inoutmove/inoutmoveSearch"));
-const ReceiptPayment = lazy(() => import("./pages/receiptpayment/ReceiptPayment"));
-const ReceiptPaymentSearch = lazy(() => import("./pages/receiptpayment/ReceiptPaymentSearch"));
-const InstrumentStatus = lazy(() => import("./pages/receiptpayment/InstrumentStatus"));
-const CustomerLedger = lazy(() => import("./pages/receiptpayment/CustomerLedger"));
-const CustomerBalanceDashboard = lazy(() => import("./pages/receiptpayment/CustomerBalanceDashboard"));
-const GrossProfit = lazy(() => import("./pages/outbound/GrossProfit"));
-const GrossProfitDashboard = lazy(() => import("./pages/outbound/GrossProfitDashboard"));
+const User = lazy(pageLoaders['/User']);
+const UserMenu = lazy(pageLoaders['/UserMenu']);
+const CustomerPage = lazy(pageLoaders['/CustomerPage']);
+const CodeMasterPage = lazy(pageLoaders['/CodeMasterPage']);
+const ItemMaster = lazy(pageLoaders['/ItemMasterPage']);
+const ItemProcessMaster = lazy(pageLoaders['/ItemProcessMaster']);
+const ItemProcessRegister = lazy(pageLoaders['/ItemProcessRegister']);
+const ItemProcessSearch = lazy(pageLoaders['/ItemProcessSearch']);
+const InboundRegisterPage = lazy(pageLoaders['/InboundRegisterPage']);
+const InboundSearchPage = lazy(pageLoaders['/InboundSearchPage']);
+const OutboundRegisterPage = lazy(pageLoaders['/OutboundRegisterPage']);
+const OutboundSearchPage = lazy(pageLoaders['/OutboundSearchPage']);
+const StockStandPage = lazy(pageLoaders['/StockStandPage']);
+const CurrentStockPage = lazy(pageLoaders['/CurrentStockPage']);
+const SharedStock = lazy(pageLoaders['/SharedStock']);
+const IniopStockPage = lazy(pageLoaders['/IniopStockPage']);
+const AIOrderPage = lazy(pageLoaders['/AIOrderPage']);
+const AIOrderOptimization = lazy(pageLoaders['/AIOrderOptimization']);
+const AIOrderManage = lazy(pageLoaders['/AIOrderManage']);
+const Board = lazy(pageLoaders['/Board']);
+const Company = lazy(pageLoaders['/Company']);
+const LicenseRevenue = lazy(pageLoaders['/LicenseRevenue']);
+const Workplace = lazy(pageLoaders['/Workplace']);
+const MonthClose = lazy(pageLoaders['/MonthClose']);
+const ControlManagement = lazy(pageLoaders['/ControlManagement']);
+const EApproval = lazy(pageLoaders['/EApproval']);
+const EApprovalForm = lazy(pageLoaders['/EApprovalForm']);
+const LeaveStatus = lazy(pageLoaders['/LeaveStatus']);
+const PayrollEntry = lazy(pageLoaders['/PayrollEntry']);
+const PayrollLedger = lazy(pageLoaders['/PayrollLedger']);
+const MyPayroll = lazy(pageLoaders['/MyPayroll']);
+const AiCost = lazy(pageLoaders['/AiCost']);
+const UserInfo = lazy(pageLoaders['/UserInfo']);
+const InoutmoveRegister = lazy(pageLoaders['/InoutmoveRegister']);
+const InoutmoveSearch = lazy(pageLoaders['/InoutmoveSearch']);
+const ReceiptPayment = lazy(pageLoaders['/ReceiptPayment']);
+const ReceiptPaymentSearch = lazy(pageLoaders['/ReceiptPaymentSearch']);
+const InstrumentStatus = lazy(pageLoaders['/InstrumentStatus']);
+const CustomerLedger = lazy(pageLoaders['/CustomerLedger']);
+const CustomerBalanceDashboard = lazy(pageLoaders['/CustomerBalanceDashboard']);
+const GrossProfit = lazy(pageLoaders['/GrossProfit']);
+const GrossProfitDashboard = lazy(pageLoaders['/GrossProfitDashboard']);
 
-
-const RequireAuthority = ({ allowed, children }) => {
-  const access = useContext(MenuAccessContext);
-  if (!access.loaded) return null;
-  const authority = String(access.authority || 'USER').toUpperCase();
-  const companyid = String(access.companyid || '');
-  // MASTER 는 001(플랫폼)에서만, SUBMASTER 는 001 이외 고객사에서만 인정한다 (서버 규칙과 같게)
-  const isAllowed = allowed.includes(authority)
-    && (authority !== 'MASTER' || companyid === '001')
-    && (authority !== 'SUBMASTER' || companyid !== '001');
-  return isAllowed ? children : <Navigate to={access.fallbackPath || '/login'} replace />;
-};
 
 const RequireMenuAccess = ({ menuid, children }) => {
   const access = useContext(MenuAccessContext);
@@ -70,26 +66,18 @@ const RequireMenuAccess = ({ menuid, children }) => {
   return <Navigate to={access.fallbackPath || '/login'} replace />;
 };
 
-// 사용자관리: 고객사 관리자는 메뉴 권한 없이도 들어간다 (플랫폼 관리자는 RequireMenuAccess 에서 통과)
-const RequireUserManagement = ({ children }) => {
-  const access = useContext(MenuAccessContext);
-  if (!access.loaded) return null;
-  if (String(access.authority || '').toUpperCase() === 'SUBMASTER' && access.companyid !== '001') return children;
-  return <RequireMenuAccess menuid="USER_MANAGEMENT">{children}</RequireMenuAccess>;
+// 로그인하지 않았으면(토큰 없음) 빈 화면 대신 로그인 화면으로 보낸다
+const RequireAuth = ({ children }) => {
+  if (!localStorage.getItem('access_token')) return <Navigate to="/login" replace />;
+  return children;
 };
 
 const menuPage = (menuid, element) => <RequireMenuAccess menuid={menuid}>{element}</RequireMenuAccess>;
 
-// 타사 재고현황: 플랫폼 운영사(001 · 모스코) 계정만 (서버 require_platform_company 와 같은 규칙)
-const RequirePlatformCompany = ({ children }) => {
-  const access = useContext(MenuAccessContext);
-  if (!access.loaded) return null;
-  return access.companyid === '001' ? children : <Navigate to={access.fallbackPath || '/login'} replace />;
-};
-
 function App() {
   return (
-    <MantineProvider defaultColorScheme="light">
+    // MantineProvider(테마 · 빨강 기본색)는 main.jsx 에 하나만 둔다
+    <ErrorBoundary fullPage>
       <ModalsProvider>
       <BrowserRouter>
         <Routes>
@@ -99,15 +87,17 @@ function App() {
 
           {/* 메인 페이지 */}
          <Route element={
-            <MainLayout>
-              <Outlet /> 
-            </MainLayout>
+            <RequireAuth>
+              <MainLayout>
+                <Outlet />
+              </MainLayout>
+            </RequireAuth>
           }>
           <Route path="/HomePage" element={menuPage('HOME', <HomePage />)} />
 
   
-          <Route path="/User" element={<RequireAuthority allowed={['MASTER', 'SUBMASTER']}><User /></RequireAuthority>} />
-          <Route path="/UserMenu" element={<RequireAuthority allowed={['MASTER', 'SUBMASTER']}><UserMenu /></RequireAuthority>} />
+          <Route path="/User" element={menuPage('COMPANY_USER_MANAGEMENT', <User />)} />
+          <Route path="/UserMenu" element={menuPage('USER_MENU_PERMISSION', <UserMenu />)} />
           <Route path="/CustomerPage" element={menuPage('DATA_CUSTOMER', <CustomerPage />)} />
           <Route path="/CustomPage" element={menuPage('DATA_CUSTOMER', <CustomerPage />)} />
           <Route path="/CodeMasterPage" element={menuPage('DATA_CODE', <CodeMasterPage />)} />
@@ -121,7 +111,7 @@ function App() {
           <Route path="/OutboundSearchPage" element={menuPage('OUTBOUND_SEARCH', <OutboundSearchPage />)} />
           <Route path="/StockStandPage" element={menuPage('STOCK_INITIAL', <StockStandPage />)} />
           <Route path="/CurrentStockPage" element={menuPage('STOCK_CURRENT', <CurrentStockPage />)} />
-          <Route path="/SharedStock" element={<RequirePlatformCompany><SharedStock /></RequirePlatformCompany>} />
+          <Route path="/SharedStock" element={menuPage('SHARED_STOCK', <SharedStock />)} />
           <Route path="/IniopStockPage" element={menuPage('STOCK_HISTORY', <IniopStockPage />)} />
           <Route path="/InoutmoveRegister" element={menuPage('INOUTMOVE_REGISTER', <InoutmoveRegister />)} />
           <Route path="/InoutmoveSearch" element={menuPage('INOUTMOVE_SEARCH', <InoutmoveSearch />)} />
@@ -141,15 +131,22 @@ function App() {
           <Route path="/MonthClose" element={menuPage('MONTH_CLOSING', <MonthClose />)} />
           {/* 통제관리: 고객사에 승인 통제가 허용된 경우 (화면이 직접 확인) */}
           <Route path="/ControlManagement" element={<ControlManagement />} />
-          <Route path="/UserInfo" element={<RequireUserManagement><UserInfo /></RequireUserManagement>} />
-          <Route path="/Company" element={<RequireAuthority allowed={['MASTER']}><Company /></RequireAuthority>} />
-          <Route path="/LicenseRevenue" element={<RequireAuthority allowed={['MASTER']}><LicenseRevenue /></RequireAuthority>} />
+          <Route path="/EApproval" element={menuPage('EAPPROVAL', <EApproval />)} />
+          <Route path="/EApprovalForm" element={menuPage('EAPPROVAL_FORM', <EApprovalForm />)} />
+          <Route path="/LeaveStatus" element={menuPage('EAPPROVAL', <LeaveStatus />)} />
+          <Route path="/PayrollEntry" element={menuPage('PAYROLL', <PayrollEntry />)} />
+          <Route path="/PayrollLedger" element={menuPage('PAYROLL', <PayrollLedger />)} />
+          <Route path="/MyPayroll" element={menuPage('PAYROLL_MY', <MyPayroll />)} />
+          <Route path="/UserInfo" element={menuPage('USER_MANAGEMENT', <UserInfo />)} />
+          <Route path="/Company" element={menuPage('COMPANY_REGISTRATION', <Company />)} />
+          <Route path="/LicenseRevenue" element={menuPage('LICENSE_REVENUE', <LicenseRevenue />)} />
+          <Route path="/AiCost" element={menuPage('AI_COST', <AiCost />)} />
 
           </Route>
         </Routes>
       </BrowserRouter>
       </ModalsProvider>
-    </MantineProvider>
+    </ErrorBoundary>
   );
 }
 

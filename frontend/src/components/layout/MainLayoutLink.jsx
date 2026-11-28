@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { Tooltip } from '@mantine/core';
 import { IconChevronDown, IconGripVertical, IconStar, IconStarFilled } from '@tabler/icons-react';
 import classes from '../../styles/layout/MainLayoutLink.module.css';
+import { preloadPage } from '../../utils/pagePreload';
+
+// 메뉴에 마우스를 올리거나 포커스하면 그 화면 코드를 미리 받는다 → 누르면 바로 열림
+const preloadProps = (link) => (link ? { onPointerEnter: () => preloadPage(link), onFocus: () => preloadPage(link) } : {});
 
 function normalizePath(path) {
   return path === '/' ? path : String(path || '').replace(/\/+$/, '').toLowerCase();
@@ -39,7 +43,7 @@ function MenuRow({ item, pathname, navigate, favorite, onToggleFavorite }) {
   return (
     <div className={`${classes.si} ${active ? classes.on : ''} ${item.disabled ? classes.disabled : ''}`}>
       <button type="button" className={classes.siLink} aria-current={active ? 'page' : undefined} disabled={item.disabled || undefined}
-        title={item.label} onClick={() => { if (!item.disabled && item.link) navigate(item.link); }}>
+        title={item.label} {...(item.disabled ? {} : preloadProps(item.link))} onClick={() => { if (!item.disabled && item.link) navigate(item.link); }}>
         {item.label}
       </button>
       {canStar && (
@@ -59,7 +63,7 @@ function MenuGroup({ group, open, onToggle, pathname, navigate, favorites, onTog
   if (!group.links) {
     return (
       <button type="button" className={`${classes.mi} ${has ? classes.miOn : ''}`} aria-current={has ? 'page' : undefined}
-        disabled={group.disabled || undefined} onClick={() => { if (group.link) navigate(group.link); }}>
+        disabled={group.disabled || undefined} {...preloadProps(group.link)} onClick={() => { if (group.link) navigate(group.link); }}>
         <span className={classes.ic}>{group.icon}</span>
         <span className={classes.tx}>{group.label}</span>
       </button>
@@ -142,7 +146,7 @@ function FavoriteList({ favoriteItems, pathname, navigate, onToggleFavorite, onR
             <button type="button" className={`${classes.star} ${classes.starOn}`} title="즐겨찾기 해제" aria-label={`${item.label} 즐겨찾기 해제`}
               onClick={() => onToggleFavorite(item.MenuID)}><IconStarFilled size={14} /></button>
             <button type="button" className={classes.siLink} aria-current={active ? 'page' : undefined} title={item.label}
-              onClick={() => navigate(item.link)}>{item.label}</button>
+              {...preloadProps(item.link)} onClick={() => navigate(item.link)}>{item.label}</button>
             {canDrag && (
               <span className={classes.grip} tabIndex={0} role="button" title="끌어서 순서 변경 (Alt + ↑/↓)"
                 aria-label={`${item.label} 순서 변경: Alt와 위/아래 방향키`}

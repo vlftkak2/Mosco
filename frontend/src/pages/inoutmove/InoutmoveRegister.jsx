@@ -8,7 +8,7 @@ import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 import { ActionIcon, Box, Button, Group, Modal, Pagination, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconArrowsExchange, IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import outboundClasses from '../../styles/pages/OutboundRegister.module.css';
@@ -17,7 +17,11 @@ import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
 import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import classes from '../../styles/pages/InoutmoveRegister.module.css';
-import { cachedDateFormat } from '../../utils/dateFormat';
+import { cachedDateFormat, kstDate } from '../../utils/dateFormat';
+import { useUnsavedChanges } from '../../utils/dirtyRegistry';
+import { apiErrorMessage } from '../../utils/apiError';
+import { useRequestKey } from '../../utils/requestKey';
+import { loadMaster, peekMaster } from '../../utils/masterCache';
 
 const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 // Same Excel date-time text as 입고/출고등록: "YYYY-MM-DD HH:mm:ss" (KST).
@@ -34,10 +38,10 @@ const formatExcelDateTime = (value) => {
   return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}:${part('second')}`;
 };
 const today = () => {
-  const date = new Date();
+  const date = kstDate();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
-const number = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 3 });
+const number = (value) => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const transferWeight = (row, qty) => {
   const availableQty = Number(row.available_qty || 0);
   const availableWeight = Number(row.available_weight || 0);
@@ -106,6 +110,10 @@ const DETAIL_COLUMNS = [
   { key: 'stocksourceno', label: '원천전표', width: 160, minWidth: 140 },
   { key: 'stocksourceline', label: '원천순번', width: 90, minWidth: 90 },
 ];
+// 상세 표 칸 번호 (td 순서 = DETAIL_COLUMNS 순서). 쓰는 칸은 이전 수량뿐
+const MOVE_QTY_COLUMN = DETAIL_COLUMNS.findIndex((column) => column.key === 'qty');
+const DETAIL_NUMERIC_COLUMNS = new Set(['thickness', 'width', 'length', 'qty', 'available_qty', 'weight', 'stocksourceline']
+  .map((key) => DETAIL_COLUMNS.findIndex((column) => column.key === key)));
 const initialColumnWidths = (columns) => Object.fromEntries(columns.map(({ key, width }) => [key, width]));
 const STOCK_PAGE_SIZE_OPTIONS = [
   { value: '25', label: '25개씩' }, { value: '50', label: '50개씩' }, { value: '100', label: '100개씩' },
@@ -204,7 +212,7 @@ function StockPicker({ opened, fromWarehouse, fromWarehouseCode, toWarehouse, ex
     } catch (error) {
       setItems([]);
       setTotal(0);
-      notifications.show({ title: '현재고 조회 실패', message: error.response?.data?.detail || '이전 가능한 현재고를 조회하지 못했습니다.', color: 'red' });
+      notifications.show({ title: '현재고 조회 실패', message: apiErrorMessage(error, '이전 가능한 현재고를 조회하지 못했습니다.'), color: 'red' });
     } finally { setLoading(false); }
   }, [fromWarehouseCode]);
 
@@ -297,7 +305,7 @@ function StockPicker({ opened, fromWarehouse, fromWarehouseCode, toWarehouse, ex
 
 export default function InoutmoveRegister() {
   const pageLayout = useContext(PageRibbonContext);
-  const [warehouses, setWarehouses] = useState([]);
+  const [warehouses, setWarehouses] = useState(() => peekMaster('inoutmove:warehouses') || []);
   const [documents, setDocuments] = useState([]);
   const [filters, setFilters] = useState(emptyFilters);
   const [filterInputs, setFilterInputs] = useState(emptyFilters);
@@ -324,6 +332,8 @@ export default function InoutmoveRegister() {
   const managerInputRef = useRef(null);
   const descriptionInputRef = useRef(null);
   const readOnly = Boolean(selectedReceiptno);
+  useUnsavedChanges(!readOnly && items.length > 0);   // 새 이동전표에 품목을 담았으면 탭 닫기 전에 확인
+  const requestKey = useRequestKey(!readOnly && items.length > 0);   // 새 전표 중복 저장 막기 (서버 request_key)
   // 입고 창고: [추가] 뒤 포커스만 두고 목록은 펼치지 않는다 (클릭·입력하면 펼침)
   const toWarehouseRef = useRef(null);
   const [toDropdownOpen, setToDropdownOpen] = useState(false);
@@ -342,6 +352,223 @@ export default function InoutmoveRegister() {
   const totals = useMemo(() => items.reduce((sum, row) => ({ qty: sum.qty + Number(row.qty || 0), weight: sum.weight + Number(row.weight || 0) }), { qty: 0, weight: 0 }), [items]);
   const listTableWidth = LIST_COLUMNS.reduce((sum, column) => sum + (listColumnWidths[column.key] ?? column.width), 0);
   const detailTableWidth = DETAIL_COLUMNS.reduce((sum, column) => sum + (detailColumnWidths[column.key] ?? column.width), 0);
+
+  // ── 상세 표 엑셀식 입력 ──
+  // 상세 행은 [현재고 조회]로 고른 재고 한 줄씩이라 빈 행 추가·복제는 없고(같은 재고를 두 번 옮기게 됨), 재고에서 온 칸은 바꾸지 않는다.
+  // 쓰는 칸은 '이전 수량' 하나뿐이고, 직접 칠 때와 같은 규칙(cleanQtyInput → 중량 = 현재고 비율 transferWeight)으로만 쓴다.
+  // 범위(Shift+방향키 · Shift+클릭)는 복사용으로 모든 칸에 걸 수 있다. 포커스는 시작 칸에 두고 범위는 칸(td)에 클래스로만 칠한다.
+  const detailWrapRef = useRef(null);
+  const itemsRef = useRef(items);
+  useEffect(() => { itemsRef.current = items; });
+  const cursorRef = useRef(null);   // { key, column } — column = 표 칸 번호 (DETAIL_COLUMNS 순서)
+  const rangeRef = useRef(null);    // { anchorKey, anchorColumn, focusKey, focusColumn }
+  const paintedCellsRef = useRef(new Set());
+  const detailRows = useCallback(() => [...(detailWrapRef.current?.querySelector('tbody')?.rows || [])], []);
+  const rangeBounds = useCallback(() => {
+    const range = rangeRef.current;
+    if (!range) return null;
+    const list = itemsRef.current;
+    const anchorIndex = list.findIndex((row) => sourceKey(row) === range.anchorKey);
+    const focusIndex = list.findIndex((row) => sourceKey(row) === range.focusKey);
+    if (anchorIndex < 0 || focusIndex < 0) return null;
+    return {
+      top: Math.min(anchorIndex, focusIndex), bottom: Math.max(anchorIndex, focusIndex),
+      left: Math.min(range.anchorColumn, range.focusColumn), right: Math.max(range.anchorColumn, range.focusColumn), focusIndex,
+    };
+  }, []);
+  const multiRange = useCallback((bounds = rangeBounds()) => Boolean(bounds && (bounds.top !== bounds.bottom || bounds.left !== bounds.right)), [rangeBounds]);
+  const paintRange = useCallback(() => {
+    paintedCellsRef.current.forEach((cell) => cell.classList.remove(classes.rangeCell));
+    paintedCellsRef.current.clear();
+    const bounds = rangeBounds();
+    if (!multiRange(bounds)) return;
+    const rowEls = detailRows();
+    for (let index = bounds.top; index <= bounds.bottom; index += 1) {
+      for (let column = bounds.left; column <= bounds.right; column += 1) {
+        const cell = rowEls[index]?.cells[column];
+        if (cell) { cell.classList.add(classes.rangeCell); paintedCellsRef.current.add(cell); }
+      }
+    }
+  }, [rangeBounds, multiRange, detailRows]);
+  const clearRange = useCallback(() => {
+    if (!rangeRef.current && !paintedCellsRef.current.size) return;
+    rangeRef.current = null;
+    paintRange();
+  }, [paintRange]);
+  useEffect(() => { if (rangeRef.current) paintRange(); }, [items, paintRange]);
+  const cellOf = (element) => {
+    const cell = element instanceof Element ? element.closest('td') : null;
+    const rowEl = cell?.parentElement;
+    if (!cell || !rowEl?.dataset?.rowKey || cell.cellIndex < 1 || !detailWrapRef.current?.contains(cell)) return null;
+    return { key: rowEl.dataset.rowKey, column: cell.cellIndex };
+  };
+  const qtyInputAt = (index) => detailRows()[index]?.cells[MOVE_QTY_COLUMN]?.querySelector('input[data-move-qty]') || null;
+  // 이전 수량 쓰기: 키 → 입력값. 직접 칠 때(onChange)와 같은 규칙
+  const writeQty = (values) => {
+    if (readOnly || saving || !values.size) return;
+    setItems((current) => current.map((item) => {
+      const key = sourceKey(item);
+      if (!values.has(key) || item.available_qty === undefined) return item;
+      const qty = cleanQtyInput(values.get(key));
+      return { ...item, qty, weight: transferWeight(item, qty) };
+    }));
+  };
+  const rangeHasQty = (bounds) => bounds && bounds.left <= MOVE_QTY_COLUMN && MOVE_QTY_COLUMN <= bounds.right;
+
+  // Ctrl+D: 범위면 맨 윗행 이전 수량을 아래 행들에, 체크한 행이 있으면 현재 행 값을 그 아래 체크한 행들에, 아니면 바로 윗행 값을 현재 행에
+  const fillQtyDown = () => {
+    const cursor = cursorRef.current;
+    if (readOnly || saving || !cursor) return;
+    const list = itemsRef.current;
+    const index = list.findIndex((row) => sourceKey(row) === cursor.key);
+    if (index < 0) return;
+    const bounds = rangeBounds();
+    const values = new Map();
+    let mode = 'above';
+    if (bounds && bounds.bottom > bounds.top && rangeHasQty(bounds)) {
+      mode = 'range';
+      list.slice(bounds.top + 1, bounds.bottom + 1).forEach((row) => values.set(sourceKey(row), list[bounds.top].qty));
+    } else if (selectedIds.length && (cursor.column === MOVE_QTY_COLUMN || rangeHasQty(bounds))) {
+      mode = 'selected';
+      list.forEach((row, rowIndex) => { if (rowIndex > index && selectedSet.has(sourceKey(row))) values.set(sourceKey(row), list[index].qty); });
+    } else if (index > 0 && (cursor.column === MOVE_QTY_COLUMN || rangeHasQty(bounds))) {
+      values.set(cursor.key, list[index - 1].qty);
+    }
+    writeQty(values);
+    if (mode !== 'above' && values.size) notifications.show({ title: '아래로 채우기 완료', message: `${values.size}개 행에 이전 수량을 복사했습니다.`, color: 'teal' });
+  };
+  const clearRangeQty = () => {
+    const bounds = rangeBounds();
+    if (!rangeHasQty(bounds)) return;
+    writeQty(new Map(itemsRef.current.slice(bounds.top, bounds.bottom + 1).map((row) => [sourceKey(row), ''])));
+  };
+  const rangeCopyText = () => {
+    const bounds = rangeBounds();
+    if (!bounds) return '';
+    return detailRows().slice(bounds.top, bounds.bottom + 1).map((rowEl) => {
+      const values = [];
+      for (let column = bounds.left; column <= bounds.right; column += 1) {
+        const cell = rowEl.cells[column];
+        const input = cell?.querySelector('input:not([type="checkbox"])');
+        const raw = String(input ? input.value : cell?.textContent ?? '').replace(/[\t\r\n]+/g, ' ').trim();
+        values.push(DETAIL_NUMERIC_COLUMNS.has(column) ? raw.replace(/,/g, '') : raw);   // 숫자 칸은 천 단위 쉼표 없이
+      }
+      return values.join('\t');
+    }).join('\n');
+  };
+
+  const handleDetailKeyDownCapture = (event) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229 || event.altKey) return;
+    const ctrl = event.ctrlKey || event.metaKey;
+    const { key } = event;
+    if (ctrl && key.toLowerCase() === 'd') event.preventDefault();   // 표 안의 Ctrl+D 는 브라우저 즐겨찾기로 넘기지 않는다
+    const cursor = cursorRef.current;
+    const list = itemsRef.current;
+    if (!cursor || !list.some((row) => sourceKey(row) === cursor.key)) return;
+    const stop = () => { event.preventDefault(); event.stopPropagation(); };
+    const arrow = key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight';
+    if (event.shiftKey && !ctrl && arrow) {
+      const target = event.target;
+      if ((key === 'ArrowLeft' || key === 'ArrowRight') && !multiRange() && target instanceof HTMLInputElement && target.type !== 'checkbox' && target.selectionStart !== null) {
+        const { selectionStart: start, selectionEnd: end, value } = target;
+        const allSelected = start === 0 && end === value.length;
+        if (!allSelected && (key === 'ArrowLeft' ? start !== 0 : end !== value.length)) return;
+      }
+      const range = rangeRef.current || { anchorKey: cursor.key, anchorColumn: cursor.column, focusKey: cursor.key, focusColumn: cursor.column };
+      const focusIndex = list.findIndex((row) => sourceKey(row) === range.focusKey);
+      if (focusIndex < 0) return;
+      const nextIndex = Math.max(0, Math.min(list.length - 1, focusIndex + (key === 'ArrowDown' ? 1 : key === 'ArrowUp' ? -1 : 0)));
+      const nextColumn = Math.max(1, Math.min(DETAIL_COLUMNS.length - 1, range.focusColumn + (key === 'ArrowRight' ? 1 : key === 'ArrowLeft' ? -1 : 0)));
+      stop();
+      rangeRef.current = { ...range, focusKey: sourceKey(list[nextIndex]), focusColumn: nextColumn };
+      paintRange();
+      detailRows()[nextIndex]?.cells[nextColumn]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      return;
+    }
+    if (ctrl && !event.shiftKey && (key === 'ArrowUp' || key === 'ArrowDown')) {
+      // Ctrl+위/아래: 첫 행 / 마지막 행의 이전 수량
+      const input = qtyInputAt(key === 'ArrowUp' ? 0 : list.length - 1);
+      if (!input) return;
+      stop();
+      input.focus();
+      input.select();
+      return;
+    }
+    if (ctrl && key.toLowerCase() === 'd') { stop(); fillQtyDown(); return; }
+    if (ctrl && key === 'Enter') {
+      stop();
+      notifications.show({ title: '행 추가', message: '재고이전 상세는 [현재고 조회]로 고른 재고만 담을 수 있습니다. 같은 재고를 두 번 옮기지 않도록 행 삽입·복제는 하지 않습니다.', color: 'orange' });
+      return;
+    }
+    if (key === 'Delete' && !ctrl && multiRange()) { stop(); clearRangeQty(); return; }
+    if (key === 'Escape' && rangeRef.current) clearRange();
+  };
+  const handleDetailMouseDownCapture = (event) => {
+    const cell = cellOf(event.target);
+    if (!cell) { if (!event.shiftKey) clearRange(); return; }
+    const cursor = cursorRef.current;
+    if (event.shiftKey && cursor && itemsRef.current.some((row) => sourceKey(row) === cursor.key)) {
+      if (event.target instanceof HTMLInputElement && event.target.type === 'checkbox') return;   // Shift+체크는 행 선택 그대로
+      event.preventDefault();
+      rangeRef.current = {
+        anchorKey: rangeRef.current?.anchorKey || cursor.key, anchorColumn: rangeRef.current?.anchorColumn ?? cursor.column,
+        focusKey: cell.key, focusColumn: cell.column,
+      };
+      paintRange();
+      return;
+    }
+    clearRange();
+    cursorRef.current = cell;
+  };
+  const handleDetailFocusCapture = (event) => {
+    const cell = cellOf(event.target);
+    if (!cell) return;
+    const previous = cursorRef.current;
+    cursorRef.current = cell;
+    if (previous?.key !== cell.key || previous?.column !== cell.column) clearRange();
+  };
+  const handleDetailCopyCapture = (event) => {
+    if (!multiRange()) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', rangeCopyText());
+  };
+  const handleDetailCutCapture = (event) => {
+    if (!multiRange()) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', rangeCopyText());
+    clearRangeQty();
+  };
+  // 붙여넣기: 엑셀 여러 행은 현재 칸(범위 왼쪽 위)부터 아래로 '이전 수량' 칸 값만 넣는다 (상세 행이 모자라면 남는 줄은 건너뜀).
+  // 범위를 고른 채 값 하나를 붙이면 범위 안 이전 수량에 모두 넣는다.
+  const handleDetailPasteCapture = (event) => {
+    if (readOnly || saving) return;
+    const text = event.clipboardData.getData('text/plain');
+    const lines = text.replace(/\r/g, '').split('\n').filter((line, index, all) => line || index < all.length - 1);
+    const multiCell = lines.length > 1 || lines.some((line) => line.includes('\t'));
+    const bounds = rangeBounds();
+    if (!multiCell && !multiRange(bounds)) return;   // 값 하나는 칸 기본 붙여넣기
+    const cursor = cursorRef.current;
+    const list = itemsRef.current;
+    const startIndex = bounds ? bounds.top : list.findIndex((row) => sourceKey(row) === cursor?.key);
+    const startColumn = bounds ? bounds.left : cursor?.column;
+    if (startIndex < 0 || !startColumn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const values = new Map();
+    if (!multiCell) {
+      if (rangeHasQty(bounds)) list.slice(bounds.top, bounds.bottom + 1).forEach((row) => values.set(sourceKey(row), lines[0] ?? ''));
+    } else {
+      const offset = MOVE_QTY_COLUMN - startColumn;
+      lines.forEach((line, lineIndex) => {
+        const row = list[startIndex + lineIndex];
+        const cells = line.split('\t');
+        if (row && offset >= 0 && offset < cells.length) values.set(sourceKey(row), cells[offset]);
+      });
+      const skipped = startIndex + lines.length - list.length;
+      if (skipped > 0) notifications.show({ title: '붙여넣기', message: `상세 행이 모자라 ${skipped}줄은 넣지 않았습니다. 재고는 [현재고 조회]로 먼저 담아 주세요.`, color: 'orange' });
+    }
+    writeQty(values);
+  };
 
   const resizeGridColumn = useCallback((event, column, widths, setWidths, columns, listTable = false) => {
     event.preventDefault();
@@ -384,8 +611,9 @@ export default function InoutmoveRegister() {
   }, []);
 
   const loadWarehouses = useCallback(async () => {
-    try { const { data } = await axios.get('/api/inoutmove-register/warehouses', auth()); setWarehouses(data.items || []); }
-    catch (error) { notifications.show({ title: '창고 조회 실패', message: error.response?.data?.detail || '사용 중인 창고를 조회하지 못했습니다.', color: 'red' }); }
+    // 지난번 값(메모리 캐시)으로 바로 채우고 서버 값으로 곧바로 바꾼다
+    try { setWarehouses(await loadMaster('inoutmove:warehouses', async () => (await axios.get('/api/inoutmove-register/warehouses', auth())).data.items || [])); }
+    catch (error) { notifications.show({ title: '창고 조회 실패', message: apiErrorMessage(error, '사용 중인 창고를 조회하지 못했습니다.'), color: 'red' }); }
   }, []);
 
   const resetDraft = useCallback(() => {
@@ -402,7 +630,7 @@ export default function InoutmoveRegister() {
       setDocuments(data.items || []); setTotal(data.total || 0); setPage(nextPage);
       if (selectedReceiptno && !(data.items || []).some((row) => row.receiptno === selectedReceiptno)) resetDraft();
     } catch (error) {
-      notifications.show({ title: '재고이전 조회 실패', message: error.response?.data?.detail || '재고이전 목록을 조회하지 못했습니다.', color: 'red' });
+      notifications.show({ title: '재고이전 조회 실패', message: apiErrorMessage(error, '재고이전 목록을 조회하지 못했습니다.'), color: 'red' });
     } finally { setLoading(false); }
   }, [filters, selectedReceiptno, resetDraft, pageSize]);
   // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
@@ -479,7 +707,7 @@ export default function InoutmoveRegister() {
       setHeader({ receptdate: String(document.receptdate).slice(0, 10), fromwarehousecode: document.fromwarehousecode, towarehousecode: document.towarehousecode, manager: document.manager || '', description: document.description || '' });
       setItems(document.items || []); setSelectedIds([]);
     } catch (error) {
-      if (isLatest()) notifications.show({ title: '재고이전 상세 조회 실패', message: error.response?.data?.detail || '전표 상세를 불러오지 못했습니다.', color: 'red' });
+      if (isLatest()) notifications.show({ title: '재고이전 상세 조회 실패', message: apiErrorMessage(error, '전표 상세를 불러오지 못했습니다.'), color: 'red' });
     } finally {
       if (isLatest()) {
         openRequestRef.current.controller = null;
@@ -539,15 +767,18 @@ export default function InoutmoveRegister() {
         manager: managerInputRef.current?.value ?? header.manager,
         description: descriptionInputRef.current?.value ?? header.description,
         items: items.map((row) => ({ stocksourcetype: row.stocksourcetype, stocksourceno: row.stocksourceno, stocksourceline: row.stocksourceline, qty: Number(row.qty) })),
+        request_key: requestKey.take(),
       };
       const { data } = await axios.post('/api/inoutmove-register/documents', payload, auth());
+      requestKey.reset();
       notifications.show({ title: '재고이전 저장 완료', message: `${data.receiptno} 전표로 저장했습니다.`, color: 'teal' });
       setFilters(emptyFilters()); setFilterInputs(emptyFilters());
       await loadDocuments(1, emptyFilters()); await selectDocument(data.receiptno);
-    } catch (error) { notifications.show({ title: '재고이전 저장 실패', message: error.response?.data?.detail || '저장에 실패했습니다. 변경 사항은 모두 취소했습니다.', color: 'red' }); }
+    } catch (error) { notifications.show({ title: '재고이전 저장 실패', message: apiErrorMessage(error, '저장에 실패했습니다. 변경 사항은 모두 취소했습니다.'), color: 'red' }); }
     finally { setSaving(false); }
-  }, [header, items, loadDocuments, selectDocument]);
+  }, [header, items, loadDocuments, selectDocument, requestKey]);
 
+  const [deleteBlocked, setDeleteBlocked] = useState('');   // 서버가 삭제를 거절한 사유
   const deleteDocument = async () => {
     if (!selectedReceiptno) { setItems((current) => current.filter((row) => !selectedSet.has(sourceKey(row)))); setSelectedIds([]); setDeleteOpen(false); return; }
     setSaving(true);
@@ -555,7 +786,7 @@ export default function InoutmoveRegister() {
       await axios.delete(`/api/inoutmove-register/documents/${encodeURIComponent(selectedReceiptno)}`, auth());
       notifications.show({ title: '재고이전 삭제 완료', message: `${selectedReceiptno} 전표를 삭제하고 창고를 원래대로 되돌렸습니다.`, color: 'teal' });
       setDeleteOpen(false); resetDraft(); await loadDocuments(1, filters);
-    } catch (error) { notifications.show({ title: '재고이전 삭제 실패', message: error.response?.data?.detail || '전표를 삭제하지 못했습니다.', color: 'red' }); }
+    } catch (error) { setDeleteBlocked(apiErrorMessage(error, '전표를 삭제하지 못했습니다.')); }   // 같은 창에서 사유
     finally { setSaving(false); }
   };
 
@@ -574,7 +805,7 @@ export default function InoutmoveRegister() {
     setDeleteOpen(true);
   }, [selectedReceiptno, selectedIds, selectedSet, items]);
 
-  const exportDocument = useCallback(() => {
+  const exportDocument = useCallback(async () => {
     const exportRows = items.map((row, index) => ({
       순번: index + 1,
       재고구분: stockSourceTypeName(row.stocksourcetype, row.stockkind),
@@ -601,6 +832,8 @@ export default function InoutmoveRegister() {
       notifications.show({ title: '엑셀 다운로드', message: '다운로드할 재고이전 상세가 없습니다.', color: 'orange' });
       return;
     }
+    const XLSX = await loadXLSXOrNotify();
+    if (!XLSX) return;
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
     applyExcelHeaderStyle(worksheet, Object.keys(exportRows[0] || {}).length);
@@ -652,7 +885,7 @@ export default function InoutmoveRegister() {
         {column.key === 'select' ? <input type="checkbox" checked={items.length > 0 && selectedIds.length === items.length} onChange={(event) => setSelectedIds(event.currentTarget.checked ? items.map(sourceKey) : [])} disabled={readOnly || !items.length} /> : <span style={{ whiteSpace: 'nowrap' }}>{column.label}{column.required && <span style={{ color: '#e03131' }}> *</span>}</span>}
         {column.key !== 'select' && <span className={codeClasses.columnResizeHandle} onPointerDown={(event) => resizeGridColumn(event, column, detailColumnWidths, setDetailColumnWidths, DETAIL_COLUMNS)} role="separator" aria-label={`${column.label} 열 너비 조절`} />}
       </Table.Th>)}</Table.Tr></Table.Thead>
-      {!!items.length && <Table.Tbody>{items.map((row, index) => <Table.Tr key={sourceKey(row)} className={readOnly ? classes.savedRow : selectedSet.has(sourceKey(row)) ? classes.selectedRow : ''}>
+      {!!items.length && <Table.Tbody>{items.map((row, index) => <Table.Tr key={sourceKey(row)} data-row-key={sourceKey(row)} className={readOnly ? classes.savedRow : selectedSet.has(sourceKey(row)) ? classes.selectedRow : ''}>
         <Table.Td className={`${codeClasses.checkCol} ${classes.checkCell}`}><input type="checkbox" checked={selectedSet.has(sourceKey(row))} disabled={readOnly} onChange={(event) => { const { checked: nextChecked } = event.currentTarget; setSelectedIds((current) => nextChecked ? [...current, sourceKey(row)] : current.filter((key) => key !== sourceKey(row))); }} /></Table.Td>
         <Table.Td>{index + 1}</Table.Td><Table.Td>이동</Table.Td>
         <Table.Td>{String(header.receptdate || '').slice(0, 10)}</Table.Td><Table.Td>{row.fromwarehousename || fromWarehouse}</Table.Td><Table.Td>{row.towarehousename || toWarehouse}</Table.Td>
@@ -731,7 +964,9 @@ export default function InoutmoveRegister() {
               <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>담당자</Text><HeaderTextInput value={header.manager} disabled={readOnly} inputRef={managerInputRef} onCommit={(value) => updateHeader('manager', value)} /></Box>
               <Box className={inboundClasses.sharedReceiptField}><Text size="xs" fw={700} mb={4}>비고</Text><HeaderTextInput value={header.description} disabled={readOnly} inputRef={descriptionInputRef} onCommit={(value) => updateHeader('description', value)} /></Box>
             </Box>
-            <Box className={`${codeClasses.tableWrap} ${classes.detailViewport}`}>
+            <Box ref={detailWrapRef} className={`${codeClasses.tableWrap} ${classes.detailViewport}`} tabIndex={-1} style={{ outline: 'none' }}
+              onKeyDownCapture={handleDetailKeyDownCapture} onMouseDownCapture={handleDetailMouseDownCapture} onFocusCapture={handleDetailFocusCapture}
+              onCopyCapture={handleDetailCopyCapture} onCutCapture={handleDetailCutCapture} onPasteCapture={handleDetailPasteCapture}>
               {detailTable}
               {!items.length && <Box className={inboundClasses.emptyDetailMessage}>{readOnly ? '상세 재고가 없습니다.' : '이전일자·입고 창고를 입력한 뒤 [현재고 조회]로 이전할 재고를 선택하세요. 출고 창고는 고른 재고의 창고로 정해집니다.'}</Box>}
             </Box>
@@ -755,7 +990,7 @@ export default function InoutmoveRegister() {
         </Box>
       </Paper>}
     </Box>
-    <ConfirmDeleteModal opened={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={() => void deleteDocument()} loading={saving}
+    <ConfirmDeleteModal opened={deleteOpen} onClose={() => { setDeleteOpen(false); setDeleteBlocked(''); }} onConfirm={() => void deleteDocument()} loading={saving} blocked={deleteBlocked}
       title={selectedReceiptno ? '재고이전 전표를 삭제할까요?' : '선택한 상세를 삭제할까요?'}
       target={selectedReceiptno || `선택 ${selectedIds.length}개 품목`}
       message={selectedReceiptno ? '전표와 상세 내역이 모두 삭제되고 재고는 원래 창고로 되돌아가며' : '선택한 상세 행이 목록에서 빠지며'}

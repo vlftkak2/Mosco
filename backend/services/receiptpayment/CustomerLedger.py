@@ -9,8 +9,10 @@
   + 매출      : 매출등록 전표 + 매출처 부담 기타비용 (비용여부 ≠ '예') → 매출금액에 합쳐서 표시
   - 수금      : 수금·지급 등록 '수금' 전표 (현금 + 증권 + 상계 + 잡손실 − 잡이익) + '지급' 전표의 상계
 줄 돈(미지급금)
-  + 매입      : 매입등록 전표 + 매입 기타비용 전부 (매입등록에는 비용여부가 없음, 매입 원가에 녹임) → 매입금액에 합쳐서 표시
-  + 매입(비용): 매출 기타비용 중 비용여부 '예' → 그 기타비용의 거래처(운송사 등)의 매입으로 표시
+  + 매입      : 매입등록 전표 + 매입 기타비용 중 거래처가 비었거나 매입처와 같은 것 → 매입금액에 합쳐서 표시
+  + 매입(비용): 매입 기타비용 중 거래처가 매입처와 다른 것 (운송사 등에 따로 줄 돈)
+                + 매출 기타비용 중 비용여부 '예' → 그 기타비용의 거래처의 매입으로 표시
+                (매입 기타비용은 어느 거래처에 주든 재고 원가에는 그대로 들어간다 — stock_cost)
   + 가공      : 재고가공 전표의 가공금액 → 가공처 거래처의 매입 (가공일자, 가공금액 0원 전표도 줄을 만든다)
   - 지급      : 수금·지급 등록 '지급' 전표 (현금 + 증권 + 상계 − 잡손실 + 잡이익) + '수금' 전표의 상계
 
@@ -38,6 +40,15 @@ ZERO = Decimal("0")
 # 거래처 키: 코드가 있으면 코드, 없으면(기타비용에 이름만 적은 경우) 이름으로 묶는다.
 _KEY = "COALESCE(NULLIF(BTRIM({code}), ''), 'NAME:' || BTRIM(COALESCE({name}, '')))"
 
+
+def _in_exp_separate(x: str, h: str) -> str:
+    """매입 기타비용 줄(x)이 매입처(h)와 다른 거래처에 줄 돈인지: 줄에 거래처가 있고 그 키가 매입처 키와 다를 때.
+    거래처가 비었거나 매입처와 같으면 매입처 매입에 합산한다."""
+    line_key = _KEY.format(code=f"{x}.customcode", name=f"{x}.customname")
+    head_key = _KEY.format(code=f"{h}.customcode", name=f"{h}.customname")
+    return (f"((NULLIF(BTRIM({x}.customcode), '') IS NOT NULL OR NULLIF(BTRIM({x}.customname), '') IS NOT NULL)"
+            f" AND {line_key} <> {head_key})")
+
 ENTRIES_SQL = f"""
 WITH
 out_items AS (
@@ -57,10 +68,11 @@ in_items AS (
     FROM Inbound02t WHERE companyid = %(companyid)s GROUP BY companyid, receiptno
 ),
 in_exp AS (
-    SELECT companyid, receiptno, SUM(CASE WHEN %(with_vat)s THEN COALESCE(totalamt, 0) ELSE COALESCE(supplyamt, 0) END) AS amt
-    FROM Inbound03t
-    WHERE companyid = %(companyid)s
-    GROUP BY companyid, receiptno
+    SELECT x.companyid, x.receiptno, SUM(CASE WHEN %(with_vat)s THEN COALESCE(x.totalamt, 0) ELSE COALESCE(x.supplyamt, 0) END) AS amt
+    FROM Inbound03t x
+    JOIN Inbound01t h ON h.companyid = x.companyid AND h.receiptno = x.receiptno
+    WHERE x.companyid = %(companyid)s AND NOT {_in_exp_separate('x', 'h')}
+    GROUP BY x.companyid, x.receiptno
 ),
 rp AS (
     SELECT companyid, receiptno,
@@ -101,7 +113,7 @@ entries AS (
     LEFT JOIN in_exp e ON e.companyid = h.companyid AND e.receiptno = h.receiptno
     WHERE h.companyid = %(companyid)s
     UNION ALL
-    -- 매출 기타비용 비용여부 '예' → 그 거래처(운송사 등)에 줄 돈 (매입 기타비용은 매입처 매입에 합산)
+    -- 기타비용으로 그 거래처(운송사 등)에 줄 돈: 매출 기타비용 비용여부 '예' + 매입 기타비용 중 매입처와 다른 거래처
     SELECT {_KEY.format(code='x.customcode', name='x.customname')}, MAX(x.customcode), MAX(x.customname),
            h.receptdate, 4, 'COST', h.receiptno,
            (ARRAY_AGG(x.costname ORDER BY x.lineno))[1], COUNT(*), 0,
@@ -110,9 +122,15 @@ entries AS (
            CASE WHEN x.src = 'OUT' THEN '매출 ' ELSE '매입 ' END || h.receiptno
     FROM (
         SELECT 'OUT' AS src, companyid, receiptno, lineno, customcode, customname, costname, supplyamt, totalamt, purchaseyn FROM Outbound03t
+        UNION ALL
+        SELECT 'IN', e.companyid, e.receiptno, e.lineno, e.customcode, e.customname, e.costname, e.supplyamt, e.totalamt, 'Y'
+        FROM Inbound03t e JOIN Inbound01t eh ON eh.companyid = e.companyid AND eh.receiptno = e.receiptno
+        WHERE e.companyid = %(companyid)s AND {_in_exp_separate('e', 'eh')}
     ) x
     JOIN (
         SELECT 'OUT' AS src, companyid, receiptno, receptdate FROM Outbound01t
+        UNION ALL
+        SELECT 'IN', companyid, receiptno, receptdate FROM Inbound01t
     ) h ON h.src = x.src AND h.companyid = x.companyid AND h.receiptno = x.receiptno
     WHERE x.companyid = %(companyid)s AND UPPER(COALESCE(x.purchaseyn, 'N')) = 'Y'
       AND (NULLIF(BTRIM(x.customcode), '') IS NOT NULL OR NULLIF(BTRIM(x.customname), '') IS NOT NULL)
@@ -162,6 +180,64 @@ entries AS (
 )
 """
 
+# ── 거래처 한 곳만 볼 때(원장 단건 · 여신 통제): 전표 헤더를 그 거래처로 먼저 거르고 상세는 그 전표만 집계한다.
+# 결과는 ENTRIES_SQL 에 "WHERE ckey = %(ckey)s" 를 건 것과 같다 (바깥 조건도 그대로 남겨 둔다).
+# 안쪽 조건은 읽는 범위만 줄이는 용도이며 (companyid, BTRIM(customcode)) 식 인덱스를 탄다.
+def _customer_match(code: str, name: str, by_name: bool) -> str:
+    if by_name:
+        return f"(NULLIF(BTRIM({code}), '') IS NULL AND 'NAME:' || BTRIM(COALESCE({name}, '')) = %(ckey)s)"
+    return f"BTRIM({code}) = %(ckey)s"
+
+
+def _build_customer_entries_sql(by_name: bool) -> str:
+    def m(alias: str) -> str:
+        return _customer_match(f"{alias}.customcode", f"{alias}.customname", by_name)
+
+    def headers(table: str) -> str:
+        return f"receiptno IN (SELECT h.receiptno FROM {table} h WHERE h.companyid = %(companyid)s AND {m('h')})"
+
+    nl = "\n"
+    sql = ENTRIES_SQL
+    replacements = [
+        ("FROM Outbound02t WHERE companyid = %(companyid)s GROUP BY companyid, receiptno",
+         f"FROM Outbound02t WHERE companyid = %(companyid)s AND {headers('Outbound01t')} GROUP BY companyid, receiptno"),
+        ("    WHERE companyid = %(companyid)s AND UPPER(COALESCE(purchaseyn, 'N')) <> 'Y'" + nl + "    GROUP BY companyid, receiptno",
+         f"    WHERE companyid = %(companyid)s AND UPPER(COALESCE(purchaseyn, 'N')) <> 'Y' AND {headers('Outbound01t')}" + nl + "    GROUP BY companyid, receiptno"),
+        ("FROM Inbound02t WHERE companyid = %(companyid)s GROUP BY companyid, receiptno",
+         f"FROM Inbound02t WHERE companyid = %(companyid)s AND {headers('Inbound01t')} GROUP BY companyid, receiptno"),
+        (f"    WHERE x.companyid = %(companyid)s AND NOT {_in_exp_separate('x', 'h')}" + nl + "    GROUP BY x.companyid, x.receiptno",
+         f"    WHERE x.companyid = %(companyid)s AND NOT {_in_exp_separate('x', 'h')} AND {m('h')}" + nl + "    GROUP BY x.companyid, x.receiptno"),
+        (f"        WHERE e.companyid = %(companyid)s AND {_in_exp_separate('e', 'eh')}" + nl,
+         f"        WHERE e.companyid = %(companyid)s AND {_in_exp_separate('e', 'eh')} AND {m('e')}" + nl),
+        ("    FROM ReceiptPayment02t WHERE companyid = %(companyid)s GROUP BY companyid, receiptno",
+         f"    FROM ReceiptPayment02t WHERE companyid = %(companyid)s AND {headers('ReceiptPayment01t')} GROUP BY companyid, receiptno"),
+        ("    LEFT JOIN out_exp e ON e.companyid = h.companyid AND e.receiptno = h.receiptno" + nl + "    WHERE h.companyid = %(companyid)s" + nl,
+         "    LEFT JOIN out_exp e ON e.companyid = h.companyid AND e.receiptno = h.receiptno" + nl + f"    WHERE h.companyid = %(companyid)s AND {m('h')}" + nl),
+        ("    LEFT JOIN in_exp e ON e.companyid = h.companyid AND e.receiptno = h.receiptno" + nl + "    WHERE h.companyid = %(companyid)s" + nl,
+         "    LEFT JOIN in_exp e ON e.companyid = h.companyid AND e.receiptno = h.receiptno" + nl + f"    WHERE h.companyid = %(companyid)s AND {m('h')}" + nl),
+        ("    WHERE x.companyid = %(companyid)s AND UPPER(COALESCE(x.purchaseyn, 'N')) = 'Y'" + nl,
+         f"    WHERE x.companyid = %(companyid)s AND UPPER(COALESCE(x.purchaseyn, 'N')) = 'Y' AND {m('x')}" + nl),
+        ("    WHERE p.companyid = %(companyid)s" + nl + "      AND (NULLIF(BTRIM(p.customcode), '') IS NOT NULL",
+         f"    WHERE p.companyid = %(companyid)s AND {m('p')}" + nl + "      AND (NULLIF(BTRIM(p.customcode), '') IS NOT NULL"),
+        ("    WHERE h.companyid = %(companyid)s AND h.transactiontype IN ('RECEIPT', 'PAYMENT')" + nl + "    UNION ALL",
+         f"    WHERE h.companyid = %(companyid)s AND h.transactiontype IN ('RECEIPT', 'PAYMENT') AND {m('h')}" + nl + "    UNION ALL"),
+        ("    WHERE d.companyid = %(companyid)s AND h.transactiontype IN ('RECEIPT', 'PAYMENT')" + nl + "      AND d.instrumentstatus = 'DISHONORED'",
+         f"    WHERE d.companyid = %(companyid)s AND h.transactiontype IN ('RECEIPT', 'PAYMENT') AND {m('h')}" + nl + "      AND d.instrumentstatus = 'DISHONORED'"),
+    ]
+    for old, new in replacements:
+        if sql.count(old) != 1:
+            raise RuntimeError(f"ENTRIES_SQL layout changed; cannot build customer filter: {old[:60]!r}")
+        sql = sql.replace(old, new)
+    return sql
+
+
+_CUSTOMER_ENTRIES_SQL = {False: _build_customer_entries_sql(False), True: _build_customer_entries_sql(True)}
+
+
+def _entries_for_customer(ckey: str) -> str:
+    return _CUSTOMER_ENTRIES_SQL[str(ckey or "").startswith("NAME:")]
+
+
 # 대시보드용 가벼운 집계: ENTRIES_SQL 과 금액·일자·순서 칸은 같고, 적요용 칸(첫 품목명·건수·증권번호)은 뺀다.
 DASHBOARD_ENTRIES_SQL = f"""
 WITH
@@ -178,8 +254,9 @@ in_amt AS (
     FROM Inbound02t WHERE companyid = %(companyid)s GROUP BY receiptno
 ),
 in_exp AS (
-    SELECT receiptno, SUM(CASE WHEN %(with_vat)s THEN COALESCE(totalamt, 0) ELSE COALESCE(supplyamt, 0) END) AS amt
-    FROM Inbound03t WHERE companyid = %(companyid)s GROUP BY receiptno
+    SELECT x.receiptno, SUM(CASE WHEN %(with_vat)s THEN COALESCE(x.totalamt, 0) ELSE COALESCE(x.supplyamt, 0) END) AS amt
+    FROM Inbound03t x JOIN Inbound01t h ON h.companyid = x.companyid AND h.receiptno = x.receiptno
+    WHERE x.companyid = %(companyid)s AND NOT {_in_exp_separate('x', 'h')} GROUP BY x.receiptno
 ),
 rp AS (
     SELECT receiptno, SUM(COALESCE(cashamt, 0) + COALESCE(instrumentamt, 0) + COALESCE(bankamt, 0)
@@ -207,9 +284,15 @@ entries AS (
            h.receptdate, 4, h.receiptno, 0, 0, SUM(CASE WHEN %(with_vat)s THEN COALESCE(x.totalamt, 0) ELSE COALESCE(x.supplyamt, 0) END), 0
     FROM (
         SELECT 'OUT' AS src, companyid, receiptno, customcode, customname, supplyamt, totalamt, purchaseyn FROM Outbound03t
+        UNION ALL
+        SELECT 'IN', e.companyid, e.receiptno, e.customcode, e.customname, e.supplyamt, e.totalamt, 'Y'
+        FROM Inbound03t e JOIN Inbound01t eh ON eh.companyid = e.companyid AND eh.receiptno = e.receiptno
+        WHERE e.companyid = %(companyid)s AND {_in_exp_separate('e', 'eh')}
     ) x
     JOIN (
         SELECT 'OUT' AS src, companyid, receiptno, receptdate FROM Outbound01t
+        UNION ALL
+        SELECT 'IN', companyid, receiptno, receptdate FROM Inbound01t
     ) h ON h.src = x.src AND h.companyid = x.companyid AND h.receiptno = x.receiptno
     WHERE x.companyid = %(companyid)s AND UPPER(COALESCE(x.purchaseyn, 'N')) = 'Y'
       AND (NULLIF(BTRIM(x.customcode), '') IS NOT NULL OR NULLIF(BTRIM(x.customname), '') IS NOT NULL)
@@ -309,7 +392,19 @@ def get_settings(companyid: str) -> dict:
 
 
 def update_start_date(companyid: str, start: date | None, actor: str) -> dict:
+    """원장 시작일은 모든 잔액의 기준이므로, 월마감이 있으면 마감된 달에 영향을 주는 변경을 막는다."""
+    from services.closing import MonthClose as month_close_module
+
     with _connect() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT ledgerstartdate FROM company01t WHERE companyid = %s FOR UPDATE", (companyid,))
+        row = cursor.fetchone()
+        current = row[0] if row else None
+        through = month_close_module.closed_through(cursor, companyid)
+        if through and current != start and (current is None or start is None or min(current, start) <= through):
+            raise ValueError(
+                f"{through:%Y-%m}월까지 월마감되어 그 기간에 영향을 주는 원장 시작일 변경은 할 수 없습니다. "
+                "월마감을 취소한 뒤 바꿔 주세요."
+            )
         cursor.execute(
             "UPDATE company01t SET ledgerstartdate = %s, updatedat = NOW(), updated_by = %s WHERE companyid = %s",
             (start, actor or None, companyid),
@@ -328,6 +423,7 @@ def list_balances(companyid: str, date_from: date, date_to: date, keyword: str =
     params = {"companyid": companyid, "start": start, "date_from": date_from, "date_to": date_to,
               "keyword": f"%{keyword.strip().lower()}%", "with_vat": bool(with_vat)}
     with _connect() as connection, connection.cursor() as cursor:
+        _shared_db.use_report_memory(cursor)   # 전체 전표 집계: 이 트랜잭션만 정렬 메모리 확대
         cursor.execute(
             ENTRIES_SQL + """,
             scoped AS (
@@ -392,7 +488,7 @@ def get_ledger(companyid: str, ckey: str, date_from: date, date_to: date, with_v
         )
         customer = cursor.fetchone()
         cursor.execute(
-            ENTRIES_SQL + """
+            _entries_for_customer(ckey) + """
             SELECT * FROM entries
             WHERE ckey = %(ckey)s AND (%(start)s::date IS NULL OR entrydate >= %(start)s::date) AND entrydate <= %(date_to)s
             ORDER BY entrydate, kindorder, docno""",
@@ -477,7 +573,12 @@ SELECT
     WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s {_ckey_filter('h.customcode', 'h.customname')}) AS purchase_goods,
   (SELECT COALESCE(SUM(CASE WHEN %(with_vat)s THEN COALESCE(x.totalamt, 0) ELSE COALESCE(x.supplyamt, 0) END), 0)
      FROM Inbound03t x JOIN Inbound01t h ON h.companyid = x.companyid AND h.receiptno = x.receiptno
-    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s {_ckey_filter('h.customcode', 'h.customname')}) AS purchase_exp,
+    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s AND NOT {_in_exp_separate('x', 'h')}
+      {_ckey_filter('h.customcode', 'h.customname')}) AS purchase_exp,
+  (SELECT COALESCE(SUM(CASE WHEN %(with_vat)s THEN COALESCE(x.totalamt, 0) ELSE COALESCE(x.supplyamt, 0) END), 0)
+     FROM Inbound03t x JOIN Inbound01t h ON h.companyid = x.companyid AND h.receiptno = x.receiptno
+    WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s AND {_in_exp_separate('x', 'h')}
+      {_ckey_filter('x.customcode', 'x.customname')}) AS purchase_exp_other,
   (SELECT COALESCE(SUM(CASE WHEN %(with_vat)s THEN COALESCE(x.totalamt, 0) ELSE COALESCE(x.supplyamt, 0) END), 0)
      FROM Outbound03t x JOIN Outbound01t h ON h.companyid = x.companyid AND h.receiptno = x.receiptno
     WHERE h.companyid = %(companyid)s AND h.receptdate BETWEEN %(pf)s AND %(as_of)s AND UPPER(COALESCE(x.purchaseyn, 'N')) = 'Y'
@@ -539,6 +640,7 @@ def dashboard(companyid: str, as_of: date, top_n: int = 10, with_vat: bool = Fal
     params = {"companyid": companyid, "start": start, "as_of": as_of, "month_from": month_from, "period_from": period_from,
               "with_vat": bool(with_vat), "ckey": ckey or None}
     with _connect() as connection, connection.cursor() as cursor:
+        _shared_db.use_report_memory(cursor)   # 전체 전표 집계: 이 트랜잭션만 정렬 메모리 확대
         cursor.execute(
             DASHBOARD_ENTRIES_SQL + """,
             scoped AS MATERIALIZED (
@@ -788,3 +890,26 @@ def search_customers(companyid: str, keyword: str, limit: int = 10) -> list[dict
             {"companyid": companyid, "like": f"%{escaped}%", "prefix": f"{escaped}%", "text": text, "limit": limit},
         )
         return [{"ckey": code, "customcode": code, "customname": name or ""} for code, name in cursor.fetchall()]
+
+
+def receivable_balance(cursor, companyid: str, customercode: str, exclude_docno: str | None = None) -> Decimal:
+    """여신 통제용: 거래처 한 곳의 현재 미수 잔액 (공급가 기준, 거래처원장의 기말 미수와 같은 계산).
+    = 기초 미수금 + 원장 시작일 이후 (매출 + 매출처 부담 기타비용 − 수금 − 상계 …), 날짜 제한 없이 지금까지 저장된 전표 전부.
+    exclude_docno: 수정 중인 매출전표 (새 금액으로 다시 더하므로 기존 금액은 뺀다)."""
+    code = str(customercode or "").strip()
+    if not code:
+        return ZERO
+    cursor.execute("SELECT ledgerstartdate FROM company01t WHERE companyid = %s", (companyid,))
+    row = cursor.fetchone()
+    params = {"companyid": companyid, "with_vat": False, "ckey": code, "start": row[0] if row else None,
+              "exclude": str(exclude_docno or "").strip()}
+    cursor.execute(
+        _entries_for_customer(code) + """
+        SELECT COALESCE((SELECT openingreceivable FROM customer01t WHERE companyid = %(companyid)s AND customercode = %(ckey)s), 0)
+             + COALESCE((SELECT SUM(sales - receipt) FROM entries
+                         WHERE ckey = %(ckey)s
+                           AND (%(start)s::date IS NULL OR entrydate >= %(start)s::date)
+                           AND NOT (kind = 'SALES' AND docno = %(exclude)s)), 0)""",
+        params,
+    )
+    return _num(cursor.fetchone()[0])

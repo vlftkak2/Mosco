@@ -9,9 +9,10 @@ import { notifications } from '@mantine/notifications';
 import { IconPackages, IconSearch } from '@tabler/icons-react';
 import { SelectPickerModal } from '../../components/common/PickerModal';
 import itemMasterClasses from '../../styles/pages/ItemMaster.module.css';
+import { apiErrorMessage } from '../../utils/apiError';
 
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
-const errorMessage = (error, fallback) => (typeof error?.response?.data?.detail === 'string' ? error.response.data.detail : fallback);
+const errorMessage = (error, fallback) => apiErrorMessage(error, fallback);
 
 const ITEM_PICKER_COLUMNS = [
   { key: 'itemcode', label: '품목코드', width: 150 },
@@ -115,8 +116,12 @@ export function ItemNameSuggestInput({ value, readOnly, onValueChange, onGridKey
           } else if (isOpen && event.key === 'Enter') {
             consume(event);
             choose(items[activeIndex >= 0 ? activeIndex : 0]);
-          } else if (isOpen && event.key === 'Tab' && activeIndex >= 0) {
-            choose(items[activeIndex]);
+          } else if (isOpen && event.key === 'Tab') {
+            // Tab: 고른 항목 → 이름이 정확히 같은 하나 → 후보가 하나뿐이면 그것. 못 정하면 친 글자 그대로 (지우지 않음)
+            const normalized = query.toLocaleLowerCase();
+            const exact = items.filter((item) => String(item.itemname || '').trim().toLocaleLowerCase() === normalized);
+            const picked = activeIndex >= 0 ? items[activeIndex] : exact.length === 1 ? exact[0] : items.length === 1 ? items[0] : null;
+            if (picked) choose(picked);
           } else if (isOpen && event.key === 'Escape') {
             consume(event);
             setEdited(false);
@@ -228,7 +233,13 @@ export function CodeSuggestInput({ value, options, readOnly, onValueChange, onGr
             consume(event);
             setActiveIndex((current) => (event.key === 'ArrowDown' ? (current + 1) % items.length : (current - 1 + items.length) % items.length));
           } else if (isOpen && event.key === 'Enter') { consume(event); choose(items[activeIndex >= 0 ? activeIndex : 0]); }
-          else if (isOpen && event.key === 'Tab' && activeIndex >= 0) choose(items[activeIndex]);
+          else if (isOpen && event.key === 'Tab') {
+            // Tab: 고른 항목 → 코드·이름이 정확히 같은 하나 → 후보가 하나뿐이면 그것. 못 정하면 친 글자 그대로
+            const normalized = String(value || '').trim().toLocaleLowerCase();
+            const exact = items.filter((option) => [option.name, option.code].some((text) => String(text || '').trim().toLocaleLowerCase() === normalized));
+            const picked = activeIndex >= 0 ? items[activeIndex] : exact.length === 1 ? exact[0] : items.length === 1 ? items[0] : null;
+            if (picked) choose(picked);
+          }
           else if (isOpen && event.key === 'Escape') { consume(event); setEdited(false); }
           else onGridKeyDown?.(event);
         }}

@@ -8,6 +8,9 @@
                                        재고이전으로 생긴 재고는 처음 출처(입고 · 기초 · 가공)의 날짜를 쓴다.
 권한: 매출이익 · 미수금은 그 메뉴 권한이 있는 사용자에게만 내려준다.
 """
+import threading
+from concurrent.futures import ThreadPoolExecutor
+import time
 from datetime import date
 from decimal import Decimal
 
@@ -60,7 +63,7 @@ FROM CurrentStock01t s
 LEFT JOIN CurrentStock01t o
   ON s.originno IS NOT NULL AND o.companyid = s.companyid
  AND o.sourcetype = s.origintype AND o.sourceno = s.originno AND o.sourceline = s.originline
-WHERE s.companyid = %(companyid)s AND COALESCE(s.weight, 0) > 0
+WHERE s.companyid = %(companyid)s AND s.weight > 0   -- (= COALESCE(weight,0) > 0, 부분 인덱스를 타도록)
   AND (%(cust)s::varchar IS NULL OR COALESCE(o.customcode, s.customcode) = %(cust)s::varchar)
 """
 
@@ -175,6 +178,15 @@ def _recent(cursor, head: str, line: str, companyid: str, date_from: date, date_
     return _rows(cursor, _RECENT_SQL.format(head=head, line=line), params)
 
 
+# 짧은 결과 캐시: 같은 회사 직원 여럿이 홈을 동시에 열 때 같은 무거운 집계를 반복하지 않는다.
+# 키에 회사 · 기간 · 오늘 · 거래처 · 볼 수 있는 항목(권한)을 모두 넣는다 (회사 · 권한 간 섞임 방지).
+# 30초만 보관하므로 방금 저장한 전표가 홈에 반영되기까지 최대 30초 걸릴 수 있다.
+_OVERVIEW_CACHE_SECONDS = 30
+_OVERVIEW_CACHE_MAX = 500
+_overview_cache: dict = {}
+_overview_cache_lock = threading.Lock()
+
+
 def overview(user: dict, date_from: date, date_to: date, today: date, is_admin: bool, customcode: str | None = None) -> dict:
     """customcode 가 있으면 모든 숫자를 그 거래처 하나로 (재고는 그 거래처에서 매입한 재고)."""
     companyid = user["companyid"]
@@ -182,7 +194,35 @@ def overview(user: dict, date_from: date, date_to: date, today: date, is_admin: 
     menus = set(user.get("menuids") or [])
     can_profit = is_admin or bool(menus & PROFIT_MENUS)
     can_balance = is_admin or bool(menus & BALANCE_MENUS)
+    key = (companyid, date_from, date_to, today, cust, can_profit, can_balance)
+    now = time.monotonic()
+    with _overview_cache_lock:
+        hit = _overview_cache.get(key)
+        if hit and hit[0] > now:
+            return hit[1]
+    result = _overview(companyid, date_from, date_to, today, cust, can_profit, can_balance)
+    with _overview_cache_lock:
+        if len(_overview_cache) >= _OVERVIEW_CACHE_MAX:
+            for stale in [k for k, v in _overview_cache.items() if v[0] <= now] or list(_overview_cache)[:100]:
+                _overview_cache.pop(stale, None)
+        _overview_cache[key] = (now + _OVERVIEW_CACHE_SECONDS, result)
+    return result
 
+
+def _overview(companyid: str, date_from: date, date_to: date, today: date, cust: str | None,
+              can_profit: bool, can_balance: bool) -> dict:
+    # 가장 무거운 두 집계(매출이익 현황 · 미수 잔액)는 각자 연결로 동시에 계산하고, 그동안 나머지 집계를 한다.
+    # (읽기만 하므로 순서와 상관없이 같은 숫자; 풀 연결을 최대 3개 쓴다)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        profit_future = pool.submit(gross_profit_dashboard.dashboard, companyid, date_from, date_to, cust,
+                                    include_last_year=False)   # 홈은 전년 비교를 쓰지 않는다
+        ledger_future = pool.submit(customer_ledger.dashboard, companyid, today, top_n=5, ckey=cust) if can_balance else None
+        result = _overview_rest(companyid, date_from, date_to, today, cust, can_profit, can_balance,
+                                profit_future, ledger_future)
+    return result
+
+
+def _overview_rest(companyid, date_from, date_to, today, cust, can_profit, can_balance, profit_future, ledger_future) -> dict:
     with _db.connect() as connection, connection.cursor() as cursor:
         purchase = _purchase(cursor, companyid, date_from, date_to, customcode=cust)
         purchase["expense"] = _purchase_expense(cursor, companyid, date_from, date_to, customcode=cust)
@@ -194,7 +234,7 @@ def overview(user: dict, date_from: date, date_to: date, today: date, is_admin: 
         recent_inbound = _recent(cursor, "Inbound01t", "Inbound02t", companyid, date_from, date_to, customcode=cust)
         recent_outbound = _recent(cursor, "Outbound01t", "Outbound02t", companyid, date_from, date_to, customcode=cust)
 
-    profit = gross_profit_dashboard.dashboard(companyid, date_from, date_to, cust)
+    profit = profit_future.result()
     with _db.connect() as connection, connection.cursor() as cursor:
         purchase_trend = _purchase_trend(cursor, companyid, [row["month"] for row in profit["trend"]], cust)
     sales = {
@@ -223,7 +263,7 @@ def overview(user: dict, date_from: date, date_to: date, today: date, is_admin: 
             "loss_count": len(losers),
         }
     if can_balance:
-        ledger = customer_ledger.dashboard(companyid, today, top_n=5, ckey=cust)
+        ledger = ledger_future.result()
         late = sum((row["amount"] for row in ledger["aging"] if row["key"] in ("d60", "d90", "over90")), ZERO)
         over90 = sum((row["amount"] for row in ledger["aging"] if row["key"] == "over90"), ZERO)
         prepaid = [row for row in ledger["attention"] if row["kind"] == "선급금"]

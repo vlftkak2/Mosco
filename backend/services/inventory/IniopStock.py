@@ -2,6 +2,8 @@ from datetime import date
 
 import xlsxwriter
 
+from excel_safety import safe_workbook_options
+
 from services.inventory import CurrentStock as current_stock_module
 
 # 등록자/수정자 이름: 행마다 하위 조회하지 않고 user01t 를 한 번 조인한다 (email 은 전역 유일).
@@ -180,13 +182,13 @@ def write_iniop_stock_excel(companyid: str, output_path: str, **filters):
         cursor.execute(f"SELECT COUNT(*) FROM Iniop01t AS i WHERE {where}", params)
         row_count = cursor.fetchone()[0]
     workbook = xlsxwriter.Workbook(
-        output_path, {"in_memory": True} if row_count <= IN_MEMORY_EXCEL_ROWS else {"constant_memory": True},
+        output_path, safe_workbook_options({"in_memory": True} if row_count <= IN_MEMORY_EXCEL_ROWS else {"constant_memory": True}),
     )
     worksheet = workbook.add_worksheet("재고수불현황")
     header_format = workbook.add_format({"bold": True, "font_color": "#B4232D", "bg_color": "#FFF3F3", "border": 1, "border_color": "#E5BFC2"})
     date_format = workbook.add_format({"num_format": "yyyy-mm-dd"})
     integer_format = workbook.add_format({"num_format": "#,##0;[Red]-#,##0;0"})
-    number_format = workbook.add_format({"num_format": "#,##0.###"})
+    number_format = workbook.add_format({"num_format": "#,##0.##"})
     datetime_format = workbook.add_format({"num_format": "yyyy-mm-dd hh:mm"})
     worksheet.write_row(0, 0, headers, header_format)
     worksheet.freeze_panes(1, 0)

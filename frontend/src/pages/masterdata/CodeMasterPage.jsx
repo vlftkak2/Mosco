@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Box, Loader, Paper, ScrollArea, Select, Table, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconCheck, IconChevronRight, IconDatabaseOff, IconSearch } from '@tabler/icons-react';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import ExcelBulkActions from '../../components/common/ExcelBulkActions';
@@ -16,6 +16,9 @@ import classes from '../../styles/pages/CodeMasterPage.module.css';
 // 일반코드 관리 화면 전용 스타일 (공유 CSS는 수정하지 않고 이 모듈로 덮어씁니다)
 import s from '../../styles/pages/CodeMasterScreen.module.css';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
+import { apiErrorMessage } from '../../utils/apiError';
+import { todayKST } from '../../utils/dateFormat';
+import { invalidateMaster, loadMaster, peekMaster } from '../../utils/masterCache';
 
 // 공통코드 API는 로그인 토큰으로 보호되므로 모든 요청에 인증 헤더를 붙입니다.
 const authHeaders = () => ({
@@ -26,7 +29,7 @@ const authHeaders = () => ({
 const errorMessage = (error) => {
   const detail = error.response?.data?.detail;
   if (Array.isArray(detail)) return detail.map((item) => item.msg || String(item)).join(', ');
-  return detail || error.response?.data?.message || error.message || '공통코드 요청에 실패했습니다.';
+  return apiErrorMessage(error, '공통코드 요청에 실패했습니다.');
 };
 
 // 서버와 같은 고정 그룹 목록입니다. DB에 항목이 없어도 그룹은 화면에 표시합니다.
@@ -61,6 +64,35 @@ const emptyGroups = () => FIXED_GROUPS.map(({ groupcode, name, codeLabel, nameLa
 }));
 
 const propertyValue = (row, index) => row[`property${index + 1}`] ?? row.properties?.[index] ?? '';
+
+// 서버 /groups 응답 → 화면 그룹 목록 (고정 그룹 순서). 캐시로 먼저 그릴 때와 새로 받았을 때 같은 변환을 쓴다
+const CODE_GROUPS_CACHE = 'code-master:groups';
+const buildCodeGroups = (responseList) => {
+  const responseGroups = new Map((responseList || []).map((group) => [group.groupcode, group]));
+  return FIXED_GROUPS.map(({ groupcode, name, codeLabel, nameLabel, properties }) => {
+    const group = responseGroups.get(groupcode);
+    const propertyLabels = group?.property_labels || properties;
+    const propertyIndex = Number(group?.property_index || 1);
+    const rows = (group?.rows || []).map((row) => ({
+      ...row,
+      groupcode,
+      property: propertyValue(row, propertyIndex - 1),
+      isNew: false,
+      isDirty: false,
+    }));
+    return {
+      id: groupcode, groupcode, name, codeLabel: codeLabel || 'Code',
+      nameLabel: nameLabel || 'Code name',
+      propertyLabels,
+      propertyIndex,
+      helpText: FIXED_GROUPS.find((fixedGroup) => fixedGroup.groupcode === groupcode)?.helpText || '',
+      description: group?.description || `${name} ${groupcode}`,
+      rowCount: rows.length,
+      maxOrder: rows.reduce((maximum, row) => Math.max(maximum, Number(row.order) || 0), 0),
+      rows,
+    };
+  });
+};
 const groupPropertyIndex = (group) => Number(group?.propertyIndex || group?.property_index || 1) - 1;
 const PASTE_FIELDS = ['code', 'name', 'property', 'order', 'use', 'description'];
 
@@ -160,8 +192,14 @@ const CodeMasterGroupPanel = memo(function CodeMasterGroupPanel({ groups, visibl
 export default function CodeMasterPage() {
   // groups에는 서버 자료와 아직 저장하지 않은 편집 내용이 함께 들어갑니다.
   // selectedRows는 행 id 목록이며, deleteRequest는 삭제 확인 모달의 대상입니다.
-  const [groups, setGroups] = useState(emptyGroups);
-  const [selectedId, setSelectedId] = useState('');
+  // 지난번에 받은 코드 그룹이 있으면 그것으로 바로 그리고, 서버 값으로 곧바로 바꾼다
+  const [groups, setGroups] = useState(() => {
+    const cached = peekMaster(CODE_GROUPS_CACHE);
+    return cached ? buildCodeGroups(cached) : emptyGroups();
+  });
+  const [selectedId, setSelectedId] = useState(() => (peekMaster(CODE_GROUPS_CACHE) ? FIXED_GROUPS[0]?.groupcode || '' : ''));
+  const [showCachedGroups, setShowCachedGroups] = useState(() => Boolean(peekMaster(CODE_GROUPS_CACHE)));
+  const loadRequestRef = useRef(0);
   const [groupQuery, setGroupQuery] = useState('');
   const [codeQueryInput, setCodeQueryInput] = useState('');
   const [codeQuery, setCodeQuery] = useState('');
@@ -246,33 +284,15 @@ export default function CodeMasterPage() {
 
   // 최초 로딩 때 회사의 코드 목록 전체를 받아 메모리에 두고, 이후 그룹 선택과 페이징은 로컬에서 처리합니다.
   const loadGroups = useCallback(async (selectGroupCode = '') => {
+    const requestId = ++loadRequestRef.current;
     setLoading(true);
     try {
       const { data } = await axios.get('/api/code-master/groups', { headers: authHeaders() });
-      const responseGroups = new Map((data.groups || []).map((group) => [group.groupcode, group]));
-      const loadedGroups = FIXED_GROUPS.map(({ groupcode, name, codeLabel, nameLabel, properties }) => {
-        const group = responseGroups.get(groupcode);
-        const propertyLabels = group?.property_labels || properties;
-        const propertyIndex = Number(group?.property_index || 1);
-        const rows = (group?.rows || []).map((row) => ({
-          ...row,
-          groupcode,
-          property: propertyValue(row, propertyIndex - 1),
-          isNew: false,
-          isDirty: false,
-        }));
-        return {
-          id: groupcode, groupcode, name, codeLabel: codeLabel || 'Code',
-          nameLabel: nameLabel || 'Code name',
-          propertyLabels,
-          propertyIndex,
-          helpText: FIXED_GROUPS.find((fixedGroup) => fixedGroup.groupcode === groupcode)?.helpText || '',
-          description: group?.description || `${name} ${groupcode}`,
-          rowCount: rows.length,
-          maxOrder: rows.reduce((maximum, row) => Math.max(maximum, Number(row.order) || 0), 0),
-          rows,
-        };
-      });
+      if (requestId !== loadRequestRef.current) return;   // 늦게 온 이전 응답은 버린다 (저장 직후 다시 불러올 때 등)
+      const responseList = data.groups || [];
+      // 다음에 열 때 바로 보이도록 기억 (이 화면은 늘 새로 받으므로 기억만 갱신)
+      void loadMaster(CODE_GROUPS_CACHE, () => responseList).catch(() => {});
+      const loadedGroups = buildCodeGroups(responseList);
       setGroups(loadedGroups);
       setSelectedId((current) => {
         if (selectGroupCode && loadedGroups.some((group) => group.groupcode === selectGroupCode)) return selectGroupCode;
@@ -281,21 +301,26 @@ export default function CodeMasterPage() {
       });
       setSelectedRows([]);
     } catch (error) {
-      notifications.show({ title: 'Unable to load code groups', message: errorMessage(error), color: 'red' });
+      if (requestId === loadRequestRef.current) notifications.show({ title: 'Unable to load code groups', message: errorMessage(error), color: 'red' });
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestRef.current) {
+        setLoading(false);
+        setShowCachedGroups(false);
+      }
     }
   }, []);
 
 
   // CustomerPage와 같은 방식으로 업로드용 엑셀 템플릿을 내려받습니다.
-  const downloadTemplate = useCallback(() => {
+  const downloadTemplate = useCallback(async () => {
     const group = selectedGroup || FIXED_GROUPS.find(({ groupcode }) => groupcode === selectedId);
     if (!group) return;
     const codeLabel = group.codeLabel || '코드';
     const nameLabel = group.nameLabel || '코드명';
     const propertyLabel = (group.propertyLabels || group.properties || [])[0];
     const headers = ['그룹코드', codeLabel, nameLabel, ...(propertyLabel ? [propertyLabel] : []), '정렬', '사용 여부', '비고'];
+    const XLSX = await loadXLSXOrNotify();
+    if (!XLSX) return;
     const worksheet = XLSX.utils.aoa_to_sheet([
       headers,
       [group.groupcode, '', '', ...(propertyLabel ? [''] : []), 0, 'Y', ''],
@@ -325,6 +350,8 @@ export default function CodeMasterPage() {
         '등록자',
         '수정자',
       ];
+      const XLSX = await loadXLSXOrNotify();
+      if (!XLSX) return;
       const worksheet = XLSX.utils.aoa_to_sheet([
         headers,
         ...exportRows.map((row) => [
@@ -343,7 +370,7 @@ export default function CodeMasterPage() {
       worksheet['!cols'] = headers.map(() => ({ wch: 20 }));
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, '공통코드목록');
-      const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+      const date = todayKST().replaceAll('-', '');
       XLSX.writeFile(workbook, `공통코드목록_${selectedGroup.name}_${date}.xlsx`);
       const total = exportRows.length;
       notifications.show({ title: '엑셀 다운로드 완료', message: `${selectedGroup.name} ${total.toLocaleString()}건을 다운로드했습니다.`, color: 'teal', position: 'bottom-right' });
@@ -365,6 +392,8 @@ export default function CodeMasterPage() {
 
     setUploadProgress('엑셀 파일 읽는 중');
     try {
+      const XLSX = await loadXLSXOrNotify();
+      if (!XLSX) return;
       const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       if (!sheet) throw new Error('엑셀 첫 번째 시트를 확인해 주세요.');
@@ -490,6 +519,7 @@ export default function CodeMasterPage() {
         })),
       }, { headers: authHeaders() });
       inserted = response.data.inserted_count;
+      invalidateMaster();   // 등록 화면들이 지난 코드 목록으로 미리 채우지 않게
       await loadGroups(selectedId);
       notifications.show({
         title: inserted === 0 && failures.length ? '일괄 등록 중단' : failures.length ? '일괄 등록 완료 (일부 제외)' : '일괄 등록 완료',
@@ -702,6 +732,7 @@ export default function CodeMasterPage() {
     try {
       if (savedCodes.length) {
         await axios.post(`/api/code-master/groups/${encodeURIComponent(groupcode)}/items/delete`, { codes: savedCodes }, { headers: authHeaders() });
+        invalidateMaster();
       }
       setDirtyRows((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !targetIds.has(id))));
       if (newIds.size) {
@@ -762,6 +793,7 @@ export default function CodeMasterPage() {
           is_new: Boolean(row.isNew),
         })),
       }, { headers: authHeaders() });
+      invalidateMaster();   // 등록 화면들이 지난 코드 목록으로 미리 채우지 않게
       setDirtyRows((current) => Object.fromEntries(Object.entries(current).filter(([, row]) => row.groupcode !== selectedGroup.groupcode)));
       await loadGroups(selectedGroup.groupcode);
       notifications.show({ title: '저장 완료', message: `${rowsToSave.length.toLocaleString()}개 공통코드를 저장했습니다.`, color: 'teal', icon: <IconCheck size={16} /> });
@@ -856,7 +888,7 @@ export default function CodeMasterPage() {
       <ErpBreadcrumb parent="기준정보" current="공통코드관리" />
 
       <div className={s.workspace}>
-        <CodeMasterGroupPanel groups={groups} visibleGroups={visibleGroups} groupQuery={groupQuery} setGroupQuery={setGroupQuery} totalCodes={totalCodes} loading={loading} uploadProgress={uploadProgress} selectedId={selectedId} onSelectGroup={handleSelectGroup} />
+        <CodeMasterGroupPanel groups={groups} visibleGroups={visibleGroups} groupQuery={groupQuery} setGroupQuery={setGroupQuery} totalCodes={totalCodes} loading={loading && !showCachedGroups} uploadProgress={uploadProgress} selectedId={selectedId} onSelectGroup={handleSelectGroup} />
 
         <Paper className={`${s.panel} ${s.codePanel}`} withBorder>
           <div className={s.panelHead}>

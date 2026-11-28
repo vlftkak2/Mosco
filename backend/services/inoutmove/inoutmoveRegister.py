@@ -7,6 +7,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
 from psycopg2 import IntegrityError
+import idempotency
 import db as _shared_db
 from services.inventory import stock_cost as stock_cost_module
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -43,6 +44,7 @@ class TransferSaveRequest(BaseModel):
     towarehousecode: str = Field(min_length=1, max_length=100)
     manager: str = Field(default="", max_length=100)
     description: str = Field(default="", max_length=500)
+    request_key: str | None = Field(default=None, max_length=64)   # 중복 저장 방지 (화면이 새 전표마다 만드는 UUID)
     items: list[TransferStockInput] = Field(min_length=1, max_length=10000)
 
     @field_validator("receiptno", "fromwarehousecode", "towarehousecode", "manager", "description")
@@ -269,9 +271,9 @@ def _next_receiptno(cursor, companyid: str) -> str:
                CASE WHEN substring(receiptno FROM %s) ~ '^[0-9]{1,18}$'
                     THEN substring(receiptno FROM %s)::bigint ELSE 0 END
            ), 0)
-           FROM inoutmove01t WHERE companyid = %s AND LEFT(receiptno, %s) = %s
+           FROM inoutmove01t WHERE companyid = %s AND receiptno LIKE %s
         """,
-        (start, start, companyid, len(prefix), prefix),
+        (start, start, companyid, prefix + "%"),
     )
     return f"{prefix}{cursor.fetchone()[0] + 1:05d}"
 
@@ -280,6 +282,7 @@ def save_transfer(companyid: str, companyname: str, payload: dict, actor: str | 
     receiptno = ""
     try:
         with _connect() as connection, connection.cursor() as cursor:
+            idempotency.claim(cursor, companyid, payload, "TRANSFER", actor)
             # Coordinate with inbound, outbound, and processing stock mutations for this tenant.
             cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
             month_close_module.ensure_open(cursor, companyid, [payload["receptdate"]], "등록")

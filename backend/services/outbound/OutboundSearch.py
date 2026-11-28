@@ -12,6 +12,8 @@ from zoneinfo import ZoneInfo
 from services.outbound import OutboundRegister as outbound_register_module
 import xlsxwriter
 
+from excel_safety import safe_workbook_options
+
 # 매출 상세 + 기타비용. 두 묶음의 칸 이름·형식이 같다.
 # Outbound02t.weight = 총중량(현재고·수불장 반영), 중량 = 총중량 - 조정.
 _ROWS_SQL = """
@@ -271,7 +273,7 @@ def write_outbound_details_excel(
 
     with outbound_register_module._connect() as connection, connection.cursor() as cursor:
         options = _excel_options(cursor, f"SELECT COUNT(*) FROM ({_ROWS_SQL}) AS r WHERE {where_sql}", params)
-    workbook = xlsxwriter.Workbook(output_path, options)
+    workbook = xlsxwriter.Workbook(output_path, safe_workbook_options(options))
     worksheet = workbook.add_worksheet("매출현황")
     header_format = workbook.add_format({
         "bold": True,
@@ -286,7 +288,7 @@ def write_outbound_details_excel(
     # Give numeric columns an integer default so blank/untouched cells never
     # inherit an optional-decimal format that can render a dangling decimal mark.
     integer_format = workbook.add_format({"num_format": "#,##0;[Red]-#,##0;0"})
-    number_format = workbook.add_format({"num_format": "#,##0.###;[Red]-#,##0.###"})
+    number_format = workbook.add_format({"num_format": "#,##0.##;[Red]-#,##0.##"})
     money_format = workbook.add_format({"num_format": "#,##0.##;[Red]-#,##0.##"})
     worksheet.write_row(0, 0, headers, header_format)
     worksheet.freeze_panes(1, 0)

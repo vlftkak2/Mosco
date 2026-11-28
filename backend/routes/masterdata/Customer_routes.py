@@ -19,22 +19,6 @@ CUSTOMER_LIST_MENUS = ("DATA_CUSTOMER", "INBOUND_REGISTER", "OUTBOUND_REGISTER",
                        "RECEIPT_PAYMENT")
 require_customer_master = security_module.require_menu_access("DATA_CUSTOMER")
 
-OPENING_BALANCE_AUTHORITIES = {"MASTER", "SUBMASTER"}
-
-
-def _can_edit_opening_balances(user: dict) -> bool:
-    """기초 미수금/미지급금은 MASTER/SUBMASTER(및 플랫폼 관리자)만 설정·변경할 수 있습니다."""
-    return (
-        security_module.has_platform_admin_role(user)
-        or str(user.get("authority") or "").upper() in OPENING_BALANCE_AUTHORITIES
-    )
-
-
-def _clear_opening_balances(customer: customer_module.CustomModifyRequest) -> None:
-    customer.openingreceivable = Decimal("0")
-    customer.openingpayable = Decimal("0")
-
-
 class CustomerBulkCreateRequest(BaseModel):
     customers: List[customer_module.CustomModifyRequest] = Field(..., min_items=1, max_items=10000)
 
@@ -63,6 +47,14 @@ def get_customer_managers(user: dict = Depends(require_customer_master)):
     return result
 
 
+def _intercept(*args, **kwargs):
+    """승인 통제 검사 (대기 중인 요청이 걸린 거래처 · 승인자 없음 등은 400 으로 알려 준다)."""
+    try:
+        return approval_module.intercept(*args, **kwargs)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 # 고객 생성 API
 # customer_module 안에 있는 CustomModifyRequest 클래스를 데이터 규격으로 사용합니다.
 @router.post("/create")
@@ -72,18 +64,16 @@ def create_customer(
 ):
     data.companyid = user["companyid"]
     data.companyname = user.get("companyname") or user["companyid"]
-    if not _can_edit_opening_balances(user):
-        _clear_opening_balances(data)
     # 승인 통제: 거래처 등록이 통제 대상이면 승인요청으로 보관 (승인되면 등록)
-    pending = approval_module.intercept(user, "CUSTOMER", "CREATE", "create", {"item": data.model_dump(mode="json")},
+    pending = _intercept(user, "CUSTOMER", "CREATE", "create", {"item": data.model_dump(mode="json")},
                                         f"{data.customername} ({data.customercode or '코드 자동'})")
     if pending:
         return pending
     result = customer_module.CustomerCreate(data, actor=user.get("email"))
     
-    # 실패했을 경우 401 에러
+    # 실패: 사유를 그대로 보여 준다 (401 은 로그인 만료로 오해되므로 400)
     if not result["success"]:
-        raise HTTPException(status_code=401, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
         
     return result
 
@@ -94,14 +84,11 @@ def bulk_create_customers(
     user: dict = Depends(require_customer_master),
 ):
     companyname = user.get("companyname") or user["companyid"]
-    can_edit_opening = _can_edit_opening_balances(user)
     for customer in data.customers:
         customer.companyid = user["companyid"]
         customer.companyname = companyname
-        if not can_edit_opening:
-            _clear_opening_balances(customer)
     first = data.customers[0].customername if data.customers else ""
-    pending = approval_module.intercept(user, "CUSTOMER", "CREATE", "bulk_create",
+    pending = _intercept(user, "CUSTOMER", "CREATE", "bulk_create",
                                         {"items": [customer.model_dump(mode="json") for customer in data.customers]},
                                         f"엑셀 일괄 등록 {len(data.customers)}건 ({first}{' 외' if len(data.customers) > 1 else ''})")
     if pending:
@@ -120,20 +107,20 @@ def update_customer(
     user: dict = Depends(require_customer_master),
 ):
     data.companyid = user["companyid"]
-    pending = approval_module.intercept(user, "CUSTOMER", "UPDATE", "update",
-                                        {"item": data.model_dump(mode="json"), "update_opening": _can_edit_opening_balances(user)},
+    pending = _intercept(user, "CUSTOMER", "UPDATE", "update",
+                                        {"item": data.model_dump(mode="json"), "update_opening": True},
                                         f"{data.customername} ({data.customercode}) 수정", ref_no=data.customercode)
     if pending:
         return pending
     result = customer_module.CustomerModify(
         data,
         actor=user.get("email"),
-        update_opening_balances=_can_edit_opening_balances(user),
+        update_opening_balances=True,   # 기초잔액 · 여신한도도 거래처등록 권한으로 수정 (막으려면 통제관리 › 거래처 수정 승인)
     )
     
-    # 실패했을 경우 401 에러
+    # 실패: 사유를 그대로 보여 준다 (401 은 로그인 만료로 오해되므로 400)
     if not result["success"]:
-        raise HTTPException(status_code=401, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
         
     return result
 
@@ -201,8 +188,11 @@ def get_opening_balances(user: dict = Depends(require_customer_master)):
 
 @router.post("/opening-balances")
 def apply_opening_balances(data: OpeningBalanceApplyRequest, user: dict = Depends(require_customer_master)):
-    if not _can_edit_opening_balances(user):
-        raise HTTPException(status_code=403, detail="기초잔액은 관리자(MASTER·SUBMASTER)만 반영할 수 있습니다.")
+    if not data.dry_run:
+        try:   # 승인 대기 중인 거래처 수정 요청이 있으면 반영하지 않는다 (승인 때 덮어쓰기 방지)
+            approval_module.assert_no_pending(user, "CUSTOMER", [row.customercode for row in data.rows])
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
     try:
         result = customer_module.OpeningBalanceApply(user["companyid"], data.rows, data.dry_run, user.get("email"))
     except Exception as error:

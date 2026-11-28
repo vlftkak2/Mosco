@@ -1,8 +1,9 @@
 import { isApprovalPending, notifyApprovalPending } from '../../utils/approval';
 import { memo, useCallback, useContext, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import axios from 'axios';
 import { usePageActivation } from '../../components/common/usePageReactivated';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import { INSTRUMENT_OPTIONS_BY_FIELD, INSTRUMENT_TYPE_OPTIONS, instrumentLabel } from '../../utils/instrumentCodes';
 import {
@@ -24,6 +25,11 @@ import classes from '../../styles/pages/ReceiptPayment.module.css';
 import outboundClasses from '../../styles/pages/OutboundRegister.module.css'; // 상세 탭 모양 (매입 · 매출등록과 같음)
 import searchClasses from '../../styles/pages/ReceiptPaymentSearch.module.css';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
+import { useUnsavedChanges } from '../../utils/dirtyRegistry';
+import { apiErrorMessage } from '../../utils/apiError';
+import { kstDate } from '../../utils/dateFormat';
+import { useRequestKey } from '../../utils/requestKey';
+import { fetchAllPages, loadMaster, peekMaster } from '../../utils/masterCache';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' }, { value: '50', label: '50개씩' },
@@ -110,13 +116,65 @@ const INSTRUMENT_COLUMN_WIDTHS = INSTRUMENT_COLUMN_SPECS.map((column) => column.
 const INSTRUMENT_HEADER_LABELS = INSTRUMENT_COLUMN_SPECS.map((column) => column.label);
 const sourceText = (row) => row.source_receiptno || '';
 
+// ── 어음/수표 표 엑셀식 입력 (매입등록과 같은 방식) ──
+// 값은 직접 입력과 같은 규칙으로 넣는다: 종류 · 어음처리상태는 목록 값(코드)만, 날짜는 YYYY-MM-DD, 금액은 0 이상 소수 둘째 자리까지,
+// 글자는 칸 최대 길이까지. 보유증권(지급어음 선택) 행은 비고만 바꿀 수 있다. 못 알아본 값은 비우고 알려 준다.
+const DETAIL_FIELD_SPEC = Object.fromEntries([...INSTRUMENT_GRID_FIELDS, DESCRIPTION_FIELD].map((field) => [field.key, field]));
+const DETAIL_FIELD_INDEX = Object.fromEntries(DETAIL_NAVIGATION_FIELDS.map((key, index) => [key, index]));
+const PASTE_AMOUNT_PATTERN = /^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/;
+const normalizePastedDate = (text) => {
+  const match = /^(\d{4})[-./\s]?(\d{1,2})[-./\s]?(\d{1,2})\.?$/.exec(String(text ?? '').trim());
+  if (!match) return null;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return `${match[1]}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+};
+// 붙여넣은 글자 → 칸 값. { value } 또는 { invalid: 'amount' | 'option' | 'date', raw }
+const normalizeDetailValue = (field, text) => {
+  const spec = DETAIL_FIELD_SPEC[field];
+  const trimmed = String(text ?? '').trim();
+  if (!trimmed) return { value: '' };
+  if (field === 'instrumentamt') {
+    const normalized = trimmed.replaceAll(',', '').replace(/\s/g, '');
+    if (!PASTE_AMOUNT_PATTERN.test(normalized)) return { invalid: 'amount', raw: trimmed };
+    const amount = Math.round(Number(normalized) * 100) / 100;
+    return Number.isFinite(amount) ? { value: String(amount) } : { invalid: 'amount', raw: trimmed };
+  }
+  if (spec?.options) {
+    const lower = trimmed.toLocaleLowerCase();
+    const option = spec.options.find((item) => item.value.toLocaleLowerCase() === lower || item.label.toLocaleLowerCase() === lower);
+    return option ? { value: option.value } : { invalid: 'option', raw: trimmed };
+  }
+  if (spec?.type === 'date') {
+    const value = normalizePastedDate(trimmed);
+    return value === null ? { invalid: 'date', raw: trimmed } : { value };
+  }
+  return { value: spec?.maxLength ? trimmed.slice(0, spec.maxLength) : trimmed };
+};
+const detailWritable = (row, field) => !row.source_receiptno || field === 'description';
+// 복사(Ctrl+C) 글자: 화면에 보이는 값 (종류 · 상태는 이름) → 엑셀이나 이 표에 다시 붙여넣을 수 있다
+const detailCopyText = (row, field) => {
+  const spec = DETAIL_FIELD_SPEC[field];
+  const value = row[field] ?? '';
+  const text = spec?.options ? instrumentLabel(field, value) : spec?.type === 'date' ? dateOnly(value) : String(value);
+  return text.replace(/[\t\r\n]+/g, ' ');
+};
+const parseClipboardMatrix = (text) => String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+  .filter((line, index, all) => line || index < all.length - 1).map((line) => line.split('\t'));
+const isMultiCellText = (text) => /[\t\n]/.test(String(text || '').replace(/\r?\n$/, '').replace(/\r/g, '\n'));
+const detailCellOf = (target) => {
+  const cell = target instanceof Element ? target.closest('[data-detail-row][data-detail-field]') : null;
+  return cell && DETAIL_FIELD_INDEX[cell.dataset.detailField] !== undefined ? { rowId: cell.dataset.detailRow, field: cell.dataset.detailField, cell } : null;
+};
+
 const AMOUNT_KEYS = AMOUNT_FIELDS.map(({ key }) => key);
 const todayString = () => {
-  const d = new Date();
+  const d = kstDate();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 const makeFilters = () => {
-  const d = new Date();
+  const d = kstDate();
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   return {
@@ -157,7 +215,7 @@ const numeric = (value) => {
   const parsed = Number(String(value ?? 0).replaceAll(',', ''));
   return Number.isFinite(parsed) ? parsed : 0;
 };
-const formatted = (value) => numeric(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
+const formatted = (value) => numeric(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const dateOnly = (value) => value ? String(value).slice(0, 10) : '';
 const totalOf = (row) => ['cashamt', 'instrumentamt', 'bankamt', 'cardamt'].reduce((sum, key) => sum + numeric(row[key]), 0);
 // 저장된 행이 증권 줄인지 (증권 정보가 하나라도 있으면 어음/수표)
@@ -207,7 +265,7 @@ const errorText = (error) => {
   const detail = error.response?.data?.detail;
   if (typeof detail === 'string') return detail;
   if (Array.isArray(detail)) return detail.map((item) => item?.msg || String(item)).join(' · ');
-  return error.message || '요청을 처리하지 못했습니다.';
+  return apiErrorMessage(error, '요청을 처리하지 못했습니다.');
 };
 
 const ResizableHeaderCell = memo(function ResizableHeaderCell({ index, width, onResize, children, ...props }) {
@@ -284,6 +342,7 @@ const ReceiptPaymentDetailInputCell = memo(function ReceiptPaymentDetailInputCel
   const [draft, setDraft] = useState(value ?? '');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const pickerOpenRef = useRef(false);
+  const skipBlurCommitRef = useRef(false);
   const [synced, setSynced] = useState({ type: field.type, numericInput, value });
   if (synced.type !== field.type || synced.numericInput !== numericInput || synced.value !== value) {
     setSynced({ type: field.type, numericInput, value });
@@ -320,13 +379,29 @@ const ReceiptPaymentDetailInputCell = memo(function ReceiptPaymentDetailInputCel
             onChange={(nextValue) => { pickerOpenRef.current = false; setDraft(nextValue); setShowSuggestions(Boolean(nextValue.trim())); }}
             onOptionSubmit={(nextValue) => { pickerOpenRef.current = false; setDraft(nextValue); setShowSuggestions(false); onUpdate(rowId, field.key, nextValue); }}
             onKeyDown={(event) => {
-              // Tab fills the option highlighted with ↑/↓ (same as Enter), then moves on as usual.
+              const untouched = draft === (value ?? '');
+              // F2 · (아직 글자를 치지 않았을 때) 스페이스: 은행 선택 창 (매입등록 자동완성 칸과 같음)
+              if (event.key === 'F2' || (event.key === ' ' && untouched && onOpenPicker)) { event.preventDefault(); openPicker(); return; }
+              // Tab: ↑/↓로 고른 항목 → 이름·코드가 정확히 같은 은행 하나 → 후보가 하나뿐이면 그 은행. 못 정하면 친 글자 그대로 (수기 입력 가능 칸)
               if (event.key !== 'Tab' || event.shiftKey) return;
               const listId = event.currentTarget.getAttribute('aria-controls');
               const highlighted = listId ? document.getElementById(listId)?.querySelector('[role="option"][data-combobox-selected]') : null;
-              highlighted?.click();
+              if (highlighted) { highlighted.click(); return; }
+              const query = draft.trim().toLocaleLowerCase();
+              if (untouched || !query) return;
+              const exact = suggestions.filter((option) => [option.value, option.label, option.code].some((text) => String(text || '').trim().toLocaleLowerCase() === query));
+              const visible = showSuggestions ? suggestions.filter((option) => `${option.label || option.value || ''} ${option.code || ''}`.toLocaleLowerCase().includes(query)) : [];
+              const pick = exact.length === 1 ? exact[0] : visible.length === 1 ? visible[0] : null;
+              if (!pick) return;
+              skipBlurCommitRef.current = true;
+              setDraft(pick.value); setShowSuggestions(false); onUpdate(rowId, field.key, pick.value);
             }}
-            onBlur={() => { setShowSuggestions(false); if (!pickerOpenRef.current && draft !== (value ?? '')) onUpdate(rowId, field.key, draft); pickerOpenRef.current = false; }} /></Box>
+            onBlur={() => {
+              setShowSuggestions(false);
+              if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; pickerOpenRef.current = false; return; }
+              if (!pickerOpenRef.current && draft !== (value ?? '')) onUpdate(rowId, field.key, draft);
+              pickerOpenRef.current = false;
+            }} /></Box>
         : <TextInput aria-label={`${rowNumber}행 ${field.label}`} value={draft} placeholder="" autoComplete="off" maxLength={field.maxLength} size="xs" disabled={disabled}
           onChange={(event) => setDraft(event.currentTarget.value)}
           onBlur={() => { if (draft !== (value ?? '')) onUpdate(rowId, field.key, draft); }} />}
@@ -579,7 +654,7 @@ const InstrumentProcessModal = memo(function InstrumentProcessModal({ request, t
 const HELD_PAGE_SIZE = 50;
 const daysUntil = (value) => {
   if (!value) return null;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const today = kstDate();
   return Math.round((new Date(`${String(value).slice(0, 10)}T00:00:00`) - today) / 86400000);
 };
 const HELD_COLUMNS = [
@@ -779,8 +854,8 @@ export default function ReceiptPayment() {
   const [filters, setFilters] = useState(makeFilters);
   const [documents, setDocuments] = useState([]);
   const [header, setHeader] = useState(emptyHeader);
-  const [customers, setCustomers] = useState([]);
-  const [bankOptions, setBankOptions] = useState([]);
+  const [customers, setCustomers] = useState(() => peekMaster('customers:active') || []);
+  const [bankOptions, setBankOptions] = useState(() => peekMaster('receipt-payment:bank-options') || []);
   const [items, setItems] = useState([]);
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
   const [detailPicker, setDetailPicker] = useState(null);
@@ -808,6 +883,7 @@ export default function ReceiptPayment() {
   const selectedReceiptRef = useRef('');
   const detailRequest = useRef(0);
   const detailCache = useRef(new Map());
+  const detailStamp = useRef(new Map());   // 전표번호 → 상세 조회 때 받은 수정시각 (updated_at ?? created_at)
   const detailLoadingRef = useRef(detailLoading);
   detailLoadingRef.current = detailLoading;
   const listRequest = useRef(0);
@@ -843,6 +919,9 @@ export default function ReceiptPayment() {
   const readOnlyDocument = isSavedDocument && !cashEditable;
   const editDirty = cashEditable && cashEditKey(header, cashForm) !== editBase;
   const canSave = Boolean((!isSavedDocument && drafting) || editDirty);
+  // 탭 닫기 · 브라우저 닫기 전에 확인: 새 전표에 입력한 내용이 있거나 저장된 전표를 고쳤을 때
+  useUnsavedChanges((!isSavedDocument && drafting && (cashHasInput || instrumentCount > 0)) || editDirty);
+  const requestKey = useRequestKey(!isSavedDocument && drafting && (cashHasInput || instrumentCount > 0));   // 새 전표 중복 저장 막기
   const canExport = header.receiptno ? (items.length > 0 || cashHasInput) : documents.length > 0;
 
   // visibleIndexes: 일부 칸을 숨긴 표(상세)에서 화면에 보이는 칸의 원래 번호 (DOM 칸 위치 · 표 너비 계산용)
@@ -902,19 +981,15 @@ export default function ReceiptPayment() {
       : baseCustomerOptions
   ), [baseCustomerOptions, header.customcode, header.customname]);
 
+  // 거래처 · 은행 목록: 지난번 값(메모리 캐시, 매입·매출등록과 같은 거래처 목록)으로 바로 채우고 서버 값으로 곧바로 바꾼다
   useEffect(() => {
     let cancelled = false;
-    // 첫 쪽에서 전체 건수를 알면 나머지 쪽은 한꺼번에 받는다 (200건씩 차례로 기다리지 않게)
-    const loadCustomers = async () => {
-      const fetchPage = (pageNumber) => axios.get('/api/list', {
-        ...authConfig(), params: { status: 'Y', page: pageNumber, page_size: 200, include_total: pageNumber === 1 },
-      }).then(({ data }) => data);
-      const first = await fetchPage(1);
-      const pageCount = Math.min(100, Math.ceil((first.total || 0) / 200));
-      const rest = pageCount > 1 ? await Promise.all(Array.from({ length: pageCount - 1 }, (_, index) => fetchPage(index + 2))) : [];
-      if (!cancelled) setCustomers([first, ...rest].flatMap((data) => data.data || []));
-    };
-    void loadCustomers().catch((error) => {
+    void loadMaster('customers:active', () => fetchAllPages(async (pageNumber) => {
+      const { data } = await axios.get('/api/list', {
+        ...authConfig(), params: { status: 'Y', page: pageNumber, page_size: 200, include_total: true },
+      });
+      return { items: data.data || [], total: data.total || 0 };
+    }, 200)).then((list) => { if (!cancelled) setCustomers(list); }).catch((error) => {
       if (!cancelled) notifications.show({ title: '거래처 조회 실패', message: errorText(error), color: 'red' });
     });
     return () => { cancelled = true; };
@@ -922,24 +997,18 @@ export default function ReceiptPayment() {
 
   useEffect(() => {
     let cancelled = false;
-    const loadBankOptions = async () => {
-      const items = [];
-      let pageNumber = 1;
-      let totalCount = 0;
-      do {
+    void loadMaster('receipt-payment:bank-options', async () => {
+      const items = await fetchAllPages(async (pageNumber) => {
         const { data } = await axios.get('/api/code-master/groups/BANK/items', {
           ...authConfig(), params: { page: pageNumber, page_size: 200, include_total: true },
         });
-        items.push(...(data.items || []));
-        totalCount = data.total || 0;
-        pageNumber += 1;
-      } while (items.length < totalCount && pageNumber <= 100);
-      if (!cancelled) setBankOptions([...new Map(items.filter((item) => item.use)
+        return { items: data.items || [], total: data.total || 0 };
+      }, 200);
+      return [...new Map(items.filter((item) => item.use)
         .map((item) => ({ value: String(item.name || '').trim(), label: String(item.name || '').trim(), code: String(item.code || '').trim(), name: String(item.name || '').trim() }))
         .filter((item) => item.name)
-        .map((item) => [item.code || item.name, item])).values()]);
-    };
-    void loadBankOptions().catch(() => { if (!cancelled) setBankOptions([]); });
+        .map((item) => [item.code || item.name, item])).values()];
+    }).then((options) => { if (!cancelled) setBankOptions(options); }).catch(() => { if (!cancelled && !peekMaster('receipt-payment:bank-options')) setBankOptions([]); });
     return () => { cancelled = true; };
   }, [pageActivation]);
 
@@ -992,6 +1061,8 @@ export default function ReceiptPayment() {
         receiptno: summary.receiptno, receiptdate: dateOnly(summary.receiptdate),
         transactiontype: summary.transactiontype, customcode: summary.customcode || '',
         customname: summary.customname || '', manager: summary.manager || '', description: summary.description || '',
+        // 수정 저장 때 서버에 보내는 '열 때의 수정시각' (상세 조회 응답 그대로 · 아래 상세 조회가 다시 채운다)
+        expected_updated_at: cachedItems ? detailStamp.current.get(receiptno) : undefined,
       });
     }
     setSelectedRows([]);
@@ -1018,10 +1089,13 @@ export default function ReceiptPayment() {
       const { data } = await axios.get(`/api/receipt-payment/documents/${encodeURIComponent(receiptno)}`, authConfig());
       if (request !== detailRequest.current) return;
       const doc = data.document;
+      const stamp = doc.updated_at ?? doc.created_at ?? undefined;
+      detailStamp.current.set(receiptno, stamp);
       setHeader({
         receiptno: doc.receiptno, receiptdate: dateOnly(doc.receiptdate),
         transactiontype: doc.transactiontype, customcode: doc.customcode,
         customname: doc.customname, manager: doc.manager || '', description: doc.description || '',
+        expected_updated_at: stamp,
       });
       const nextItems = (doc.items || []).map((item) => makeDetail(item));
       detailCache.current.set(receiptno, nextItems);
@@ -1077,6 +1151,23 @@ export default function ReceiptPayment() {
     });
   }, [customers, customerOptions, chooseCustomer]);
 
+  // 같은 구분(수금/지급)의 다른 전표에 이미 있는지 서버에 확인 (입력하자마자 알림, 저장은 서버가 다시 막는다)
+  const checkInstrumentOnServer = useCallback((row) => {
+    void axios.get('/api/receipt-payment/instrument-numbers', { ...authConfig(), params: {
+      no: String(row.instrumentno).trim(), issuer: String(row.issuercompany || '').trim(),
+      transactiontype: headerRef.current.transactiontype || 'RECEIPT', exclude_receiptno: headerRef.current.receiptno || undefined,
+    } })
+      .then(({ data }) => {
+        const found = data.items?.[0];
+        if (!found) return;
+        notifications.show({
+          id: 'receipt-payment-instrumentno', title: '이미 등록된 어음', color: 'orange',
+          message: `어음번호 ${found.instrumentno} · 발행회사 ${found.issuercompany || '(없음)'} 어음은 이미 ${found.receiptno}(${found.transactiontype === 'PAYMENT' ? '지급' : '수금'} · ${found.customname || ''}) 전표에 있습니다. 저장할 수 없습니다.`,
+        });
+      })
+      .catch(() => {});
+  }, []);
+
   // 발행구분은 입력한 그대로 둔다 (자동으로 채우지 않음, 빈값이면 빈값으로 저장)
   const updateDetail = useCallback((id, key, value) => {
     if (key === 'instrumentno' || key === 'issuercompany') {
@@ -1088,22 +1179,7 @@ export default function ReceiptPayment() {
         const sameIndex = rows.findIndex((row, rowIndex) => rowIndex !== index && !row.source_receiptno && instrumentKey(row) === nextKey);
         if (sameIndex >= 0) {
           notifications.show({ id: 'receipt-payment-instrumentno', title: '같은 어음 중복', message: `${sameIndex + 1}행에 어음번호 · 발행회사가 같은 어음(${next.instrumentno} · ${next.issuercompany || '발행회사 없음'})이 있습니다.`, color: 'orange' });
-        } else {
-          // 같은 구분(수금/지급)의 다른 전표에 이미 있는지 서버에 확인 (입력하자마자 알림, 저장은 서버가 다시 막는다)
-          void axios.get('/api/receipt-payment/instrument-numbers', { ...authConfig(), params: {
-            no: String(next.instrumentno).trim(), issuer: String(next.issuercompany || '').trim(),
-            transactiontype: headerRef.current.transactiontype || 'RECEIPT', exclude_receiptno: headerRef.current.receiptno || undefined,
-          } })
-            .then(({ data }) => {
-              const found = data.items?.[0];
-              if (!found) return;
-              notifications.show({
-                id: 'receipt-payment-instrumentno', title: '이미 등록된 어음', color: 'orange',
-                message: `어음번호 ${found.instrumentno} · 발행회사 ${found.issuercompany || '(없음)'} 어음은 이미 ${found.receiptno}(${found.transactiontype === 'PAYMENT' ? '지급' : '수금'} · ${found.customname || ''}) 전표에 있습니다. 저장할 수 없습니다.`,
-              });
-            })
-            .catch(() => {});
-        }
+        } else checkInstrumentOnServer(next);
       }
     }
     if (key === 'issuedate' || key === 'maturitydate') {
@@ -1111,7 +1187,7 @@ export default function ReceiptPayment() {
       if (index >= 0 && maturityBeforeIssue({ ...itemsRef.current[index], [key]: value })) notifyMaturityBeforeIssue(index + 1);
     }
     setItems((rows) => rows.map((row) => row.id === id ? { ...row, [key]: value } : row));
-  }, []);
+  }, [checkInstrumentOnServer]);
   const changeTransactionType = useCallback((value) => {
     setHeader((current) => ({ ...current, transactiontype: value || 'RECEIPT' }));
   }, []);
@@ -1219,8 +1295,10 @@ export default function ReceiptPayment() {
           candidate.dataset.detailRow === nextRow.id && candidate.dataset.detailField === cell.dataset.detailField
         );
         nextCell?.querySelector('input, textarea, select')?.focus();
+      } else if (!event.shiftKey && !event.nativeEvent.isComposing && !instrumentLocked) {
+        // 마지막 행에서 Enter: 새 행을 이어 붙이고 같은 칸으로 간다 (매입등록과 같음)
+        addDetail(cell.dataset.detailField);
       }
-      // On the last row Enter no longer appends a new row; rows are added with the 추가 button.
       return;
     }
 
@@ -1271,59 +1349,293 @@ export default function ReceiptPayment() {
     } catch {
       // Date and numeric inputs may not expose a text selection range.
     }
-  }, [isSavedDocument, items, saving]);
-  const handleDetailTablePaste = useCallback((event) => {
-    if (saving || isSavedDocument) return;
-    const text = event.clipboardData?.getData('text/plain') ?? '';
-    if (!text.includes('\t') && !/[\r\n]/.test(text)) return;
-
-    const input = event.target instanceof HTMLElement ? event.target.closest('input, textarea, select') : null;
-    const cell = input?.closest('[data-detail-row][data-detail-field]');
-    if (!cell) return;
-    const startRow = itemsRef.current.findIndex((row) => row.id === cell.dataset.detailRow);
-    const startColumn = DETAIL_NAVIGATION_FIELDS.indexOf(cell.dataset.detailField);
-    if (startRow < 0 || startColumn < 0) return;
-
-    event.preventDefault();
-    const matrix = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-    if (matrix.length > 1 && matrix[matrix.length - 1] === '') matrix.pop();
-    const numericKeys = new Set(AMOUNT_KEYS);
-    let invalidNumericCount = 0;
-    const values = matrix.map((line) => line.split('\t').map((value, columnOffset) => {
-      const field = DETAIL_NAVIGATION_FIELDS[startColumn + columnOffset];
-      if (!field) return null;
-      const trimmed = value.trim();
-      if (!numericKeys.has(field) || trimmed === '') return trimmed;
-      const normalized = trimmed.replaceAll(',', '').replace(/\s/g, '');
-      if (!/^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/.test(normalized)) { // 소수점 둘째 자리까지
-        invalidNumericCount += 1;
-        return null;
+  }, [isSavedDocument, items, saving, instrumentLocked, addDetail]);
+  // ── 어음/수표 표: 셀 범위 선택 · 붙여넣기 · 채우기 · 행 삽입 (매입등록과 같은 방식) ──
+  // 범위: Shift+방향키 / Shift+클릭. 포커스는 시작 칸에 두고 범위만 칠한다 (다시 그리지 않고 DOM 클래스로).
+  const activeDetailCellRef = useRef(null);
+  const detailRangeRef = useRef(null);
+  const paintedDetailCellsRef = useRef(new Set());
+  const detailBounds = useCallback(() => {
+    const range = detailRangeRef.current;
+    if (!range) return null;
+    const rows = itemsRef.current;
+    const anchorIndex = rows.findIndex((row) => row.id === range.anchorId);
+    const focusIndex = rows.findIndex((row) => row.id === range.focusId);
+    if (anchorIndex < 0 || focusIndex < 0) return null;
+    return {
+      top: Math.min(anchorIndex, focusIndex), bottom: Math.max(anchorIndex, focusIndex),
+      left: Math.min(range.anchorColumn, range.focusColumn), right: Math.max(range.anchorColumn, range.focusColumn),
+    };
+  }, []);
+  const isMultiDetailRange = useCallback((bounds = detailBounds()) => Boolean(bounds && (bounds.top !== bounds.bottom || bounds.left !== bounds.right)), [detailBounds]);
+  const paintDetailRange = useCallback(() => {
+    paintedDetailCellsRef.current.forEach((cell) => cell.classList.remove(inboundClasses.rangeCell));
+    paintedDetailCellsRef.current.clear();
+    const bounds = detailBounds();
+    if (!isMultiDetailRange(bounds)) return;
+    const rowIds = new Set(itemsRef.current.slice(bounds.top, bounds.bottom + 1).map((row) => row.id));
+    detailTableWrapRef.current?.querySelectorAll('[data-detail-row][data-detail-field]').forEach((cell) => {
+      const column = DETAIL_FIELD_INDEX[cell.dataset.detailField];
+      if (rowIds.has(cell.dataset.detailRow) && column >= bounds.left && column <= bounds.right) {
+        cell.classList.add(inboundClasses.rangeCell);
+        paintedDetailCellsRef.current.add(cell);
       }
-      const amount = Math.round(Number(normalized) * 100) / 100;
-      return Number.isFinite(amount) ? String(amount) : null;
-    }));
+    });
+  }, [detailBounds, isMultiDetailRange]);
+  const clearDetailRange = useCallback(() => {
+    if (!detailRangeRef.current && !paintedDetailCellsRef.current.size) return;
+    detailRangeRef.current = null;
+    paintDetailRange();
+  }, [paintDetailRange]);
+  useEffect(() => { if (detailRangeRef.current) paintDetailRange(); }, [items, activeTab, paintDetailRange]);
+  const detailEditable = !saving && !isSavedDocument && !instrumentLocked;
 
-    setItems((current) => {
-      const next = [...current];
-      while (next.length < startRow + values.length) next.push(makeDetail());
-      values.forEach((line, rowOffset) => {
-        const rowIndex = startRow + rowOffset;
-        const row = { ...next[rowIndex] };
-        line.forEach((value, columnOffset) => {
-          const field = DETAIL_NAVIGATION_FIELDS[startColumn + columnOffset];
-          if (field && value !== null && (!row.source_receiptno || field === 'description')) row[field] = value;
-        });
-        next[rowIndex] = row;
+  const focusDetailCell = useCallback((rowId, field) => {
+    requestAnimationFrame(() => {
+      const cell = [...(detailTableWrapRef.current?.querySelectorAll('[data-detail-row][data-detail-field]') || [])]
+        .find((candidate) => candidate.dataset.detailRow === rowId && candidate.dataset.detailField === field);
+      const input = cell?.querySelector('input, textarea, select');
+      if (input && !input.disabled) input.focus();
+    });
+  }, []);
+  // 칸(글자 · 보관은행)은 벗어날 때 값을 확정한다 → 여러 칸을 바꾸기 전에 지금 칸을 먼저 확정해 둔다 (그 값을 기준으로 바꿈)
+  const commitFocusedDetail = useCallback(() => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && detailTableWrapRef.current?.contains(active)) flushSync(() => active.blur());
+  }, []);
+  // 여러 칸을 바꾼 뒤: 직접 입력과 같은 확인 (같은 어음 중복 · 다른 전표에 있는 어음 · 만기일이 발행일보다 앞)
+  const applyDetailRows = useCallback((next, changedIds, identityIds = new Set()) => {
+    itemsRef.current = next;
+    setItems(next);
+    const duplicate = duplicateInstrumentRows(next);
+    if (duplicate) {
+      notifications.show({ id: 'receipt-payment-instrumentno', title: '같은 어음 중복', message: `${duplicate[0]}행과 ${duplicate[1]}행에 어음번호 · 발행회사가 같은 어음(${duplicate[2]} · ${duplicate[3] || '발행회사 없음'})이 있습니다.`, color: 'orange' });
+    } else {
+      next.filter((row) => identityIds.has(row.id) && !row.source_receiptno && instrumentKey(row)).slice(0, 20).forEach(checkInstrumentOnServer);
+    }
+    const badMaturity = next.findIndex((row) => changedIds.has(row.id) && maturityBeforeIssue(row));
+    if (badMaturity >= 0) notifyMaturityBeforeIssue(badMaturity + 1);
+  }, [checkInstrumentOnServer]);
+
+  // 붙여넣기: 시작 칸부터 오른쪽 · 아래로. 모자란 행은 새로 만든다 (전표 최대 1,000행).
+  const pasteIntoDetail = useCallback((startRow, startColumn, matrix) => {
+    if (startRow + matrix.length > 1000) {
+      notifications.show({ title: '붙여넣기 제한', message: '전표 하나에는 최대 1,000행까지 입력할 수 있습니다.', color: 'orange' });
+      return;
+    }
+    commitFocusedDetail();
+    const next = [...itemsRef.current];
+    const changedIds = new Set();
+    const identityIds = new Set();
+    let invalidAmounts = 0;
+    const unresolved = [];
+    matrix.forEach((line, rowOffset) => {
+      const index = startRow + rowOffset;
+      const row = { ...(next[index] || makeDetail()) };
+      line.forEach((text, columnOffset) => {
+        const field = DETAIL_NAVIGATION_FIELDS[startColumn + columnOffset];
+        if (!field || !detailWritable(row, field)) return;
+        const result = normalizeDetailValue(field, text);
+        if (result.invalid === 'amount') { invalidAmounts += 1; return; }   // 금액: 예전처럼 그 칸은 그대로 둔다
+        if (result.invalid) { unresolved.push(`${index + 1}행 ${DETAIL_FIELD_SPEC[field].label}: ${result.raw}`); row[field] = ''; return; }
+        row[field] = result.value;
+        if (field === 'instrumentno' || field === 'issuercompany') identityIds.add(row.id);
       });
-      return next;
+      next[index] = row;
+      changedIds.add(row.id);
     });
+    applyDetailRows(next, changedIds, identityIds);
     setSelectedRows([]);
-    if (invalidNumericCount) notifications.show({
-      title: '숫자 입력 확인',
-      message: '금액 칸에 숫자가 아니거나 소수점 셋째 자리 이상인 값은 붙여넣지 않았습니다.',
-      color: 'red',
+    if (invalidAmounts) notifications.show({ title: '숫자 입력 확인', message: '금액 칸에 숫자가 아니거나 소수점 셋째 자리 이상인 값은 붙여넣지 않았습니다.', color: 'red' });
+    if (unresolved.length) notifications.show({
+      title: '값 확인 필요', color: 'orange', autoClose: 8000,
+      message: `${unresolved.slice(0, 5).join(' · ')}${unresolved.length > 5 ? ` 외 ${unresolved.length - 5}건` : ''}. 목록에 있는 종류·상태와 올바른 날짜(YYYY-MM-DD)만 들어가 해당 칸은 비워 두었습니다.`,
     });
-  }, [isSavedDocument, saving]);
+  }, [commitFocusedDetail, applyDetailRows]);
+
+  const clearDetailRangeCells = useCallback(() => {
+    const bounds = detailBounds();
+    if (!bounds) return;
+    commitFocusedDetail();
+    const fields = DETAIL_NAVIGATION_FIELDS.slice(bounds.left, bounds.right + 1);
+    const changedIds = new Set();
+    const next = itemsRef.current.map((row, index) => {
+      if (index < bounds.top || index > bounds.bottom) return row;
+      const target = { ...row };
+      fields.forEach((field) => { if (detailWritable(target, field)) target[field] = ''; });
+      changedIds.add(row.id);
+      return target;
+    });
+    applyDetailRows(next, changedIds);
+  }, [detailBounds, commitFocusedDetail, applyDetailRows]);
+
+  // Ctrl+D: 범위가 여러 행이면 맨 윗행 값을 아래로 · 체크한 행이 있으면 현재 칸 값을 그 아래 체크한 행들에 · 아니면 바로 윗행 값을 현재 칸에
+  const fillDetailDown = useCallback(() => {
+    const active = activeDetailCellRef.current;
+    if (!active) return;
+    commitFocusedDetail();
+    const rows = itemsRef.current;
+    const activeIndex = rows.findIndex((row) => row.id === active.rowId);
+    if (activeIndex < 0) return;
+    const bounds = detailBounds();
+    const rangeFields = bounds ? DETAIL_NAVIGATION_FIELDS.slice(bounds.left, bounds.right + 1) : [active.field];
+    const selected = new Set(selectedRows);
+    let source; let targets; let mode;
+    if (bounds && bounds.bottom > bounds.top) {
+      mode = 'range'; source = rows[bounds.top]; targets = rows.slice(bounds.top + 1, bounds.bottom + 1);
+    } else if (selected.size) {
+      mode = 'selected'; source = rows[activeIndex]; targets = rows.filter((row, index) => index > activeIndex && selected.has(row.id));
+    } else {
+      mode = 'above'; source = rows[activeIndex - 1]; targets = [rows[activeIndex]];
+    }
+    if (!source || !targets.length) return;
+    const targetIds = new Set(targets.map((row) => row.id));
+    const identityIds = new Set();
+    const next = rows.map((row) => {
+      if (!targetIds.has(row.id)) return row;
+      const target = { ...row };
+      rangeFields.forEach((field) => {
+        if (!detailWritable(target, field)) return;
+        target[field] = source[field] ?? '';
+        if (field === 'instrumentno' || field === 'issuercompany') identityIds.add(row.id);
+      });
+      return target;
+    });
+    applyDetailRows(next, targetIds, identityIds);
+    focusDetailCell(active.rowId, active.field);
+    if (mode !== 'above') notifications.show({ title: '아래로 채우기 완료', message: `${targets.length.toLocaleString()}개 행에 ${mode === 'range' ? '범위 맨 윗행' : '현재 칸'}의 값을 복사했습니다.`, color: 'teal' });
+  }, [commitFocusedDetail, detailBounds, selectedRows, applyDetailRows, focusDetailCell]);
+
+  // Ctrl+Enter: 아래에 빈 행 · Ctrl+Shift+Enter: 현재 행 복제 (복사 버튼과 같음 — 보유증권 행은 같은 증권을 두 번 쓸 수 없어 복제 불가)
+  const insertDetailBelow = useCallback((rowId, field, duplicate) => {
+    commitFocusedDetail();
+    const rows = itemsRef.current;
+    const index = rows.findIndex((row) => row.id === rowId);
+    if (index < 0) return;
+    if (duplicate && rows[index].source_receiptno) {
+      notifications.show({ title: '복사할 수 없는 행', message: '보유증권 행은 같은 증권을 두 번 쓸 수 없어 복사할 수 없습니다.', color: 'orange' });
+      return;
+    }
+    const newRow = duplicate ? makeDetail({ ...rows[index], id: undefined }) : makeDetail();
+    const next = [...rows];
+    next.splice(index + 1, 0, newRow);
+    pendingDetailFocus.current = { rowId: newRow.id, field };
+    applyDetailRows(next, new Set([newRow.id]));
+    setSelectedRows([]);
+  }, [commitFocusedDetail, applyDetailRows]);
+
+  const handleDetailFocusCapture = useCallback((event) => {
+    const cell = detailCellOf(event.target);
+    if (!cell) return;
+    const previous = activeDetailCellRef.current;
+    activeDetailCellRef.current = { rowId: cell.rowId, field: cell.field };
+    if (previous?.rowId !== cell.rowId || previous?.field !== cell.field) clearDetailRange();
+  }, [clearDetailRange]);
+
+  const handleDetailKeyDownCapture = useCallback((event) => {
+    const ctrl = event.ctrlKey || event.metaKey;
+    const { key } = event;
+    if (ctrl && !event.altKey && key.toLowerCase() === 'd') event.preventDefault();   // 저장된 전표에서도 브라우저 즐겨찾기로 넘기지 않는다
+    if (!detailEditable || event.altKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
+    const cell = detailCellOf(event.target);
+    const active = activeDetailCellRef.current;
+    if (!cell || !active) return;
+    const stop = () => { event.preventDefault(); event.stopPropagation(); };
+    const arrow = key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight';
+    if (event.shiftKey && !ctrl && arrow) {
+      const target = event.target;
+      if ((key === 'ArrowLeft' || key === 'ArrowRight') && !isMultiDetailRange() && target instanceof HTMLInputElement && !target.readOnly) {
+        try {
+          const { selectionStart: start, selectionEnd: end, value } = target;
+          const allSelected = start === 0 && end === value.length;
+          if (start !== null && !allSelected && (key === 'ArrowLeft' ? start !== 0 : end !== value.length)) return;
+        } catch { /* 글자 선택 위치가 없는 칸 → 범위 확장 */ }
+      }
+      const rows = itemsRef.current;
+      const range = detailRangeRef.current || { anchorId: active.rowId, anchorColumn: DETAIL_FIELD_INDEX[active.field], focusId: active.rowId, focusColumn: DETAIL_FIELD_INDEX[active.field] };
+      const focusIndex = rows.findIndex((row) => row.id === range.focusId);
+      if (focusIndex < 0) return;
+      const nextIndex = Math.max(0, Math.min(rows.length - 1, focusIndex + (key === 'ArrowDown' ? 1 : key === 'ArrowUp' ? -1 : 0)));
+      const nextColumn = Math.max(0, Math.min(DETAIL_NAVIGATION_FIELDS.length - 1, range.focusColumn + (key === 'ArrowRight' ? 1 : key === 'ArrowLeft' ? -1 : 0)));
+      stop();
+      detailRangeRef.current = { ...range, focusId: rows[nextIndex].id, focusColumn: nextColumn };
+      paintDetailRange();
+      [...(detailTableWrapRef.current?.querySelectorAll('[data-detail-row][data-detail-field]') || [])]
+        .find((candidate) => candidate.dataset.detailRow === rows[nextIndex].id && candidate.dataset.detailField === DETAIL_NAVIGATION_FIELDS[nextColumn])
+        ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      return;
+    }
+    if (ctrl && !event.shiftKey && (key === 'ArrowUp' || key === 'ArrowDown')) {
+      const rows = itemsRef.current;
+      if (!rows.length) return;
+      stop();
+      focusDetailCell(rows[key === 'ArrowUp' ? 0 : rows.length - 1].id, active.field);
+      return;
+    }
+    if (ctrl && key.toLowerCase() === 'd') { stop(); fillDetailDown(); return; }
+    if (ctrl && key === 'Enter') { stop(); insertDetailBelow(active.rowId, active.field, event.shiftKey); return; }
+    if (key === 'Delete' && !ctrl && isMultiDetailRange()) { stop(); clearDetailRangeCells(); return; }
+    if (key === 'Escape' && detailRangeRef.current) clearDetailRange();
+  }, [detailEditable, isMultiDetailRange, paintDetailRange, focusDetailCell, fillDetailDown, insertDetailBelow, clearDetailRangeCells, clearDetailRange]);
+
+  // Shift+클릭: 현재 칸부터 클릭한 칸까지 범위 (포커스는 그대로). 그냥 클릭하면 범위를 푼다.
+  const handleDetailMouseDownCapture = useCallback((event) => {
+    const cell = detailCellOf(event.target);
+    const active = activeDetailCellRef.current;
+    if (!event.shiftKey || !cell || !active || !detailEditable) { if (detailRangeRef.current) clearDetailRange(); return; }
+    event.preventDefault();
+    detailRangeRef.current = {
+      anchorId: detailRangeRef.current?.anchorId || active.rowId,
+      anchorColumn: detailRangeRef.current?.anchorColumn ?? DETAIL_FIELD_INDEX[active.field],
+      focusId: cell.rowId, focusColumn: DETAIL_FIELD_INDEX[cell.field],
+    };
+    paintDetailRange();
+  }, [detailEditable, clearDetailRange, paintDetailRange]);
+
+  const detailRangeText = useCallback(() => {
+    const bounds = detailBounds();
+    if (!bounds) return '';
+    const fields = DETAIL_NAVIGATION_FIELDS.slice(bounds.left, bounds.right + 1);
+    return itemsRef.current.slice(bounds.top, bounds.bottom + 1)
+      .map((row) => fields.map((field) => detailCopyText(row, field)).join('\t')).join('\n');
+  }, [detailBounds]);
+  const handleDetailCopyCapture = useCallback((event) => {
+    if (!isMultiDetailRange()) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', detailRangeText());
+  }, [isMultiDetailRange, detailRangeText]);
+  const handleDetailCutCapture = useCallback((event) => {
+    if (!isMultiDetailRange()) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', detailRangeText());
+    if (detailEditable) clearDetailRangeCells();
+  }, [isMultiDetailRange, detailRangeText, detailEditable, clearDetailRangeCells]);
+
+  // 붙여넣기: 엑셀 범위 → 현재 칸(범위가 있으면 범위 왼쪽 위)부터 · 범위에 값 하나 → 범위 전체 · 종류/상태 칸에 값 하나 → 목록에서 찾아 넣기
+  const handleDetailPasteCapture = useCallback((event) => {
+    if (!detailEditable) return;
+    const cell = detailCellOf(event.target);
+    if (!cell) return;
+    const text = event.clipboardData?.getData('text/plain') ?? '';
+    const bounds = detailBounds();
+    const multiRange = isMultiDetailRange(bounds);
+    const multiText = isMultiCellText(text);
+    if (!multiRange && !multiText && !DETAIL_FIELD_SPEC[cell.field]?.options) return;   // 글자 · 금액 · 날짜 한 칸은 칸 기본 붙여넣기
+    event.preventDefault();
+    event.stopPropagation();
+    const rows = itemsRef.current;
+    if (multiRange) {
+      if (multiText) { pasteIntoDetail(bounds.top, bounds.left, parseClipboardMatrix(text)); return; }
+      const value = text.replace(/\r?\n$/, '');
+      if (!value.trim()) { clearDetailRangeCells(); return; }
+      const line = DETAIL_NAVIGATION_FIELDS.slice(bounds.left, bounds.right + 1).map(() => value);
+      pasteIntoDetail(bounds.top, bounds.left, rows.slice(bounds.top, bounds.bottom + 1).map(() => line));
+      return;
+    }
+    const startRow = rows.findIndex((row) => row.id === cell.rowId);
+    if (startRow < 0) return;
+    pasteIntoDetail(startRow, DETAIL_FIELD_INDEX[cell.field], multiText ? parseClipboardMatrix(text) : [[text]]);
+  }, [detailEditable, detailBounds, isMultiDetailRange, pasteIntoDetail, clearDetailRangeCells]);
   const handleAddAction = useCallback(() => {
     if (header.receiptno || !drafting) { startNew(); return; }
     if (activeTab !== 'INSTRUMENT') {
@@ -1451,6 +1763,8 @@ export default function ReceiptPayment() {
     try {
       const { data } = await axios.put('/api/receipt-payment/documents', {
         ...header,
+        // 새 전표: 중복 저장 막기 키 (저장된 전표 수정은 header.expected_updated_at 으로 동시 수정 확인)
+        ...(header.receiptno ? {} : { request_key: requestKey.take() }),
         items: cashHasInput
           // 기본: 한 줄 (은행예금 · 카드는 쓰지 않음)
           ? [{
@@ -1472,6 +1786,7 @@ export default function ReceiptPayment() {
             source_receiptno: row.source_receiptno || '', source_lineno: row.source_receiptno ? Number(row.source_lineno) : null,
           })),
       }, authConfig());
+      requestKey.reset();
       if (isApprovalPending(data)) {
         notifyApprovalPending(data);
         const editing = header.receiptno;
@@ -1491,8 +1806,9 @@ export default function ReceiptPayment() {
     } finally {
       setSaving(false);
     }
-  }, [filters, header, items, cashForm, cashHasInput, loadDocuments, openDocument, pageSize, startNew]);
+  }, [filters, header, items, cashForm, cashHasInput, loadDocuments, openDocument, pageSize, startNew, requestKey]);
 
+  const [deleteBlocked, setDeleteBlocked] = useState('');   // 서버가 삭제를 거절한 사유
   const deleteDocument = useCallback(async () => {
     if (!header.receiptno) return;
     setSaving(true);
@@ -1509,7 +1825,7 @@ export default function ReceiptPayment() {
       startNew();
       await loadDocuments(page, filters, pageSize);
     } catch (error) {
-      notifications.show({ title: '삭제 실패', message: errorText(error), color: 'red' });
+      setDeleteBlocked(errorText(error));   // 월마감 · 증권 처리 등: 같은 창에서 사유를 보여 준다
     } finally {
       setSaving(false);
     }
@@ -1521,7 +1837,7 @@ export default function ReceiptPayment() {
     else notifications.show({ title: '삭제할 항목이 없습니다', message: '상세 행을 선택해 주세요.', color: 'orange' });
   }, [deleteSelected, header.receiptno]);
 
-  const exportExcel = useCallback(() => {
+  const exportExcel = useCallback(async () => {
     const documentRows = header.receiptno
       ? (cashHasInput ? [{ ...makeDetail(cashForm), cashamt: cashForm.cashamt }] : items)
       : [];
@@ -1552,6 +1868,8 @@ export default function ReceiptPayment() {
       notifications.show({ title: '엑셀 데이터 없음', message: '다운로드할 데이터가 없습니다.', color: 'orange' });
       return;
     }
+    const XLSX = await loadXLSXOrNotify();
+    if (!XLSX) return;
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.json_to_sheet(rows);
     applyExcelHeaderStyle(worksheet, Object.keys(rows[0] || {}).length);
@@ -1731,7 +2049,9 @@ export default function ReceiptPayment() {
                     title={header.transactiontype !== 'PAYMENT' ? '지급 전표에서 사용할 수 있습니다.' : undefined}
                     onClick={() => setHeldPickerOpen(true)}>지급어음 선택</Button>}
               </Group>
-              <Box ref={detailTableWrapRef} className={`${codeClasses.tableWrap} ${classes.detailTableWrap}`} onKeyDown={handleDetailTableKeyDown} onPaste={handleDetailTablePaste}>
+              <Box ref={detailTableWrapRef} className={`${codeClasses.tableWrap} ${classes.detailTableWrap}`} onKeyDown={handleDetailTableKeyDown}
+                onKeyDownCapture={handleDetailKeyDownCapture} onFocusCapture={handleDetailFocusCapture} onMouseDownCapture={handleDetailMouseDownCapture}
+                onCopyCapture={handleDetailCopyCapture} onCutCapture={handleDetailCutCapture} onPasteCapture={handleDetailPasteCapture}>
                 <Table className={`${sharedClasses.table} ${codeClasses.codeTable} ${classes.table}`} withTableBorder withColumnBorders
                   style={{ width: 'max(100%, var(--code-table-min-width))', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed', '--code-table-min-width': `${detailTableWidth}px` }}>
                   <colgroup>{visibleDetailWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
@@ -1773,7 +2093,7 @@ export default function ReceiptPayment() {
 
         {filterOpen && <ReceiptPaymentFilterPanel initialValues={filterInputsRef.current} transactionOptions={TRANSACTION_FILTER_OPTIONS} onSearch={runSearch} onDraftChange={rememberFilterDraft} onClose={closeFilter} />}
       </Box>
-      <ConfirmDeleteModal opened={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={() => void deleteDocument()} loading={saving}
+      <ConfirmDeleteModal opened={deleteOpen} onClose={() => { setDeleteOpen(false); setDeleteBlocked(''); }} onConfirm={() => void deleteDocument()} loading={saving} blocked={deleteBlocked}
         title="수금/지급 전표를 삭제할까요?" target={header.receiptno} message="전표와 상세 행이 모두 삭제되며" note="삭제한 전표는 복구할 수 없습니다." />
       <ReceiptCustomerPickerModal opened={customerPickerOpen} onClose={() => setCustomerPickerOpen(false)} onSelect={chooseCustomer} />
       <Modal opened={Boolean(manualOtherConfirm)} onClose={() => setManualOtherConfirm(null)} title="타수 증권 직접 입력 확인" centered size="md">

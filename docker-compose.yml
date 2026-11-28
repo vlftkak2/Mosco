@@ -1,45 +1,53 @@
+# 공통 로그 설정: 컨테이너 로그 파일이 디스크를 채우지 않도록 20MB x 5개로 순환
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   backend:
-    image: mosco-backend:latest
+    # IMAGE_TAG: deploy.ps1 이 git 커밋 해시(짧은 SHA)로 지정. 직접 실행하면 latest.
+    image: mosco-backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
     env_file:
       - ./backend/.env
     environment:
       RUNNING_IN_DOCKER: "1"
-      # 운영 검증(DB 접속정보·JWT 키 필수, CORS '*' 금지)을 켜려면 배포 시 APP_ENV=production 으로 실행.
-      # 전용 DB 계정(DB_HOST/DB_NAME/DB_USER/DB_PASSWORD)을 backend/.env에 넣은 뒤 production 으로 바꾼다.
-      APP_ENV: ${APP_ENV:-development}
+      # 기본은 production (운영 검증: DB 접속정보·JWT 키(32자 이상) 필수, CORS '*' 금지, API 문서 비공개).
+      # 개발/점검용으로만 배포 폴더의 .env 또는 셸에서 APP_ENV=development 로 바꿔 실행한다.
+      APP_ENV: ${APP_ENV:-production}
       # 프론트·API를 같은 도메인으로 서비스하면 비워 둔다. 다른 도메인에서 호출할 때만 쉼표로 나열.
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
       - "8000"
-    volumes:
-      - ai_order_usage:/app/instance
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/openapi.json', timeout=4)"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"
       interval: 15s
       timeout: 5s
       retries: 8
       start_period: 30s
 
   frontend:
-    image: mosco-frontend:latest
+    image: mosco-frontend:${IMAGE_TAG:-latest}
     build:
       context: ./frontend
     expose:
       - "80"
     restart: unless-stopped
+    logging: *default-logging
 
   nginx:
-    image: mosco-proxy:latest
+    image: mosco-proxy:${IMAGE_TAG:-latest}
     build:
       context: ./nginx
     ports:
@@ -50,6 +58,4 @@ services:
       frontend:
         condition: service_started
     restart: unless-stopped
-
-volumes:
-  ai_order_usage:
+    logging: *default-logging

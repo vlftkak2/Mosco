@@ -1,17 +1,16 @@
 // 수표/어음 현황 (메뉴: INSTRUMENT_STATUS) - 어음·수표·외상매출채권, 현재 상태 기준
 // 받을 채권 = 수금·타수 (받은 증권), 지급 채무 = 지급·자수 (우리가 발행한 증권)
 // 요약 카드(누르면 목록이 그 조건으로 걸러짐) + 만기 구간 차트/표(막대·행을 누르면 그 구간으로 걸러짐) + 증권 목록.
-import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import usePageReactivated from '../../components/common/usePageReactivated';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { ActionIcon, Badge, Box, Button, Group, HoverCard, Loader, Pagination, Paper, Select, Stack, Table, Text, TextInput, UnstyledButton } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconAlertTriangle, IconCalendarDue, IconCashBanknote, IconCopy, IconDeviceFloppy, IconFileInvoice, IconFileSpreadsheet,
   IconFilter, IconPlus, IconRefresh, IconSearch, IconTrash, IconX,
 } from '@tabler/icons-react';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { KPI_PALETTE, KpiBreakdown } from '../../components/common/DashboardKit';
 import { PageRibbonContext } from '../../components/layout/MainLayout';
@@ -21,6 +20,8 @@ import classes from '../../styles/pages/InboundSearch.module.css';
 import pageClasses from '../../styles/pages/InstrumentStatus.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import { INSTRUMENT_TYPE_OPTIONS, instrumentLabel } from '../../utils/instrumentCodes';
+import { apiErrorMessage } from '../../utils/apiError';
+import { kstDate, todayKST } from '../../utils/dateFormat';
 
 const KIND_LABELS = {
   RECEIVABLE: '채권', PAYABLE: '채무', ENDORSED_OUT: '배서양도', RETURNED_OWN: '자수어음 회수', UNSPECIFIED: '미분류',
@@ -67,10 +68,10 @@ const COLUMNS = [
 
 const pad = (value) => String(value).padStart(2, '0');
 const dateString = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-const addDays = (days) => { const date = new Date(); date.setDate(date.getDate() + days); return dateString(date); };
+const addDays = (days) => { const date = kstDate(); date.setDate(date.getDate() + days); return dateString(date); };
 // 오늘 + n개월 (말일 넘침은 그 달 말일로: 11-30 + 3개월 = 02-28)
 const addMonths = (months) => {
-  const now = new Date();
+  const now = kstDate();
   const lastDay = new Date(now.getFullYear(), now.getMonth() + months + 1, 0).getDate();
   return dateString(new Date(now.getFullYear(), now.getMonth() + months, Math.min(now.getDate(), lastDay)));
 };
@@ -80,7 +81,7 @@ const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.get
 const displayDate = (value) => (value ? String(value).slice(0, 10) : '');
 const formatNumber = (value) => {
   const number = Number(value || 0);
-  return Number.isFinite(number) ? number.toLocaleString('ko-KR', { maximumFractionDigits: 3 }) : String(value);
+  return Number.isFinite(number) ? number.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) : String(value);
 };
 // 축·표용 짧은 금액 (억/만)
 const compactWon = (value) => {
@@ -119,19 +120,11 @@ const describeFilters = (filters) => {
   return parts;
 };
 
-function AgingTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null;
-  return <Paper className={pageClasses.chartTooltip} shadow="sm" withBorder>
-    <Text size="xs" fw={700} mb={6}>{label}</Text>
-    {payload.map((entry) => <Group key={entry.dataKey} gap={6} wrap="nowrap" mb={2}>
-      <span className={pageClasses.legendSwatch} style={{ background: entry.color }} />
-      <Text size="xs" w={56}>{entry.name}</Text>
-      <Text size="xs" fw={700} ml="auto">{formatNumber(entry.value)}원</Text>
-      <Text size="xs" c="dimmed" w={34} ta="right">{entry.payload[`${entry.dataKey}_count`]}건</Text>
-    </Group>)}
-    <Text size="10px" c="dimmed" mt={6}>누르면 목록이 이 구간으로 걸러집니다</Text>
-  </Paper>;
-}
+// 만기 구간 차트는 차트 라이브러리가 커서 따로 받는다 (목록·카드는 기다리지 않고 바로 그림).
+// 이 화면 코드를 받는 순간 차트도 같이 받기 시작한다.
+const loadAgingChart = () => import('./InstrumentStatusAgingChart');
+void loadAgingChart().catch(() => {});
+const InstrumentStatusAgingChart = lazy(loadAgingChart);
 
 // ---- 목록 행: Mantine Table.Td 대신 같은 스타일의 일반 td (50행 × 17칸을 빠르게 그림)
 const TD_CLASS = 'm_4e7aa4ef mantine-Table-td';
@@ -169,16 +162,9 @@ const AgingSection = memo(function AgingSection({ chartData, agingTotals, showLo
   const hasAging = chartData.some((row) => row.RECEIVABLE || row.PAYABLE);
   return <Box className={pageClasses.agingBody}>
     <Box className={pageClasses.agingChart} role="img" aria-label={`만기 구간별 금액: ${chartData.map((row) => `${row.label} 받을 채권 ${formatNumber(row.RECEIVABLE)}원, 지급 채무 ${formatNumber(row.PAYABLE)}원`).join('; ')}`}>
-      {hasAging ? <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chartData} margin={{ top: 10, right: 8, bottom: 0, left: 0 }} barGap={2} barCategoryGap="30%">
-          <CartesianGrid vertical={false} stroke="#eef1f5" />
-          <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: '#d5dbe3' }} tick={{ fontSize: 11, fill: '#52514e' }} />
-          <YAxis tickFormatter={compactWon} tickLine={false} axisLine={false} width={48} tick={{ fontSize: 10, fill: '#8b95a3' }} />
-          <Tooltip content={<AgingTooltip />} cursor={{ fill: '#f3f6fa' }} />
-          {SERIES.map((series) => <Bar key={series.key} dataKey={series.key} name={series.label} fill={series.color} maxBarSize={22} radius={[4, 4, 0, 0]}
-            isAnimationActive={false} cursor="pointer" onClick={(entry) => onPickBucket(entry.bucket ?? entry.payload?.bucket, series.key)} />)}
-        </BarChart>
-      </ResponsiveContainer> : <Box className={pageClasses.agingEmpty}>{showLoader ? <Loader size="sm" color="red" /> : '진행 중인 채권·채무가 없습니다.'}</Box>}
+      {hasAging ? <Suspense fallback={<Box className={pageClasses.agingEmpty}><Loader size="sm" color="red" /></Box>}>
+        <InstrumentStatusAgingChart chartData={chartData} series={SERIES} compactWon={compactWon} formatNumber={formatNumber} onPickBucket={onPickBucket} />
+      </Suspense> : <Box className={pageClasses.agingEmpty}>{showLoader ? <Loader size="sm" color="red" /> : '진행 중인 채권·채무가 없습니다.'}</Box>}
     </Box>
     {/* 같은 숫자를 표로도 (행을 누르면 그 구간의 받을 채권+지급 채무) */}
     <table className={pageClasses.agingTable}>
@@ -218,7 +204,7 @@ export default function InstrumentStatus() {
       if (requestId !== requestIdRef.current) return;
       setData({ items: response.data.items || [], total: response.data.total || 0, total_amount: response.data.total_amount || 0, summary: response.data.summary || null, aging: response.data.aging || [] });
     } catch (error) {
-      if (requestId === requestIdRef.current) notifications.show({ title: '수표/어음 현황 조회 실패', message: error.response?.data?.detail || '수표/어음 현황을 불러오지 못했습니다.', color: 'red' });
+      if (requestId === requestIdRef.current) notifications.show({ title: '수표/어음 현황 조회 실패', message: apiErrorMessage(error, '수표/어음 현황을 불러오지 못했습니다.'), color: 'red' });
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
@@ -261,13 +247,15 @@ export default function InstrumentStatus() {
         처리메모: item.processmemo || '', '수금/지급일': displayDate(item.receiptdate), 할인료: Number(item.discountfee || 0) || '',
         비고: item.description || '', 연결전표: item.used_receiptno || '',
       }));
+      const XLSX = await loadXLSXOrNotify();
+      if (!XLSX) return;
       const workbook = XLSX.utils.book_new();
       const worksheet = XLSX.utils.json_to_sheet(sheetRows);
       applyExcelHeaderStyle(worksheet, Object.keys(sheetRows[0]).length);
       XLSX.utils.book_append_sheet(workbook, worksheet, '수표어음관리');
-      XLSX.writeFile(workbook, `수표어음관리_${dateString(new Date()).replaceAll('-', '')}.xlsx`);
+      XLSX.writeFile(workbook, `수표어음관리_${todayKST().replaceAll('-', '')}.xlsx`);
     } catch (error) {
-      notifications.show({ title: '엑셀 다운로드 실패', message: error.response?.data?.detail || '수표/어음 현황을 파일로 저장하지 못했습니다.', color: 'red' });
+      notifications.show({ title: '엑셀 다운로드 실패', message: apiErrorMessage(error, '수표/어음 현황을 파일로 저장하지 못했습니다.'), color: 'red' });
     }
   }, [filters]);
   // 리본: 최신 핸들러는 ref로 호출, 엑셀 버튼 사용 가능 여부가 바뀔 때만 다시 등록

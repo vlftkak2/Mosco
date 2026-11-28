@@ -48,6 +48,7 @@ const COMPANY_COLUMNS = [
   { key: 'company_status', label: '이용상태', width: 90 },
   { key: 'licensed_seats', label: '라이선스', width: 80 },
   { key: 'license_fee', label: '월 라이선스', width: 100 },
+  { key: 'ai_quota', label: 'AI 이번 달', width: 110 },
   { key: 'createdat', label: '등록일자', width: 150 },
   { key: 'created_by', label: '등록자', width: 80 },
   { key: 'updatedat', label: '수정일자', width: 150 },
@@ -111,6 +112,8 @@ const emptyCompany = () => ({
   stock_open_yn: 'N',
   stock_open_date: '',
   license_unit_price: 0,
+  ai_monthly_limit: null,   // AI 월 호출 한도 (비우면 제한 없음)
+  ai_used_month: 0,
   active_users: 0,
   total_users: 0,
 });
@@ -130,6 +133,8 @@ const normalizeCompany = (row = {}) => ({
   licensed_seats: Number(row.licensed_seats || 0),
   license_fee: Number(row.license_fee || 0),
   license_unit_price: Number(row.license_unit_price || 0),
+  ai_monthly_limit: row.ai_monthly_limit === null || row.ai_monthly_limit === undefined || row.ai_monthly_limit === '' ? null : Number(row.ai_monthly_limit),
+  ai_used_month: Number(row.ai_used_month || 0),
   license_start: String(row.license_start ?? '').slice(0, 10),
   license_end: String(row.license_end ?? '').slice(0, 10),
   stock_open_yn: row.stock_open_yn === 'Y' ? 'Y' : 'N',
@@ -361,6 +366,7 @@ export default function Company() {
         stock_open_yn: draft.stock_open_yn === 'Y' ? 'Y' : 'N',
         stock_open_date: draft.stock_open_yn === 'Y' ? (draft.stock_open_date || null) : null,
         license_unit_price: Number(draft.license_unit_price || 0),
+        ai_monthly_limit: draft.ai_monthly_limit === null || draft.ai_monthly_limit === '' ? null : Number(draft.ai_monthly_limit),
       };
       const request = creating
         ? axios.post('/api/companies', payload, authConfig())
@@ -510,6 +516,9 @@ export default function Company() {
                     <Table.Td><Badge size="sm" variant="light" color={company.company_status === 'ACTIVE' ? 'teal' : company.company_status === 'SUSPENDED' ? 'orange' : 'gray'}>{STATUS_LABEL[company.company_status] || company.company_status}</Badge></Table.Td>
                     <Table.Td>{Number(company.licensed_seats || 0).toLocaleString('ko-KR')}</Table.Td>
                     <Table.Td className={classes.numCell}>{company.license_fee ? Number(company.license_fee).toLocaleString('ko-KR') : '-'}</Table.Td>
+                    <Table.Td className={classes.numCell} title="이번 달 AI 호출 / 월 한도">
+                      {Number(company.ai_used_month || 0).toLocaleString('ko-KR')}{company.ai_monthly_limit === null || company.ai_monthly_limit === undefined ? '회' : ` / ${Number(company.ai_monthly_limit).toLocaleString('ko-KR')}회`}
+                    </Table.Td>
                     <Table.Td className={classes.mutedCell} title={formatDateTime(company.createdat)}>{formatListDateTime(company.createdat)}</Table.Td>
                     <Table.Td title={company.created_by_name || company.created_by || ''}>{company.created_by_name || company.created_by || ''}</Table.Td>
                     <Table.Td className={classes.mutedCell} title={formatDateTime(company.updatedat)}>{formatListDateTime(company.updatedat)}</Table.Td>
@@ -586,33 +595,33 @@ export default function Company() {
               <section className={`${classes.formSection} ${classes.licenseSection}`}>
                 <div className={classes.formSectionHead}><IconSettings size={15} />서비스 이용</div>
                 <div className={classes.formGrid}>
-                  <div className={classes.compactRow}>
-                    <Select className={classes.compactField} label="서비스 유형" withAsterisk data={PLAN_OPTIONS.some((item) => item.value === draft.plan_code) ? PLAN_OPTIONS : [...PLAN_OPTIONS, PLAN_LABELS.find((item) => item.value === draft.plan_code) || { value: draft.plan_code, label: draft.plan_code }]} value={draft.plan_code} onChange={(value) => updateDraft('plan_code', value || 'BASIC')} allowDeselect={false} comboboxProps={{ width: 'max-content', position: 'bottom-start' }} />
-                    <Select className={classes.compactField} label="이용 상태" withAsterisk data={STATUS_OPTIONS} value={draft.company_status} onChange={changeStatus} allowDeselect={false} comboboxProps={{ width: 'max-content', position: 'bottom-start' }} />
-                    <NumberInput className={classes.compactField} label="라이선스 개수" withAsterisk min={0} allowDecimal={false} thousandSeparator="," suffix="개" value={draft.licensed_seats} onChange={(value) => updateDraft('licensed_seats', Number(value || 0))} />
-                  </div>
-                  <div className={classes.compactRow}>
-                    <ErpDateInput className={classes.compactField} label="과금 시작일" value={draft.license_start}
-                      onChange={(event) => updateDraft('license_start', event.currentTarget.value)} />
-                    <ErpDateInput className={classes.compactField} label="과금 종료일" value={draft.license_end}
-                      onChange={(event) => updateDraft('license_end', event.currentTarget.value)} />
-                    <NumberInput className={classes.compactField} label="라이선스 비용" min={0} allowDecimal={false} allowNegative={false} thousandSeparator="," suffix="원"
-                      value={draft.license_unit_price} onChange={(value) => updateDraft('license_unit_price', Number(value || 0))} />
-                  </div>
-                  <div className={classes.compactRow}>
-                    <TextInput className={classes.compactField} label="현재 활성 계정" value={usageText} readOnly disabled />
-                    <TextInput className={classes.compactField} label="월 청구액" readOnly disabled
-                      value={`${(Number(draft.licensed_seats || 0) * Number(draft.license_unit_price || 0)).toLocaleString('ko-KR')}원`} />
-                  </div>
+                  <Select label="서비스 유형" withAsterisk data={PLAN_OPTIONS.some((item) => item.value === draft.plan_code) ? PLAN_OPTIONS : [...PLAN_OPTIONS, PLAN_LABELS.find((item) => item.value === draft.plan_code) || { value: draft.plan_code, label: draft.plan_code }]} value={draft.plan_code} onChange={(value) => updateDraft('plan_code', value || 'BASIC')} allowDeselect={false} />
+                  <Select label="이용 상태" withAsterisk data={STATUS_OPTIONS} value={draft.company_status} onChange={changeStatus} allowDeselect={false} />
+                  <NumberInput label="라이선스 개수" withAsterisk min={0} allowDecimal={false} thousandSeparator="," suffix="개" value={draft.licensed_seats} onChange={(value) => updateDraft('licensed_seats', Number(value || 0))} />
+                  <NumberInput label="라이선스 비용" min={0} allowDecimal={false} allowNegative={false} thousandSeparator="," suffix="원"
+                    value={draft.license_unit_price} onChange={(value) => updateDraft('license_unit_price', Number(value || 0))} />
+                  <ErpDateInput label="과금 시작일" value={draft.license_start}
+                    onChange={(event) => updateDraft('license_start', event.currentTarget.value)} />
+                  <ErpDateInput label="과금 종료일" value={draft.license_end}
+                    onChange={(event) => updateDraft('license_end', event.currentTarget.value)} />
+                  <TextInput label="현재 활성 계정" value={usageText} readOnly disabled />
+                  <TextInput label="월 청구액" readOnly disabled
+                    value={`${(Number(draft.licensed_seats || 0) * Number(draft.license_unit_price || 0)).toLocaleString('ko-KR')}원`} />
+                  {/* AI 주문서인식 월 호출 한도: 이번 달 성공한 분석 건수 기준 (실패는 비용 0이라 빠짐). 비우면 제한 없음, 0 이면 사용 안 함 */}
+                  <NumberInput label="AI 월 호출 한도" min={0} max={1000000} allowDecimal={false} allowNegative={false} thousandSeparator="," suffix="회"
+                    placeholder="제한 없음" value={draft.ai_monthly_limit ?? ''}
+                    onChange={(value) => updateDraft('ai_monthly_limit', value === '' || value === null ? null : Number(value))} />
+                  <TextInput label="AI 이번 달 사용" readOnly disabled
+                    value={`${Number(draft.ai_used_month || 0).toLocaleString('ko-KR')}회${draft.ai_monthly_limit !== null && draft.ai_monthly_limit !== undefined ? ` / ${Number(draft.ai_monthly_limit).toLocaleString('ko-KR')}회` : ' · 제한 없음'}`} />
                   {/* 재고 공개 (서면 계약으로 동의받은 고객사만 '공개'): 모스코(001)가 타사 재고현황에서 본다. 001 자신은 대상 아님 */}
-                  {draft.companyid !== '001' && <div className={classes.compactRow}>
-                    <Select className={classes.compactField} label="재고 공개" data={STOCK_OPEN_OPTIONS} value={draft.stock_open_yn} onChange={changeStockOpen}
-                      allowDeselect={false} comboboxProps={{ width: 'max-content', position: 'bottom-start' }} />
-                    <ErpDateInput className={classes.compactField} label="공개 동의일" value={draft.stock_open_date} disabled={draft.stock_open_yn !== 'Y'}
-                      onChange={(event) => updateDraft('stock_open_date', event.currentTarget.value)} />
-                  </div>}
+                  {draft.companyid !== '001' && <>
+                  <Select label="재고 공개" data={STOCK_OPEN_OPTIONS} value={draft.stock_open_yn} onChange={changeStockOpen}
+                    allowDeselect={false} />
+                  <ErpDateInput label="공개 동의일" value={draft.stock_open_date} disabled={draft.stock_open_yn !== 'Y'}
+                    onChange={(event) => updateDraft('stock_open_date', event.currentTarget.value)} />
+                  </>}
                   <div className={classes.usage}>
-                    <span>계정 사용률</span>
+                    <span className={classes.usageLabel}>계정 사용률</span>
                     <Progress className={classes.usageBar} value={usagePercent} size="sm" radius="xl" color={usagePercent >= 100 ? 'red' : usagePercent >= 80 ? 'orange' : 'teal'} />
                     <b>{usagePercent}%</b>
                   </div>

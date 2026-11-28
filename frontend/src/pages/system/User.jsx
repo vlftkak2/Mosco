@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { apiErrorMessage } from '../../utils/apiError';
+import { loadMaster, peekMaster } from '../../utils/masterCache';
+
+// 고객사 목록(최대 200): 지난번 목록으로 바로 그리고 첫 고객사 계정을 곧바로 부른다 → 목록 응답을 기다리지 않음. 서버 값으로 곧 바뀐다.
+const ACCOUNT_COMPANIES_KEY = 'company-users:companies-200';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import {
   Badge,
@@ -83,12 +87,16 @@ export default function User() {
   const location = useLocation();
   const navigate = useNavigate();
   const currentAuthority = String(localStorage.getItem('user_authority') || 'USER').toUpperCase();
-  const isPlatformMaster = currentAuthority === 'MASTER';
-  const isSubmaster = currentAuthority === 'SUBMASTER';
+  const myCompany = localStorage.getItem('user_company') || '';
+  // 이 화면은 메뉴권한 '계정관리'로 들어온다. 모스코 MASTER 만 제한 없음, 그 밖은 제한된 관리자
+  //  (일반 · 고객사 관리자 권한만 주고 최종관리자는 못 건드림). 모스코 직원이면 전체 고객사를 고를 수 있다 (서버 규칙과 같게)
+  const isPlatformMaster = myCompany === '001' && currentAuthority === 'MASTER';
+  const isSubmaster = !isPlatformMaster;
+  const canPickCompany = myCompany === '001';
   const currentEmail = String(localStorage.getItem('user_email') || '').toLowerCase();
-  const [companies, setCompanies] = useState([]);
+  const [companies, setCompanies] = useState(() => (canPickCompany ? peekMaster(ACCOUNT_COMPANIES_KEY) || [] : []));
   const [companyid, setCompanyid] = useState(() => (
-    isSubmaster ? localStorage.getItem('user_company') || '' : location.state?.companyid || ''
+    canPickCompany ? location.state?.companyid || peekMaster(ACCOUNT_COMPANIES_KEY)?.[0]?.companyid || '' : myCompany
   ));
   const [companyInfo, setCompanyInfo] = useState(null);
   const [companyname, setCompanyname] = useState('');
@@ -131,18 +139,20 @@ export default function User() {
     && !isSelectedSelf;
 
   const loadCompanies = useCallback(async () => {
-    if (isSubmaster) {
+    if (!canPickCompany) {
       setCompanies([]);
       setCompanyid(localStorage.getItem('user_company') || '');
       return;
     }
     setLoadingCompanies(true);
     try {
-      const { data } = await axios.get('/api/companies', {
-        ...authConfig(),
-        params: { page: 1, page_size: 200 },
+      const rows = await loadMaster(ACCOUNT_COMPANIES_KEY, async () => {
+        const { data } = await axios.get('/api/companies', {
+          ...authConfig(),
+          params: { page: 1, page_size: 200 },
+        });
+        return data.items || [];
       });
-      const rows = data.items || [];
       setCompanies(rows);
       setCompanyid((current) => (rows.some((row) => row.companyid === current) ? current : rows[0]?.companyid || ''));
     } catch (error) {
@@ -154,7 +164,7 @@ export default function User() {
     } finally {
       setLoadingCompanies(false);
     }
-  }, [isSubmaster]);
+  }, [canPickCompany]);
 
   const loadUsers = useCallback(async (targetCompanyId = companyid, preferredEmail = selectedEmailRef.current, preserveDraft = false) => {
     if (!targetCompanyId) {
@@ -417,7 +427,7 @@ export default function User() {
             )}
           </Group>
           <Group className={classes.searchBar} gap={8} align="flex-end" wrap="nowrap">
-            {isPlatformMaster ? (
+            {canPickCompany ? (
             <Select
               className={classes.companySelect}
               label="고객사"
@@ -608,7 +618,7 @@ export default function User() {
                     withAsterisk
                     data={companyid === '001'
                       ? [
-                        { value: 'MASTER', label: '플랫폼 관리자' },
+                        ...(isPlatformMaster ? [{ value: 'MASTER', label: '플랫폼 관리자' }] : []),
                         { value: 'USER', label: '일반 사용자' },
                       ]
                       : [

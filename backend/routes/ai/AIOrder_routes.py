@@ -17,6 +17,17 @@ logger = logging.getLogger(__name__)
 _IDEMPOTENCY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{16,120}$")
 
 
+@router.get("/quota")
+async def get_month_quota(user: dict = Depends(security_module.get_current_user)):
+    """이번 달 AI 분석 횟수 (화면 표시용): 사용 · 분석 중 · 월 한도 · 남은 횟수."""
+    companyid = str(user.get("companyid") or "").strip()
+    try:
+        return await asyncio.to_thread(ai_order_module.month_quota, companyid)
+    except Exception as exc:
+        logger.error("AI order quota lookup failed company=%s error_type=%s", companyid, type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="AI 사용 횟수를 확인하지 못했습니다.") from exc
+
+
 @router.post("/convert-preview")
 async def convert_order_preview(
     file: UploadFile = File(...),

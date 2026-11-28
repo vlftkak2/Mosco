@@ -357,3 +357,8 @@
 .outboundStockLookup :global(.mantine-Button-root[data-variant="default"]:hover:not(:disabled)) { border-color: #f2b7ba; background: #fff7f7; color: #d23a42; box-shadow: none; }
 .outboundStockLookup :global(.mantine-Button-section[data-position="left"]) { margin-inline-end: 6px; }
 .outboundStockLookup :global(.mantine-Button-label) { overflow: visible; }
+
+/* 매출 상세 셀 범위 선택 (Shift+방향키 · Shift+클릭) */
+.rangeCell { background: #fdecec !important; box-shadow: inset 0 0 0 1px #e8a3a6; }
+.rangeCell :global(input),
+.rangeCell :global(select) { background-color: #fdecec !important; }

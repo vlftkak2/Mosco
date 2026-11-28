@@ -5,6 +5,8 @@ import { useForm } from '@mantine/form';
 import { useState } from 'react';
 import classes from '../../styles/auth/LoginPage.module.css';
 import axios from 'axios';
+import { notifications } from '@mantine/notifications';
+import { apiErrorMessage } from '../../utils/apiError';
 import steel119Logo from '../../assets/img/steel119-login.png';
 import { LOGIN_NOTICE_KEY } from '../../utils/sessionGuard';
 
@@ -23,6 +25,7 @@ function clearLoginNotice() {
 
 function LoginPage() {
   const [loginNotice, setLoginNotice] = useState(readLoginNotice);
+  const [submitting, setSubmitting] = useState(false);
   const rememberedEmail = localStorage.getItem('remembered_email') || '';
   const form = useForm({
     initialValues: { company: '', email: rememberedEmail, password: '', rememberMe: Boolean(rememberedEmail) },
@@ -33,6 +36,7 @@ function LoginPage() {
   });
 
   const handleLogin = async (values) => {
+    if (submitting) return;
     clearLoginNotice();
     setLoginNotice('');
     if (values.rememberMe) {
@@ -41,6 +45,8 @@ function LoginPage() {
       localStorage.removeItem('remembered_email');
     }
 
+    setSubmitting(true);
+    let moving = false;
     try {
 
       // axios.get(`http://${window.location.hostname}/api/login`)
@@ -52,23 +58,26 @@ function LoginPage() {
 
       if (response.data.success) {
 
-        console.log('로그인 성공:', response.data.user_email);
         localStorage.setItem('user_name', response.data.user_name);
         localStorage.setItem('user_email', response.data.user_email);
         localStorage.setItem('user_company', response.data.user_company);
         localStorage.setItem('user_companyname', response.data.user_companyname);
         localStorage.setItem('user_authority', response.data.user_authority || 'USER');
         localStorage.setItem('access_token', response.data.access_token);
+        moving = true;
         window.location.assign('/HomePage');
       }
     } catch (error) { 
       if (error.response) {
-        console.error('로그인 실패:', error.response.data.detail);
-        form.setErrors({ email: error.response.data.detail || '이메일 또는 비밀번호가 틀렸습니다.' });
+        const fallback = '이메일 또는 비밀번호가 틀렸습니다.';
+        form.setErrors({ email: error.response.status === 401 && typeof error.response.data?.detail !== 'string' ? fallback : apiErrorMessage(error, fallback) });
       } else {
         console.error('서버 연결 오류:', error.message);
-        alert('현재 서버와 통신할 수 없습니다.');
+        notifications.show({ title: '서버 연결 실패', message: '현재 서버와 통신할 수 없습니다.', color: 'red', position: 'bottom-right' });
       }
+    } finally {
+      // 화면을 옮기는 중에는 버튼을 계속 막아 두 번 눌리지 않게 한다
+      if (!moving) setSubmitting(false);
     }
   };
 
@@ -141,6 +150,8 @@ function LoginPage() {
                   size="md"
                   radius="sm"
                   className={classes.loginButton}
+                  loading={submitting}
+                  disabled={submitting}
                 >
                   로그인
                 </Button>

@@ -39,6 +39,20 @@ DAILY_LIMIT = max(1, int(os.getenv("AI_ORDER_DAILY_LIMIT", "100")))
 COMPANY_DAILY_LIMIT = max(1, int(os.getenv("AI_ORDER_COMPANY_DAILY_LIMIT", "100")))
 MONTHLY_BUDGET_USD = max(0.01, float(os.getenv("AI_ORDER_MONTHLY_BUDGET_USD", "20")))
 COMPANY_MONTHLY_BUDGET_USD = max(0.0, float(os.getenv("AI_ORDER_COMPANY_MONTHLY_BUDGET_USD", "0")))
+# 고객사등록에 AI 월 한도가 없는 고객사의 기본 월 호출 한도 (한 회사가 전체 예산을 다 써서 다른 회사가 막히지 않게).
+# 0 이면 기본 한도 없음. 운영사(001)는 적용하지 않는다.
+COMPANY_DEFAULT_MONTHLY_LIMIT = max(0, int(os.getenv("AI_ORDER_COMPANY_DEFAULT_MONTHLY_LIMIT", "300")))
+
+
+def _company_monthly_limit(cursor, companyid: str):
+    """고객사 월 호출 한도: 고객사등록 값 → 없으면 기본 한도 (001 은 없음 = 제한 없음)."""
+    cursor.execute("SELECT monthly_limit FROM company_ai_quota01t WHERE companyid = %s", (companyid,))
+    row = cursor.fetchone()
+    if row:
+        return row[0]
+    if companyid == "001" or COMPANY_DEFAULT_MONTHLY_LIMIT <= 0:
+        return None
+    return COMPANY_DEFAULT_MONTHLY_LIMIT
 INPUT_PRICE_PER_MILLION = max(0.0, float(os.getenv("AI_ORDER_INPUT_PRICE_PER_MILLION", "0.75")))
 CACHED_INPUT_PRICE_PER_MILLION = max(0.0, float(os.getenv("AI_ORDER_CACHED_INPUT_PRICE_PER_MILLION", "0.075")))
 OUTPUT_PRICE_PER_MILLION = max(0.0, float(os.getenv("AI_ORDER_OUTPUT_PRICE_PER_MILLION", "4.50")))
@@ -318,6 +332,25 @@ def _reserve_request(
                         "이번 달 AI 분석 예산 한도에 도달했습니다.",
                     )
 
+                # 고객사등록의 AI 월 호출 한도: 이번 달 성공한 분석 + 지금 대기 · 분석 중인 요청 (실패는 비용 0이라 빼고 센다)
+                monthly_limit = _company_monthly_limit(cursor, companyid)
+                if monthly_limit is not None:
+                    month_start = datetime(day.year, day.month, 1, tzinfo=SEOUL)
+                    cursor.execute(
+                        """SELECT (SELECT COUNT(*) FROM aiorderanalysis01t
+                                    WHERE companyid = %s AND created_at >= %s AND status = 'succeeded')
+                                + (SELECT COUNT(*) FROM aiorderusage01t
+                                    WHERE companyid = %s AND usage_month = %s AND status IN ('queued', 'processing'))""",
+                        (companyid, month_start, companyid, month),
+                    )
+                    month_used = int(cursor.fetchone()[0] or 0)
+                    if month_used >= monthly_limit:
+                        raise AIOrderError(
+                            status.HTTP_429_TOO_MANY_REQUESTS,
+                            f"이번 달 AI 호출 한도({monthly_limit:,}회)를 모두 사용했습니다. 관리자에게 문의해 주세요."
+                            if monthly_limit else "AI 주문서인식을 사용할 수 없는 고객사입니다. 관리자에게 문의해 주세요.",
+                        )
+
                 if COMPANY_MONTHLY_BUDGET_USD > 0:
                     cursor.execute(
                         "SELECT COALESCE(SUM(CASE WHEN status = 'complete' THEN estimated_cost_usd ELSE reserved_usd END), 0) "
@@ -350,6 +383,28 @@ def _reserve_request(
         }
     finally:
         db.close()
+
+
+def month_quota(companyid: str) -> dict[str, Any]:
+    """AI 주문서인식 화면용 이번 달 사용 현황: 성공한 분석 건수 · 지금 분석 중 · 고객사등록의 월 한도 (없으면 제한 없음)."""
+    now = datetime.now(SEOUL)
+    month = date(now.year, now.month, 1)
+    month_start = datetime(now.year, now.month, 1, tzinfo=SEOUL)
+    db = _ai_order_usage_connection()
+    try:
+        with db, db.cursor() as cursor:
+            limit = _company_monthly_limit(cursor, companyid)
+            cursor.execute(
+                """SELECT (SELECT COUNT(*) FROM aiorderanalysis01t WHERE companyid = %s AND created_at >= %s AND status = 'succeeded'),
+                          (SELECT COUNT(*) FROM aiorderusage01t WHERE companyid = %s AND usage_month = %s AND status IN ('queued', 'processing'))""",
+                (companyid, month_start, companyid, month),
+            )
+            used, running = cursor.fetchone()
+    finally:
+        db.close()
+    used, running = int(used or 0), int(running or 0)
+    return {"month": month.strftime("%Y-%m"), "monthly_limit": limit, "used": used, "running": running,
+            "remaining": None if limit is None else max(0, limit - used - running)}
 
 
 def _claim_analysis_slot(request_hash: str) -> bool:

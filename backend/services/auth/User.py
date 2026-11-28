@@ -271,6 +271,20 @@ def create_user(
         return created_user
 
 
+def _active_menuids(cursor, companyid: str, email: str) -> set:
+    """로그인했을 때 실제로 쓸 수 있는 메뉴 (security._load_auth_snapshot 과 같은 조건)."""
+    cursor.execute(
+        """SELECT DISTINCT m.menuid
+             FROM usermenupermission01t p
+             JOIN menucatalog01t m ON m.menuid = p.menuid
+                  AND m.assignable = TRUE AND UPPER(COALESCE(m.useyn, 'N')) = 'Y'
+                  AND (m.access_scope = 'COMPANY' OR (m.access_scope = 'PLATFORM' AND p.companyid = '001'))
+            WHERE p.companyid = %s AND LOWER(p.useremail) = LOWER(%s) AND UPPER(COALESCE(p.useyn, 'N')) = 'Y'""",
+        (companyid, email),
+    )
+    return {row["menuid"] if isinstance(row, dict) else row[0] for row in cursor.fetchall()}
+
+
 def update_user(data: UserUpdateInput, *, actor: dict | None = None, actor_email: str | None = None):
     # `actor` (SUBMASTER only) drives permission checks; `actor_email` is recorded as 수정자 for every editor.
     with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -293,14 +307,34 @@ def update_user(data: UserUpdateInput, *, actor: dict | None = None, actor_email
 
         current_useyn = str(current["useyn"] or "N").upper()
         current_authority = str(current["authority"] or "USER").upper()
-        if actor and actor.get("authority") == "SUBMASTER":
+        if actor:   # 모스코 MASTER 가 아닌 관리자
             actor_companyid = str(actor.get("companyid") or "")
-            if data.companyid != actor_companyid:
+            if actor_companyid != "001" and data.companyid != actor_companyid:
                 raise PermissionError("자기 회사 계정만 수정할 수 있습니다.")
             if current_authority not in {"USER", "SUBMASTER"}:
                 raise PermissionError("플랫폼 관리자 계정은 수정할 수 없습니다.")
             if data.authority not in {"USER", "SUBMASTER"}:
                 raise PermissionError("고객사 관리자는 일반 사용자 · 고객사 관리자 권한만 줄 수 있습니다.")
+            actor_login = str(actor.get("email") or "").strip().lower()
+            is_self = data.companyid == actor_companyid and data.original_email.strip().lower() == actor_login
+            # 권한 상승 방지: 자기 권한은 스스로 바꾸지 못한다
+            if is_self and data.authority != current_authority:
+                raise PermissionError("자기 계정의 권한은 직접 바꿀 수 없습니다.")
+            # 고객사 관리자(SUBMASTER) 계정을 만들거나 고치는 것은 SUBMASTER 만 한다.
+            # (계정관리 메뉴만 받은 일반 사용자가 관리자 계정을 만들거나 빼앗지 못하게)
+            actor_authority = str(actor.get("authority") or "USER").upper()
+            if not is_self and actor_authority != "SUBMASTER" and "SUBMASTER" in {current_authority, data.authority}:
+                raise PermissionError("고객사 관리자(SUBMASTER) 계정은 고객사 관리자만 만들거나 수정할 수 있습니다.")
+            # 계정 탈취 방지: 남의 비밀번호는 같은 고객사(모스코 제외)의 관리자만 바꿀 수 있다.
+            # 다른 회사 계정 · 모스코(001) 직원 계정의 비밀번호는 모스코 최종관리자(MASTER)만 바꾼다.
+            if data.password and not is_self and (data.companyid != actor_companyid or actor_companyid == "001"):
+                raise PermissionError("이 계정의 비밀번호는 모스코 최종관리자만 바꿀 수 있습니다.")
+            # 나보다 메뉴 권한이 많은 계정의 비밀번호는 바꾸지 못한다 (바꾼 뒤 그 계정으로 로그인하면 권한이 늘어나므로)
+            if data.password and not is_self:
+                extra = _active_menuids(cursor, data.companyid, data.original_email) - set(actor.get("menuids") or ())
+                if extra:
+                    raise PermissionError("이 계정은 내가 갖지 않은 메뉴 권한이 있어 비밀번호를 바꿀 수 없습니다. "
+                                          "그 메뉴 권한을 가진 관리자에게 요청해 주세요.")
         _validate_authority_company(data.companyid, data.authority)
         next_useyn = data.useyn
         # 고객사 관리자(SUBMASTER)가 마지막 남은 활성 관리자를 일반 사용자로 내리거나 중지하면 그 회사를 관리할 사람이 없어진다
@@ -352,6 +386,7 @@ def update_user(data: UserUpdateInput, *, actor: dict | None = None, actor_email
             cursor.execute(
                 """UPDATE user01t
                    SET username = %s, email = %s, authority = %s, useyn = %s, password = %s,
+                       session_id = NULL,   -- 비밀번호가 바뀌면 기존 접속(토큰)을 모두 끊는다
                        updatedat = CURRENT_TIMESTAMP, updated_by = %s
                    WHERE companyid = %s AND LOWER(email) = LOWER(%s)
                    RETURNING companyid, usercode, username, email, team, authority, useyn""",
@@ -362,10 +397,11 @@ def update_user(data: UserUpdateInput, *, actor: dict | None = None, actor_email
             cursor.execute(
                 """UPDATE user01t
                    SET username = %s, email = %s, authority = %s, useyn = %s,
+                       session_id = CASE WHEN %s = 'Y' THEN session_id END,   -- 사용 중지하면 접속을 끊는다
                        updatedat = CURRENT_TIMESTAMP, updated_by = %s
                    WHERE companyid = %s AND LOWER(email) = LOWER(%s)
                    RETURNING companyid, usercode, username, email, team, authority, useyn""",
-                (data.username, data.email, data.authority, next_useyn, actor_email or None,
+                (data.username, data.email, data.authority, next_useyn, next_useyn, actor_email or None,
                  data.companyid, data.original_email),
             )
         return dict(cursor.fetchone())
@@ -400,10 +436,10 @@ def delete_user(companyid: str, email: str, *, actor: dict | None = None):
         if not target:
             raise LookupError("삭제할 사용자 계정을 찾을 수 없습니다.")
 
-        if actor and actor.get("authority") == "SUBMASTER":
+        if actor:   # 모스코 MASTER 가 아닌 관리자
             actor_companyid = str(actor.get("companyid") or "")
             actor_email = str(actor.get("email") or "").strip().lower()
-            if companyid != actor_companyid:
+            if actor_companyid != "001" and companyid != actor_companyid:
                 raise PermissionError("자기 회사 계정만 삭제할 수 있습니다.")
             if email.strip().lower() == actor_email:
                 raise PermissionError("자기 계정은 삭제할 수 없습니다.")

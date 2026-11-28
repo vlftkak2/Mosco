@@ -35,9 +35,10 @@ def _kind(kind: str) -> str:
 
 
 @router.post("/{kind}")
-async def upload_image(kind: str, file: UploadFile = File(...), user: dict = Depends(security_module.get_current_user)):
+def upload_image(kind: str, file: UploadFile = File(...), user: dict = Depends(security_module.get_current_user)):
+    # 동기 함수: DB 저장이 이벤트 루프를 막지 않도록 스레드풀에서 실행된다
     kind = _kind(kind)
-    content = await file.read(workplace_module.IMAGE_MAX_BYTES + 1)
+    content = file.file.read(workplace_module.IMAGE_MAX_BYTES + 1)
     try:
         item = workplace_module.set_image(user["companyid"], kind, content, file.content_type or "", actor=user.get("email"), filename=file.filename or "")
     except ValueError as error:

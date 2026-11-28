@@ -20,6 +20,7 @@ import searchClasses from '../../styles/pages/InboundSearch.module.css';
 import classes from '../../styles/pages/Board.module.css';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 import { cachedDateFormat } from '../../utils/dateFormat';
+import { apiErrorMessage } from '../../utils/apiError';
 
 const TABS = [
   { key: 'notice', label: '공지사항', icon: IconSpeakerphone, operatorOnly: true, noReply: true, hint: '운영사 공지 (운영사만 보고 씀)' },
@@ -39,7 +40,7 @@ const STATUS_FILTERS = [['', '전체'], ['waiting', '답변대기'], ['followup'
 const PAGE_SIZE = 20;
 
 const auth = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
-const errorText = (error) => (typeof error.response?.data?.detail === 'string' ? error.response.data.detail : '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+const errorText = (error) => apiErrorMessage(error, '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.');
 // 다른 메뉴와 같은 알림 형식: 굵은 제목 + 설명
 const toast = (title, message, color = 'teal') => notifications.show({ title, message, color });
 const fullDate = (value) => (value ? new Date(value).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-');

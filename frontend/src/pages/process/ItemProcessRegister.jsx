@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { usePageActivation } from '../../components/common/usePageReactivated';
 import { LinkedOrderBadge } from '../../components/common/LinkedOrderNotice';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import {
   ActionIcon, Badge, Box, Button, Group, Loader, Modal, Pagination,
   Paper, Popover, Select, Stack, Table, Text, TextInput,
@@ -22,12 +22,17 @@ import inboundClasses from '../../styles/pages/InboundRegister.module.css';
 import outboundClasses from '../../styles/pages/OutboundRegister.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
-import { cachedDateFormat } from '../../utils/dateFormat';
+import { cachedDateFormat, kstDate } from '../../utils/dateFormat';
+import { useUnsavedChanges } from '../../utils/dirtyRegistry';
+import { apiErrorMessage } from '../../utils/apiError';
+import { useRequestKey } from '../../utils/requestKey';
+import { loadMaster, peekMaster } from '../../utils/masterCache';
+import useExcelGrid from '../ai/useExcelGrid';
 
 
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const today = () => {
-  const d = new Date();
+  const d = kstDate();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -49,7 +54,9 @@ const calcProductAmount = (product) => {
 };
 const productAmount = (product) => (product.amountManual ? num(product.supplyamt) : calcProductAmount(product));
 const num = (value) => Number(String(value ?? '').replace(/,/g, '')) || 0;
-const numberText = (value) => num(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
+const numberText = (value) => num(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
+// 규격(두께·폭·길이·마이)은 금액이 아니므로 소수 셋째 자리까지 그대로 보여 준다
+const specText = (value) => value === null || value === undefined || value === '' ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
 const cleanSourceInput = (value) => {
   const text = String(value ?? '').replace(/[^0-9.]/g, '');
   const [whole, ...rest] = text.split('.');
@@ -118,6 +125,12 @@ function DetailNumericInput({ field, value, disabled, onCommit }) {
   const rawRef = useRef(rawNumericValue(value));
   const [draft, setDraft] = useState(() => formatNumericInput(value));
   const [editing, setEditing] = useState(false);
+  // 채우기·붙여넣기로 바깥에서 값이 바뀌면, 아직 손대지 않은 입력칸(포커스 중)은 새 값을 따른다 (칸을 벗어날 때 옛 값으로 덮지 않게)
+  const [syncedValue, setSyncedValue] = useState(value);
+  if (syncedValue !== value) {
+    setSyncedValue(value);
+    if (editing) setDraft((current) => (current === formatNumericInput(syncedValue) ? formatNumericInput(value) : current));
+  }
 
   return <input ref={inputRef} data-detail-field={field} onKeyDown={handleDetailGridKeyDown}
     disabled={disabled} inputMode="decimal" value={editing ? draft : formatNumericInput(value)}
@@ -138,6 +151,8 @@ function DetailNumericInput({ field, value, disabled, onCommit }) {
       requestAnimationFrame(() => input.setSelectionRange(nextCursor, nextCursor));
     }}
     onBlur={() => {
+      // 칸에 보이는 값(draft)을 확정한다 — 손대지 않았는데 바깥에서 값이 바뀐 경우 draft 가 새 값이라 다시 쓰지 않는다
+      rawRef.current = rawNumericValue(draft);
       if (rawRef.current !== rawNumericValue(value) && onCommit(rawRef.current) === false) {
         rawRef.current = rawNumericValue(value);
         setDraft(formatNumericInput(value));
@@ -398,7 +413,7 @@ function StockPicker({ opened, onClose, onApply, existingKeys, existingWarehouse
       });
       setItems(data.items || []); setTotal(data.total || 0); setPage(nextPage);
     } catch (error) {
-      notifications.show({ title: '현재고 조회 실패', message: error.response?.data?.detail || '현재고를 조회하지 못했습니다.', color: 'red' });
+      notifications.show({ title: '현재고 조회 실패', message: apiErrorMessage(error, '현재고를 조회하지 못했습니다.'), color: 'red' });
     } finally { setLoading(false); }
   }, [query, warehouse, thickness, width, length, dateFrom, dateTo]);
 
@@ -415,7 +430,7 @@ function StockPicker({ opened, onClose, onApply, existingKeys, existingWarehouse
         const { data } = await axios.get('/api/item-process-register/available-stock', { ...authConfig(), params: { page: 1, page_size: pageSize, date_from: monthStart, date_to: todayText } });
         setItems(data.items || []); setTotal(data.total || 0); setPage(1);
       } catch (error) {
-        notifications.show({ title: '현재고 조회 실패', message: error.response?.data?.detail || '현재고를 조회하지 못했습니다.', color: 'red' });
+        notifications.show({ title: '현재고 조회 실패', message: apiErrorMessage(error, '현재고를 조회하지 못했습니다.'), color: 'red' });
       } finally { setLoading(false); }
     })();
   });
@@ -487,9 +502,9 @@ function StockPicker({ opened, onClose, onApply, existingKeys, existingWarehouse
           <td title={row.itemname || ''}>{row.itemname}</td>
           <td title={row.productname || ''}>{row.productname}</td>
           <td>{row.materialname || row.myrtle}</td>
-          <td className={pickerClasses.right}>{numberText(row.thickness)}</td>
-          <td className={pickerClasses.right}>{numberText(row.width)}</td>
-          <td className={pickerClasses.right}>{numberText(row.length)}</td>
+          <td className={pickerClasses.right}>{specText(row.thickness)}</td>
+          <td className={pickerClasses.right}>{specText(row.width)}</td>
+          <td className={pickerClasses.right}>{specText(row.length)}</td>
           <td className={pickerClasses.right}>{numberText(row.qty)}</td>
           <td className={pickerClasses.right}>{numberText(row.weight)}</td>
         </tr>;
@@ -535,7 +550,7 @@ function PlanRunPicker({ opened, initialQuery, onClose, onPick }) {
         const { data } = await axios.get('/api/item-process-register/plans', authConfig());
         if (alive) setItems(data.items || []);
       } catch (error) {
-        if (alive) notifications.show({ title: '계획 조회 실패', message: error.response?.data?.detail || '확정 계획을 조회하지 못했습니다.', color: 'red' });
+        if (alive) notifications.show({ title: '계획 조회 실패', message: apiErrorMessage(error, '확정 계획을 조회하지 못했습니다.'), color: 'red' });
       } finally {
         if (alive) setLoading(false);
       }
@@ -576,7 +591,7 @@ function PlanRunPicker({ opened, initialQuery, onClose, onPick }) {
           <td className={pickerClasses.center}>{plan.runs.length}차</td>
           <td title={patternText(plan)}>{patternText(plan)}</td>
           <td className={pickerClasses.right}>{numberText(plan.inputweight)}</td>
-          <td title={plan.itemname || ''}>{plan.itemname} {numberText(plan.thickness)} × {numberText(plan.width)}{plan.materialtype === 'SHEET' && plan.length ? ` × ${numberText(plan.length)}` : ''}</td>
+          <td title={plan.itemname || ''}>{plan.itemname} {specText(plan.thickness)} × {specText(plan.width)}{plan.materialtype === 'SHEET' && plan.length ? ` × ${specText(plan.length)}` : ''}</td>
           <td className={pickerClasses.right}>{numberText(plan.stockweight)}</td>
           <td>{plan.warehousecodename || ''}</td>
           <td>{plan.stocksourceno}-{plan.stocksourceline}</td>
@@ -652,6 +667,8 @@ export default function ItemProcessRegister() {
   const selectedProcessnoRef = useRef('');
   // 저장된 가공전표는 다른 등록 화면(매입·매출·재고이동)처럼 읽기 전용. 바꾸려면 삭제 후 다시 등록한다
   const readOnly = Boolean(selectedProcessno);
+  useUnsavedChanges(!readOnly && sources.length > 0);   // 새 가공전표에 재고를 담았으면 탭 닫기 전에 확인
+  const requestKey = useRequestKey(!readOnly && sources.length > 0);   // 새 전표 중복 저장 막기 (서버 request_key)
   // 가공처: [추가] 뒤 포커스만 두고 목록은 펼치지 않는다 (클릭·입력하면 펼침) — 매출등록의 매출처와 같게
   const customerRef = useRef(null);
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
@@ -705,7 +722,7 @@ export default function ItemProcessRegister() {
       if (selectedProcessnoRef.current && nextPage === 1 && nextTotal <= nextDocuments.length
         && !nextDocuments.some((item) => item.processno === selectedProcessnoRef.current)) reset();
     } catch (error) {
-      if (requestId === documentListRequestIdRef.current) notifications.show({ title: '\uac00\uacf5 \uc870\ud68c \uc2e4\ud328', message: error.response?.data?.detail || '\uac00\uacf5\uc804\ud45c\ub97c \uc870\ud68c\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.', color: 'red' });
+      if (requestId === documentListRequestIdRef.current) notifications.show({ title: '\uac00\uacf5 \uc870\ud68c \uc2e4\ud328', message: apiErrorMessage(error, '\uac00\uacf5\uc804\ud45c\ub97c \uc870\ud68c\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.'), color: 'red' });
     } finally {
       if (requestId === documentListRequestIdRef.current) setLoading(false);
     }
@@ -713,7 +730,10 @@ export default function ItemProcessRegister() {
 
   useEffect(() => { void loadDocuments(); }, [loadDocuments]);
   useEffect(() => {
-    axios.get('/api/item-process-register/options', authConfig()).then(({ data }) => setOptions(data)).catch(() => notifications.show({ title: '기준정보 조회 실패', message: '가공처·창고·가공공정을 조회하지 못했습니다.', color: 'red' }));
+    // 가공처·창고·가공공정: 지난번 값(메모리 캐시)으로 바로 채우고 서버 값으로 바꾼다
+    const cached = peekMaster('item-process-register:options');
+    if (cached) setOptions(cached);
+    loadMaster('item-process-register:options', async () => (await axios.get('/api/item-process-register/options', authConfig())).data).then(setOptions).catch(() => notifications.show({ title: '기준정보 조회 실패', message: '가공처·창고·가공공정을 조회하지 못했습니다.', color: 'red' }));
   }, [pageActivation]);
 
   const fetchDocument = useCallback((processno) => {
@@ -744,6 +764,8 @@ export default function ItemProcessRegister() {
       processdate: String(data.header.processdate || '').slice(0, 10), customcode: data.header.customcode || '',
       customname: data.header.customname || '', warehousecode: data.header.warehousecode || '',
       warehousecodename: data.header.warehousecodename || '', manager: data.header.manager || '', description: data.header.description || '',
+      // 수정 저장 때 보내는 '열 때의 수정시각' (상세 조회 응답 그대로)
+      expected_updated_at: data.header.updatedat ?? data.header.createdat ?? undefined,
     });
     setSources((data.sources || []).map(({ source, products }) => {
       const parentLineNumbers = new Set(products.map((product) => product.parentlineno).filter((lineno) => lineno != null && lineno !== source.lineno));
@@ -795,7 +817,7 @@ export default function ItemProcessRegister() {
       if (requestId === detailRequestIdRef.current) {
         selectedProcessnoRef.current = '';
         setSelectedProcessno('');
-        notifications.show({ title: '가공 상세 조회 실패', message: error.response?.data?.detail || '가공 상세를 조회하지 못했습니다.', color: 'red' });
+        notifications.show({ title: '가공 상세 조회 실패', message: apiErrorMessage(error, '가공 상세를 조회하지 못했습니다.'), color: 'red' });
       }
     } finally {
       if (requestId === detailRequestIdRef.current) {
@@ -879,7 +901,7 @@ export default function ItemProcessRegister() {
       selectionAnchorRef.current = copiedProduct.id;
       notifications.show({ title: '가공품 행 복사 완료', message: '새 제품명을 채번해 선택한 행의 입력값을 복사했습니다.', color: 'teal' });
     } catch (error) {
-      notifications.show({ title: '제품명 채번 실패', message: error.response?.data?.detail || '제품명을 자동으로 채번하지 못했습니다.', color: 'red' });
+      notifications.show({ title: '제품명 채번 실패', message: apiErrorMessage(error, '제품명을 자동으로 채번하지 못했습니다.'), color: 'red' });
     }
   }, [allocateProductno, readOnly, saving, selectedDetailIds, sources, planLink]);
   // [추가] (리본) = 매출등록과 같게: 언제 누르든 새 전표로 초기화하고 가공처에 포커스. 재고조회 창은 바로 띄우지 않고,
@@ -1012,6 +1034,7 @@ export default function ItemProcessRegister() {
     }
     notifications.show({ title: '삭제할 항목 없음', message: '가공목록의 전표 또는 상세 행을 선택해 주세요.', color: 'orange' });
   }, [detailLoading, selectedProcessno, selectedDetailIds.length, deleteSelectedDetails]);
+  const [deleteBlocked, setDeleteBlocked] = useState('');   // 서버가 삭제를 거절한 사유
   const confirmDeleteDocuments = useCallback(async () => {
     if (!deleteDocumentNos.length || saving) return;
     setSaving(true);
@@ -1024,7 +1047,7 @@ export default function ItemProcessRegister() {
       notifications.show({ title: '가공등록 삭제 완료', message: `${deletedProcessno} 전표를 삭제했습니다.`, color: 'teal' });
       await loadDocuments();
     } catch (error) {
-      notifications.show({ title: '가공등록 삭제 실패', message: error.response?.data?.detail || '현재고와 수불 내역을 복구하지 못해 가공전표를 삭제하지 못했습니다.', color: 'red' });
+      setDeleteBlocked(apiErrorMessage(error, '현재고와 수불 내역을 복구하지 못해 가공전표를 삭제하지 못했습니다.'));   // 같은 창에서 사유
     } finally { setSaving(false); }
   }, [deleteDocumentNos, saving, selectedProcessno, reset, loadDocuments]);
   const chooseRule = (source, product, processid) => {
@@ -1042,6 +1065,80 @@ export default function ItemProcessRegister() {
       } : row),
     } : item));
   };
+
+  // ── 가공 상세 엑셀식 입력 (매입등록과 같음 · 재고/가공 구조에 맞춰 좁힘) ──
+  // 원소재 줄은 현재고에서 고른 줄 → 투입 수량만 쓴다. 가공품 줄은 직접 입력과 같은 함수로만 쓴다:
+  //   가공품명·제품명 = updateProduct, 두께·폭·길이 = 가공공정 규칙이 허용한 칸만, 수량·단가 = 숫자(소수 셋째 자리),
+  //   가공금액 = setProductAmount(직접 입력 / 비우면 자동계산). 중량은 상위·하위 중량 합계 검사가 있어 한꺼번에 쓰지 않는다.
+  //   행 추가 · 삽입 · 복제는 하지 않는다 (원소재는 현재고 조회, 가공품은 [가공품 추가] · [하위 가공 추가]).
+  const detailViewportRef = useRef(null);
+  const PROCESS_GRID_FIELDS = ['productname', 'productno', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt'];
+  const PROCESS_WRITE_FIELDS = new Set(['productname', 'productno', 'thickness', 'width', 'length', 'qty', 'unitprice', 'supplyamt']);
+  const findDetailRow = (rowKey) => {
+    for (const source of sources) {
+      if (source.id === rowKey) return { source, product: null };
+      const product = source.products.find((item) => item.id === rowKey);
+      if (product) return { source, product };
+    }
+    return null;
+  };
+  const detailCellText = (rowKey, field) => {
+    const found = findDetailRow(rowKey);
+    if (!found) return '';
+    const { source, product } = found;
+    if (!product) {   // 원소재 줄: 화면에 보이는 값 (품명 · 제품번호 · 규격은 현재고 값)
+      const shown = { productname: source.stock.itemname, productno: source.stock.productname, thickness: source.stock.thickness,
+        width: source.stock.width, length: source.stock.length, qty: source.qty, weight: source.weight };
+      return String(shown[field] ?? '');
+    }
+    if (field === 'supplyamt') return String(productAmount(product));
+    return String(product[field] ?? '');
+  };
+  const writeDetailCells = (cells) => {
+    if (readOnly || saving) return;
+    let skipped = 0;
+    cells.forEach(({ rowKey, field, text }) => {
+      const found = findDetailRow(rowKey);
+      if (!found || !PROCESS_WRITE_FIELDS.has(field)) return;
+      const { source, product } = found;
+      const value = String(text ?? '');
+      if (!product) {   // 원소재 줄: 투입 수량만 (현재고 대비 중량 계산은 updateSourceQty 그대로)
+        if (field === 'qty' && source.inputEditable && !structureLocked) updateSourceQty(source.id, value);
+        else skipped += 1;
+        return;
+      }
+      if (field === 'productname') { updateProduct(source.id, product.id, field, value); return; }
+      if (field === 'productno') { updateProduct(source.id, product.id, field, value.slice(0, 150)); return; }
+      const raw = rawNumericValue(value).trim();
+      if (raw && !DECIMAL_INPUT_PATTERN.test(raw)) { skipped += 1; return; }
+      if (['thickness', 'width', 'length'].includes(field)) {
+        const rule = options.rules.find((item) => item.itemcode === source.stock.itemcode && item.processid === product.processid);
+        if (String(rule?.[`${field}yn`] || '').trim().toUpperCase() !== 'Y') { skipped += 1; return; }
+      }
+      if (field === 'supplyamt') setProductAmount(source.id, product.id, raw);
+      else updateProduct(source.id, product.id, field, raw);
+    });
+    if (skipped) notifications.show({ title: '일부 칸 건너뜀', message: `${skipped}개 칸은 쓸 수 없는 칸(중량 · 규칙에 없는 규격 · 원소재 줄)이거나 숫자가 아니어서 반영하지 않았습니다.`, color: 'orange' });
+  };
+  const pasteDetailText = (rowKey, field, text) => {
+    const startRow = detailRowIds.indexOf(rowKey);
+    const startColumn = PROCESS_GRID_FIELDS.indexOf(field);
+    if (startRow < 0 || startColumn < 0) return;
+    const matrix = String(text || '').replace(/\r/g, '').split('\n').filter((line, index, all) => line || index < all.length - 1).map((line) => line.split('\t'));
+    // 모자란 줄은 만들지 않는다 (원소재 · 가공품 줄은 현재고 · 가공 구조에서만 생긴다)
+    writeDetailCells(matrix.flatMap((line, rowOffset) => (detailRowIds[startRow + rowOffset] == null ? [] : line
+      .map((value, columnOffset) => ({ rowKey: detailRowIds[startRow + rowOffset], field: PROCESS_GRID_FIELDS[startColumn + columnOffset], text: value }))
+      .filter((cell) => cell.field))));
+  };
+  const { gridProps: detailGridProps } = useExcelGrid({
+    wrapRef: detailViewportRef, rowKeys: detailRowIds, fields: PROCESS_GRID_FIELDS,
+    rowAttr: 'data-row-key', fieldAttr: 'data-detail-field', rowAttrOnRow: true, fieldAliases: { sourceqty: 'qty' },
+    commitFocusedFirst: true,   // 숫자 칸은 벗어날 때 확정된다
+    getCellText: detailCellText, canWrite: (field) => PROCESS_WRITE_FIELDS.has(field),
+    writeCells: writeDetailCells, pasteText: pasteDetailText,
+    insertRow: () => notifications.show({ title: '행 추가 안내', message: '원소재는 [현재고 조회]로, 가공품은 [가공품 추가] · 하위 가공(+)으로 추가합니다.', color: 'gray' }),
+    checkedRowKeys: selectedDetailIds, disabled: readOnly || saving, rangeClass: classes.rangeCell,
+  });
 
   const totalSourceWeight = sources.reduce((sum, row) => sum + num(row.weight), 0);
   const totalLeafWeight = sources.reduce((sum, source) => {
@@ -1155,7 +1252,7 @@ export default function ItemProcessRegister() {
         : `${planno} · 슬리팅 ${slits}줄${Number(data.keep) > 0 ? ` · 보관분 ${numberText(data.keep)}kg` : ''} · 로스 ${numberText(data.loss)}kg 배부. 가공처를 고르고 저장해 주세요.`;
       notifications.show({ title: '계획 불러오기', message, color: 'teal' });
     } catch (error) {
-      notifications.show({ title: '계획 불러오기 실패', message: error.response?.data?.detail || '계획을 불러오지 못했습니다.', color: 'red' });
+      notifications.show({ title: '계획 불러오기 실패', message: apiErrorMessage(error, '계획을 불러오지 못했습니다.'), color: 'red' });
       if (urlPlanno) navigate('/ItemProcessRegister', { replace: true });
     }
   };
@@ -1184,8 +1281,11 @@ export default function ItemProcessRegister() {
     }
     setSaving(true);
     try {
-      const payload = { ...header, ...(selectedProcessno ? { processno: selectedProcessno } : {}), ...(planLink ? { planno: planLink.planno } : {}), sources: sources.map((source) => ({ stocksourcetype: source.stock.sourcetype, stocksourceno: source.stock.sourceno, stocksourceline: source.stock.sourceline, qty: num(source.qty), weight: num(source.weight), products: source.products.map((p) => ({ clientid: p.id, parent_clientid: p.parentId, processid: p.processid, processcodename: p.processcodename, productno: p.productno, productname: p.productname, thickness: p.thickness === '' ? null : num(p.thickness), width: p.width === '' ? null : num(p.width), length: p.length === '' ? null : num(p.length), qty: num(p.qty), qtyunit: source.stock.qtyunit || p.qtyunit, weight: num(p.weight), lossweight: num(p.lossweight), unit: p.unit, unitprice: num(p.unitprice), supplyamt: p.amountManual ? num(p.supplyamt) : null, description: p.description })) })) };
+      const { expected_updated_at: expectedUpdatedAt, ...headerFields } = header;
+      // 새 전표: 중복 저장 막기 키 / 저장된 전표 수정: 열 때 받은 수정시각 (그 사이 다른 사람이 고쳤으면 서버가 거절)
+      const payload = { ...headerFields, ...(selectedProcessno ? { processno: selectedProcessno, expected_updated_at: expectedUpdatedAt } : { request_key: requestKey.take() }), ...(planLink ? { planno: planLink.planno } : {}), sources: sources.map((source) => ({ stocksourcetype: source.stock.sourcetype, stocksourceno: source.stock.sourceno, stocksourceline: source.stock.sourceline, qty: num(source.qty), weight: num(source.weight), products: source.products.map((p) => ({ clientid: p.id, parent_clientid: p.parentId, processid: p.processid, processcodename: p.processcodename, productno: p.productno, productname: p.productname, thickness: p.thickness === '' ? null : num(p.thickness), width: p.width === '' ? null : num(p.width), length: p.length === '' ? null : num(p.length), qty: num(p.qty), qtyunit: source.stock.qtyunit || p.qtyunit, weight: num(p.weight), lossweight: num(p.lossweight), unit: p.unit, unitprice: num(p.unitprice), supplyamt: p.amountManual ? num(p.supplyamt) : null, description: p.description })) })) };
       const { data } = await axios.post('/api/item-process-register/documents', payload, authConfig());
+      requestKey.reset();
       if (data.product_numbers) {
         setSources((current) => current.map((source) => ({ ...source, products: source.products.map((product) => ({ ...product, productno: data.product_numbers[product.id] || product.productno })) })));
       }
@@ -1195,16 +1295,18 @@ export default function ItemProcessRegister() {
       documentCacheRef.current.delete(data.processno);
       documentDataRef.current.delete(data.processno);
       await openDocument(data.processno, true);
-    } catch (error) { notifications.show({ title: '가공 저장 실패', message: error.response?.data?.detail || '가공전표를 저장하지 못했습니다.', color: 'red' }); }
+    } catch (error) { notifications.show({ title: '가공 저장 실패', message: apiErrorMessage(error, '가공전표를 저장하지 못했습니다.'), color: 'red' }); }
     finally { setSaving(false); }
-  }, [header, sources, selectedProcessno, readOnly, loadDocuments, openDocument, planLink]);
+  }, [header, sources, selectedProcessno, readOnly, loadDocuments, openDocument, planLink, requestKey]);
 
-  const exportDocument = useCallback(() => {
+  const exportDocument = useCallback(async () => {
     if (!selectedProcessno || !sources.length || detailLoading) {
       notifications.show({ title: '내보낼 가공전표 없음', message: '저장된 가공전표를 선택해 주세요.', color: 'orange' });
       return;
     }
 
+    const XLSX = await loadXLSXOrNotify();
+    if (!XLSX) return;
     const workbook = XLSX.utils.book_new();
     const document = documents.find((item) => item.processno === selectedProcessno);
     const docInfo = [
@@ -1411,10 +1513,10 @@ export default function ItemProcessRegister() {
         <Paper withBorder className={`${sharedClasses.panel} ${classes.detailPanel}`}>
           <Group className={classes.sectionHeader} justify="space-between"><Group gap={8}><Text className={inboundClasses.sectionTitle} fw={700}>가공 상세</Text><Badge color="gray" variant="light" className={classes.count}>{selectedProcessno || '신규'} · {sources.length}개 원소재</Badge>{planLink && <Badge color="red" variant="light" className={classes.count} title="가공 최적화 확정 계획에서 불러온 전표입니다. 저장하면 계획이 가공완료됩니다.">가공계획 {planLink.planno}</Badge>}</Group><Group gap="sm"><Text size="xs" c={Math.abs(totalSourceWeight - totalLeafWeight) <= 0.001 ? 'teal' : 'red'}>투입 {numberText(totalSourceWeight)} KG · 최종제품 {numberText(totalLeafWeight)} KG</Text></Group></Group>
           {headerFields}
-          <Box className={classes.detailViewport}>
+          <Box ref={detailViewportRef} className={classes.detailViewport} {...detailGridProps}>
             <table className={classes.detailTable} style={{ width: `${detailTableWidth}px`, minWidth: `${detailTableWidth}px` }}><colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{DETAIL_COLUMNS.map((column) => <th key={column.key} className={classes.resizableHeader} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }}>{column.key === 'select' ? detailRowIds.length > 0 && <input type="checkbox" aria-label="상세 전체 선택" checked={allDetailsSelected} disabled={structureLocked} onChange={(event) => { setSelectedDetailIds(event.currentTarget.checked ? detailRowIds : []); selectionAnchorRef.current = ''; }} /> : <>{column.label}{column.required && <span style={{ color: '#e03131' }}> *</span>}</>}<span className={classes.columnResizeHandle} data-column-key={column.key} onPointerDown={(event) => startTableColumnResize(event, DETAIL_COLUMNS, detailColumnWidths, setDetailColumnWidths, 1320)} role="separator" aria-label={`${column.label || '선택'} 열 너비 조절`} /></th>)}</tr></thead>
               <tbody>{sources.flatMap((source, sourceIndex) => {
-                const sourceRow = <tr className={classes.sourceRow} key={source.id}><td className={classes.checkCell}><input type="checkbox" aria-label={`원소재 ${sourceIndex + 1} 선택`} checked={selectedDetailIds.includes(source.id)} disabled={structureLocked} onChange={(event) => toggleDetailSelection(source.id, event.nativeEvent.shiftKey)} /></td><td className={classes.noCell}><div className={classes.noCellContent}><span className={classes.sourceNoLabel}><span>{sourceIndex + 1}</span><Badge size="xs" variant="light">원소재</Badge></span><ActionIcon size="xs" variant="subtle" color="red" disabled={structureLocked} title="가공품 추가" onClick={() => addProduct(source.id)}><IconPlus size={13} /></ActionIcon></div></td><td>재고 연결</td><td></td><td>{source.stock.itemname}</td><td>{source.stock.productname || ''}</td><td>{numberText(source.stock.thickness)}</td><td>{numberText(source.stock.width)}</td><td>{numberText(source.stock.length)}</td><td>{source.inputEditable && !structureLocked
+                const sourceRow = <tr className={classes.sourceRow} key={source.id} data-row-key={source.id}><td className={classes.checkCell}><input type="checkbox" aria-label={`원소재 ${sourceIndex + 1} 선택`} checked={selectedDetailIds.includes(source.id)} disabled={structureLocked} onChange={(event) => toggleDetailSelection(source.id, event.nativeEvent.shiftKey)} /></td><td className={classes.noCell}><div className={classes.noCellContent}><span className={classes.sourceNoLabel}><span>{sourceIndex + 1}</span><Badge size="xs" variant="light">원소재</Badge></span><ActionIcon size="xs" variant="subtle" color="red" disabled={structureLocked} title="가공품 추가" onClick={() => addProduct(source.id)}><IconPlus size={13} /></ActionIcon></div></td><td>재고 연결</td><td></td><td>{source.stock.itemname}</td><td>{source.stock.productname || ''}</td><td>{specText(source.stock.thickness)}</td><td>{specText(source.stock.width)}</td><td>{specText(source.stock.length)}</td><td>{source.inputEditable && !structureLocked
                   ? <input className={classes.sourceInput} data-detail-field="sourceqty" onKeyDown={handleDetailGridKeyDown} inputMode="decimal" aria-label="투입 수량" placeholder={`현재고 ${numberText(source.stock.qty)}`} title={`현재고 수량 ${numberText(source.stock.qty)} 이내`}
                       value={source.qty} onFocus={(e) => e.currentTarget.select()} onChange={(e) => updateSourceQty(source.id, e.currentTarget.value)} />
                   : numberText(source.qty)}</td><td>{source.stock.qtyunit}</td><td>{source.inputEditable && !structureLocked && !num(source.weight) ? '' : numberText(source.weight)}</td><td></td><td className={classes.readOnlyAmount}>—</td><td className={classes.readOnlyAmount} title="이전 단계에서 넘어오는 가공비: 원소재 가공금액 × 투입중량 ÷ 남은 중량. 이번 가공비는 가공품 행의 가공금액">{carriedProcessFee(source) != null ? numberText(carriedProcessFee(source)) : '—'}</td><td>{source.stock.sourceno || ''}</td><td>{source.stock.sourceline ?? ''}</td></tr>;
@@ -1423,7 +1525,7 @@ export default function ItemProcessRegister() {
                   const dimensionRule = options.rules.find((rule) => rule.itemcode === source.stock.itemcode && rule.processid === product.processid);
                   const canEditDimension = (field) => String(dimensionRule?.[`${field}yn`] || '').trim().toUpperCase() === 'Y';
                   const depth = lineNo.length;
-                return <tr key={product.id}><td className={classes.checkCell}><input type="checkbox" aria-label={`가공품 ${lineNo.join('.')} 선택`} checked={selectedDetailIds.includes(product.id)} disabled={structureLocked} onChange={(event) => toggleDetailSelection(product.id, event.nativeEvent.shiftKey)} /></td><td className={classes.noCell}><div className={classes.noCellContent}><span className={classes.treeNumber}>{ancestorContinues.map((continues, index) => <span key={`parent-${index}`} className={`${classes.treeGuide} ${continues ? classes.treeGuideContinue : ''}`} />)}<span className={`${classes.treeGuide} ${isLast ? classes.treeGuideLast : classes.treeGuideMiddle}`} /><span>{String(lineNo[depth - 1]).padStart(2, '0')}</span></span><ActionIcon size="xs" variant="subtle" color="red" disabled={structureLocked} title="하위 가공 추가" onClick={() => addProduct(source.id, product.id)}><IconPlus size={13} /></ActionIcon></div></td><td title={product.description || undefined}>{product.description || "가공품"}</td><td><ProcessMethodCell product={product} options={processOptions} disabled={readOnly} onSelect={(option) => chooseRule(source, product, option?.processid || null)} /></td><td><input data-detail-field="productname" onKeyDown={handleDetailGridKeyDown} disabled={readOnly} value={product.productname} onChange={(e) => updateProduct(source.id, product.id, 'productname', e.target.value)} /></td><td><input data-detail-field="productno" onKeyDown={handleDetailGridKeyDown} disabled={readOnly} maxLength={150} value={product.productno} onChange={(e) => updateProduct(source.id, product.id, 'productno', e.target.value)} /></td>{['thickness', 'width', 'length'].map((field) => <td key={field}><DetailNumericInput field={field} value={product[field]} disabled={readOnly || !canEditDimension(field)} onCommit={(value) => updateProduct(source.id, product.id, field, value)} /></td>)}<td><DetailNumericInput field="qty" value={product.qty} disabled={readOnly} onCommit={(value) => updateProduct(source.id, product.id, 'qty', value)} /></td><td><input data-detail-field="qtyunit" disabled value={source.stock.qtyunit || product.qtyunit || 'EA'} /></td><td><DetailNumericInput field="weight" value={product.weight} disabled={readOnly} onCommit={(value) => updateProductWeight(source.id, product.id, value)} /></td><td className={classes.readOnlyAmount} title={planLink ? '가공계획에서 배부한 로스 (중량을 고치면 [로스 배부]로 다시 나눕니다)' : '수기가공은 로스를 쓰지 않습니다'}>{planLink || num(product.lossweight) ? numberText(product.lossweight) : '—'}</td><td><DetailNumericInput field="unitprice" value={product.unitprice} disabled={readOnly} onCommit={(value) => updateProduct(source.id, product.id, 'unitprice', value)} /></td><td className={readOnly ? classes.readOnlyAmount : classes.computedAmount} title={product.amountManual ? '직접 입력한 가공금액 (지우면 단가 × 중량으로 다시 계산)' : '단가 × 중량 자동 계산 (직접 입력 가능)'}>{readOnly
+                return <tr key={product.id} data-row-key={product.id}><td className={classes.checkCell}><input type="checkbox" aria-label={`가공품 ${lineNo.join('.')} 선택`} checked={selectedDetailIds.includes(product.id)} disabled={structureLocked} onChange={(event) => toggleDetailSelection(product.id, event.nativeEvent.shiftKey)} /></td><td className={classes.noCell}><div className={classes.noCellContent}><span className={classes.treeNumber}>{ancestorContinues.map((continues, index) => <span key={`parent-${index}`} className={`${classes.treeGuide} ${continues ? classes.treeGuideContinue : ''}`} />)}<span className={`${classes.treeGuide} ${isLast ? classes.treeGuideLast : classes.treeGuideMiddle}`} /><span>{String(lineNo[depth - 1]).padStart(2, '0')}</span></span><ActionIcon size="xs" variant="subtle" color="red" disabled={structureLocked} title="하위 가공 추가" onClick={() => addProduct(source.id, product.id)}><IconPlus size={13} /></ActionIcon></div></td><td title={product.description || undefined}>{product.description || "가공품"}</td><td><ProcessMethodCell product={product} options={processOptions} disabled={readOnly} onSelect={(option) => chooseRule(source, product, option?.processid || null)} /></td><td><input data-detail-field="productname" onKeyDown={handleDetailGridKeyDown} disabled={readOnly} value={product.productname} onChange={(e) => updateProduct(source.id, product.id, 'productname', e.target.value)} /></td><td><input data-detail-field="productno" onKeyDown={handleDetailGridKeyDown} disabled={readOnly} maxLength={150} value={product.productno} onChange={(e) => updateProduct(source.id, product.id, 'productno', e.target.value)} /></td>{['thickness', 'width', 'length'].map((field) => <td key={field}><DetailNumericInput field={field} value={product[field]} disabled={readOnly || !canEditDimension(field)} onCommit={(value) => updateProduct(source.id, product.id, field, value)} /></td>)}<td><DetailNumericInput field="qty" value={product.qty} disabled={readOnly} onCommit={(value) => updateProduct(source.id, product.id, 'qty', value)} /></td><td><input data-detail-field="qtyunit" disabled value={source.stock.qtyunit || product.qtyunit || 'EA'} /></td><td><DetailNumericInput field="weight" value={product.weight} disabled={readOnly} onCommit={(value) => updateProductWeight(source.id, product.id, value)} /></td><td className={classes.readOnlyAmount} title={planLink ? '가공계획에서 배부한 로스 (중량을 고치면 [로스 배부]로 다시 나눕니다)' : '수기가공은 로스를 쓰지 않습니다'}>{planLink || num(product.lossweight) ? numberText(product.lossweight) : '—'}</td><td><DetailNumericInput field="unitprice" value={product.unitprice} disabled={readOnly} onCommit={(value) => updateProduct(source.id, product.id, 'unitprice', value)} /></td><td className={readOnly ? classes.readOnlyAmount : classes.computedAmount} title={product.amountManual ? '직접 입력한 가공금액 (지우면 단가 × 중량으로 다시 계산)' : '단가 × 중량 자동 계산 (직접 입력 가능)'}>{readOnly
                   ? numberText(productAmount(product))
                   : <DetailNumericInput field="supplyamt" value={String(productAmount(product))} disabled={readOnly}
                       onCommit={(value) => setProductAmount(source.id, product.id, value)} />}</td><td></td><td></td></tr>;
@@ -1461,7 +1563,7 @@ export default function ItemProcessRegister() {
       </Stack>
       {filterOpen && filterPanel}
     </Box>
-    <ConfirmDeleteModal opened={deleteDocumentsOpen} onClose={() => setDeleteDocumentsOpen(false)} onConfirm={confirmDeleteDocuments} loading={saving}
+    <ConfirmDeleteModal opened={deleteDocumentsOpen} onClose={() => { setDeleteDocumentsOpen(false); setDeleteBlocked(''); }} onConfirm={confirmDeleteDocuments} loading={saving} blocked={deleteBlocked}
       title="가공전표를 삭제할까요?" target={deleteDocumentNos[0]} message="전표와 상세 내역이 모두 삭제되며" note="삭제한 전표는 복구할 수 없습니다." />
     {planPickerOpen && <PlanRunPicker opened initialQuery={planPickerQuery} onClose={closePlanPicker} onPick={loadPlan} />}
     {stockOpen && <StockPicker opened={stockOpen} onClose={() => setStockOpen(false)} onApply={addStocks} existingKeys={existingKeys} existingWarehouseCode={sources[0]?.stock?.warehousecode || ''} baseDate={String(header.processdate || '').slice(0, 10)} />}

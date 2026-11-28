@@ -16,7 +16,8 @@ import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/ItemProcessSearch.module.css';
-import { cachedDateFormat } from '../../utils/dateFormat';
+import { cachedDateFormat, kstDate, todayKST } from '../../utils/dateFormat';
+import { apiErrorMessage } from '../../utils/apiError';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' },
@@ -39,7 +40,7 @@ const COLUMNS = [
 ].map(([key, label, width]) => ({ key, label, width, minWidth: Math.min(width, 68) }));
 
 const makeDefaultFilters = () => {
-  const today = new Date();
+  const today = kstDate();
   const year = today.getFullYear();
   const month = today.getMonth();
   const pad = (value) => String(value).padStart(2, '0');
@@ -145,7 +146,7 @@ export default function ItemProcessSearch() {
       if (requestId === requestIdRef.current) {
         notifications.show({
           title: '가공현황 조회 실패',
-          message: error.response?.data?.detail || '가공 내역을 불러오지 못했습니다.',
+          message: apiErrorMessage(error, '가공 내역을 불러오지 못했습니다.'),
           color: 'red',
         });
       }
@@ -178,7 +179,7 @@ export default function ItemProcessSearch() {
       const downloadUrl = URL.createObjectURL(data);
       const link = document.createElement('a');
       link.href = downloadUrl;
-      link.download = `재고가공현황_${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.xlsx`;
+      link.download = `재고가공현황_${todayKST().replaceAll('-', '')}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();

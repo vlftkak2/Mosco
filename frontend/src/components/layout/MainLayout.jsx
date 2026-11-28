@@ -9,14 +9,21 @@ import { useNavigate, useLocation, useOutlet, UNSAFE_LocationContext as Location
 import { clearAIOrderPageSession } from '../../pages/ai/AIOrderPageSession';
 import { clearAIOrderDraft } from '../../pages/ai/AIOrderDraft';
 import {
-  IconAdjustmentsHorizontal, IconBox, IconChevronDown, IconClipboardText, IconCreditCard, IconHome, IconKey, IconLayoutSidebar, IconLogout,
-  IconBell, IconHourglass, IconMoon, IconSearch, IconShieldLock, IconShoppingBag, IconStack2, IconTrendingUp, IconUserCircle, IconUsers,
+  IconAdjustmentsHorizontal, IconBox, IconChevronDown, IconClipboardText, IconCreditCard, IconFileCheck, IconHome, IconKey, IconLayoutSidebar, IconLogout,
+  IconBell, IconHourglass, IconMoon, IconSearch, IconShieldLock, IconShoppingBag, IconStack2, IconTrendingUp, IconUserCircle, IconUsers, IconWallet,
 } from '@tabler/icons-react';
 import '@mantine/notifications/styles.css';
 import { notifications } from '@mantine/notifications';
 import axios from 'axios'; // axios 추가
 import { IconCheck, IconX } from '@tabler/icons-react'; // 아이콘 추가
 import Steel119Logo from './Steel119Logo';
+import AIAssistant from './AIAssistant';
+import ErrorBoundary from '../common/ErrorBoundary';
+import { PagePathContext, anyDirty, clearDirty, isDirty } from '../../utils/dirtyRegistry';
+import { clearAuthStorage, logoutOnServer } from '../../utils/sessionGuard';
+import { apiErrorMessage } from '../../utils/apiError';
+import { preloadPagesWhenIdle } from '../../utils/pagePreload';
+import { loadMaster } from '../../utils/masterCache';
 
 export const PageRibbonContext = createContext(null);
 
@@ -41,7 +48,11 @@ const KeepAlivePage = memo(function KeepAlivePage({ path, active, activation, el
     <LocationContext.Provider value={active ? liveLocation : tabLocation}>
       <PageActiveContext.Provider value={active}>
         <PageActivationContext.Provider value={activation}>
-          <PageRibbonContext.Provider value={ribbonContext}><Suspense fallback={null}>{element}</Suspense></PageRibbonContext.Provider>
+          <PageRibbonContext.Provider value={ribbonContext}>
+            <PagePathContext.Provider value={path}>
+              <ErrorBoundary><Suspense fallback={null}>{element}</Suspense></ErrorBoundary>
+            </PagePathContext.Provider>
+          </PageRibbonContext.Provider>
         </PageActivationContext.Provider>
       </PageActiveContext.Provider>
     </LocationContext.Provider>
@@ -139,6 +150,24 @@ const mockdata = [
     ],
   },
   {
+    label: '전자결재',
+    icon: <IconFileCheck {...ic} />,
+    links: [
+      { label: '전자결재', link: '/EApproval', MenuID: 'EAPPROVAL' },
+      { label: '휴가현황', link: '/LeaveStatus', MenuID: 'EAPPROVAL_LEAVE', access: 'EAPPROVAL' },   // 보이는 권한은 전자결재와 같음 (MenuID 는 즐겨찾기용)
+      { label: '결재양식관리', link: '/EApprovalForm', MenuID: 'EAPPROVAL_FORM' },
+    ],
+  },
+  {
+    label: '급여관리',
+    icon: <IconWallet {...ic} />,
+    links: [
+      { label: '급여입력', link: '/PayrollEntry', MenuID: 'PAYROLL' },
+      { label: '급여대장', link: '/PayrollLedger', MenuID: 'PAYROLL_LEDGER', access: 'PAYROLL' },   // 보이는 권한은 급여입력과 같음 (MenuID 는 즐겨찾기용)
+      { label: '내 급여현황', link: '/MyPayroll', MenuID: 'PAYROLL_MY' },
+    ],
+  },
+  {
     label: '어드민',
     icon: <AdminShieldIcon />,
     links: [
@@ -146,6 +175,7 @@ const mockdata = [
       { label: '고객계정관리', link: '/User', MenuID: 'COMPANY_USER_MANAGEMENT' },
       { label: '메뉴권한관리', link: '/UserMenu', MenuID: 'USER_MENU_PERMISSION' },
       { label: '라이선스 매출현황', link: '/LicenseRevenue', MenuID: 'LICENSE_REVENUE' },
+      { label: 'AI 비용현황', link: '/AiCost', MenuID: 'AI_COST' },
       { label: '타사 재고현황', link: '/SharedStock', MenuID: 'SHARED_STOCK' },
       { label: '통제관리', link: '/ControlManagement', MenuID: 'CONTROL_MANAGEMENT' },
     ],
@@ -239,7 +269,7 @@ export default function MainLayout({ children }) {
     '/inboundregisterpage', '/inboundregister', '/inboundsearchpage', '/inboundsearch',
     '/customerpage', '/itemmasterpage', '/codemasterpage', '/aiorderpage',
     '/currentstockpage', '/iniopstockpage', '/stockstandpage', '/aiordermanage', '/aiorderoptimization', '/itemprocessmaster', '/itemprocessregister', '/itemprocesssearch', '/customersupport', '/board',
-    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/instrumentstatus', '/customerledger', '/customerbalancedashboard', '/grossprofit', '/grossprofitdashboard', '/company', '/licenserevenue', '/sharedstock', '/user', '/usermenu', '/workplace', '/monthclose', '/userinfo', '/controlmanagement',
+    '/outboundregisterpage', '/outboundsearchpage', '/inoutmoveregister', '/inoutmovesearch', '/receiptpayment', '/receiptpaymentsearch', '/instrumentstatus', '/customerledger', '/customerbalancedashboard', '/grossprofit', '/grossprofitdashboard', '/company', '/licenserevenue', '/aicost', '/sharedstock', '/user', '/usermenu', '/workplace', '/monthclose', '/userinfo', '/controlmanagement', '/eapproval', '/eapprovalform', '/leavestatus', '/payrollentry', '/payrollledger', '/mypayroll',
   ].includes(String(pathname || '').replace(/\/+$/, '').toLowerCase());
   // 탭별 화면 / 리본 보관 (key = 경로)
   const [pageCache, setPageCache] = useState({});
@@ -293,8 +323,12 @@ export default function MainLayout({ children }) {
     });
   };
 
-  const closePageTab = useCallback((event, path) => {
+  // 저장하지 않은 변경이 있는 탭을 닫을 때 확인 창 ({ kind: 'one', path } | { kind: 'all' })
+  const [pendingClose, setPendingClose] = useState(null);
+  const closePageTab = useCallback((event, path, force = false) => {
     event?.stopPropagation?.();
+    if (!force && isDirty(path)) { setPendingClose({ kind: 'one', path }); return; }
+    clearDirty(path);
     if (String(path || '').replace(/\/+$/, '').toLowerCase() === '/aiorderpage') {
       clearAIOrderPageSession();
     }
@@ -311,11 +345,14 @@ export default function MainLayout({ children }) {
     if (pathname === path) navigate(remaining[remaining.length - 1].path);
   }, [pageTabs, pathname, navigate]);
   // 탭 모두 닫기: 대시보드만 남기고 나머지 화면과 리본을 지운다 (각 탭을 닫을 때와 같은 정리)
-  const closeAllTabs = useCallback(() => {
+  const closeAllTabs = useCallback((force = false) => {
+    const home = pageTabs.find((tab) => isHomePath(tab.path)) || { path: '/HomePage', label: findMenuLabel(mockdata, '/HomePage') };
+    const closing = pageTabs.filter((tab) => tab.path !== home.path).map((tab) => tab.path);
+    if (force !== true && anyDirty(closing)) { setPendingClose({ kind: 'all' }); return; }
+    closing.forEach(clearDirty);
     const paths = pageTabs.map((tab) => String(tab.path || '').replace(/\/+$/, '').toLowerCase());
     if (paths.includes('/aiorderpage')) clearAIOrderPageSession();
     if (paths.includes('/aiordermanage')) clearAIOrderDraft();
-    const home = pageTabs.find((tab) => isHomePath(tab.path)) || { path: '/HomePage', label: findMenuLabel(mockdata, '/HomePage') };
     setTabState({ pathname, tabs: [home] });
     setPageCache((current) => (current[home.path] ? { [home.path]: current[home.path] } : {}));
     setRibbons((current) => (current[home.path] ? { [home.path]: current[home.path] } : {}));
@@ -325,20 +362,42 @@ export default function MainLayout({ children }) {
   const closeTabRef = useRef(closePageTab);
   useLayoutEffect(() => { closeTabRef.current = closePageTab; }, [closePageTab]);
 
+  // 전자결재: 내가 결재할 문서 · 최근 반려 (헤더 알림)
+  const [eapprSummary, setEapprSummary] = useState(null);
+  useEffect(() => {
+    if (!localStorage.getItem('access_token')) return undefined;
+    let alive = true;
+    const loadEappr = () => axios.get('/api/eapproval/summary', { headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } })
+      .then(({ data }) => { if (alive) setEapprSummary(data); })
+      .catch(() => { /* 알림만 못 보여 줌 */ });
+    void loadEappr();
+    const onVisible = () => { if (document.visibilityState === 'visible') void loadEappr(); };
+    window.addEventListener('eapproval-changed', loadEappr);
+    document.addEventListener('visibilitychange', onVisible);
+    const timer = window.setInterval(() => { if (document.visibilityState !== 'hidden') void loadEappr(); }, 60 * 1000);
+    return () => {
+      alive = false;
+      window.removeEventListener('eapproval-changed', loadEappr);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(timer);
+    };
+  }, []);
+
   // 승인 통제: 사용 여부 · 승인자 여부 · 대기 건수 (헤더 알림 · 통제관리 메뉴 표시)
   const [controlSummary, setControlSummary] = useState(null);
   useEffect(() => {
     const token = localStorage.getItem('access_token');
     if (!token) return undefined;
     let alive = true;
-    const loadControl = () => axios.get('/api/control/summary', { headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } })
-      .then(({ data }) => { if (alive) setControlSummary(data); })
+    // 받은 요약은 통제관리 화면과 같이 쓴다 (control:summary) → 통제관리를 처음 열어도 목록이 바로 시작된다
+    const loadControl = () => loadMaster('control:summary', async () => (await axios.get('/api/control/summary', { headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } })).data)
+      .then((data) => { if (alive) setControlSummary(data); })
       .catch(() => { /* 알림만 못 보여 줌 */ });
     void loadControl();
     const onVisible = () => { if (document.visibilityState === 'visible') void loadControl(); };
     window.addEventListener('approval-changed', loadControl);
     document.addEventListener('visibilitychange', onVisible);
-    const timer = window.setInterval(() => { void loadControl(); }, 60 * 1000);
+    const timer = window.setInterval(() => { if (document.visibilityState !== 'hidden') void loadControl(); }, 60 * 1000);
     return () => {
       alive = false;
       window.removeEventListener('approval-changed', loadControl);
@@ -522,6 +581,9 @@ const handlePasswordChange = async (e) => {
         return; // 여기서 중단
       }
 
+      // 서버가 세션을 새로 만들었으면(다른 기기는 로그아웃) 새 토큰으로 바꿔 둔다
+      if (res.data.access_token) localStorage.setItem('access_token', res.data.access_token);
+
       // 최종 성공 시
       notifications.show({
         title: '변경 완료 🔐',
@@ -536,10 +598,10 @@ const handlePasswordChange = async (e) => {
       
     } catch (error) {
       console.error('비밀번호 변경 요청 실패:', error);
-      const detail = error.response?.data?.detail;
-      const errorDetail = Array.isArray(detail)
-        ? detail.map((item) => item.msg).join(', ')
-        : detail || error.response?.data?.message || error.message || '비밀번호 변경 실패';
+      // 400: 현재 비밀번호 틀림 · 429: 시도 횟수 초과 · 422: 입력값 오류 → 서버 사유를 그대로
+      const errorDetail = typeof error.response?.data?.detail !== 'string' && typeof error.response?.data?.message === 'string'
+        ? error.response.data.message
+        : apiErrorMessage(error, '비밀번호 변경에 실패했습니다.');
       notifications.show({
         title: '변경 실패',
         message: errorDetail,
@@ -567,26 +629,22 @@ const handlePasswordChange = async (e) => {
   const handleLogout = () =>{
     clearAIOrderPageSession();
     clearAIOrderDraft();
-    ['access_token', 'user_name', 'user_email', 'user_company', 'user_companyname', 'user_authority']
-      .forEach((key) => localStorage.removeItem(key));
+    logoutOnServer();   // 서버 세션도 끊는다 (기다리지 않음 · 실패해도 무시)
+    clearAuthStorage();
     navigate('/login');
   }
 
 
 const isPlatformMaster = currentCompanyId === '001' && currentAuthority === 'MASTER';
+// AI 업무비서: 지금은 모스코(001) 직원 중 메뉴권한(AI_ASSISTANT)이 있는 사람만 (서버도 같은 조건으로 막는다)
+const canUseAssistant = currentCompanyId === '001' && (isPlatformMaster || (myPermissionsLoaded && myPermissions.includes('AI_ASSISTANT')));
 const canSeeMenu = (link) => {
-  // 고객사등록 · 라이선스 매출현황: 플랫폼 운영사(001 MASTER)만
-  if (link.link === '/Company' || link.link === '/LicenseRevenue') return isPlatformMaster;
-  // 타사 재고현황: 모스코(001) 계정이면 권한과 상관없이, 다른 고객사는 숨김
-  if (link.link === '/SharedStock') return currentCompanyId === '001';
-  // 통제관리: 메뉴 권한이 있거나, 통제 설정에서 승인자로 지정된 직원
+  // 모든 메뉴는 메뉴권한으로 (모스코 전용 메뉴는 모스코 직원만 받을 수 있다 — 서버가 막음). 모스코 MASTER 는 전체.
+  // 통제관리: 메뉴 권한이 없어도 통제 설정에서 승인자로 지정된 직원은 보인다
   if (link.link === '/ControlManagement' && controlSummary?.is_approver) return true;
-  // 고객사관리 · 고객사 메뉴권한: 플랫폼 관리자(001 MASTER)와 고객사 관리자(001 이외 SUBMASTER)만 (서버 규칙과 같게)
-  if (link.link === '/User' || link.link === '/UserMenu') return isPlatformMaster || (currentAuthority === 'SUBMASTER' && currentCompanyId !== '001');
-  // 사용자관리: 관리자(고객사 관리자 · 플랫폼 관리자)는 항상, 그 밖에는 메뉴 권한을 받은 계정만
-  if (link.link === '/UserInfo' && (currentAuthority === 'SUBMASTER' && currentCompanyId !== '001')) return true;
   if (isPlatformMaster) return true;
-  return !link.MenuID || myPermissions.includes(link.MenuID);
+  const required = link.access || link.MenuID;   // access: 다른 메뉴의 권한을 그대로 쓰는 화면 (예: 휴가현황 = 전자결재)
+  return !required || myPermissions.includes(required);
 };
 // 화면이 아직 없는 메뉴(disabled)는 비활성으로 보인다. 섹션은 비활성 메뉴만 있어도 보이지만,
 // 대메뉴는 실제로 열 수 있는 화면이 하나도 없으면 숨긴다 (예: 권한 없는 사용자의 어드민).
@@ -612,6 +670,12 @@ useEffect(() => {
     navigate(firstAccessiblePath, { replace: true });
   }
 }, [currentAuthority, firstAccessiblePath, isDashboard, isPlatformMaster, myPermissions, myPermissionsLoaded, navigate]);
+
+// 로그인 후 브라우저가 한가할 때, 열 수 있는 메뉴 화면 코드를 메뉴 순서대로(매입 → 매출 → …) 미리 받아 둔다 → 처음 눌러도 바로 열린다
+const preloadPathList = (myPermissionsLoaded || isPlatformMaster)
+  ? flattenMenuLinks(visibleMockdata).filter((item) => item.link && !item.disabled).map((item) => item.link).join('|')
+  : '';
+useEffect(() => (preloadPathList ? preloadPagesWhenIdle(preloadPathList.split('|')) : undefined), [preloadPathList]);
 
 
 // 대시보드 권한이 없으면 대시보드 화면을 띄우지 않고 안내 문구만 보인다
@@ -690,8 +754,9 @@ const menuAccessContextValue = useMemo(() => ({
             {ribbons[pathname] ?? null}
           </Box>
           <span className={classes.hsep} aria-hidden="true" />
-          {controlSummary?.active && <ApprovalBell summary={controlSummary}
-            onOpen={(item) => navigate(`/ControlManagement?tab=${controlSummary.can_manage || controlSummary.is_approver ? 'inbox' : 'mine'}`, { state: { request: item || null } })} />}
+          {(controlSummary?.active || eapprSummary?.enabled) && <ApprovalBell summary={controlSummary?.active ? controlSummary : null} eappr={eapprSummary?.enabled ? eapprSummary : null}
+            onOpen={(item) => navigate(`/ControlManagement?tab=${controlSummary.can_manage || controlSummary.is_approver ? 'inbox' : 'mine'}`, { state: { request: item || null } })}
+            onOpenEappr={(item) => navigate('/EApproval?tab=inbox', { state: { doc: item || null } })} />}
           <Menu position="bottom-end" offset={8} width={248} shadow="md" withinPortal classNames={{ dropdown: classes.umenu }}>
             <Menu.Target>
               <button type="button" className={classes.ubtn} aria-label="사용자 메뉴">
@@ -712,11 +777,26 @@ const menuAccessContextValue = useMemo(() => ({
           </Menu>
         </div>
 
+        <ConfirmDeleteModal opened={Boolean(pendingClose)} onClose={() => setPendingClose(null)}
+          onConfirm={() => {
+            const target = pendingClose;
+            setPendingClose(null);
+            if (target?.kind === 'all') closeAllTabs(true);
+            else if (target?.path) closePageTab(null, target.path, true);
+          }}
+          showIcon={false} title={pendingClose?.kind === 'all' ? '저장하지 않은 화면이 있습니다' : '저장하지 않은 변경이 있습니다'}
+          target={pendingClose?.kind === 'one' ? findMenuLabel(mockdata, pendingClose.path) : undefined}
+          message="닫으면 저장하지 않은 내용이 사라집니다." note="그래도 닫을까요?" confirmLabel="닫기" />
+
         <ConfirmDeleteModal opened={Boolean(approvalNotice)} onClose={() => setApprovalNotice(null)}
-          onConfirm={() => { setApprovalNotice(null); navigate('/ControlManagement?tab=mine'); }}
-          icon={<IconHourglass size={24} stroke={1.8} />} title={`${approvalNotice?.label ? `${approvalNotice.label} ` : ''}승인을 요청했어요`}
-          target={approvalNotice?.requestno} message="승인되면 자동으로 반영돼요."
-          note="진행 상황은 내 요청에서 확인할 수 있어요." cancelLabel="닫기" confirmLabel="내 요청 보기" />
+          onConfirm={() => {   // 내 요청 탭을 열고 방금 올린 요청을 골라 둔다
+            const requestno = approvalNotice?.requestno;
+            setApprovalNotice(null);
+            navigate('/ControlManagement?tab=mine', { state: { request: requestno ? { requestno } : null } });
+          }}
+          icon={<IconHourglass size={24} stroke={1.8} />} title={`${approvalNotice?.label ? `${approvalNotice.label} ` : ''}승인을 요청했습니다`}
+          target={approvalNotice?.requestno} message={approvalNotice?.reason_text ? `${approvalNotice.reason_text} 승인 후 자동으로 반영됩니다.` : "승인 후 자동으로 반영됩니다."}
+          note="진행 상황은 내 요청에서 확인할 수 있습니다." cancelLabel="닫기" confirmLabel="내 요청 보기" />
 
         <Modal opened={pwModalOpened} onClose={closePwModal} centered size={380} withCloseButton={false} padding={0} radius={16}
           overlayProps={{ backgroundOpacity: 0.2 }} classNames={{ content: classes.pwModal }}>
@@ -819,7 +899,7 @@ const menuAccessContextValue = useMemo(() => ({
                 })}
                 <div className={classes.moreTabsDivider} />
               </>}
-              <Menu.Item className={classes.closeAllItem} onClick={closeAllTabs} disabled={!workTabs.length}>탭 모두 닫기</Menu.Item>
+              <Menu.Item className={classes.closeAllItem} onClick={() => closeAllTabs()} disabled={!workTabs.length}>탭 모두 닫기</Menu.Item>
             </Menu.Dropdown>
           </Menu>
         </div>
@@ -840,6 +920,7 @@ const menuAccessContextValue = useMemo(() => ({
           </MenuAccessContext.Provider>
         </div>
       </AppShell.Main>
+      {canUseAssistant && <AIAssistant />}
     </AppShell>
   </>
   );
@@ -860,13 +941,16 @@ const bellTime = (value) => {
 };
 const bellWon = (value) => (value === null || value === undefined ? '' : `${Math.round(Number(value)).toLocaleString('ko-KR')}원`);
 
-function ApprovalBell({ summary, onOpen }) {
+function ApprovalBell({ summary, eappr, onOpen, onOpenEappr }) {
   const [opened, setOpened] = useState(false);
-  const approverView = summary.can_manage || summary.is_approver;
-  const count = approverView ? summary.pending : summary.my_rejected;
-  const items = summary.items || [];
-  const label = approverView ? `승인 대기 ${summary.pending}건` : `내 요청 · 최근 반려 ${summary.my_rejected}건`;
+  const approverView = Boolean(summary && (summary.can_manage || summary.is_approver));
+  const controlCount = summary ? (approverView ? summary.pending : summary.my_rejected) : 0;
+  const eapprCount = eappr ? (eappr.todo || 0) : 0;
+  const count = controlCount + eapprCount;
+  const items = summary?.items || [];
+  const label = [summary && (approverView ? `승인 대기 ${summary.pending}건` : `최근 반려 ${summary.my_rejected}건`), eappr && `결재할 문서 ${eapprCount}건`].filter(Boolean).join(' · ');
   const open = (item) => { setOpened(false); onOpen(item); };
+  const openEappr = (item) => { setOpened(false); onOpenEappr(item); };
   return <Popover opened={opened} onChange={setOpened} position="bottom-end" offset={8} width={360} shadow="md" withinPortal>
     <Popover.Target>
       <button type="button" className={classes.bell} title={label} aria-label={label} onClick={() => setOpened((value) => !value)}>
@@ -875,30 +959,52 @@ function ApprovalBell({ summary, onOpen }) {
       </button>
     </Popover.Target>
     <Popover.Dropdown className={classes.bellPanel}>
-      <div className={classes.bellHead}>
-        <b>{approverView ? '승인 대기' : '내 요청'}</b>
-        {approverView && summary.pending > 0 && <span>{summary.pending}건</span>}
-      </div>
-      <div className={classes.bellList}>
-        {items.map((item) => <button key={item.requestno} type="button" className={classes.bellItem} onClick={() => open(item)}>
-          <span className={`${classes.bellDot} ${classes[`bell_${BELL_STATUS[item.status] || 'muted'}`]}`} aria-hidden="true" />
-          <span className={classes.bellBody}>
-            <span className={classes.bellTitle}>
-              <b>{item.target_label} {item.action_label}</b>
-              {!approverView && <em className={classes[`bellTag_${BELL_STATUS[item.status] || 'muted'}`]}>{item.status_label}</em>}
-              <i>{bellTime(item.decided_at || item.requested_at)}</i>
+      {/* 전자결재: 내가 결재할 문서 */}
+      {eappr && <>
+        <div className={classes.bellHead}>
+          <b>결재할 문서</b>
+          {eapprCount > 0 && <span>{eapprCount}건</span>}
+        </div>
+        <div className={classes.bellList}>
+          {(eappr.items || []).map((item) => <button key={item.docno} type="button" className={classes.bellItem} onClick={() => openEappr(item)}>
+            <span className={`${classes.bellDot} ${classes.bell_wait}`} aria-hidden="true" />
+            <span className={classes.bellBody}>
+              <span className={classes.bellTitle}><b>{item.formname}</b><i>{bellTime(item.submitted_at)}</i></span>
+              <span className={classes.bellSummary}>{item.title}</span>
+              <span className={classes.bellMeta}>{item.writer_name}{item.writer_team ? ` · ${item.writer_team}` : ''}<b>{item.step_done + 1}/{item.step_total}차</b></span>
             </span>
-            <span className={classes.bellSummary}>{item.summary}</span>
-            <span className={classes.bellMeta}>
-              {approverView ? item.requested_name : item.decided_name ? `${item.decided_name} 처리` : '승인 대기 중'}
-              {item.amount !== null && item.amount !== undefined && <b>{bellWon(item.amount)}</b>}
+          </button>)}
+          {!eapprCount && <div className={classes.bellEmpty}>결재할 문서가 없습니다{eappr.my_rejected ? ` · 최근 반려 ${eappr.my_rejected}건` : ''}</div>}
+        </div>
+        <button type="button" className={classes.bellFoot} onClick={() => openEappr(null)}>전자결재에서 모두 보기</button>
+      </>}
+      {/* 통제관리 승인 */}
+      {summary && <>
+        <div className={classes.bellHead}>
+          <b>{approverView ? '승인 대기' : '내 요청'}</b>
+          {approverView && summary.pending > 0 && <span>{summary.pending}건</span>}
+        </div>
+        <div className={classes.bellList}>
+          {items.map((item) => <button key={item.requestno} type="button" className={classes.bellItem} onClick={() => open(item)}>
+            <span className={`${classes.bellDot} ${classes[`bell_${BELL_STATUS[item.status] || 'muted'}`]}`} aria-hidden="true" />
+            <span className={classes.bellBody}>
+              <span className={classes.bellTitle}>
+                <b>{item.target_label} {item.action_label}</b>
+                {!approverView && <em className={classes[`bellTag_${BELL_STATUS[item.status] || 'muted'}`]}>{item.status_label}</em>}
+                <i>{bellTime(item.decided_at || item.requested_at)}</i>
+              </span>
+              <span className={classes.bellSummary}>{item.summary}</span>
+              <span className={classes.bellMeta}>
+                {approverView ? item.requested_name : item.decided_name ? `${item.decided_name} 처리` : '승인 대기 중'}
+                {item.amount !== null && item.amount !== undefined && <b>{bellWon(item.amount)}</b>}
+              </span>
+              {!approverView && item.reject_reason && <span className={classes.bellReason}>{item.reject_reason}</span>}
             </span>
-            {!approverView && item.reject_reason && <span className={classes.bellReason}>{item.reject_reason}</span>}
-          </span>
-        </button>)}
-        {!items.length && <div className={classes.bellEmpty}>{approverView ? '대기 중인 요청이 없어요' : '최근 요청이 없어요'}</div>}
-      </div>
-      <button type="button" className={classes.bellFoot} onClick={() => open(null)}>통제관리에서 모두 보기</button>
+          </button>)}
+          {!items.length && <div className={classes.bellEmpty}>{approverView ? '대기 중인 요청이 없습니다' : '최근 요청이 없습니다'}</div>}
+        </div>
+        <button type="button" className={classes.bellFoot} onClick={() => open(null)}>통제관리에서 모두 보기</button>
+      </>}
     </Popover.Dropdown>
   </Popover>;
 }

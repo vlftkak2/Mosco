@@ -10,7 +10,7 @@ from services.masterdata import LicenseRevenue as license_revenue_module
 router = APIRouter(
     prefix="/api/license-revenue",
     tags=["license-revenue"],
-    dependencies=[Depends(security_module.require_platform_admin)],
+    dependencies=[Depends(security_module.audit_platform_access), Depends(security_module.require_platform_company), Depends(security_module.require_menu_access("LICENSE_REVENUE"))],   # 모스코 전용 메뉴
 )
 
 

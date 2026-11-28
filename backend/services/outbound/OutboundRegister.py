@@ -3,11 +3,12 @@ from psycopg2.extras import execute_values
 from services.ai.stock_links import ensure_not_linked, linked_orders_sql
 from services.closing import MonthClose as month_close_module
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
 from psycopg2 import IntegrityError
+import idempotency
 import db as _shared_db
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -54,8 +55,8 @@ class OutboundDetailInput(BaseModel):
 class OutboundExpenseInput(BaseModel):
     costcode: str = Field(default="", max_length=50)
     costname: str = Field(min_length=1, max_length=100)
-    supplyamt: Decimal = Field(ge=0, max_digits=15, decimal_places=3)
-    vat: Decimal = Field(ge=0, max_digits=15, decimal_places=3)
+    supplyamt: Decimal = Field(ge=0, max_digits=15, decimal_places=2)   # 금액은 소수 둘째 자리까지
+    vat: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
     customcode: str = Field(default="", max_length=100)
     customname: str = Field(default="", max_length=150)
     purchaseyn: str = Field(default="N", pattern="^[YN]$")
@@ -78,6 +79,8 @@ class OutboundSaveRequest(BaseModel):
     is_new: bool = False
     items: list[OutboundDetailInput] = Field(min_length=1, max_length=10000)
     expenses: list[OutboundExpenseInput] = Field(default_factory=list, max_length=1000)
+    request_key: str | None = Field(default=None, max_length=64)   # 중복 저장 방지 (화면이 새 전표마다 만드는 UUID)
+    expected_updated_at: str | None = Field(default=None, max_length=40)   # 동시 수정 감지 (전표를 열 때의 수정시각)
 
     @field_validator("receiptno", "customcode", "customname", "manager", "destination", "description")
     @classmethod
@@ -436,7 +439,35 @@ def get_receipt(companyid: str, receiptno: str):
             (companyid, receiptno),
         )
         header["expenses"] = [_row_dict(cursor, row) for row in cursor.fetchall()]
+        header.update(_edit_state(cursor, companyid, receiptno, header))
     return header
+
+
+def _edit_state(cursor, companyid: str, receiptno: str, header: dict) -> dict:
+    """화면이 저장된 매출전표의 칸(매출일자 · 단가 · 담당자 · 착지 · 재고 추가 · 삭제)을 열지 정하는 값.
+    서버의 수정 · 삭제 검사와 같은 조건: 수불 확정 / 월마감 / 승인 대기 요청. (저장할 때 서버가 다시 검사한다)
+      edit_lock      : 막는 사유 (없으면 None = 수정 가능)
+      min_receptdate : 바꿀 수 있는 가장 이른 매출일자 = max(마감 다음날, 품목 재고 중 가장 늦은 입고일)"""
+    lock = None
+    if str(header.get("subulyn") or "N").strip().upper() in {"Y", "YES", "확정"}:
+        lock = "수불 확정된 전표입니다."
+    through = month_close_module.closed_through(cursor, companyid)
+    receptdate = header.get("receptdate")
+    if not lock and through and receptdate and receptdate <= through:
+        lock = f"{through:%Y-%m}월까지 마감되어 수정할 수 없습니다."
+    if not lock:
+        cursor.execute(
+            """SELECT requestno FROM approval_request01t
+               WHERE companyid = %s AND target = 'OUTBOUND' AND ref_no = %s AND status IN ('PENDING', 'PROCESSING')
+               ORDER BY createdat LIMIT 1""",
+            (companyid, receiptno),
+        )
+        row = cursor.fetchone()
+        if row:
+            lock = f"승인 대기 중인 요청({row[0]})이 있어 수정할 수 없습니다."
+    stock_dates = [item.get("receiptdate") for item in header.get("items") or [] if item.get("receiptdate")]
+    floor = [d for d in (max(stock_dates) if stock_dates else None, (through + timedelta(days=1)) if through else None) if d]
+    return {"edit_lock": lock, "min_receptdate": max(floor).isoformat() if floor else None}
 
 
 def _next_receiptno(cursor, companyid: str) -> str:
@@ -451,12 +482,29 @@ def _next_receiptno(cursor, companyid: str) -> str:
         """SELECT COALESCE(MAX(substring(receiptno FROM %s)::bigint), 0)
            FROM Outbound01t
            WHERE companyid = %s
-             AND LEFT(receiptno, %s) = %s
+             AND receiptno LIKE %s   -- 접두어 검색: (companyid, receiptno varchar_pattern_ops) 인덱스로 그날 번호만 읽는다
              AND substring(receiptno FROM %s) ~ '^[0-9]{1,18}$'""",
-        (suffix_start, companyid, len(prefix), prefix, suffix_start),
+        (suffix_start, companyid, prefix + "%", suffix_start),
     )
     next_sequence = cursor.fetchone()[0] + 1
     return f"{prefix}{next_sequence:05d}"
+
+
+def _ensure_not_half_empty(source_key, demand: dict, stock: dict) -> None:
+    """판매 뒤 로트에 수량만 0 이거나 중량만 0 인 잔량이 남으면 그 재고(와 원가)는 다시 팔 수 없게 된다 → 저장 전에 막는다.
+    예) 10개 · 1000kg 에서 10개 · 990kg 판매 → 수량 0 · 중량 10kg 이 남음 → 조정중량으로 1000kg 을 맞추라고 안내."""
+    left_qty = Decimal(str(stock["qty"])) - demand["qty"]
+    left_weight = Decimal(str(stock["weight"])) - demand["weight"]
+    if left_qty == 0 and left_weight > 0:
+        raise ValueError(
+            f"원천 재고 {source_key[1]}/{source_key[2]}의 수량을 모두 매출하면 중량 {left_weight:,}이(가) 남아 다시 팔 수 없습니다. "
+            f"중량을 잔량 전부({Decimal(str(stock['weight'])):,})로 맞추거나 조정중량으로 차이를 넣어 주세요."
+        )
+    if left_weight == 0 and left_qty > 0:
+        raise ValueError(
+            f"원천 재고 {source_key[1]}/{source_key[2]}의 중량을 모두 매출하면 수량 {left_qty:,}이(가) 남아 다시 팔 수 없습니다. "
+            f"수량을 잔량 전부({Decimal(str(stock['qty'])):,})로 맞춰 주세요."
+        )
 
 
 def _ensure_not_before_receipt(outbound_date, stock: dict):
@@ -710,6 +758,7 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict, ac
 
     try:
         with _connect() as connection, connection.cursor() as cursor:
+            idempotency.claim(cursor, companyid, payload, "OUTBOUND", actor)
             # Shared company stock lock: inbound/outbound saves run concurrently with each other
             # (stock rows are row-locked), while opening stock / transfer / processing still take
             # the exclusive lock and therefore never overlap with them (same as before).
@@ -786,10 +835,14 @@ def _save_new_receipt_groups(companyid: str, companyname: str, payload: dict, ac
                 item["_source_key"] = source_key
                 item["_warehousecode"] = (stock.get("warehousecode") or "").strip()
 
+            # 승인 통제: 다른 승인요청에 예약된 재고는 쓸 수 없다
+            reservation_module.ensure_not_reserved(
+                cursor, companyid, {key: (d["qty"], d["weight"]) for key, d in demands.items()})
             for source_key, demand in demands.items():
                 stock = demand["stock"]
                 if demand["qty"] > Decimal(str(stock["qty"])) or demand["weight"] > Decimal(str(stock["weight"])):
                     raise ValueError(f"원천 재고 {source_key[1]}/{source_key[2]}의 매출량이 잔량을 초과합니다.")
+                _ensure_not_half_empty(source_key, demand, stock)
 
             # One save creates one sales receipt keyed by the header (출고일자 / 매출처).
             # Detail lines keep their own source-stock warehouse, so a receipt may span warehouses.
@@ -943,6 +996,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
                     "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                     (f"outbound:{companyid}:{receiptno}",),
                 )
+                idempotency.ensure_unchanged(cursor, "OUTBOUND", companyid, receiptno, payload)
 
             cursor.execute(
                 """SELECT groupcode, code, code_name FROM CodeMaster01t
@@ -986,13 +1040,16 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
 
             # 원래 전표에 있던 원천 재고 (주문 연결 검사에서 제외) — 상세를 지우기 전에 읽는다
             existing_sources = set()
+            existing_usage = {}   # 원래 전표가 쓰던 재고량 (예약 재고라도 이만큼은 그대로 둘 수 있다)
             if existing:
                 cursor.execute(
-                    """SELECT DISTINCT UPPER(stocksourcetype), stocksourceno, stocksourceline
-                       FROM Outbound02t WHERE companyid = %s AND receiptno = %s""",
+                    """SELECT UPPER(stocksourcetype), stocksourceno, stocksourceline, SUM(qty), SUM(weight)
+                       FROM Outbound02t WHERE companyid = %s AND receiptno = %s
+                       GROUP BY 1, 2, 3""",
                     (companyid, receiptno),
                 )
-                existing_sources = {(t, n, int(l)) for t, n, l in cursor.fetchall()}
+                existing_usage = {(t, n, int(l)): (q or 0, w or 0) for t, n, l, q, w in cursor.fetchall()}
+                existing_sources = set(existing_usage)
 
             if existing:
                 current_stock_module.reverse_document(cursor, companyid, "OUT", receiptno, actor=actor)
@@ -1054,6 +1111,8 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
                 demand["qty"] += Decimal(str(item["qty"]))
                 demand["weight"] += Decimal(str(item["weight"]))
 
+            reservation_module.ensure_not_reserved(
+                cursor, companyid, {key: (d["qty"], d["weight"]) for key, d in demands.items()}, existing_usage)
             for source_key, demand in demands.items():
                 stock = demand["stock"]
                 if demand["qty"] > Decimal(str(stock["qty"])) or demand["weight"] > Decimal(str(stock["weight"])):
@@ -1061,6 +1120,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
                         f"원천 재고 {source_key[1]}/{source_key[2]} 잔량을 초과했습니다. "
                         f"수량 {stock['qty']}, 중량 {stock['weight']} 안에서 매출해 주세요."
                     )
+                _ensure_not_half_empty(source_key, demand, stock)
 
             detail_values = []
             stock_lines = []

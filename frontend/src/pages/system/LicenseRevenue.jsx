@@ -6,7 +6,7 @@
 //  ③ 고객사별 매출: 분기별 / 월별 탭 · 이번 달 금액 큰 순 · 12곳씩 페이지
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { Box, Loader, Pagination, Paper, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconBuildingSkyscraper, IconCalendarStats, IconCoin, IconLicense } from '@tabler/icons-react';
@@ -18,12 +18,15 @@ import searchClasses from '../../styles/pages/InboundSearch.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/LicenseRevenue.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
+import { ColumnResizeHandle, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
+import { apiErrorMessage } from '../../utils/apiError';
+import { yearKST } from '../../utils/dateFormat';
 
 const pad = (value) => String(value).padStart(2, '0');
 const toDate = (value) => `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
 // 기본 조회기간: 올해 1월 1일 ~ 12월 31일 (해가 바뀌면 그해로)
 const defaultPeriod = () => {
-  const year = new Date().getFullYear();
+  const year = yearKST();
   return { date_from: `${year}-01-01`, date_to: `${year}-12-31` };
 };
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
@@ -54,12 +57,18 @@ function Section({ title, sub, tools, children, className = '' }) {
     <div className={classes.panelBody}>{children}</div>
   </Paper>;
 }
+// 칸 너비 조절: 머리글 오른쪽 끝을 끌면 바뀌고 두 번 누르면 원래대로 (월 칸은 처음엔 모두 같은 너비)
+// 순위 칸은 옆 고객사 칸의 고정 위치(left: 52px)가 어긋나지 않게 너비를 바꾸지 않는다.
+const RANK = { key: 'rank', label: '순위', width: 52, fixed: true };
+function ResizeHead({ column, cols, className = '', children, title }) {
+  return <th className={`${className} ${column.fixed ? '' : pickerClasses.resizableHead}`} title={title}>
+    {children}{column.fixed ? null : <ColumnResizeHandle column={column} columns={cols} />}
+  </th>;
+}
+const ColGroup = ({ columns, cols }) => <colgroup>{columns.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: cols.widthOf(column) }} />)}</colgroup>;
+const gridStyle = (cols) => ({ width: `max(100%, ${cols.tableWidth}px)`, tableLayout: 'fixed' });
 const Empty = ({ loading, text = '데이터가 없습니다.' }) => <div className={classes.empty}>{loading ? <Loader size="sm" color="red" /> : text}</div>;
 
-// 월 머리글: 이번 달(확정 전)은 '(예정)'
-const MonthHead = ({ month, current }) => <th className={`${classes.num} ${month >= current ? classes.estimatedHead : ''}`}>
-  {monthNo(month)}월{month >= current ? <small>(예정)</small> : null}
-</th>;
 
 // 지난달 대비: '30만원 증가' / '10만원 감소' / '변동 없음'
 const changeText = (diff) => (!diff ? <span className={classes.flat}>변동 없음</span>
@@ -68,6 +77,9 @@ const changeText = (diff) => (!diff ? <span className={classes.flat}>변동 없�
 // ② 월별 요약 (월 = 열)
 function SummaryTable({ data }) {
   const { trend, current_month: current } = data;
+  const columns = useMemo(() => [{ key: 'label', label: '구분', width: 120 }, ...trend.map((row) => ({ key: row.month, label: `${monthNo(row.month)}월`, width: 108 })),
+    { key: 'total', label: '기간 합계', width: 130 }], [trend]);
+  const cols = useResizableColumns(columns);
   const sum = (key) => trend.reduce((total, row) => total + toNumber(row[key]), 0);
   const rows = [
     { label: '매출', strong: true, cell: (row) => won(row.total), total: won(sum('total')) },
@@ -78,11 +90,14 @@ function SummaryTable({ data }) {
     { label: '라이선스', cell: (row) => `${toNumber(row.quantity).toLocaleString('ko-KR')}개`, total: '' },
   ];
   return <div className={classes.summaryScroll}>
-    <table className={`${classes.table} ${classes.summaryTable}`}>
+    <table className={`${classes.table} ${classes.summaryTable}`} style={gridStyle(cols)}>
+      <ColGroup columns={columns} cols={cols} />
       <thead><tr>
-        <th className={classes.stickyCol}>구분</th>
-        {trend.map((row) => <MonthHead key={row.month} month={row.month} current={current} />)}
-        <th className={`${classes.num} ${classes.totalCol}`}>기간 합계</th>
+        <ResizeHead column={columns[0]} cols={cols} className={classes.stickyCol}>구분</ResizeHead>
+        {trend.map((row, index) => <ResizeHead key={row.month} column={columns[index + 1]} cols={cols} className={`${classes.num} ${row.month >= current ? classes.estimatedHead : ''}`}>
+          {monthNo(row.month)}월{row.month >= current ? <small>(예정)</small> : null}
+        </ResizeHead>)}
+        <ResizeHead column={columns[columns.length - 1]} cols={cols} className={`${classes.num} ${classes.totalCol}`}>기간 합계</ResizeHead>
       </tr></thead>
       <tbody>{rows.map((item) => <tr key={item.label} className={item.strong ? classes.strongRow : ''}>
         <td className={classes.stickyCol}>{item.label}</td>
@@ -132,6 +147,12 @@ function CompanySection({ data }) {
   const grandTotal = rows.reduce((sum, row) => sum + toNumber(row.total), 0);
   const columnSum = (row, column) => column.indexes.reduce((sum, index) => sum + toNumber(row.amounts[index]), 0);
   const startRank = (safePage - 1) * PAGE_SIZE;
+  const gridColumns = useMemo(() => [RANK, { key: 'name', label: '고객사', width: 170 }, { key: 'status', label: '상태', width: 84 },
+    { key: 'period', label: '계약 기간', width: 150 }, { key: 'quantity', label: '라이선스', width: 90 },
+    ...columns.map((column) => ({ key: `${view}-${column.key}`, label: column.label, width: view === 'quarter' ? 130 : 108 })),
+    { key: 'total', label: '합계', width: 124 }, { key: 'share', label: '비중', width: 76 }], [columns, view]);
+  const cols = useResizableColumns(gridColumns);
+  const head = (index) => gridColumns[index];
 
   return <Section title="고객사별 매출" className={classes.companyPanel}
     tools={<div className={classes.viewTabs} role="tablist" aria-label="보기">
@@ -140,16 +161,20 @@ function CompanySection({ data }) {
     </div>}>
     <div className={classes.companyBody}>
       <div className={classes.tableScroll}>
-        <table className={classes.table}>
+        <table className={classes.table} style={gridStyle(cols)}>
+          <ColGroup columns={gridColumns} cols={cols} />
           <thead><tr>
-            <th className={classes.rankCol}>순위</th>
-            <th className={classes.stickyCol}>고객사</th><th>상태</th><th>계약 기간</th><th className={classes.num}>라이선스</th>
-            {columns.map((column) => <th key={column.key} className={`${classes.num} ${column.estimated ? classes.estimatedHead : ''}`}
+            <ResizeHead column={head(0)} cols={cols} className={classes.rankCol}>순위</ResizeHead>
+            <ResizeHead column={head(1)} cols={cols} className={classes.stickyCol}>고객사</ResizeHead>
+            <ResizeHead column={head(2)} cols={cols}>상태</ResizeHead>
+            <ResizeHead column={head(3)} cols={cols}>계약 기간</ResizeHead>
+            <ResizeHead column={head(4)} cols={cols} className={classes.num}>라이선스</ResizeHead>
+            {columns.map((column, index) => <ResizeHead key={column.key} column={head(5 + index)} cols={cols} className={`${classes.num} ${column.estimated ? classes.estimatedHead : ''}`}
               title={view === 'quarter' ? `${column.months.map((month) => `${monthNo(month)}월`).join(' · ')}${column.estimated ? ' · 확정 전 달 포함' : ''}` : undefined}>
               {column.label}{column.estimated ? <small>(예정)</small> : null}
-            </th>)}
-            <th className={`${classes.num} ${classes.totalCol}`}>합계</th>
-            <th className={`${classes.num} ${classes.totalCol}`}>비중</th>
+            </ResizeHead>)}
+            <ResizeHead column={head(gridColumns.length - 2)} cols={cols} className={`${classes.num} ${classes.totalCol}`}>합계</ResizeHead>
+            <ResizeHead column={head(gridColumns.length - 1)} cols={cols} className={`${classes.num} ${classes.totalCol}`}>비중</ResizeHead>
           </tr></thead>
           <tbody>{pageRows.length ? pageRows.map((row, index) => {
             const status = statusOf(row);
@@ -201,7 +226,7 @@ export default function LicenseRevenue() {
       const response = await axios.get('/api/license-revenue', { ...authConfig(), params });
       if (requestId === requestRef.current) setData(response.data);
     } catch (error) {
-      if (requestId === requestRef.current) notifications.show({ title: '라이선스 매출 조회 실패', message: error.response?.data?.detail || '라이선스 매출을 불러오지 못했습니다.', color: 'red' });
+      if (requestId === requestRef.current) notifications.show({ title: '라이선스 매출 조회 실패', message: apiErrorMessage(error, '라이선스 매출을 불러오지 못했습니다.'), color: 'red' });
     } finally {
       if (requestId === requestRef.current) setLoading(false);
     }
@@ -230,8 +255,10 @@ export default function LicenseRevenue() {
   }, [picker, period.customer, inputs, apply]);
 
   // 엑셀: 월별 요약 + 고객사별 두 시트 (화면과 같은 말)
-  const exportExcel = useCallback(() => {
+  const exportExcel = useCallback(async () => {
     if (!data?.companies?.length) { notifications.show({ title: '엑셀 데이터 없음', message: '다운로드할 데이터가 없습니다.', color: 'orange' }); return; }
+    const XLSX = await loadXLSXOrNotify();
+    if (!XLSX) return;
     const workbook = XLSX.utils.book_new();
     const addSheet = (rows, name) => {
       const sheet = XLSX.utils.json_to_sheet(rows);

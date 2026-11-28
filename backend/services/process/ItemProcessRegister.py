@@ -6,6 +6,7 @@ from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP
 import json
 
 from services.ai.stock_links import _allocate, allocate_coil_run, ensure_not_linked, linked_orders_sql, plan_outstanding_sql
+import idempotency
 import db as _shared_db
 from services.ai import sheet_alloc as SA
 from services.closing import MonthClose as month_close_module
@@ -102,6 +103,8 @@ class ProcessSaveRequest(BaseModel):
     sources: list[SourceInput] = Field(min_length=1, max_length=1000)
     # 가공 최적화 확정 계획의 몇 차 가공인지 (계획 불러오기로 만든 전표)
     planno: str | None = Field(default=None, max_length=30)   # 계획 1개 = 가공전표 1장 (모든 차수를 한 전표에)
+    request_key: str | None = Field(default=None, max_length=64)   # 중복 저장 방지 (화면이 새 전표마다 만드는 UUID)
+    expected_updated_at: str | None = Field(default=None, max_length=40)   # 동시 수정 감지 (전표를 열 때의 수정시각)
 
     @field_validator("processno", "customcode", "customname", "warehousecode", "warehousecodename", "manager", "description")
     @classmethod
@@ -251,7 +254,8 @@ def list_available_stock(
             where.append(f"{column} = %s")
             params.append(value)
     with _connect() as connection, connection.cursor() as cursor:
-        cursor.execute(f"SELECT COUNT(*) FROM CurrentStock01t WHERE {' AND '.join(where)}", params)
+        # 별칭 stock 필요: 예약 제외 조건(not_reserved_sql("stock"))이 stock.* 를 쓴다 (없으면 조회가 항상 실패)
+        cursor.execute(f"SELECT COUNT(*) FROM CurrentStock01t AS stock WHERE {' AND '.join(where)}", params)
         total = cursor.fetchone()[0]
         cursor.execute(
             f"""SELECT sourcetype, sourceno, sourceline, receiptdate, customcode, customname,
@@ -1068,12 +1072,15 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
         # 입고·출고·기초재고와 같은 회사별 재고 잠금을 공유해 동시 차감 순서를 직렬화한다.
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         processno = str(payload.get("processno") or "").strip()
+        if not processno:
+            idempotency.claim(cursor, companyid, payload, "PROCESS", actor)
         # 수정이면 원래 가공일과 바뀐 가공일 둘 다 마감 전이어야 한다
         original_date = None
         if processno:
             cursor.execute("SELECT processdate FROM Process01t WHERE companyid=%s AND processno=%s", (companyid, processno))
             found = cursor.fetchone()
             original_date = found[0] if found else None
+            idempotency.ensure_unchanged(cursor, "PROCESS", companyid, processno, payload)
         month_close_module.ensure_open(cursor, companyid, [payload["processdate"], original_date],
                                        "수정" if processno else "등록")
         # 등록자/수정자: a new document is created by `actor`; an edited document keeps its original creator

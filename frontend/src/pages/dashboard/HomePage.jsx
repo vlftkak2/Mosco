@@ -3,7 +3,7 @@
 //   매출 · 매출이익 · 월별 추이 = 매출이익 현황, 미수금 = 거래처 잔액 현황, 매입 = 매입 전표 공급가액,
 //   장기재고 = 현재고의 입고일 · 기초재고일부터 오늘까지 경과일.
 // 매출이익 · 미수금은 그 메뉴 권한이 있는 사용자에게만 보인다.
-import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { Loader, Paper, Text, TextInput } from '@mantine/core';
@@ -13,10 +13,7 @@ import {
   IconCloudRain, IconCloudStorm, IconCoins, IconDroplet, IconExternalLink, IconNews, IconSearch, IconShoppingCart, IconSnowflake,
   IconSun, IconSunHigh, IconTrendingUp, IconUmbrella,
 } from '@tabler/icons-react';
-import {
-  Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis,
-} from 'recharts';
-import { CustomerPicker, DashboardHeader, FillChart, KPI_PALETTE, KpiCard, KpiGrid, PeriodFilter, PillNote, TrendPill, useCustomerPicker } from '../../components/common/DashboardKit';
+import { CustomerPicker, DashboardHeader, KPI_PALETTE, KpiCard, KpiGrid, PeriodFilter, PillNote, TrendPill, useCustomerPicker } from '../../components/common/DashboardKit';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import { MenuAccessContext } from '../../components/layout/MainLayout';
@@ -24,6 +21,7 @@ import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import searchClasses from '../../styles/pages/InboundSearch.module.css';
 import classes from '../../styles/pages/HomeDashboard.module.css';
+import { apiErrorMessage } from '../../utils/apiError';
 
 // 검증된 범주 팔레트 (순서 고정) · 장기재고는 파랑 한 가지 색의 밝음→어두움 (오래될수록 진하게)
 const KPI_COLOR = { sales: KPI_PALETTE.blue, purchase: KPI_PALETTE.orange, profit: KPI_PALETTE.green, recv: KPI_PALETTE.amber, stock: KPI_PALETTE.slate };
@@ -31,7 +29,6 @@ const COST_COLOR = { past: '#dbe3ee', current: '#9fb1c8' };
 const PROFIT_COLOR = { past: '#a9e0c9', current: '#1baf7a' };
 const SALES_COLOR = { past: '#bcd6f3', current: '#2a78d6' };
 const AGING_COLORS = { m3: '#cfe1f7', m6: '#9cc2ee', m9: '#5f9be0', y1: '#2a78d6', over1: '#1a4f94', unknown: '#c3cad4' };
-const AXIS_TICK = { fontSize: 11, fill: '#5d6b80' };
 
 const pad = (value) => String(value).padStart(2, '0');
 const toDate = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -75,43 +72,10 @@ const Empty = ({ loading, text = '데이터가 없습니다.' }) => <div classNa
 const MoreLink = ({ onClick, children = '전체보기' }) => (onClick
   ? <button type="button" className={classes.moreLink} onClick={onClick}>{children}<IconChevronRight size={13} /></button> : null);
 
-// 월별 매출 = 비용 + 매출이익 (쌓은 막대, 금액 축 하나) · 조회한 달은 진하게, 막대 위에 매출 합계
-const MonthlyChart = memo(function MonthlyChart({ data, showProfit }) {
-  const last = data.length - 1;
-  return <FillChart><ResponsiveContainer width="100%" height="100%">
-    <BarChart data={data} margin={{ top: 20, right: 8, bottom: 0, left: 0 }} barCategoryGap="28%">
-      <CartesianGrid vertical={false} stroke="#eef1f5" />
-      <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#d5dbe3' }} tickLine={false} />
-      <YAxis tickFormatter={compact} width={52} tick={{ fontSize: 10, fill: '#8b95a3' }} axisLine={false} tickLine={false} />
-      <Tooltip cursor={{ fill: '#f3f6fa' }} content={({ active, payload }) => {
-        if (!active || !payload?.length) return null;
-        const row = payload[0].payload;
-        return <Paper className={classes.tooltip} withBorder shadow="sm">
-          <Text size="xs" fw={700} mb={4}>{row.month}</Text>
-          {showProfit ? <>
-            <div className={classes.tooltipRow}><span className={classes.swatch} style={{ background: PROFIT_COLOR.current }} />매출이익<b>{won(row.profit)}</b></div>
-            <div className={classes.tooltipRow}><span className={classes.swatch} style={{ background: COST_COLOR.current }} />비용<b>{won(row.cost)}</b></div>
-            <div className={`${classes.tooltipRow} ${classes.tooltipTotal}`}><span className={classes.swatch} style={{ background: 'transparent' }} />매출<b>{won(row.sales)}</b></div>
-            <div className={classes.tooltipRow}><span className={classes.swatch} style={{ background: 'transparent' }} />마진율<b>{pctText(row.margin)}</b></div>
-          </> : <div className={classes.tooltipRow}><span className={classes.swatch} style={{ background: SALES_COLOR.current }} />매출<b>{won(row.sales)}</b></div>}
-          <div className={classes.tooltipRow}><span className={classes.swatch} style={{ background: 'transparent' }} />판매중량<b>{kgWeight(row.weight)}</b></div>
-        </Paper>;
-      }} />
-      {showProfit ? <>
-        <Bar dataKey="costPart" stackId="sales" name="비용" maxBarSize={30} isAnimationActive={false}>
-          {data.map((row, index) => <Cell key={row.month} fill={index === last ? COST_COLOR.current : COST_COLOR.past} />)}
-        </Bar>
-        <Bar dataKey="profitPart" stackId="sales" name="매출이익" maxBarSize={30} radius={[4, 4, 0, 0]} isAnimationActive={false}>
-          {data.map((row, index) => <Cell key={row.month} fill={index === last ? PROFIT_COLOR.current : PROFIT_COLOR.past} />)}
-          <LabelList dataKey="label" position="top" style={{ fontSize: 10.5, fill: '#33425a', fontWeight: 700 }} />
-        </Bar>
-      </> : <Bar dataKey="sales" name="매출" maxBarSize={30} radius={[4, 4, 0, 0]} isAnimationActive={false}>
-        {data.map((row, index) => <Cell key={row.month} fill={index === last ? SALES_COLOR.current : SALES_COLOR.past} />)}
-        <LabelList dataKey="label" position="top" style={{ fontSize: 10.5, fill: '#33425a', fontWeight: 700 }} />
-      </Bar>}
-    </BarChart>
-  </ResponsiveContainer></FillChart>;
-});
+// 월별 매출 차트: recharts 가 커서 따로 받는다. 화면 코드와 동시에 받기 시작하고, 받기 전에는 그 칸만 불러오는 중으로 보인다
+const loadMonthlyChart = () => import('./HomeMonthlyChart');
+void loadMonthlyChart().catch(() => {});
+const HomeMonthlyChart = lazy(loadMonthlyChart);
 
 // 최근 매입 / 매출 전표 (전표 한 장 = 한 줄)
 function RecentTable({ title, rows, kind, onMore, loading }) {
@@ -273,7 +237,7 @@ export default function HomePage() {
       const response = await axios.get('/api/dashboard/overview', { ...authConfig(), params });
       if (id === requestId.current) setData(response.data);
     } catch (error) {
-      if (id === requestId.current) notifications.show({ title: '대시보드 조회 실패', message: error.response?.data?.detail || '대시보드를 불러오지 못했습니다.', color: 'red' });
+      if (id === requestId.current) notifications.show({ title: '대시보드 조회 실패', message: apiErrorMessage(error, '대시보드를 불러오지 못했습니다.'), color: 'red' });
     } finally {
       if (id === requestId.current) setLoading(false);
     }
@@ -414,7 +378,9 @@ export default function HomePage() {
                   <span><i className={classes.swatch} style={{ background: COST_COLOR.current }} />비용</span>
                 </> : <span><i className={classes.swatch} style={{ background: SALES_COLOR.current }} />매출</span>}
               </div>
-              <MonthlyChart data={monthly} showProfit={Boolean(profit)} />
+              <Suspense fallback={<Empty loading />}>
+                <HomeMonthlyChart data={monthly} showProfit={Boolean(profit)} compact={compact} won={won} kgWeight={kgWeight} pctText={pctText} />
+              </Suspense>
             </> : <Empty loading={loading} />}
           </Panel>
           <TodayPanel />

@@ -300,3 +300,8 @@
   .workspace { grid-template-columns: minmax(0, 1fr); }
   .filterSidebar { width: 100%; min-width: 0; grid-row: 1; max-height: 260px; }
 }
+
+/* 엑셀식 셀 범위 선택 (Shift+방향키 · Shift+클릭) */
+.rangeCell { background: #fdecec !important; box-shadow: inset 0 0 0 1px #e8a3a6; }
+.rangeCell :global(input),
+.rangeCell :global(select) { background-color: #fdecec !important; }

@@ -38,7 +38,8 @@ function Wait-TunnelUrl([string]$log, [int]$seconds) {
 
 Write-Host '  로컬 서버 준비 대기...'
 foreach ($p in 8000, 4173, 4174) {
-    $url = if ($p -eq 8000) { 'openapi.json' } else { '' }
+    # 백엔드는 /api/health (운영 모드에서는 /openapi.json 이 꺼져 있어 준비 확인에 쓰면 안 됨)
+    $url = if ($p -eq 8000) { 'api/health' } else { '' }
     $ok = $false
     $deadline = (Get-Date).AddSeconds(60)
     while (-not $ok -and (Get-Date) -lt $deadline) {

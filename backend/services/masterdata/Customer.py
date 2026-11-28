@@ -17,6 +17,33 @@ conn_str = (
     f"password={DB_CONFIG['password']}"
 )
 
+import logging
+
+_logger = logging.getLogger(__name__)
+
+
+def _ensure_opening_editable(cursor, companyid: str) -> None:
+    """기초 미수 · 미지급금은 모든 기간의 잔액에 들어가므로, 월마감이 하나라도 있으면 바꿀 수 없다 (마감된 달 잔액이 바뀜)."""
+    from services.closing import MonthClose as month_close_module
+
+    through = month_close_module.closed_through(cursor, companyid)
+    if through:
+        raise ValueError(
+            f"{through:%Y-%m}월까지 월마감되어 기초 미수금 · 미지급금을 바꿀 수 없습니다. "
+            "차액은 수금/지급 전표로 처리하거나 월마감을 취소한 뒤 바꿔 주세요."
+        )
+
+
+def _safe_message(error: Exception) -> str:
+    """사용자에게 보여 줄 오류 문구. 업무 오류(ValueError 등)는 그대로, DB · 내부 오류는 원문(SQL · 제약조건명)을 숨긴다."""
+    if isinstance(error, (ValueError, LookupError, PermissionError)):
+        return str(error)
+    if getattr(error, "pgcode", None) == "23505":
+        return "이미 등록된 값이 있어 저장하지 못했습니다. 거래처 코드 · 사업자번호 중복을 확인해 주세요."
+    _logger.exception("customer service error")
+    return "처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+
+
 class CustomModifyRequest(BaseModel):
     companyid: str
     companyname: str
@@ -43,6 +70,8 @@ class CustomModifyRequest(BaseModel):
     # 기초 미수금 / 기초 미지급금: 원장 시작일 이전부터 남아 있던 잔액 (MASTER/SUBMASTER만 변경 가능)
     openingreceivable: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=2)
     openingpayable: Decimal = Field(default=Decimal("0"), ge=0, max_digits=15, decimal_places=2)
+    # 여신한도: 공급가 기준, 비움(None)/0 = 한도 없음 (MASTER/SUBMASTER만 변경 가능, 통제관리 › 여신 통제에서 사용)
+    creditlimit: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=0)
 
     @field_validator("ownertype", mode="before")
     @classmethod
@@ -73,6 +102,23 @@ class CustomModifyRequest(BaseModel):
                 raise ValueError(f"법인번호가 올바르지 않습니다 ({corporationno}). 번호를 다시 확인해 주세요.")
             self.corporationno = _format_number(corporationno, (6,))
         return self
+
+    @field_validator("creditlimit", mode="before")
+    @classmethod
+    def _normalize_credit_limit(cls, value):
+        # 화면 · 엑셀: 빈칸 / 0 = 한도 없음, "50,000,000" 처럼 쉼표가 있어도 받는다
+        if value is None:
+            return None
+        text = str(value).replace(",", "").strip()
+        if not text:
+            return None
+        try:
+            amount = Decimal(text)
+        except InvalidOperation:
+            raise ValueError("여신한도는 숫자로 입력해 주세요.")
+        if amount < 0:
+            raise ValueError("여신한도는 0 이상이어야 합니다.")
+        return None if amount == 0 else amount.quantize(Decimal("1"))
 
     @field_validator("openingreceivable", "openingpayable", mode="before")
     @classmethod
@@ -129,7 +175,7 @@ def CustomerNextCode(companyid: str):
     except Exception as e:
         if conn:
             conn.rollback()
-        return {"success": False, "message": str(e)}
+        return {"success": False, "message": _safe_message(e)}
     finally:
         if conn:
             conn.close()
@@ -156,7 +202,7 @@ def BankList(companyid: str):
                 {"bankcode": row[0], "bankname": row[1]} for row in cursor.fetchall()
             ]}
     except Exception as error:
-        return {"success": False, "error": str(error)}
+        return {"success": False, "error": _safe_message(error)}
     finally:
         if conn:
             conn.close()
@@ -181,7 +227,7 @@ def CustomerManagerList(companyid: str):
             )
             return {"success": True, "data": [row[0] for row in cursor.fetchall()]}
     except Exception as error:
-        return {"success": False, "error": str(error)}
+        return {"success": False, "error": _safe_message(error)}
     finally:
         if conn:
             conn.close()
@@ -204,7 +250,7 @@ def _validate_customer_references(cursor, item: CustomModifyRequest):
             (item.companyid, item.bankcode),
         )
         if not cursor.fetchone():
-            return {"success": False, "message": f"Bank code '{item.bankcode}' is not active for this company."}
+            return {"success": False, "message": f"은행코드 '{item.bankcode}'는 사용할 수 없습니다. 기본정보관리에서 은행을 확인해 주세요."}
 
     return {"success": True}
 
@@ -259,21 +305,23 @@ def CustomerCreate(item: CustomModifyRequest, actor: str | None = None):
         else:
             customercode = _next_customer_code(cursor, item.companyid)
 
+        if item.openingreceivable or item.openingpayable:
+            _ensure_opening_editable(cursor, item.companyid)
         # 사용자정보 등록
         query = """
             INSERT INTO customer01t (
                 companyid, companyname, customercode, customername, businessno,
                 corporationno, ceoname, tradetype, businesstype, industry, manager,
                 zipcode, address, address2, phone, fax, email, bankcode, accountno, useyn, remark, createdby,
-                openingreceivable, openingpayable, ownertype
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                openingreceivable, openingpayable, ownertype, creditlimit
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         cursor.execute(query, (
             item.companyid, item.companyname, customercode, item.customername,
             item.businessno, item.corporationno, item.ceoname, item.tradetype,
             item.businesstype, item.industry, item.manager, item.zipcode, item.address, item.address2 or None, item.phone,
             item.fax, item.email, item.bankcode or None, item.accountno, _db_useyn(item.useryn), item.remark,
-            actor or None, item.openingreceivable, item.openingpayable, item.ownertype,
+            actor or None, item.openingreceivable, item.openingpayable, item.ownertype, item.creditlimit,
         ))
 
         conn.commit()
@@ -284,7 +332,7 @@ def CustomerCreate(item: CustomModifyRequest, actor: str | None = None):
             return {"success": False, "message": "업데이트 실패"} 
 
     except Exception as e: # 이 except 블록이 누락되었는지 확인하세요!
-        return {"success": False, "message": str(e)}
+        return {"success": False, "message": _safe_message(e)}
 
     finally:
         if conn:
@@ -349,12 +397,14 @@ def CustomerBulkCreate(items: List[CustomModifyRequest], actor: str | None = Non
                     assigned_codes[index] = candidate
                     generated_codes.append(candidate)
 
+            if any(item.openingreceivable or item.openingpayable for item in items):
+                _ensure_opening_editable(cursor, items[0].companyid)
             query = """
                 INSERT INTO customer01t
                     (companyid, companyname, customercode, customername, businessno,
                      corporationno, ceoname, tradetype, businesstype, industry, manager,
                      zipcode, address, address2, phone, fax, email, bankcode, accountno, useyn, remark, createdby,
-                     openingreceivable, openingpayable, ownertype)
+                     openingreceivable, openingpayable, ownertype, creditlimit)
                 VALUES %s
             """
             values = [
@@ -362,7 +412,7 @@ def CustomerBulkCreate(items: List[CustomModifyRequest], actor: str | None = Non
                  item.businessno, item.corporationno, item.ceoname, item.tradetype,
                  item.businesstype, item.industry, item.manager, item.zipcode, item.address, item.address2 or None, item.phone,
                  item.fax, item.email, item.bankcode or None, item.accountno, _db_useyn(item.useryn), item.remark,
-                 actor or None, item.openingreceivable, item.openingpayable, item.ownertype)
+                 actor or None, item.openingreceivable, item.openingpayable, item.ownertype, item.creditlimit)
                 for item, assigned_code in zip(items, assigned_codes)
             ]
             execute_values(cursor, query, values, page_size=1000)
@@ -371,14 +421,14 @@ def CustomerBulkCreate(items: List[CustomModifyRequest], actor: str | None = Non
     except Exception as e:
         if conn:
             conn.rollback()
-        return {"success": False, "message": str(e)}
+        return {"success": False, "message": _safe_message(e)}
     finally:
         if conn:
             conn.close()
             
 # 거래처 수정
 def CustomerModify(item: CustomModifyRequest, actor: str | None = None, update_opening_balances: bool = True):
-    """update_opening_balances=False keeps the stored 기초 미수금/미지급금 (callers without MASTER/SUBMASTER)."""
+    """update_opening_balances=False: 기초 미수금/미지급금 · 여신한도는 저장된 값 그대로 (MASTER/SUBMASTER 가 아닌 계정)."""
 
     conn = None
     try:
@@ -389,6 +439,17 @@ def CustomerModify(item: CustomModifyRequest, actor: str | None = None, update_o
         if not reference_check["success"]:
             return reference_check
 
+        if update_opening_balances:
+            cursor.execute(
+                """SELECT COALESCE(openingreceivable, 0), COALESCE(openingpayable, 0) FROM customer01t
+                   WHERE companyid = %s AND customercode = %s FOR UPDATE""",
+                (item.companyid, item.customercode),
+            )
+            current = cursor.fetchone()
+            if current and (Decimal(current[0]) != Decimal(item.openingreceivable or 0)
+                            or Decimal(current[1]) != Decimal(item.openingpayable or 0)):
+                _ensure_opening_editable(cursor, item.companyid)
+
         # 거래처정보 업데이트
         query = """
             UPDATE customer01t
@@ -397,7 +458,8 @@ def CustomerModify(item: CustomModifyRequest, actor: str | None = None, update_o
                 zipcode=%s, address=%s, address2=%s, phone=%s, fax=%s, email=%s, bankcode=%s, accountno=%s,
                 useyn=%s, remark=%s, updatedat=NOW(), updatedby=%s,
                 openingreceivable = CASE WHEN %s THEN %s ELSE openingreceivable END,
-                openingpayable = CASE WHEN %s THEN %s ELSE openingpayable END
+                openingpayable = CASE WHEN %s THEN %s ELSE openingpayable END,
+                creditlimit = CASE WHEN %s THEN %s ELSE creditlimit END
             WHERE companyid=%s AND customercode=%s
         """
         cursor.execute(query, (
@@ -407,16 +469,18 @@ def CustomerModify(item: CustomModifyRequest, actor: str | None = None, update_o
             _db_useyn(item.useryn), item.remark, actor or None,
             bool(update_opening_balances), item.openingreceivable,
             bool(update_opening_balances), item.openingpayable,
+            bool(update_opening_balances), item.creditlimit,
             item.companyid, item.customercode,
         ))
-             
+        updated = cursor.rowcount
         conn.commit()
-        
-        if cursor.rowcount > 0:
+
+        if updated > 0:
             return {"success": True, "message": "거래처 정보가 성공적으로 변경되었습니다."}
-        else:
-            return {"success": False, "message": "일치하는 거래처를 찾을 수 없습니다."} 
-            
+        return {"success": False, "message": "일치하는 거래처를 찾을 수 없습니다."}
+
+    except Exception as e:   # 등록과 같이 실패 사유를 돌려준다 (예전에는 500 '알 수 없는 오류'로 끝났다)
+        return {"success": False, "message": _safe_message(e)}
     finally:
         if conn:
             conn.close()           
@@ -492,7 +556,7 @@ def CustomerList(
         return {"success": True, "data": result, "total": total, "page": page, "page_size": page_size}
 
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": _safe_message(e)}
     finally:
         if conn:
             conn.close()
@@ -535,7 +599,7 @@ def CustomerExport(companyid: str, search_keyword: str = None, status: str = "�
         result = [dict(zip(columns, row)) for row in cursor.fetchall()]
         return {"success": True, "data": result, "total": len(result)}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": _safe_message(e)}
     finally:
         if conn:
             conn.close()
@@ -633,6 +697,7 @@ def OpeningBalanceApply(companyid: str, rows: List[OpeningBalanceRow], dry_run: 
             })
 
         if not dry_run and changed:
+            _ensure_opening_editable(cursor, companyid)
             for start in range(0, len(changed), 500):
                 chunk = changed[start:start + 500]
                 execute_values(

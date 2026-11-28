@@ -10,7 +10,12 @@ const FIELD_LABELS = {
 };
 
 export function apiErrorMessage(error, fallback = '요청을 처리하지 못했습니다.', labels = {}) {
-  if (!error?.response) return error?.message && !/^Network Error$/i.test(error.message) ? error.message : '서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+  if (!error?.response) {
+    // 통신 오류(연결 실패 · 시간 초과)는 연결 안내, 화면이 직접 던진 한글 사유는 그대로, 그 밖의 영문 오류 문구는 숨긴다
+    if (error?.code === 'ERR_CANCELED') return fallback;
+    if (error?.isAxiosError || /^Network Error$/i.test(String(error?.message || ''))) return '서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+    return /[가-힣]/.test(String(error?.message || '')) ? error.message : fallback;
+  }
   const detail = error.response.data?.detail;
   if (Array.isArray(detail)) {
     const lines = detail.map((item) => {

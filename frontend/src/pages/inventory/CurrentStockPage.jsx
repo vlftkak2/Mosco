@@ -7,18 +7,21 @@ import { notifications } from '@mantine/notifications';
 import { IconCalendar, IconPackages, IconX } from '@tabler/icons-react';
 import ResizableVirtualTable from '../../components/common/ResizableVirtualTable';
 import StockCostHistoryModal from './StockCostHistoryModal';
-import StockRemarkCell, { RemarkContext, lotKey } from './StockRemarkCell';
+import StockRemarkCell, { RemarkContext, lotKey, setRemarkInCell } from './StockRemarkCell';
 import remarkClasses from '../../styles/pages/StockRemark.module.css';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
 import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/InboundSearch.module.css';
-import { cachedDateFormat } from '../../utils/dateFormat';
+import { cachedDateFormat, kstDate, todayKST } from '../../utils/dateFormat';
+import { apiErrorMessage } from '../../utils/apiError';
+import { useUnsavedChanges } from '../../utils/dirtyRegistry';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 
 const PAGE_OPTIONS = [{ value: '15', label: '15개씩' }, { value: '50', label: '50개씩' }, { value: '100', label: '100개씩' }, { value: '200', label: '200개씩' }];
 const createDefaultFilters = () => {
-  const now = new Date();
+  const now = kstDate();
   const year = now.getFullYear();
   const month = now.getMonth();
   const pad = (value) => String(value).padStart(2, '0');
@@ -30,7 +33,9 @@ const createDefaultFilters = () => {
   };
 };
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
-const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
+const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
+// 규격(두께·폭·길이·마이)은 금액이 아니므로 소수 셋째 자리까지 그대로 보여 준다
+const specText = (value) => value === null || value === undefined || value === '' ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
 // 금액·원가단가는 소수 둘째 자리까지
 const moneyText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const sourceName = (value) => ({ OPENING: '기초', INBOUND: '입고', PROCESS: '가공', TRANSFER: '이동' })[value] || '';
@@ -60,10 +65,10 @@ const STOCK_COLUMNS = [
     { key: 'itemname', label: '품명', width: 120, minWidth: 102, render: (item) => text(item.itemname || '') },
     { key: 'materialname', label: '강종', width: 85, minWidth: 72, render: (item) => text(item.materialname || '') },
     { key: 'surfacename', label: '표면', width: 75, minWidth: 65, render: (item) => text(item.surfacename || '') },
-    { key: 'myrtle', label: '도금량(g/㎡)', width: 100, minWidth: 90, render: (item) => num(numberText(item.myrtle)) },
-    { key: 'thickness', label: '두께', width: 75, minWidth: 65, render: (item) => num(numberText(item.thickness)) },
-    { key: 'width', label: '폭', width: 75, minWidth: 65, render: (item) => num(numberText(item.width)) },
-    { key: 'length', label: '길이', width: 75, minWidth: 65, render: (item) => num(numberText(item.length)) },
+    { key: 'myrtle', label: '도금량(g/㎡)', width: 100, minWidth: 90, render: (item) => num(specText(item.myrtle)) },
+    { key: 'thickness', label: '두께', width: 75, minWidth: 65, render: (item) => num(specText(item.thickness)) },
+    { key: 'width', label: '폭', width: 75, minWidth: 65, render: (item) => num(specText(item.width)) },
+    { key: 'length', label: '길이', width: 75, minWidth: 65, render: (item) => num(specText(item.length)) },
     { key: 'qty', label: '현재수량', width: 80, minWidth: 68, render: (item) => num(numberText(item.qty)) },
     { key: 'weight', label: '현재중량', width: 90, minWidth: 78, render: (item) => num(numberText(item.weight)) },
     { key: 'customname', label: '매입처', width: 125, minWidth: 105, render: (item) => text(item.customname || '') },
@@ -112,21 +117,52 @@ export default function CurrentStockPage() {
   const remarkDraftsRef = useRef(new Map());
   const [remarkDirtyCount, setRemarkDirtyCount] = useState(0);
   const [savingRemarks, setSavingRemarks] = useState(false);
-  const remarkContext = useMemo(() => ({
-    draftOf: (key) => remarkDraftsRef.current.get(key)?.remark,
-    change: (item, value) => {
+  const itemsRef = useRef(items);
+  useEffect(() => { itemsRef.current = items; });
+  const remarkContext = useMemo(() => {
+    const draftOf = (key) => remarkDraftsRef.current.get(key)?.remark;
+    const change = (item, value) => {
       const drafts = remarkDraftsRef.current;
       const key = lotKey(item);
       if (value === (item.remark || '')) drafts.delete(key);
       else drafts.set(key, { sourcetype: item.sourcetype, sourceno: item.sourceno, sourceline: item.sourceline, remark: value });
       setRemarkDirtyCount(drafts.size);
-    },
-  }), []);
+    };
+    return {
+      draftOf,
+      change,
+      // 엑셀 여러 행 붙여넣기: 이 행부터 아래 로트 행들에 비고를 넣는다 (직접 칠 때와 같이 change 로 모으고, 화면에 그려진 칸도 바꾼다)
+      pasteDown: (item, values) => {
+        const list = itemsRef.current;
+        const start = list.findIndex((entry) => entry.sourcetype && lotKey(entry) === lotKey(item));
+        if (start < 0) return;
+        values.forEach((value, offset) => {
+          const target = list[start + offset];
+          if (!target?.sourcetype) return;
+          const text = String(value ?? '').slice(0, 500);
+          change(target, text);
+          setRemarkInCell(lotKey(target), text);
+        });
+      },
+      // Ctrl+D: 바로 윗 로트 행의 비고 (저장 안 한 값 포함)
+      valueAbove: (item) => {
+        const list = itemsRef.current;
+        const index = list.findIndex((entry) => entry.sourcetype && lotKey(entry) === lotKey(item));
+        const above = index > 0 ? list[index - 1] : null;
+        if (!above?.sourcetype) return undefined;
+        return draftOf(lotKey(above)) ?? (above.remark || '');
+      },
+    };
+  }, []);
   const clearRemarkDrafts = () => { remarkDraftsRef.current = new Map(); setRemarkDirtyCount(0); };
   // 저장하지 않은 비고가 있으면 다른 조회로 넘어가기 전에 묻는다
-  const confirmDiscardRemarks = () => (
-    !remarkDraftsRef.current.size || window.confirm(`저장하지 않은 비고 ${remarkDraftsRef.current.size}건이 있습니다. 저장하지 않고 이동할까요?`)
-  );
+  // (브라우저 확인 창 대신 공통 확인 창: 비고가 없으면 바로, 있으면 [이동]을 누른 뒤 action 실행)
+  const [discardAction, setDiscardAction] = useState(null);
+  const confirmDiscardRemarks = (action) => {
+    if (!remarkDraftsRef.current.size) { action(); return; }
+    setDiscardAction(() => action);
+  };
+  useUnsavedChanges(remarkDirtyCount > 0);   // 탭 닫기 · 브라우저 닫기 전에 확인
 
   const load = useCallback(async () => {
     const id = ++requestId.current;
@@ -139,18 +175,17 @@ export default function CurrentStockPage() {
       setTotal(data.total || 0);
       clearRemarkDrafts();
     } catch (error) {
-      if (id === requestId.current) notifications.show({ title: '현재고 조회 실패', message: error.response?.data?.detail || '현재고를 조회하지 못했습니다.', color: 'red' });
+      if (id === requestId.current) notifications.show({ title: '현재고 조회 실패', message: apiErrorMessage(error, '현재고를 조회하지 못했습니다.'), color: 'red' });
     } finally { if (id === requestId.current) setLoading(false); }
   }, [page, pageSize, filters, includeZero]);
 
   // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
   usePageReactivated(() => { if (!remarkDraftsRef.current.size) void load(); });
   useEffect(() => { void load(); }, [load]);
-  const search = () => {
-    if (!confirmDiscardRemarks()) return;
+  const search = () => confirmDiscardRemarks(() => {
     setFilters(Object.fromEntries(Object.entries(inputs).map(([key, value]) => [key, value.trim()])));
     setPage(1);
-  };
+  });
   const saveRemarks = async () => {
     if (savingRemarks) return;
     // 입력 중인 칸이 있어도 값은 이미 모여 있다 (글자마다 반영)
@@ -165,7 +200,7 @@ export default function CurrentStockPage() {
       notifications.show({ title: '비고 저장 완료', message: `${data.saved_count}건을 저장했습니다.`, color: 'teal' });
       await load();
     } catch (error) {
-      notifications.show({ title: '비고 저장 실패', message: error.response?.data?.detail || '비고를 저장하지 못했습니다.', color: 'red' });
+      notifications.show({ title: '비고 저장 실패', message: apiErrorMessage(error, '비고를 저장하지 못했습니다.'), color: 'red' });
     } finally { setSavingRemarks(false); }
   };
   const exportExcel = async () => {
@@ -176,7 +211,7 @@ export default function CurrentStockPage() {
       const { data } = await axios.get('/api/current-stock/items/export', { ...authConfig(), params, responseType: 'blob' });
       const url = URL.createObjectURL(data);
       const link = document.createElement('a');
-      link.href = url; link.download = `현재고현황_${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.xlsx`;
+      link.href = url; link.download = `현재고현황_${todayKST().replaceAll('-', '')}.xlsx`;
       document.body.appendChild(link); link.click(); link.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch { notifications.show({ title: '엑셀 다운로드 실패', message: '현재고를 엑셀로 저장하지 못했습니다.', color: 'red' }); }
     finally { setExporting(false); }
@@ -209,7 +244,7 @@ export default function CurrentStockPage() {
         <TextInput label="창고" placeholder="창고코드 또는 창고명" value={inputs.warehouse_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, warehouse_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && search()} />
         <TextInput label="전표" placeholder="전표번호" value={inputs.receipt_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, receipt_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && search()} />
         <TextInput label="비고" placeholder="비고 검색" value={inputs.remark_search} onChange={(event) => { const { value: nextValue } = event.currentTarget; setInputs((current) => ({ ...current, remark_search: nextValue })); }} onKeyDown={(event) => event.key === 'Enter' && search()} />
-        <Select label="잔량 0 표시" data={[{ value: 'N', label: '제외' }, { value: 'Y', label: '포함' }]} value={includeZero ? 'Y' : 'N'} onChange={(value) => { if (!confirmDiscardRemarks()) return; setIncludeZero(value === 'Y'); setPage(1); }} />
+        <Select label="잔량 0 표시" data={[{ value: 'N', label: '제외' }, { value: 'Y', label: '포함' }]} value={includeZero ? 'Y' : 'N'} onChange={(value) => confirmDiscardRemarks(() => { setIncludeZero(value === 'Y'); setPage(1); })} />
       </Stack>
     </Paper>}
     <Paper className={`${sharedClasses.panel} ${classes.resultsPanel}`} withBorder>
@@ -229,9 +264,13 @@ export default function CurrentStockPage() {
           <span>재고기간이나 조회조건을 바꿔 다시 조회해 보세요.</span>
         </Box>}
       </Box>
-      <Group className={classes.paginationBar} justify="space-between" wrap="wrap"><Group gap="xs"><Text size="xs" c="dimmed">총 {total.toLocaleString()}건</Text><Select size="xs" w={105} data={PAGE_OPTIONS} value={String(pageSize)} onChange={(value) => { if (!confirmDiscardRemarks()) return; setPageSize(Number(value)); setPage(1); }} /></Group><Pagination size="sm" color="red" value={page} onChange={(value) => { if (confirmDiscardRemarks()) setPage(value); }} total={Math.max(1, Math.ceil(total / pageSize))} withEdges /></Group>
+      <Group className={classes.paginationBar} justify="space-between" wrap="wrap"><Group gap="xs"><Text size="xs" c="dimmed">총 {total.toLocaleString()}건</Text><Select size="xs" w={105} data={PAGE_OPTIONS} value={String(pageSize)} onChange={(value) => confirmDiscardRemarks(() => { setPageSize(Number(value)); setPage(1); })} /></Group><Pagination size="sm" color="red" value={page} onChange={(value) => confirmDiscardRemarks(() => setPage(value))} total={Math.max(1, Math.ceil(total / pageSize))} withEdges /></Group>
     </Paper>
     </Box>
     <StockCostHistoryModal lot={historyLot} onClose={closeHistory} />
+    <ConfirmDeleteModal opened={Boolean(discardAction)} onClose={() => setDiscardAction(null)}
+      onConfirm={() => { const action = discardAction; setDiscardAction(null); action?.(); }}
+      showIcon={false} title="저장하지 않은 비고가 있습니다" target={remarkDirtyCount ? `${remarkDirtyCount}건` : undefined}
+      message="저장하지 않고 이동하면 고친 비고가 사라집니다." note="그래도 이동할까요?" confirmLabel="이동" />
   </Box>;
 }

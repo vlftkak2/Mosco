@@ -1,10 +1,12 @@
 import { useRef, useState } from 'react';
 import axios from 'axios';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { Button, Group, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import PickerModal, { PickerEmpty, pickerClasses } from '../../components/common/PickerModal';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
+import { apiErrorMessage } from '../../utils/apiError';
+import { kstDate } from '../../utils/dateFormat';
 
 // 거래처관리 > 기초잔액 엑셀: 이미 등록된 거래처의 기초 미수금 / 기초 미지급금만 일괄로 바꾼다.
 // 1) 양식 받기: 등록된 거래처 전체 + 현재 기초잔액이 채워진 엑셀
@@ -16,7 +18,7 @@ const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.get
 const won = (value) => (Number(value) || 0).toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const FIELD_LABELS = { openingreceivable: '기초 미수금', openingpayable: '기초 미지급금', customercode: '거래처코드' };
 const todayText = () => {
-  const now = new Date(); // 한국 시간 기준 (toISOString 은 UTC)
+  const now = kstDate(); // 한국 시간 기준 (toISOString 은 UTC)
   return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
 };
 const HEADER_ALIASES = {
@@ -49,6 +51,8 @@ export default function OpeningBalanceModal({ opened, onClose, canEdit, onApplie
         '기초 미수금': Number(item.openingreceivable) || 0, '기초 미지급금': Number(item.openingpayable) || 0,
       }));
       // 칼럼명은 거래처관리 화면과 같다 (예전 '기초미수금' 제목으로 올려도 받는다)
+      const XLSX = await loadXLSXOrNotify();
+      if (!XLSX) return;
       const worksheet = XLSX.utils.json_to_sheet(sheetRows, { header: ['거래처코드', '거래처명', '기초 미수금', '기초 미지급금'] });
       // 거래처코드는 텍스트 칸 (엑셀에서 숫자로 바뀌지 않게)
       sheetRows.forEach((_, index) => {
@@ -61,7 +65,7 @@ export default function OpeningBalanceModal({ opened, onClose, canEdit, onApplie
       XLSX.utils.book_append_sheet(workbook, worksheet, '기초잔액');
       XLSX.writeFile(workbook, `거래처_기초잔액_${todayText()}.xlsx`);
     } catch (error) {
-      notifications.show({ title: '양식 받기 실패', message: error.response?.data?.detail || '기초잔액 양식을 만들지 못했습니다.', color: 'red' });
+      notifications.show({ title: '양식 받기 실패', message: apiErrorMessage(error, '기초잔액 양식을 만들지 못했습니다.'), color: 'red' });
     } finally {
       setBusy('');
     }
@@ -77,6 +81,8 @@ export default function OpeningBalanceModal({ opened, onClose, canEdit, onApplie
     setPreview(null);
     let parsed = [];
     try {
+      const XLSX = await loadXLSXOrNotify();
+      if (!XLSX) return;
       const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const table = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
@@ -111,7 +117,7 @@ export default function OpeningBalanceModal({ opened, onClose, canEdit, onApplie
           const rowno = parsed[index]?.rowno;
           return `${rowno ? `${rowno}행 ` : ''}${FIELD_LABELS[field] || field || ''}`;
         }).join(', ')}${detail.length > 5 ? ` 외 ${detail.length - 5}칸` : ''}`
-        : detail || error.message || '파일을 읽지 못했습니다.';
+        : apiErrorMessage(error, '파일을 읽지 못했습니다.');
       notifications.show({ title: '기초잔액 파일 확인', message, color: 'orange', autoClose: 8000 });
       setRows([]);
       setFileName('');
@@ -132,7 +138,7 @@ export default function OpeningBalanceModal({ opened, onClose, canEdit, onApplie
       onApplied?.(appliedRows);
       onClose();
     } catch (error) {
-      notifications.show({ title: '기초잔액 반영 실패', message: error.response?.data?.detail || '기초잔액을 반영하지 못했습니다. 변경 사항은 모두 취소했습니다.', color: 'red' });
+      notifications.show({ title: '기초잔액 반영 실패', message: apiErrorMessage(error, '기초잔액을 반영하지 못했습니다. 변경 사항은 모두 취소했습니다.'), color: 'red' });
       setBusy('');
     }
   };

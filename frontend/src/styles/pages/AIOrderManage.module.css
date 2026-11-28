@@ -114,6 +114,7 @@
 }
 .status_gray { border-color: #c3c9d2; background: #f1f3f6; color: #4a586d; }
 .status_blue { border-color: #7fa9e3; background: #e2edfc; color: #1b58a6; }
+.status_indigo { border-color: #a5b4f5; background: #edf2ff; color: #3b5bdb; }   /* AI 주문서인식 분석 완료 (목록 배지와 같은 색) */
 .status_orange { border-color: #eea869; background: #fff0e0; color: #b2560d; }
 .status_green { border-color: #78c79e; background: #e1f5ea; color: #0d7349; }
 .status_red { border-color: #ec9a9f; background: #fdeced; color: #c9353d; }

@@ -11,7 +11,7 @@ import {
   IconBox, IconBuildingStore, IconFilter, IconListDetails, IconSearch, IconTrash, IconX,
 } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
@@ -24,7 +24,18 @@ import { makeExpense, handleExpenseGridKeyDown, ExpenseCostAutocompleteCell, Exp
 const INBOUND_EXPENSE_SUBTOTAL_COLUMNS = expenseSubtotalColumns(false);
 import { PageRibbonContext } from '../../components/layout/MainLayout';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
-import { cachedDateFormat } from '../../utils/dateFormat';
+import { cachedDateFormat, kstDate } from '../../utils/dateFormat';
+import { useUnsavedChanges } from '../../utils/dirtyRegistry';
+import { apiErrorMessage } from '../../utils/apiError';
+import { useRequestKey } from '../../utils/requestKey';
+import { fetchAllPages, loadMaster, peekMaster } from '../../utils/masterCache';
+
+const INBOUND_CODE_GROUPS = ['PRICE_UNIT', 'QTY', 'WAREHOUSE', 'MATERIAL', 'SURFACE', 'OTHER_COST'];
+// 지난번에 받은 코드 목록 (없으면 빈 목록) — 화면 첫 그림부터 단위·창고 선택지가 보이게
+const cachedInboundUnitOptions = () => {
+  const [price, quantity, warehouse, material, surface] = INBOUND_CODE_GROUPS.slice(0, 5).map((groupcode) => peekMaster(`code-use:${groupcode}`) || []);
+  return { price, quantity, warehouse, material, surface };
+};
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' },
@@ -33,7 +44,7 @@ const PAGE_SIZE_OPTIONS = [
   { value: '200', label: '200개씩' },
 ];
 const createDefaultReceiptFilters = () => {
-  const today = new Date();
+  const today = kstDate();
   const year = today.getFullYear();
   const month = today.getMonth();
   const pad = (value) => String(value).padStart(2, '0');
@@ -49,7 +60,7 @@ const createDefaultReceiptFilters = () => {
 };
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const localDate = () => {
-  const date = new Date();
+  const date = kstDate();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 const isValidDateInput = (value) => {
@@ -119,8 +130,8 @@ const InboundReceiptRows = memo(function InboundReceiptRows({ receipts, selected
       <Table.Td title={receipt.customname || ''}>{receipt.customname || ''}</Table.Td>
       <Table.Td title={receipt.warehousecodename || ''}>{receipt.warehousecodename || ''}</Table.Td>
       <Table.Td title={receipt.manager || ''}>{receipt.manager || ''}</Table.Td>
-      <Table.Td ta="right">{Number(receipt.total_qty || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Table.Td>
-      <Table.Td ta="right">{Number(receipt.total_weight || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</Table.Td>
+      <Table.Td ta="right">{Number(receipt.total_qty || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</Table.Td>
+      <Table.Td ta="right">{Number(receipt.total_weight || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</Table.Td>
       <Table.Td ta="right">{formatAmount(String(receipt.supply_amount ?? 0))}</Table.Td>
       <Table.Td ta="right">{formatAmount(String(receipt.vat_amount ?? 0))}</Table.Td>
       <Table.Td ta="right" className={classes.receiptFinderAmount}>{formatAmount(String(receipt.total_amount ?? 0))}</Table.Td>
@@ -214,7 +225,7 @@ const errorMessage = (error) => {
     .replaceAll('customcode', '\uB9E4\uC785\uCC98')
     .replaceAll('warehousecode', '\uCC3D\uACE0')
     .replaceAll('receptdate', '\uB9E4\uC785\uC77C\uC790');
-  return detail || error.response?.data?.message || error.message || '\uC785\uACE0 \uC694\uCCAD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.';
+  return apiErrorMessage(error, '\uC785\uACE0 \uC694\uCCAD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.');
 };
 const makeDetail = (source = EMPTY_DETAIL, lineNo = null) => ({
   ...EMPTY_DETAIL,
@@ -285,12 +296,118 @@ const amountText = (value) => {
 };
 const NUMERIC_FIELDS = new Set(['myrtle', 'thickness', 'width', 'length', 'qty', 'weight', 'unitprice', 'supplyamt', 'vat']);
 const cleanNumericInput = (value) => String(value ?? '').replace(/,/g, '').replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
+// 기타비용 공급가 · 부가세 저장값: 소수 둘째 자리까지 (서버 검증과 같음 · 예전 자료에 셋째 자리가 있어도 반올림해 보낸다)
+const expenseAmount2 = (value) => {
+  const amount = Number(cleanNumericInput(value));
+  return Number.isFinite(amount) && amount ? String(Math.round((amount + Number.EPSILON) * 100) / 100) : '0';
+};
 const formatNumericInput = (value) => {
   const raw = cleanNumericInput(value);
   if (!raw) return '';
   const [integer, ...decimalParts] = raw.split('.');
   const groupedInteger = (integer || '0').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return decimalParts.length ? `${groupedInteger}.${decimalParts.join('')}` : groupedInteger;
+};
+
+// ── 매입 상세 · 기타비용 엑셀식 입력 도우미 ──
+// 값을 옮길 때도 직접 입력(changeDetail · changeExpense)과 같은 규칙을 쓴다:
+//   품명·강종·표면은 코드와 이름을 함께, 단가·단가기준이 바뀌면 공급가·부가세는 자동계산으로 되돌리고,
+//   공급가·부가세는 '직접 입력' 여부까지 함께 옮긴다. 합계금액은 계산값이라 건너뛴다.
+const DETAIL_FIELD_INDEX = Object.fromEntries(DETAIL_FIELDS.map(({ key }, index) => [key, index]));
+const DETAIL_PASTE_ERROR_FIELD = { materialname: 'material', surfacename: 'surface', unit: 'unit', qtyunit: 'qtyunit' };
+const DETAIL_SELECT_FIELDS = new Set(['unit', 'qtyunit']);   // 기본값(KG·EA)이 있는 목록: 지우지 않는다
+const resetDetailAmounts = (target) => {
+  target.supplyamt = '';
+  target.vat = '';
+  target.supplyamt_manual = false;
+  target.vat_manual = false;
+};
+// 자동계산을 되돌리는 칸을 먼저 처리해야 같은 범위의 공급가·부가세 직접 입력값이 남는다
+const orderFillFields = (fields) => [
+  ...fields.filter((field) => field === 'unit' || field === 'unitprice'),
+  ...fields.filter((field) => field !== 'unit' && field !== 'unitprice'),
+];
+const copyDetailField = (target, source, field, pasteErrors) => {
+  if (field === 'unitamt') return;
+  if (field === 'itemname') {
+    target.itemcode = source.itemcode || '';
+    target.itemname = source.itemname || '';
+  } else if (field === 'materialname' || field === 'surfacename') {
+    const codeKey = field === 'materialname' ? 'materialcode' : 'surfacecode';
+    target[codeKey] = source[codeKey] || '';
+    target[field] = source[field] || '';
+  } else if (field === 'unit' || field === 'unitprice') {
+    target[field] = source[field] ?? '';
+    resetDetailAmounts(target);
+  } else if (field === 'supplyamt' || field === 'vat') {
+    const manual = Boolean(source[`${field}_manual`]);
+    target[field] = manual ? source[field] ?? '' : '';
+    target[`${field}_manual`] = manual;
+  } else target[field] = source[field] ?? '';
+  const errorField = DETAIL_PASTE_ERROR_FIELD[field];
+  if (errorField) {
+    const sourceError = pasteErrors.get(masterPasteErrorKey(source.id, errorField));
+    if (sourceError) pasteErrors.set(masterPasteErrorKey(target.id, errorField), sourceError);
+    else pasteErrors.delete(masterPasteErrorKey(target.id, errorField));
+  }
+};
+const clearDetailField = (target, field, pasteErrors) => {
+  if (field === 'unitamt' || DETAIL_SELECT_FIELDS.has(field)) return;
+  if (field === 'itemname') { target.itemcode = ''; target.itemname = ''; }
+  else if (field === 'materialname') { target.materialcode = ''; target.materialname = ''; }
+  else if (field === 'surfacename') { target.surfacecode = ''; target.surfacename = ''; }
+  else if (field === 'unitprice') { target.unitprice = ''; resetDetailAmounts(target); }
+  else if (field === 'supplyamt' || field === 'vat') { target[field] = ''; target[`${field}_manual`] = false; }   // 지우면 자동계산으로
+  else target[field] = '';
+  const errorField = DETAIL_PASTE_ERROR_FIELD[field];
+  if (errorField) pasteErrors.delete(masterPasteErrorKey(target.id, errorField));
+};
+// 복사(Ctrl+C) 글자: 엑셀에 붙이거나 다시 이 표에 붙여넣을 수 있는 값 (단위는 코드명, 금액은 화면 값)
+const detailCopyText = (row, field, unitOptions) => {
+  let value;
+  if (field === 'unit' || field === 'qtyunit') {
+    const fallback = field === 'unit' ? 'KG' : 'EA';
+    const options = field === 'unit' ? unitOptions.price : unitOptions.quantity;
+    value = options.find((option) => option.code === resolveMasterCode(field, row[field] || fallback, unitOptions))?.name || row[field] || fallback;
+  } else if (field === 'supplyamt') value = amountText(amountOf(row, unitOptions.price));
+  else if (field === 'vat') value = amountText(vatOf(row, unitOptions.price));
+  else if (field === 'unitamt') value = amountText(totalAmountOf(row, unitOptions.price));
+  else value = row[field] ?? '';
+  return String(value).replace(/[\t\r\n]+/g, ' ');
+};
+const parseClipboardMatrix = (text) => String(text || '').replace(/\r/g, '').split('\n')
+  .filter((line, index, all) => line || index < all.length - 1).map((line) => line.split('\t'));
+const isMultiCellText = (text) => /[\t\n]/.test(String(text || '').replace(/\r?\n$/, ''));
+
+// 기타비용 표 칸 순서 (체크·No. 다음부터). 합계는 계산값이라 붙여넣기에서 건너뛴다.
+const EXPENSE_GRID_FIELDS = ['costname', 'supplyamt', 'vat', 'total', 'customname', 'description'];
+const EXPENSE_FIRST_FIELD_COLUMN = 2;
+const EXPENSE_FOCUSABLE_INPUT = 'input:not([type="checkbox"]):not([disabled]):not([data-expense-skip])';
+const expenseAutoVat = (supplyText) => amountText((Number(cleanNumericInput(supplyText)) || 0) * 0.1);
+const expenseCellOf = (target) => {
+  const cell = target?.closest?.('td');
+  const row = cell?.parentElement;
+  if (!cell || !row || row.parentElement?.tagName !== 'TBODY') return null;
+  const field = EXPENSE_GRID_FIELDS[cell.cellIndex - EXPENSE_FIRST_FIELD_COLUMN];
+  return field ? { index: row.sectionRowIndex, column: cell.cellIndex, field } : null;
+};
+// 한 칸 값을 옮긴다 — changeExpense 와 같은 규칙 (공급가 → 부가세 자동, 부가세 → 직접 입력, 비용구분·거래처는 코드와 이름 함께)
+const copyExpenseField = (target, source, field) => {
+  const next = { ...target, is_dirty: !target.is_new };
+  if (field === 'costname') { next.costcode = source.costcode || ''; next.costname = source.costname || ''; }
+  else if (field === 'customname') { next.customcode = source.customcode || ''; next.customname = source.customname || ''; }
+  else if (field === 'supplyamt') {
+    next.supplyamt = source.supplyamt ?? '';
+    if (!target.vat_manual) next.vat = expenseAutoVat(next.supplyamt);
+  } else if (field === 'vat') { next.vat = source.vat ?? ''; next.vat_manual = true; }
+  else if (field === 'description') next.description = source.description || '';
+  return next;
+};
+const findUniqueMatch = (list, text, keys) => {
+  const normalized = String(text ?? '').trim().toLocaleLowerCase();
+  if (!normalized) return null;
+  const matches = list.filter((entry) => keys.some((key) => String(entry[key] ?? '').trim().toLocaleLowerCase() === normalized));
+  return matches.length === 1 ? matches[0] : null;
 };
 
 const formatExcelDateTime = (value) => {
@@ -464,11 +581,19 @@ const ItemNameAutocompleteCell = memo(function ItemNameAutocompleteCell({ row, d
   const skipBlurCommitRef = useRef(false);
   const hasEditedRef = useRef(false);
   const keyboardSelectionRef = useRef(false);
+  // 목록은 글자를 쳤을 때만 연다: 값이 있는 칸에 들어오기만 해도 목록이 열려 방향키·Enter 가 행 이동 대신 목록을 움직이던 문제
+  const [typed, setTyped] = useState(false);
   const query = String(draft || '').trim();
-  const isOpen = isEditing && !disabled && itemsQuery === query && items.length > 0;
+  const isOpen = isEditing && typed && !disabled && itemsQuery === query && items.length > 0;
+  // 채우기(Ctrl+D)·범위 붙여넣기로 바깥에서 값이 바뀌면, 아직 손대지 않은 입력칸은 새 값을 따른다 (칸을 벗어날 때 옛 값으로 덮지 않게)
+  const [syncedItemName, setSyncedItemName] = useState(row.itemname);
+  if (syncedItemName !== row.itemname) {
+    setSyncedItemName(row.itemname);
+    if (isEditing) setDraft((current) => (current === (syncedItemName || '') ? row.itemname || '' : current));
+  }
 
   useEffect(() => {
-    if (!isEditing || disabled || !query) return undefined;
+    if (!isEditing || !typed || disabled || !query) return undefined;
     const controller = new AbortController();
     const loadItems = async () => {
       try {
@@ -483,10 +608,11 @@ const ItemNameAutocompleteCell = memo(function ItemNameAutocompleteCell({ row, d
     };
     const timer = window.setTimeout(() => { void loadItems(); }, 140);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [isEditing, disabled, query]);
+  }, [isEditing, typed, disabled, query]);
 
   const chooseItem = (item) => {
     onSelectItem(row.id, item);
+    setTyped(false);
     hasEditedRef.current = false;
     keyboardSelectionRef.current = false;
     setDraft(item.itemname || '');
@@ -549,6 +675,7 @@ const ItemNameAutocompleteCell = memo(function ItemNameAutocompleteCell({ row, d
             keyboardSelectionRef.current = false;
             onFocusCell(row.id, 'itemname');
             setDraft(row.itemname || '');
+            setTyped(false);
             setIsEditing(true);
             event.currentTarget.select();
           }}
@@ -558,36 +685,39 @@ const ItemNameAutocompleteCell = memo(function ItemNameAutocompleteCell({ row, d
           }}
           onBlur={() => {
             if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
+            // 손대지 않고 지나가기만 한 칸은 다시 확정하지 않는다 (지금 값 그대로)
+            if (!hasEditedRef.current) { setIsEditing(false); return; }
             if (!pickerOpenRef.current) void commitExactMatch();
           }}
-          onChange={(event) => { hasEditedRef.current = true; keyboardSelectionRef.current = false; setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); }}
+          onChange={(event) => { hasEditedRef.current = true; keyboardSelectionRef.current = false; setTyped(true); setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); }}
           onPaste={onPaste}
           onKeyDown={(event) => {
-            if (event.key === 'F2' || event.key === ' ') {
+            if (event.key === 'F2' || (event.key === ' ' && !hasEditedRef.current)) {
+              // 스페이스: 아직 글자를 치지 않았을 때만 품목 선택 창 (치는 중에는 띄어쓰기)
               event.preventDefault(); event.stopPropagation();
               if (!disabled) openPicker();
-            } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            } else if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && isOpen) {
+              // 목록이 열려 있을 때만 목록 이동. 닫혀 있으면 표의 위/아래 행 이동으로 넘긴다
               event.preventDefault(); event.stopPropagation();
-              if (isOpen) keyboardSelectionRef.current = true;
-              setIsEditing(true);
-              if (isOpen) setActiveIndex((current) => event.key === 'ArrowDown'
+              keyboardSelectionRef.current = true;
+              setActiveIndex((current) => event.key === 'ArrowDown'
                 ? (current + 1) % items.length : (current - 1 + items.length) % items.length);
-            } else if (event.key === 'Tab' && isOpen) {
-              if (hasEditedRef.current) {
-                const item = keyboardSelectionRef.current && activeIndex >= 0 ? items[activeIndex] : null;
-                skipBlurCommitRef.current = true;
-                if (item) chooseItem(item);
-                else { onChange(row.id, 'itemname', ''); setDraft(''); setIsEditing(false); setActiveIndex(-1); hasEditedRef.current = false; keyboardSelectionRef.current = false; }
-              }
             } else if (event.key === 'Tab' && hasEditedRef.current) {
-              skipBlurCommitRef.current = true;
-              onChange(row.id, 'itemname', ''); setDraft(''); setIsEditing(false); setActiveIndex(-1); hasEditedRef.current = false; keyboardSelectionRef.current = false;
+              // Tab: 고른 항목 → 정확히 같은 이름/코드 하나 → 후보가 하나뿐이면 그것.
+              // 못 정하면 칸을 벗어날 때처럼 확정한다 (예전처럼 지우지 않음. 품목이 안 맞으면 저장할 때 걸러진다)
+              const shown = isOpen ? items : [];
+              const normalized = query.toLocaleLowerCase();
+              const exact = shown.filter((item) => [item.itemname, item.itemcode].some((value) => String(value || '').trim().toLocaleLowerCase() === normalized));
+              const item = keyboardSelectionRef.current && activeIndex >= 0 ? shown[activeIndex]
+                : exact.length === 1 ? exact[0] : shown.length === 1 ? shown[0] : null;
+              if (item) { skipBlurCommitRef.current = true; chooseItem(item); }
             } else if (event.key === 'Enter' && isOpen) {
               event.preventDefault(); event.stopPropagation();
               const chosen = items[activeIndex >= 0 ? activeIndex : 0];
               if (chosen) chooseItem(chosen);
             } else if (event.key === 'Escape') {
               event.preventDefault(); event.stopPropagation(); setDraft(row.itemname || ''); setIsEditing(false); setActiveIndex(-1);
+              setTyped(false); hasEditedRef.current = false;
             }
           }}
           onDoubleClick={() => { if (!disabled) openPicker(); }}
@@ -903,13 +1033,22 @@ const GeneralCodeNameAutocompleteCell = memo(function GeneralCodeNameAutocomplet
   const skipBlurCommitRef = useRef(false);
   const hasEditedRef = useRef(false);
   const keyboardSelectionRef = useRef(false);
+  // 채우기·범위 붙여넣기로 바깥에서 값이 바뀌면, 아직 손대지 않은 입력칸은 새 값을 따른다
+  // 목록은 글자를 쳤을 때만 연다 (품명 칸과 같음)
+  const [typed, setTyped] = useState(false);
+  const [syncedName, setSyncedName] = useState(row[nameKey]);
+  if (syncedName !== row[nameKey]) {
+    setSyncedName(row[nameKey]);
+    if (isEditing) setDraft((current) => (current === (syncedName || '') ? row[nameKey] || '' : current));
+  }
   const query = String(draft || '').trim().toLocaleLowerCase();
   const matches = useMemo(() => query
     ? options.filter((option) => `${option.name || ''} ${option.code || ''}`.toLocaleLowerCase().includes(query)).slice(0, 8)
     : [], [options, query]);
-  const isOpen = isEditing && !disabled && matches.length > 0;
+  const isOpen = isEditing && typed && !disabled && matches.length > 0;
   const choose = (option) => {
     onSelectMaster(row.id, field, option);
+    setTyped(false);
     hasEditedRef.current = false;
     keyboardSelectionRef.current = false;
     setDraft(option.name || '');
@@ -953,41 +1092,39 @@ const GeneralCodeNameAutocompleteCell = memo(function GeneralCodeNameAutocomplet
             keyboardSelectionRef.current = false;
             onFocusCell(row.id, nameKey);
             setDraft(row[nameKey] || '');
+            setTyped(false);
             setIsEditing(true);
             event.currentTarget.select();
           }}
           onBlur={() => {
             if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
+            if (!hasEditedRef.current) { setIsEditing(false); return; }   // 손대지 않은 칸은 그대로
             if (!pickerOpenRef.current) commit();
           }}
-          onChange={(event) => { hasEditedRef.current = true; keyboardSelectionRef.current = false; setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); }}
+          onChange={(event) => { hasEditedRef.current = true; keyboardSelectionRef.current = false; setTyped(true); setDraft(event.currentTarget.value); setActiveIndex(-1); setIsEditing(true); }}
           onPaste={onPaste}
           onKeyDown={(event) => {
-            if (event.key === 'F2' || event.key === ' ') {
+            if (event.key === 'F2' || (event.key === ' ' && !hasEditedRef.current)) {
               event.preventDefault(); event.stopPropagation();
               if (!disabled) openPicker();
-            } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-              if (!matches.length) return;
-              event.preventDefault(); event.stopPropagation(); setIsEditing(true);
+            } else if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && isOpen) {
+              event.preventDefault(); event.stopPropagation();
               keyboardSelectionRef.current = true;
               setActiveIndex((current) => event.key === 'ArrowDown'
                 ? (current + 1) % matches.length : (current - 1 + matches.length) % matches.length);
-            } else if (event.key === 'Tab' && isOpen) {
-              if (hasEditedRef.current) {
-                const option = keyboardSelectionRef.current && activeIndex >= 0 ? matches[activeIndex] : null;
-                skipBlurCommitRef.current = true;
-                if (option) choose(option);
-                else { onChange(row.id, nameKey, ''); setDraft(''); setIsEditing(false); setActiveIndex(-1); hasEditedRef.current = false; keyboardSelectionRef.current = false; }
-              }
             } else if (event.key === 'Tab' && hasEditedRef.current) {
-              skipBlurCommitRef.current = true;
-              onChange(row.id, nameKey, ''); setDraft(''); setIsEditing(false); setActiveIndex(-1); hasEditedRef.current = false; keyboardSelectionRef.current = false;
-            } else if (event.key === 'Enter' && isEditing) {
+              // Tab: 고른 항목 → 후보가 하나뿐이면 그것. 못 정하면 칸을 벗어날 때처럼 확정 (정확히 같은 코드/이름이면 선택, 아니면 저장 때 코드 확인)
+              const shown = isOpen ? matches : [];
+              const option = keyboardSelectionRef.current && activeIndex >= 0 ? shown[activeIndex]
+                : shown.length === 1 ? shown[0] : null;
+              if (option) { skipBlurCommitRef.current = true; choose(option); }
+            } else if (event.key === 'Enter' && isOpen) {
               event.preventDefault(); event.stopPropagation();
               const option = matches[activeIndex >= 0 ? activeIndex : 0];
               if (option) choose(option);
             } else if (event.key === 'Escape') {
               event.preventDefault(); event.stopPropagation(); setDraft(row[nameKey] || ''); setIsEditing(false); setActiveIndex(-1);
+              setTyped(false); hasEditedRef.current = false;
             }
           }}
           onDoubleClick={() => { if (!disabled) openPicker(); }}
@@ -1214,13 +1351,12 @@ const InboundDetailSummary = memo(function InboundDetailSummary({ rows, unitOpti
       const quantity = Number(cleanNumericInput(row.qty)) || 0;
       totals.set(unit, (totals.get(unit) || 0) + quantity);
     });
-    return [...totals.entries()].map(([unit, quantity]) => `${quantity.toLocaleString(undefined, { maximumFractionDigits: 3 })}${unit}`).join(', ');
+    return [...totals.entries()].map(([unit, quantity]) => `${quantity.toLocaleString(undefined, { maximumFractionDigits: 2 })}${unit}`).join(', ');
   }, [summaryRows, unitOptions]);
   return (
-    <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="space-between" wrap="wrap">
-      <Text size="xs" c="dimmed">엑셀 셀 범위를 붙여넣고 저장할 수 있습니다.</Text>
+    <Group className={`${sharedClasses.footer} ${codeClasses.tableFooter}`} justify="flex-end" wrap="wrap">
       <Text size="xs" fw={700}>
-        총 수량 {quantitySummary} · 총 중량 {detailSubtotals.weight.toLocaleString(undefined, { maximumFractionDigits: 3 })}{summaryRows.length ? 'KG' : ''}
+        총 수량 {quantitySummary} · 총 중량 {detailSubtotals.weight.toLocaleString(undefined, { maximumFractionDigits: 2 })}{summaryRows.length ? 'KG' : ''}
         {' · '}총공급가 {formatWon(detailSubtotals.amount.toFixed(2))}
         {' · '}부가세 {formatWon(detailSubtotals.vat.toFixed(2))}
         {' · '}합계 {formatWon(detailSubtotals.total.toFixed(2))}
@@ -1331,7 +1467,7 @@ export default function InboundRegisterPage() {
   const [expenses, setExpenses] = useState([]);
   const expenseRowsRef = useRef(expenses);
   useLayoutEffect(() => { expenseRowsRef.current = expenses; }, [expenses]);
-  const [expenseOptions, setExpenseOptions] = useState([]);
+  const [expenseOptions, setExpenseOptions] = useState(() => peekMaster('code-use:OTHER_COST') || []);
   const [expenseCostPickerId, setExpenseCostPickerId] = useState('');
   const [selectedExpenseIds, setSelectedExpenseIds] = useState([]);
   const [detailTab, setDetailTab] = useState('details');
@@ -1354,8 +1490,8 @@ export default function InboundRegisterPage() {
   const [customerPickerTarget, setCustomerPickerTarget] = useState(null);
   const [itemPickerTarget, setItemPickerTarget] = useState(null);
   const [masterPickerTarget, setMasterPickerTarget] = useState(null);
-  const [receiptCustomers, setReceiptCustomers] = useState([]);
-  const [unitOptions, setUnitOptions] = useState({ price: [], quantity: [], warehouse: [], material: [], surface: [] });
+  const [receiptCustomers, setReceiptCustomers] = useState(() => peekMaster('customers:active') || []);
+  const [unitOptions, setUnitOptions] = useState(cachedInboundUnitOptions);
   const virtuosoRef = useRef(null);
   const receiptTableRef = useRef(null);
   const receiptSubtotalRef = useRef(null);
@@ -1373,6 +1509,8 @@ export default function InboundRegisterPage() {
   const readOnly = Boolean(selectedReceiptno) || locked;
   const hasManagerChanges = Boolean(selectedReceiptno) && documentDirty;
   const hasPendingChanges = useMemo(() => documentDirty || rows.some((row) => row.is_new || row.is_dirty) || expenses.some((row) => row.is_new || row.is_dirty), [documentDirty, rows, expenses]);
+  useUnsavedChanges(hasPendingChanges);   // 탭 닫기 · 브라우저 닫기 전에 확인
+  const requestKey = useRequestKey(!selectedReceiptno && hasPendingChanges);   // 새 전표 중복 저장 막기 (서버 request_key)
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedExpenseSet = useMemo(() => new Set(selectedExpenseIds), [selectedExpenseIds]);
   const expenseTotals = useMemo(() => expenses.reduce((totals, row) => {
@@ -1492,45 +1630,36 @@ export default function InboundRegisterPage() {
     void loadReceipts(1, filters);
   }, [loadReceipts, filters]);
 
-  const loadUnitOptions = useCallback(async (groupcode) => {
-    const items = [];
-    let pageNumber = 1;
-    let totalCount = 0;
-    do {
+  // 코드 · 매입처 목록: 지난번 값(메모리 캐시)으로 화면을 바로 채우고, 서버 값으로 곧바로 바꾼다. 여러 쪽은 병렬로 받는다.
+  const loadUnitOptions = useCallback((groupcode) => loadMaster(`code-use:${groupcode}`, async () => {
+    const items = await fetchAllPages(async (pageNumber) => {
       const { data } = await axios.get(`/api/code-master/groups/${groupcode}/items`, {
         ...authConfig(), params: { page: pageNumber, page_size: 200, include_total: true },
       });
-      items.push(...(data.items || []));
-      totalCount = data.total || 0;
-      pageNumber += 1;
-    } while (items.length < totalCount && pageNumber <= 100);
+      return { items: data.items || [], total: data.total || 0 };
+    }, 200);
     const uniqueOptions = new Map();
     items.filter((item) => item.use).forEach((item) => {
       const code = String(item.code || '').trim();
       if (code) uniqueOptions.set(code.toLocaleUpperCase(), { code, name: item.name || code });
     });
     return [...uniqueOptions.values()];
-  }, []);
+  }), []);
 
   const loadReceiptCustomers = useCallback(async () => {
-    const customers = [];
-    let pageNumber = 1;
-    let totalCount = 0;
-    do {
+    const customers = await loadMaster('customers:active', () => fetchAllPages(async (pageNumber) => {
       const { data } = await axios.get('/api/list', {
         ...authConfig(),
         params: { status: 'Y', page: pageNumber, page_size: 200, include_total: true },
       });
-      customers.push(...(data.data || []));
-      totalCount = data.total || 0;
-      pageNumber += 1;
-    } while (customers.length < totalCount && pageNumber <= 100);
+      return { items: data.data || [], total: data.total || 0 };
+    }, 200));
     setReceiptCustomers(customers);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([loadUnitOptions('PRICE_UNIT'), loadUnitOptions('QTY'), loadUnitOptions('WAREHOUSE'), loadUnitOptions('MATERIAL'), loadUnitOptions('SURFACE'), loadUnitOptions('OTHER_COST')])
+    Promise.all(INBOUND_CODE_GROUPS.map((groupcode) => loadUnitOptions(groupcode)))
       .then(([price, quantity, warehouse, material, surface, expensesList]) => {
         if (!cancelled) { setUnitOptions({ price, quantity, warehouse, material, surface }); setExpenseOptions(expensesList); }
       })
@@ -1618,6 +1747,155 @@ export default function InboundRegisterPage() {
     setDocumentDirty(true);
     notifications.show({ title: '선택 행 제거 완료', message: `기타비용 ${removedCount}행을 제거했습니다. 저장하면 반영됩니다.`, color: 'teal' });
   }, [saving, readOnly, selectedExpenseIds, expenses]);
+
+  // ── 기타비용 표 엑셀식 입력 ──
+  // 칸(비고·거래처·비용구분)은 벗어날 때 값을 확정하므로, 값을 바꾸기 전에 먼저 포커스를 빼서 확정시키고 바꾼 뒤 다시 돌아온다.
+  const expenseWrapRef = useRef(null);
+  const focusExpenseCell = useCallback((index, column) => {
+    requestAnimationFrame(() => {
+      const input = expenseWrapRef.current?.querySelector('tbody')?.rows[index]?.cells[column]?.querySelector(EXPENSE_FOCUSABLE_INPUT);
+      if (!input) return;
+      input.focus();
+      if (!input.readOnly) input.select?.();
+    });
+  }, []);
+
+  // Ctrl+D: 체크한 행이 있으면 현재 칸 값을 그 아래 체크한 행들에, 없으면 바로 윗행 값을 현재 칸에
+  const fillExpenseDown = useCallback((cell, element) => {
+    if (saving || readOnly || cell.field === 'total') return;
+    const list = expenseRowsRef.current;
+    const selected = new Set(selectedExpenseIds);
+    const useSelection = selected.size > 0;
+    const sourceIndex = useSelection ? cell.index : cell.index - 1;
+    const targets = useSelection
+      ? new Set(list.map((expense, index) => (index > cell.index && selected.has(expense.id) ? index : -1)).filter((index) => index >= 0))
+      : new Set([cell.index]);
+    if (sourceIndex < 0 || !targets.size) return;
+    element?.blur();
+    setExpenses((current) => current.map((expense, index) => (targets.has(index) && current[sourceIndex]
+      ? copyExpenseField(expense, current[sourceIndex], cell.field) : expense)));
+    setDocumentDirty(true);
+    focusExpenseCell(cell.index, cell.column);
+    if (useSelection) notifications.show({ title: '아래로 채우기 완료', message: `기타비용 ${targets.size.toLocaleString()}개 행에 현재 칸의 값을 복사했습니다.`, color: 'teal' });
+  }, [saving, readOnly, selectedExpenseIds, focusExpenseCell]);
+
+  // Ctrl+Enter: 아래에 빈 행 · Ctrl+Shift+Enter: 현재 행 복제
+  const insertExpenseBelow = useCallback((index, duplicate, element) => {
+    if (saving || readOnly) return;
+    if (duplicate) element?.blur();
+    const fresh = makeExpense();
+    setExpenses((current) => {
+      const source = current[index];
+      const row = duplicate && source
+        ? makeExpense({
+          id: fresh.id, costcode: source.costcode, costname: source.costname, supplyamt: source.supplyamt, vat: source.vat,
+          vat_manual: source.vat_manual, customcode: source.customcode, customname: source.customname,
+          purchaseyn: source.purchaseyn, description: source.description,
+        })
+        : fresh;
+      const next = [...current];
+      next.splice(Math.min(index + 1, next.length), 0, row);
+      return next;
+    });
+    setDocumentDirty(true);
+    pendingExpenseFocusIdRef.current = fresh.id;
+  }, [saving, readOnly]);
+
+  const handleExpenseKeyDown = useCallback((event) => {
+    if (event.defaultPrevented || event.altKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
+    const cell = expenseCellOf(event.target);
+    if (!cell) return;
+    const ctrl = event.ctrlKey || event.metaKey;
+    const { key } = event;
+    if (ctrl && key.toLowerCase() === 'd') { event.preventDefault(); fillExpenseDown(cell, event.target); return; }
+    if (ctrl && key === 'Enter') { event.preventDefault(); insertExpenseBelow(cell.index, event.shiftKey, event.target); return; }
+    if (ctrl && !event.shiftKey && (key === 'ArrowUp' || key === 'ArrowDown')) {
+      const count = expenseRowsRef.current.length;
+      if (!count) return;
+      event.preventDefault();
+      focusExpenseCell(key === 'ArrowUp' ? 0 : count - 1, cell.column);
+      return;
+    }
+    if (key === 'Enter' && !ctrl) {
+      // Enter / Shift+Enter: 아래·위 행 같은 칸. 마지막 행에서 Enter 는 새 행을 붙인다.
+      event.preventDefault();
+      const nextIndex = cell.index + (event.shiftKey ? -1 : 1);
+      if (nextIndex < 0) return;
+      if (nextIndex >= expenseRowsRef.current.length) {
+        if (!event.shiftKey) { event.target.blur?.(); addExpense(); }
+        return;
+      }
+      focusExpenseCell(nextIndex, cell.column);
+    }
+  }, [fillExpenseDown, insertExpenseBelow, focusExpenseCell, addExpense]);
+
+  // 엑셀 범위 붙여넣기: 현재 칸부터 오른쪽·아래로 (비용구분 · 공급가 · 부가세 · 합계(건너뜀) · 거래처 · 비고). 모자란 행은 새로 만든다.
+  // 비용구분·거래처는 이름이나 코드가 정확히 하나로 맞을 때만 넣고, 못 찾으면 비워 두고 알려 준다.
+  const handleExpensePasteCapture = useCallback((event) => {
+    if (saving || readOnly) return;
+    const text = event.clipboardData.getData('text/plain');
+    if (!isMultiCellText(text)) return;   // 값 하나는 칸 기본 붙여넣기
+    const cell = expenseCellOf(event.target);
+    if (!cell) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const matrix = parseClipboardMatrix(text);
+    if (cell.index + matrix.length > 1000) {
+      notifications.show({ title: '붙여넣기 제한', message: '기타비용은 한 번에 최대 1,000행까지 입력할 수 있습니다.', color: 'orange' });
+      return;
+    }
+    const startField = EXPENSE_GRID_FIELDS.indexOf(cell.field);
+    const unresolved = [];
+    const patches = matrix.map((line, offset) => {
+      const patch = {};
+      line.forEach((value, columnOffset) => {
+        const field = EXPENSE_GRID_FIELDS[startField + columnOffset];
+        const raw = String(value ?? '').trim();
+        if (field === 'costname') {
+          const option = findUniqueMatch(expenseOptions, raw, ['name', 'code']);
+          patch.costcode = option?.code || '';
+          patch.costname = option ? option.name || option.code || '' : '';
+          if (raw && !option) unresolved.push(`${cell.index + offset + 1}행 비용구분: ${raw}`);
+        } else if (field === 'customname') {
+          const customer = findUniqueMatch(receiptCustomers, raw, ['customername', 'customercode']);
+          patch.customcode = customer?.customercode || '';
+          patch.customname = customer?.customername || '';
+          if (raw && !customer) unresolved.push(`${cell.index + offset + 1}행 거래처: ${raw}`);
+        } else if (field === 'supplyamt' || field === 'vat') patch[field] = cleanAmountInput(raw);
+        else if (field === 'description') patch.description = String(value ?? '').slice(0, 500);
+      });
+      return patch;
+    });
+    event.target.blur?.();
+    setExpenses((current) => {
+      const next = [...current];
+      patches.forEach((patch, offset) => {
+        const index = cell.index + offset;
+        const base = next[index] ? { ...next[index] } : makeExpense();
+        Object.assign(base, patch);
+        if ('vat' in patch) {
+          // 부가세: 비우거나 공급가의 10% 와 같으면 자동계산, 다르면 직접 입력 (손으로 친 것과 같음)
+          const autoVat = expenseAutoVat(base.supplyamt);
+          base.vat_manual = patch.vat !== '' && Math.abs((Number(patch.vat) || 0) - Number(autoVat)) > 0.004;
+          if (!base.vat_manual) base.vat = autoVat;
+        } else if ('supplyamt' in patch && !base.vat_manual) base.vat = expenseAutoVat(base.supplyamt);
+        base.is_dirty = !base.is_new;
+        if (next[index]) next[index] = base;
+        else next.push(base);
+      });
+      return next;
+    });
+    setDocumentDirty(true);
+    focusExpenseCell(cell.index, cell.column);
+    if (unresolved.length) {
+      notifications.show({
+        title: '코드 확인 필요',
+        message: `${unresolved.slice(0, 5).join(' · ')}${unresolved.length > 5 ? ` 외 ${unresolved.length - 5}건` : ''}. 사용 중인 비용구분·거래처만 입력되어 해당 칸은 비워 두었습니다.`,
+        color: 'orange',
+        autoClose: 8000,
+      });
+    }
+  }, [saving, readOnly, expenseOptions, receiptCustomers, focusExpenseCell]);
 
   const openCustomerPicker = useCallback((rowId) => {
     if (!readOnly && !saving) {
@@ -1829,16 +2107,63 @@ export default function InboundRegisterPage() {
     pendingFocusIdRef.current = '';
   }, [rows.length]);
 
+  // ── 셀 범위 선택 (Shift+방향키 · Shift+클릭). 포커스는 시작 칸에 두고 범위만 칠한다 (다시 그리기 없이 DOM 클래스로) ──
+  // rangeRef: { anchorId, anchorColumn, focusId, focusColumn } — 열 번호는 DETAIL_FIELDS 순서
+  const rangeRef = useRef(null);
+  const paintedCellsRef = useRef(new Set());
+  const paintFrameRef = useRef(0);
+  const cellByElementRef = useRef(new WeakMap());
+  const getRangeBounds = useCallback(() => {
+    const range = rangeRef.current;
+    if (!range) return null;
+    const currentRows = detailRowsRef.current;
+    const anchorIndex = currentRows.findIndex((row) => row.id === range.anchorId);
+    const focusIndex = range.focusId === range.anchorId ? anchorIndex : currentRows.findIndex((row) => row.id === range.focusId);
+    if (anchorIndex < 0 || focusIndex < 0) return null;
+    return {
+      top: Math.min(anchorIndex, focusIndex), bottom: Math.max(anchorIndex, focusIndex),
+      left: Math.min(range.anchorColumn, range.focusColumn), right: Math.max(range.anchorColumn, range.focusColumn),
+      focusIndex,
+    };
+  }, []);
+  const isMultiCellRange = useCallback((bounds = getRangeBounds()) => Boolean(bounds && (bounds.top !== bounds.bottom || bounds.left !== bounds.right)), [getRangeBounds]);
+  const paintRange = useCallback(() => {
+    paintFrameRef.current = 0;
+    paintedCellsRef.current.forEach((cell) => cell.classList.remove(classes.rangeCell));
+    paintedCellsRef.current.clear();
+    const bounds = getRangeBounds();
+    if (!isMultiCellRange(bounds)) return;
+    const currentRows = detailRowsRef.current;
+    for (let rowIndex = bounds.top; rowIndex <= bounds.bottom; rowIndex += 1) {
+      for (let column = bounds.left; column <= bounds.right; column += 1) {
+        const cell = cellInputsRef.current.get(`${currentRows[rowIndex].id}:${DETAIL_FIELDS[column].key}`)?.closest('td');
+        if (cell) { cell.classList.add(classes.rangeCell); paintedCellsRef.current.add(cell); }
+      }
+    }
+  }, [getRangeBounds, isMultiCellRange]);
+  const schedulePaintRange = useCallback(() => {
+    if (!paintFrameRef.current) paintFrameRef.current = requestAnimationFrame(paintRange);
+  }, [paintRange]);
+  const clearRange = useCallback(() => {
+    if (!rangeRef.current && !paintedCellsRef.current.size) return;
+    rangeRef.current = null;
+    paintRange();
+  }, [paintRange]);
+  useEffect(() => { if (rangeRef.current) schedulePaintRange(); }, [rows, schedulePaintRange]);
+  useEffect(() => () => { if (paintFrameRef.current) cancelAnimationFrame(paintFrameRef.current); }, []);
+
   const registerCellInput = useCallback((id, field, element) => {
     const key = `${id}:${field}`;
     if (element) {
+      cellByElementRef.current.set(element, { id, field });
+      if (rangeRef.current) schedulePaintRange();   // 가상 스크롤로 새로 그려진 칸도 범위 색을 입힌다
       cellInputsRef.current.set(key, element);
       if (pendingCellFocusRef.current?.key === key) {
         element.focus();
         pendingCellFocusRef.current = null;
       }
     } else cellInputsRef.current.delete(key);
-  }, []);
+  }, [schedulePaintRange]);
 
   const changeDetail = useCallback((id, key, value) => {
     if (key === 'itemname') {
@@ -1935,48 +2260,119 @@ export default function InboundRegisterPage() {
   }, [lookupItemNames, unitOptions]);
 
   const setActiveCell = useCallback((id, field) => {
+    const previous = activeCellRef.current;
     activeCellRef.current = { id, field };
-  }, []);
+    if (previous?.id !== id || previous?.field !== field) clearRange();
+  }, [clearRange]);
 
+  // Ctrl+D 아래로 채우기 (엑셀과 같음)
+  //  - 셀 범위가 여러 행이면: 범위 맨 윗행 값을 범위 안 아래 행들에 (열마다)
+  //  - 체크한 행이 있으면: 현재 칸 값을 그 아래 체크한 행들에
+  //  - 그 밖에는: 바로 윗행 값을 현재 칸에
   const fillDown = useCallback(() => {
     const activeCell = activeCellRef.current;
-    if (!activeCell || readOnly || saving || !selectedIds.length) return;
-    const field = activeCell.field;
-    if (field === 'itemname' || field === 'warehousecodename' || field === 'unitamt' || field === 'unit') return;
-    const sourceIndex = rows.findIndex((row) => row.id === activeCell.id);
-    if (sourceIndex < 0) return;
-    const sourceValue = rows[sourceIndex][field] ?? '';
-    const targetRows = rows.filter((row, index) => index > sourceIndex && selectedSet.has(row.id));
-    if (!targetRows.length) return;
-
-    let value = sourceValue;
-    let warehouseName = '';
-    if (field === 'warehousecode') {
-      value = resolveMasterCode('warehouse', sourceValue, unitOptions) || sourceValue;
-      warehouseName = unitOptions.warehouse.find((option) => option.code === value)?.name || '';
-    } else if (field === 'qtyunit' || field === 'unit') {
-      value = resolveMasterCode(field, sourceValue, unitOptions) || sourceValue;
+    if (!activeCell || readOnly || saving) return;
+    const bounds = getRangeBounds();
+    const activeIndex = rows.findIndex((row) => row.id === activeCell.id);
+    if (activeIndex < 0) return;
+    let sourceRow;
+    let targetRows;
+    let fields;
+    let mode;
+    if (bounds && bounds.bottom > bounds.top) {
+      mode = 'range';
+      sourceRow = rows[bounds.top];
+      targetRows = rows.slice(bounds.top + 1, bounds.bottom + 1);
+      fields = DETAIL_FIELDS.slice(bounds.left, bounds.right + 1).map(({ key }) => key);
+    } else if (selectedIds.length) {
+      mode = 'selected';
+      sourceRow = rows[activeIndex];
+      targetRows = rows.filter((row, index) => index > activeIndex && selectedSet.has(row.id));
+      fields = bounds ? DETAIL_FIELDS.slice(bounds.left, bounds.right + 1).map(({ key }) => key) : [activeCell.field];
+    } else {
+      mode = 'above';
+      sourceRow = rows[activeIndex - 1];
+      targetRows = [rows[activeIndex]];
+      fields = bounds ? DETAIL_FIELDS.slice(bounds.left, bounds.right + 1).map(({ key }) => key) : [activeCell.field];
     }
+    fields = orderFillFields(fields.filter((field) => field !== 'unitamt' && DETAIL_FIELD_INDEX[field] !== undefined));
+    if (!sourceRow || !targetRows.length || !fields.length) return;
+    const pasteErrors = masterPasteErrorsRef.current;
+    const updates = new Map(targetRows.map((row) => {
+      const target = { ...row };
+      fields.forEach((field) => copyDetailField(target, sourceRow, field, pasteErrors));
+      target.is_dirty = !target.is_new;
+      return [row.id, target];
+    }));
+    setRows((current) => current.map((row) => updates.get(row.id) || row));
+    setDocumentDirty(true);
+    if (mode !== 'above') {
+      notifications.show({
+        title: '아래로 채우기 완료',
+        message: `${targetRows.length.toLocaleString()}개 행에 ${mode === 'range' ? '범위 맨 윗행' : '현재 칸'}의 값을 복사했습니다.`,
+        color: 'teal',
+      });
+    }
+  }, [readOnly, saving, selectedIds.length, rows, selectedSet, getRangeBounds]);
 
-    const targetIds = new Set(targetRows.map((row) => row.id));
-    targetRows.forEach((row) => {
-      if (field === 'unit' || field === 'qtyunit') masterPasteErrorsRef.current.delete(masterPasteErrorKey(row.id, field));
-      if (field === 'warehousecode') masterPasteErrorsRef.current.delete(masterPasteErrorKey(row.id, 'warehouse'));
-    });
+  // 범위 지우기 (Delete · 잘라내기). 단가기준·수량단위(기본값 있는 목록)와 합계금액은 그대로 둔다.
+  const clearRangeCells = useCallback(() => {
+    if (readOnly || saving) return;
+    const bounds = getRangeBounds();
+    if (!bounds) return;
+    const fields = DETAIL_FIELDS.slice(bounds.left, bounds.right + 1).map(({ key }) => key);
+    const targetIds = new Set(rows.slice(bounds.top, bounds.bottom + 1).map((row) => row.id));
+    const pasteErrors = masterPasteErrorsRef.current;
     setRows((current) => current.map((row) => {
       if (!targetIds.has(row.id)) return row;
-      const updated = field === 'warehousecode'
-        ? { ...row, warehousecode: value, warehousecodename: warehouseName }
-        : { ...row, [field]: value };
-      return { ...updated, is_dirty: !updated.is_new };
+      const target = { ...row };
+      fields.forEach((field) => clearDetailField(target, field, pasteErrors));
+      target.is_dirty = !target.is_new;
+      return target;
     }));
     setDocumentDirty(true);
-    notifications.show({
-      title: '아래로 채우기 완료',
-      message: `${targetRows.length.toLocaleString()}개 행에 현재 셀의 값을 복사했습니다.`,
-      color: 'teal',
+  }, [readOnly, saving, rows, getRangeBounds]);
+
+  const rangeCopyText = useCallback(() => {
+    const bounds = getRangeBounds();
+    if (!bounds) return '';
+    return rows.slice(bounds.top, bounds.bottom + 1)
+      .map((row) => DETAIL_FIELDS.slice(bounds.left, bounds.right + 1).map(({ key }) => detailCopyText(row, key, unitOptions)).join('\t'))
+      .join('\n');
+  }, [rows, unitOptions, getRangeBounds]);
+
+  // 새 상세 행: 추가 버튼과 같은 값(매입일자·매입처·창고)으로 만든다
+  const newDetailRow = useCallback(() => makeDetail({
+    receptdate: header.receptdate, customcode: header.customcode, customname: header.customname,
+    warehousecode: header.warehousecode, warehousecodename: header.warehousecodename,
+  }), [header]);
+  // 행 삽입 (Ctrl+Enter: 빈 행 · Ctrl+Shift+Enter: 현재 행 복제). 현재 행 바로 아래에 넣고 같은 칸으로 간다.
+  const insertDetailBelow = useCallback((rowId, field, duplicate) => {
+    if (readOnly || saving) return;
+    const index = rows.findIndex((row) => row.id === rowId);
+    if (index < 0) return;
+    const row = duplicate
+      ? makeDetail(Object.fromEntries(Object.entries(rows[index]).filter(([key]) => !['id', 'lineno', 'is_new', 'is_dirty'].includes(key))))
+      : newDetailRow();
+    pendingCellFocusRef.current = { key: `${row.id}:${field}` };
+    setRows((current) => {
+      const position = current.findIndex((item) => item.id === rowId);
+      const next = [...current];
+      next.splice(position < 0 ? next.length : position + 1, 0, row);
+      return next;
     });
-  }, [readOnly, saving, selectedIds.length, rows, selectedSet, unitOptions]);
+    setDocumentDirty(true);
+    if (index + 1 >= 100) requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: index + 1, align: 'center', behavior: 'auto' }));
+  }, [readOnly, saving, rows, newDetailRow]);
+  // 마지막 행에서 Enter: 새 행을 붙이고 같은 칸으로 간다
+  const appendDetailRow = useCallback((field) => {
+    if (readOnly || saving) return;
+    const row = newDetailRow();
+    pendingFocusIdRef.current = row.id;
+    pendingCellFocusRef.current = { key: `${row.id}:${field}` };
+    setRows((current) => [...current, row]);
+    setDocumentDirty(true);
+  }, [readOnly, saving, newDetailRow]);
 
   const focusGridCell = useCallback((rowId, field) => {
     const cellKey = `${rowId}:${field}`;
@@ -2009,12 +2405,82 @@ export default function InboundRegisterPage() {
     return true;
   }, [rows, focusGridCell]);
 
-  const handleTableKeyDown = useCallback((event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') {
-      event.preventDefault();
-      fillDown();
+  // 엑셀식 단축키 — 칸 자체 처리(자동완성 목록 등)보다 먼저 받는다
+  const handleTableKeyDownCapture = useCallback((event) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229 || event.altKey) return;
+    const activeCell = activeCellRef.current;
+    if (!activeCell || !cellInputsRef.current.has(`${activeCell.id}:${activeCell.field}`)) return;
+    const ctrl = event.ctrlKey || event.metaKey;
+    const { key } = event;
+    const arrow = key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight';
+    const stop = () => { event.preventDefault(); event.stopPropagation(); };
+
+    if (event.shiftKey && !ctrl && arrow) {
+      // 좌/우는 글자 안에서 커서가 움직일 수 있으면 글자 선택으로 둔다 (이미 범위가 있거나 글자 끝·전체 선택일 때만 범위 확장)
+      const target = event.target;
+      if ((key === 'ArrowLeft' || key === 'ArrowRight') && !isMultiCellRange() && target instanceof HTMLInputElement && !target.readOnly && target.selectionStart !== null) {
+        const { selectionStart: start, selectionEnd: end, value } = target;
+        const allSelected = start === 0 && end === value.length;
+        if (!allSelected && (key === 'ArrowLeft' ? start !== 0 : end !== value.length)) return;
+      }
+      const currentRows = detailRowsRef.current;
+      const range = rangeRef.current || { anchorId: activeCell.id, anchorColumn: DETAIL_FIELD_INDEX[activeCell.field], focusId: activeCell.id, focusColumn: DETAIL_FIELD_INDEX[activeCell.field] };
+      if (range.anchorColumn === undefined) return;
+      const focusIndex = currentRows.findIndex((row) => row.id === range.focusId);
+      if (focusIndex < 0) return;
+      const nextIndex = Math.max(0, Math.min(currentRows.length - 1, focusIndex + (key === 'ArrowDown' ? 1 : key === 'ArrowUp' ? -1 : 0)));
+      const nextColumn = Math.max(0, Math.min(DETAIL_FIELDS.length - 1, range.focusColumn + (key === 'ArrowRight' ? 1 : key === 'ArrowLeft' ? -1 : 0)));
+      stop();
+      rangeRef.current = { ...range, focusId: currentRows[nextIndex].id, focusColumn: nextColumn };
+      paintRange();
+      const focusCell = cellInputsRef.current.get(`${currentRows[nextIndex].id}:${DETAIL_FIELDS[nextColumn].key}`)?.closest('td');
+      if (focusCell) focusCell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      else virtuosoRef.current?.scrollToIndex({ index: nextIndex, align: 'center', behavior: 'auto' });
       return;
     }
+    if (ctrl && !event.shiftKey && (key === 'ArrowUp' || key === 'ArrowDown')) {
+      // Ctrl+위/아래: 맨 처음 / 마지막 행으로
+      const currentRows = detailRowsRef.current;
+      if (!currentRows.length) return;
+      stop();
+      focusGridCell(currentRows[key === 'ArrowUp' ? 0 : currentRows.length - 1].id, activeCell.field);
+      return;
+    }
+    if (ctrl && key.toLowerCase() === 'd') { stop(); fillDown(); return; }
+    if (ctrl && key === 'Enter') { stop(); insertDetailBelow(activeCell.id, activeCell.field, event.shiftKey); return; }
+    if (key === 'Delete' && !ctrl && isMultiCellRange()) { stop(); clearRangeCells(); return; }
+    if (key === 'Escape' && rangeRef.current) clearRange();   // 칸의 Esc(입력 취소)도 그대로 동작
+  }, [isMultiCellRange, paintRange, focusGridCell, fillDown, insertDetailBelow, clearRangeCells, clearRange]);
+
+  // Shift+클릭: 현재 칸부터 클릭한 칸까지 범위 선택 (포커스는 그대로). 그냥 클릭하면 범위를 푼다.
+  const handleTableMouseDownCapture = useCallback((event) => {
+    const element = event.target instanceof Element ? event.target.closest('input, select') : null;
+    const cell = element ? cellByElementRef.current.get(element) : null;
+    if (!event.shiftKey || !cell) { if (rangeRef.current) clearRange(); return; }
+    const activeCell = activeCellRef.current;
+    if (!activeCell || !cellInputsRef.current.has(`${activeCell.id}:${activeCell.field}`)) return;
+    const anchorColumn = DETAIL_FIELD_INDEX[activeCell.field];
+    const focusColumn = DETAIL_FIELD_INDEX[cell.field];
+    if (anchorColumn === undefined || focusColumn === undefined) return;
+    event.preventDefault();
+    rangeRef.current = { anchorId: rangeRef.current?.anchorId || activeCell.id, anchorColumn: rangeRef.current?.anchorColumn ?? anchorColumn, focusId: cell.id, focusColumn };
+    paintRange();
+  }, [clearRange, paintRange]);
+
+  // 범위 복사·잘라내기: 엑셀에 그대로 붙일 수 있는 탭 구분 글자
+  const handleTableCopyCapture = useCallback((event) => {
+    if (!isMultiCellRange()) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', rangeCopyText());
+  }, [isMultiCellRange, rangeCopyText]);
+  const handleTableCutCapture = useCallback((event) => {
+    if (!isMultiCellRange()) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', rangeCopyText());
+    clearRangeCells();
+  }, [isMultiCellRange, rangeCopyText, clearRangeCells]);
+
+  const handleTableKeyDown = useCallback((event) => {
     const target = event.target instanceof HTMLInputElement ? event.target : null;
     const activeCell = target?.dataset.rowId && target?.dataset.field
       ? { id: target.dataset.rowId, field: target.dataset.field }
@@ -2038,7 +2504,13 @@ export default function InboundRegisterPage() {
     } else return;
 
     if (moveGridCell(activeCell.id, activeCell.field, rowDelta, columnDelta)) event.preventDefault();
-  }, [fillDown, moveGridCell]);
+    else if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey
+      && !event.nativeEvent.isComposing && detailRowsRef.current.at(-1)?.id === activeCell.id) {
+      // 마지막 행에서 Enter: 새 행을 이어 붙인다 (엑셀처럼 계속 입력)
+      event.preventDefault();
+      appendDetailRow(activeCell.field);
+    }
+  }, [moveGridCell, appendDetailRow]);
 
   const selectMasterOption = useCallback((option) => {
     if (!masterPickerTarget) return;
@@ -2127,7 +2599,8 @@ export default function InboundRegisterPage() {
 
   const pasteRange = useCallback((startId, startField, pastedText) => {
     const matrix = pastedText.replace(/\r/g, '').split('\n').filter((line, index, all) => line || index < all.length - 1).map((line) => line.split('\t'));
-    const startIndex = rows.findIndex((row) => row.id === startId);
+    // startId 가 없으면 빈 표에 처음부터 붙여넣는다 (모든 행을 새로 만든다)
+    const startIndex = startId == null && !rows.length ? 0 : rows.findIndex((row) => row.id === startId);
     const fieldIndex = EDITABLE_FIELDS.indexOf(startField);
     if (startIndex < 0 || fieldIndex < 0 || readOnly) return;
     if (startIndex + matrix.length > 10000) {
@@ -2253,6 +2726,31 @@ export default function InboundRegisterPage() {
   const pasteRangeRef = useRef(pasteRange);
   pasteRangeRef.current = pasteRange;
   const handlePasteRange = useCallback((...args) => pasteRangeRef.current(...args), []);
+
+  // 범위를 고른 채 붙여넣기: 엑셀 범위는 범위 왼쪽 위부터, 값 하나는 범위 전체에 채운다
+  const handleTablePasteCapture = useCallback((event) => {
+    if (readOnly || saving || !isMultiCellRange()) return;
+    const bounds = getRangeBounds();
+    const text = event.clipboardData.getData('text/plain');
+    event.preventDefault();
+    event.stopPropagation();
+    const startId = detailRowsRef.current[bounds.top].id;
+    const startField = DETAIL_FIELDS[bounds.left].key;
+    if (isMultiCellText(text)) { handlePasteRange(startId, startField, text); return; }
+    const value = text.replace(/\r?\n$/, '');
+    if (!value.trim()) { clearRangeCells(); return; }
+    const line = Array(bounds.right - bounds.left + 1).fill(value).join('\t');
+    handlePasteRange(startId, startField, Array(bounds.bottom - bounds.top + 1).fill(line).join('\n'));
+  }, [readOnly, saving, isMultiCellRange, getRangeBounds, handlePasteRange, clearRangeCells]);
+
+  // 빈 표에 엑셀 범위 붙여넣기 (제품번호 칸부터)
+  const handleEmptyDetailPaste = useCallback((event) => {
+    if (readOnly || saving || detailRowsRef.current.length) return;
+    const text = event.clipboardData.getData('text/plain');
+    if (!text.trim()) return;
+    event.preventDefault();
+    handlePasteRange(null, DETAIL_FIELDS[0].key, text);
+  }, [readOnly, saving, handlePasteRange]);
 
   const deleteSelectedDetails = useCallback(() => {
     if (!selectedIds.length || readOnly) return;
@@ -2417,6 +2915,7 @@ export default function InboundRegisterPage() {
         manager: String(sourceHeader.manager || '').trim(),
         description: sourceHeader.description,
         is_new: !selectedReceiptno,
+        ...(!selectedReceiptno ? { request_key: requestKey.take() } : {}),
         items: sourceRows.map((row) => ({
           receptdate: sourceHeader.receptdate,
           customcode: String(sourceHeader.customcode || '').trim(),
@@ -2439,14 +2938,15 @@ export default function InboundRegisterPage() {
         expenses: expenses.map((expense) => ({
           costcode: String(expense.costcode || '').trim(),
           costname: String(expense.costname || '').trim(),
-          supplyamt: cleanNumericInput(expense.supplyamt) || '0',
-          vat: cleanNumericInput(expense.vat) || '0',
+          supplyamt: expenseAmount2(expense.supplyamt),   // 서버: 소수 둘째 자리까지
+          vat: expenseAmount2(expense.vat),
           customcode: String(expense.customcode || '').trim(),
           customname: String(expense.customname || '').trim(),
           description: String(expense.description || '').trim(),
         })),
       };
       const { data } = await axios.put('/api/inbound-register/receipts', payload, authConfig());
+      requestKey.reset();
       masterPasteErrorsRef.current.clear();
       // 승인 통제: 승인요청으로 보관됨 → 입력칸을 비운다 (승인되면 전표가 생김)
       if (isApprovalPending(data)) {
@@ -2483,15 +2983,17 @@ export default function InboundRegisterPage() {
     } finally {
       setSaving(false);
     }
-  }, [selectedReceiptno, hasManagerChanges, locked, rows, expenses, openReceipt, header, unitOptions, validateDetailMasters, validateDocument, loadReceipts, pageSize]);
+  }, [selectedReceiptno, hasManagerChanges, locked, rows, expenses, openReceipt, header, unitOptions, validateDetailMasters, validateDocument, loadReceipts, pageSize, requestKey]);
 
-  const exportDocument = useCallback(() => {
+  const exportDocument = useCallback(async () => {
     if (!header.receiptno || !rows.length) {
       notifications.show({ title: '다운로드할 입고전표 없음', message: '먼저 저장된 입고전표를 선택해 주세요.', color: 'orange' });
       return;
     }
     setExporting(true);
     try {
+      const XLSX = await loadXLSXOrNotify();
+      if (!XLSX) return;
       const workbook = XLSX.utils.book_new();
       // 화면(매입 기본·매입 상세)과 같은 구성: 전표 정보 + 상세 칸 순서 그대로, 단위는 코드명
       const unitName = (key, value) => (key === 'unit' ? unitOptions.price : unitOptions.quantity)
@@ -2624,6 +3126,7 @@ export default function InboundRegisterPage() {
     notifications.show({ title: '상세 행 복사 완료', message: '선택한 행을 그대로 복사해 상세에 추가했습니다.', color: 'teal' });
   }, [readOnly, saving, rows, selectedIds, selectedReceiptno, header, createReceipt, unitOptions.price]);
 
+  const [deleteBlocked, setDeleteBlocked] = useState('');   // 서버가 삭제를 거절한 사유 (삭제 창에 표시)
   const requestToolbarDelete = useCallback(() => {
     if (detailTab === 'expenses') {
       if (selectedExpenseIds.length && !readOnly) removeSelectedExpenses();
@@ -2685,7 +3188,7 @@ export default function InboundRegisterPage() {
       setSelectedReceiptno(''); setSubulyn('N'); setDocumentDirty(false); setDetailTab('details');
       await loadReceipts(page, filters);
     } catch (error) {
-      notifications.show({ title: '입고 삭제 실패', message: errorMessage(error), color: 'red' });
+      setDeleteBlocked(errorMessage(error));   // 월마감 · 사용된 재고 등: 같은 창에서 사유를 보여 준다
     } finally { setSaving(false); }
   }, [selectedReceiptno, locked, loadReceipts, page, filters]);
 
@@ -2833,7 +3336,7 @@ export default function InboundRegisterPage() {
             <Table.Tbody><Table.Tr>
               {RECEIPT_COLUMNS.map((column, index) => <Table.Td key={column.key} className={`${classes.topReceiptSubtotalCell} ${column.align === 'right' ? classes.topReceiptSubtotalNumber : ''}`} ta={column.align}>
               {index === 0 ? '소계' : column.key === 'line_count' ? receiptSubtotals.line_count.toLocaleString()
-                : column.key === 'total_qty' || column.key === 'total_weight' ? receiptSubtotals[column.key].toLocaleString(undefined, { maximumFractionDigits: 3 })
+                : column.key === 'total_qty' || column.key === 'total_weight' ? receiptSubtotals[column.key].toLocaleString(undefined, { maximumFractionDigits: 2 })
                   : ['supply_amount', 'vat_amount', 'total_amount', 'other_cost_amount'].includes(column.key) ? formatWon(String(receiptSubtotals[column.key])) : ''}
               </Table.Td>)}
             </Table.Tr></Table.Tbody>
@@ -2963,7 +3466,9 @@ export default function InboundRegisterPage() {
               onClick={() => setDetailTab('expenses')}>기타비용 {expenses.length.toLocaleString()}건</button>
           </Box>
           {detailTab === 'details' && <>
-          <Box className={`${codeClasses.tableWrap} ${(rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? classes.savedDetailScroller : ''} ${!detailLoading && !rows.length ? classes.emptyDetailWrap : ''}`} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
+          <Box className={`${codeClasses.tableWrap} ${(rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? classes.savedDetailScroller : ''} ${!detailLoading && !rows.length ? classes.emptyDetailWrap : ''}`} style={{ '--code-table-min-width': `${Math.max(1120, tableWidth)}px` }} onKeyDown={handleTableKeyDown}
+            onKeyDownCapture={handleTableKeyDownCapture} onMouseDownCapture={handleTableMouseDownCapture}
+            onCopyCapture={handleTableCopyCapture} onCutCapture={handleTableCutCapture} onPasteCapture={handleTablePasteCapture}>
             {detailLoading ? <Box className={classes.receiptLoading}><Loader size="sm" color="red" /></Box> : rows.length ? (
               (rows.length <= 100 || (selectedReceiptno && rows.length <= 200)) ? <>
                 <DetailRowsContext.Provider value={rows}>{detailTable}</DetailRowsContext.Provider>
@@ -2975,15 +3480,19 @@ export default function InboundRegisterPage() {
               </Table>
             )}
             {!detailLoading && !rows.length && (
-              <Box className={classes.emptyDetailMessage}>
-                {selectedReceiptno ? '매입 상세가 없습니다.' : '상단 헤더의 추가를 눌러 품목을 등록하세요.'}
-              </Box>
+              selectedReceiptno || readOnly ? (
+                <Box className={classes.emptyDetailMessage}>매입 상세가 없습니다.</Box>
+              ) : (
+                <Box className={`${classes.emptyDetailMessage} ${classes.emptyPasteTarget}`} tabIndex={0} role="textbox" aria-label="매입 상세 붙여넣기" onPaste={handleEmptyDetailPaste}>
+                  상단 헤더의 추가를 눌러 품목을 등록하거나, 여기를 클릭하고 엑셀 범위를 붙여넣으세요 (Ctrl+V · 제품번호 칸부터).
+                </Box>
+              )
             )}
           </Box>
           <InboundDetailSummary rows={rows} unitOptions={unitOptions} />
           </>}
           {detailTab === 'expenses' && <Box className={outboundClasses.expenseTabPanel}>
-            <Box onKeyDownCapture={handleExpenseGridKeyDown} className={`${codeClasses.tableWrap} ${outboundClasses.expenseTableWrap} ${expenses.length <= 100 ? classes.savedDetailScroller : ''} ${!expenses.length ? classes.emptyDetailWrap : ''}`}>
+            <Box ref={expenseWrapRef} onKeyDownCapture={handleExpenseGridKeyDown} onKeyDown={handleExpenseKeyDown} onPasteCapture={handleExpensePasteCapture} className={`${codeClasses.tableWrap} ${outboundClasses.expenseTableWrap} ${expenses.length <= 100 ? classes.savedDetailScroller : ''} ${!expenses.length ? classes.emptyDetailWrap : ''}`}>
               <Box className={classes.detailFillWrap}>
                 <ExpenseRowsContext.Provider value={expenseRowsValue}>{expenseTable}</ExpenseRowsContext.Provider>
                 {expenses.length > 0 && <DetailSubtotalTable columns={INBOUND_EXPENSE_SUBTOTAL_COLUMNS} values={expenseSubtotalValues(expenseTotals)} minWidth={1120} />}
@@ -3001,7 +3510,7 @@ export default function InboundRegisterPage() {
         {filterOpen && filterSidebar}
       </Box>
 
-      <ConfirmDeleteModal opened={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={requestDeleteReceipt} loading={saving}
+      <ConfirmDeleteModal opened={deleteOpen} onClose={() => { setDeleteOpen(false); setDeleteBlocked(''); }} onConfirm={requestDeleteReceipt} loading={saving} blocked={deleteBlocked}
         title="입고전표를 삭제할까요?" target={selectedReceiptno} message="전표와 상세 내역이 모두 삭제되며" note="삭제한 전표는 복구할 수 없습니다." />
 
       <CustomerPickerModal opened={customerPickerOpen} onClose={closeCustomerPicker} onSelect={selectCustomer} />

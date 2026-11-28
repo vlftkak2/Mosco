@@ -158,7 +158,7 @@ def run_company(cid, scale, open_date):
         process_no = log['docs'][step0 + 1][1] if done > step0 + 1 else None
         if not process_no:
           src = next(s for s in stock(cid, pday) if s['sourceno'] == inbound_no and s['sourceline'] == 1)
-          product = {'clientid': 'p1', 'processid': '1', 'processcodename': '-', 'productname': f"{src['itemname']} 절단",
+          product = {'clientid': 'p1', 'processid': '1', 'processcodename': '-', 'productname': src["itemname"],
                    'thickness': picks[0][4], 'width': picks[0][5], 'length': '1219', 'qty': str(D(src['qty']) * 20),
                    'qtyunit': '4', 'weight': str(src['weight']), 'unit': '1', 'unitprice': '30'}
           payload = PROC.ProcessSaveRequest(**{'processdate': pday.isoformat(), 'customcode': processor, 'customname': cust[processor],

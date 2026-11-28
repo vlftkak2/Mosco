@@ -94,7 +94,7 @@ def summary(companyid: str = "", date_from: date | None = None, date_to: date | 
         if ids:
             cursor.execute(
                 """SELECT companyid, COALESCE(NULLIF(BTRIM(itemname), ''), '(품명 없음)'), COUNT(*), COALESCE(SUM(weight), 0)
-                   FROM currentstock01t WHERE companyid = ANY(%s) AND COALESCE(weight, 0) > 0""" + extra_sql + """ GROUP BY 1, 2""",
+                   FROM currentstock01t WHERE companyid = ANY(%s) AND weight > 0""" + extra_sql + """ GROUP BY 1, 2""",
                 (ids, *extra_params),
             )
             stock = {(r[0], r[1]): {"lots": r[2], "weight": _num(r[3])} for r in cursor.fetchall()}
@@ -112,11 +112,19 @@ def summary(companyid: str = "", date_from: date | None = None, date_to: date | 
                 flows.setdefault((companyid, itemname), {})[month] = (_num(net), _num(inbound), _num(outbound))
 
     names = {c["companyid"]: c["companyname"] for c in companies}
+    # 재고 공개 동의일(서면) 이전 달의 추이는 보여 주지 않는다 (동의 범위 밖의 이력). 월말 재고 누계는 전체 이력으로 계산한 뒤 가린다.
+    open_months = {c["companyid"]: c["stock_open_date"].replace(day=1) for c in companies if c["stock_open_date"]}
     # 회사 × 품명 칸 (지금 재고가 있거나 최근 12개월에 움직임이 있는 것만)
     cells = []
     for key in set(stock) | set(flows):
         companyid, itemname = key
         series = _series(flows.get(key, {}), calc_months)
+        open_month = open_months.get(companyid)
+        if open_month:
+            for index, month in enumerate(calc_months):
+                if month < open_month:
+                    for series_key in ("ending", "inbound", "outbound"):
+                        series[series_key][index] = 0.0
         now = stock.get(key, {"lots": 0, "weight": 0.0})
         if now["weight"] <= 0 and not any(any(series[k]) for k in series):
             continue
@@ -131,9 +139,15 @@ def summary(companyid: str = "", date_from: date | None = None, date_to: date | 
                               "weight": part["weight"], "lots": part["lots"],
                               "ending": part["ending"], "inbound": part["inbound"], "outbound": part["outbound"]} for part in children]}
 
+    # 회사별 · 품명별 칸 묶음을 한 번에 만든다 (회사 · 품명마다 전체 칸을 다시 훑지 않음). 묶음 안 순서는 cells 순서 그대로.
+    cells_by_company, cells_by_item = {}, {}
+    for cell in cells:
+        cells_by_company.setdefault(cell["companyid"], []).append(cell)
+        cells_by_item.setdefault(cell["itemname"], []).append(cell)
+
     company_rows = []
     for c in companies:
-        parts = [cell for cell in cells if cell["companyid"] == c["companyid"]]
+        parts = cells_by_company.get(c["companyid"], [])
         row = node({**c, "items": sum(1 for p in parts if p["weight"] > 0)}, parts, "itemname")
         company_rows.append(row)
     if extra:   # 품명 · 강종 · 규격 같은 조건을 걸었으면 그 조건의 재고 · 움직임이 없는 회사는 빼고 보여 준다
@@ -141,8 +155,8 @@ def summary(companyid: str = "", date_from: date | None = None, date_to: date | 
     company_rows.sort(key=lambda row: (-row["weight"], row["companyname"]))
 
     item_rows = []
-    for itemname in sorted({cell["itemname"] for cell in cells}):
-        parts = [cell for cell in cells if cell["itemname"] == itemname]
+    for itemname in sorted(cells_by_item):
+        parts = cells_by_item[itemname]
         item_rows.append(node({"itemname": itemname, "company_count": sum(1 for p in parts if p["weight"] > 0)}, parts, "companyid"))
     item_rows.sort(key=lambda row: (-row["weight"], row["itemname"]))
 
@@ -186,7 +200,7 @@ def items(companyid: str = "", sourcetype: str = "", date_from: date | None = No
           page: int = 1, page_size: int = 50, export: bool = False,
           thickness: str = "", width: str = "", length: str = "", grouped: bool = False) -> dict:
     """현재고현황과 같은 로트 목록 (공개 고객사 전체 또는 한 회사). 창고 · 매입처 · 단가 · 원가 · 전표번호는 내려보내지 않는다."""
-    where = [_OPEN_COMPANY_SQL, "COALESCE(s.weight, 0) > 0"]
+    where = [_OPEN_COMPANY_SQL, "s.weight > 0"]
     params: list = []
     if companyid.strip():
         where.append("s.companyid = %s")

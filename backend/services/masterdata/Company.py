@@ -37,6 +37,8 @@ class CompanyInput(BaseModel):
     license_start: date | None = None
     license_end: date | None = None
     license_unit_price: int = Field(default=0, ge=0, le=999_999_999)
+    # AI 월 호출 한도 (이번 달 성공한 AI 분석 건수 기준). None = 제한 없음, 0 = 사용 안 함 → company_ai_quota01t
+    ai_monthly_limit: int | None = Field(default=None, ge=0, le=1_000_000)
     # 재고 공개 동의 (서면 계약): Y 면 모스코(001)가 타사 재고현황에서 이 회사 재고를 본다
     stock_open_yn: str = "N"
     stock_open_date: date | None = None
@@ -54,6 +56,11 @@ class CompanyInput(BaseModel):
         if value not in {"Y", "N"}:
             raise ValueError("재고 공개는 Y 또는 N 만 사용할 수 있습니다.")
         return value
+
+    @field_validator("ai_monthly_limit", mode="before")
+    @classmethod
+    def empty_limit(cls, value):
+        return None if value in (None, "") else value
 
     @field_validator("license_start", "license_end", "stock_open_date", mode="before")
     @classmethod
@@ -195,10 +202,15 @@ def list_companies(q: str = "", plan_code: str = "", company_status: str = "", p
                        COUNT(u.email) FILTER (WHERE UPPER(COALESCE(u.useyn, 'N')) = 'Y')::integer AS active_users,
                        COUNT(u.email)::integer AS total_users,
                        MAX(l.unit_price) AS license_unit_price,
-                       MAX(c.licensed_seats * l.unit_price) AS license_fee
+                       MAX(c.licensed_seats * l.unit_price) AS license_fee,
+                       MAX(q.monthly_limit) AS ai_monthly_limit,
+                       (SELECT COUNT(*) FROM aiorderanalysis01t a
+                         WHERE a.companyid = c.companyid AND a.status = 'succeeded'
+                           AND a.created_at >= date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'Asia/Seoul')::integer AS ai_used_month
                 FROM company01t c
                 LEFT JOIN user01t u ON u.companyid = c.companyid
                 LEFT JOIN company_license01t l ON l.companyid = c.companyid
+                LEFT JOIN company_ai_quota01t q ON q.companyid = c.companyid
                 WHERE {where}
                 GROUP BY c.companyid
                 ORDER BY c.companyid ASC
@@ -234,13 +246,30 @@ def create_company(data: CompanyInput, actor: str | None = None):
         item = dict(cursor.fetchone())
         license_charge.save_setting(cursor, data.companyid, data.license_unit_price, actor)
         license_charge.close_months(cursor, data.companyid, actor)  # 과금 시작이 지난달 이전이면 그 달들을 지금 설정으로 채움
+        _save_ai_limit(cursor, data.companyid, data.ai_monthly_limit, actor)
+        item["ai_monthly_limit"] = data.ai_monthly_limit
         return item
+
+
+def _save_ai_limit(cursor, companyid: str, monthly_limit: int | None, actor: str | None) -> None:
+    """AI 월 호출 한도 저장 (company_ai_quota01t). 바뀐 경우에만 수정일자 · 수정자를 남긴다. 비우면 제한 없음(NULL)."""
+    cursor.execute(
+        """INSERT INTO company_ai_quota01t (companyid, monthly_limit, created_by)
+           VALUES (%s, %s, %s)
+           ON CONFLICT (companyid) DO UPDATE
+           SET monthly_limit = EXCLUDED.monthly_limit, updatedat = CURRENT_TIMESTAMP, updated_by = %s
+           WHERE company_ai_quota01t.monthly_limit IS DISTINCT FROM EXCLUDED.monthly_limit""",
+        (companyid, monthly_limit, actor or None, actor or None),
+    )
 
 
 def update_company(companyid: str, data: CompanyInput, actor: str | None = None):
     with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         if companyid != data.companyid:
             raise ValueError("등록된 고객사 코드는 변경할 수 없습니다.")
+        if companyid == "001" and str(data.company_status or "").upper() != "ACTIVE":
+            # 운영사를 정지하면 최종관리자를 포함한 전원이 로그인하지 못한다
+            raise ValueError("모스코(001)의 이용 상태는 ACTIVE 외로 바꿀 수 없습니다.")
         # 고치기 전 라이선스 개수 · 비용으로 지난달까지 먼저 확정 → 고친 값은 이번 달부터만 반영
         license_charge.close_months(cursor, companyid, actor)
         cursor.execute("SELECT license_end FROM company01t WHERE companyid = %s FOR UPDATE", (companyid,))
@@ -286,11 +315,12 @@ def update_company(companyid: str, data: CompanyInput, actor: str | None = None)
         if old_end and (data.license_end is None or data.license_end > old_end):
             license_charge.mark_paused(cursor, companyid, old_end, data.license_end, actor)
         license_charge.close_months(cursor, companyid, actor)   # 그 밖에 새로 생긴 지난달은 지금 설정으로
-        return dict(row)
+        _save_ai_limit(cursor, companyid, data.ai_monthly_limit, actor)
+        return {**dict(row), "ai_monthly_limit": data.ai_monthly_limit}
 
 
 # 고객사를 지울 때 함께 지우는 테이블 (계정 · 메뉴권한). 그 밖에 companyid 칸이 있는 테이블에 자료가 있으면 업무 자료로 보고 삭제를 막는다.
-_COMPANY_ACCOUNT_TABLES = {"company01t", "user01t", "usermenupermission01t", "company_license01t", "company_license_charge01t"}
+_COMPANY_ACCOUNT_TABLES = {"company01t", "user01t", "usermenupermission01t", "company_license01t", "company_license_charge01t", "company_ai_quota01t"}
 
 
 def delete_company(companyid: str) -> bool:
@@ -328,6 +358,7 @@ def delete_company(companyid: str) -> bool:
             )
         cursor.execute("DELETE FROM company_license_charge01t WHERE companyid = %s", (companyid,))
         cursor.execute("DELETE FROM company_license01t WHERE companyid = %s", (companyid,))
+        cursor.execute("DELETE FROM company_ai_quota01t WHERE companyid = %s", (companyid,))
         cursor.execute("DELETE FROM usermenupermission01t WHERE companyid = %s", (companyid,))
         cursor.execute("DELETE FROM user01t WHERE companyid = %s", (companyid,))
         cursor.execute("DELETE FROM company01t WHERE companyid = %s", (companyid,))

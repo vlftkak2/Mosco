@@ -509,6 +509,9 @@ def update_stand_prices(companyid: str, items: list[dict], actor: str | None = N
         raise ValueError("같은 기초재고 행이 여러 번 포함되어 있습니다.")
 
     with _connect() as connection, connection.cursor() as cursor:
+        # 다른 기초재고 작업과 같은 배타 잠금: "가공 · 이동에 쓰였는지" 검사와 단가 변경 사이에 가공이 끼어들어
+        # 가공품에는 옛 원가가, 기초재고에는 새 원가가 남는 일을 막는다.
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
         cursor.execute(
             "SELECT lineno, qty, length, weight, standdate FROM StandStock01t WHERE companyid = %s AND lineno = ANY(%s) FOR UPDATE",
             (companyid, linenos),

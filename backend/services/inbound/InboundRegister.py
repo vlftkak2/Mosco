@@ -5,6 +5,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
 from psycopg2 import IntegrityError
+import idempotency
 import db as _shared_db
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -71,8 +72,8 @@ class InboundDetailInput(BaseModel):
 class InboundExpenseInput(BaseModel):
     costcode: str = Field(default="", max_length=50)
     costname: str = Field(min_length=1, max_length=100)
-    supplyamt: Decimal = Field(ge=0, max_digits=15, decimal_places=3)
-    vat: Decimal = Field(ge=0, max_digits=15, decimal_places=3)
+    supplyamt: Decimal = Field(ge=0, max_digits=15, decimal_places=2)   # 금액은 소수 둘째 자리까지
+    vat: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
     customcode: str = Field(default="", max_length=100)
     customname: str = Field(default="", max_length=150)
     purchaseyn: str = Field(default="N", pattern="^[YN]$")
@@ -94,6 +95,7 @@ class InboundSaveRequest(BaseModel):
     is_new: bool = False
     items: list[InboundDetailInput] = Field(min_length=1, max_length=10000)
     expenses: list[InboundExpenseInput] = Field(default_factory=list, max_length=1000)
+    request_key: str | None = Field(default=None, max_length=64)   # 중복 저장 방지 (화면이 새 전표마다 만드는 UUID)
 
     @field_validator("receiptno", "customcode", "customname", "manager", "description")
     @classmethod
@@ -302,9 +304,9 @@ def _next_receiptno(cursor, companyid: str) -> str:
         """SELECT COALESCE(MAX(substring(receiptno FROM %s)::bigint), 0)
            FROM Inbound01t
            WHERE companyid = %s
-             AND LEFT(receiptno, %s) = %s
+             AND receiptno LIKE %s   -- 접두어 검색: (companyid, receiptno varchar_pattern_ops) 인덱스로 그날 번호만 읽는다
              AND substring(receiptno FROM %s) ~ '^[0-9]{1,18}$'""",
-        (suffix_start, companyid, len(prefix), prefix, suffix_start),
+        (suffix_start, companyid, prefix + "%", suffix_start),
     )
     next_sequence = cursor.fetchone()[0] + 1
     return f"{prefix}{next_sequence:05d}"
@@ -394,6 +396,7 @@ def save_receipt(companyid: str, companyname: str, payload: dict, actor: str | N
             # Shared company stock lock: inbound/outbound saves run concurrently with each other
             # (stock rows are row-locked), while opening stock / transfer / processing still take
             # the exclusive lock and therefore never overlap with them (same as before).
+            idempotency.claim(cursor, companyid, payload, "INBOUND", actor)
             cursor.execute("SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))", (f"stand-stock:{companyid}",))
             month_close_module.ensure_open(cursor, companyid, [item["receptdate"] for item in items], "등록")
             customer_codes = list(dict.fromkeys(item["customcode"] for item in items if item["customcode"]))

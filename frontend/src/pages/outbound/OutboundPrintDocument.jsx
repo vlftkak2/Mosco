@@ -4,6 +4,7 @@ import { Group, Loader, Modal, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconCheck, IconFileInvoice, IconPencil, IconPrinter, IconRestore, IconTruckDelivery, IconX } from '@tabler/icons-react';
 import bar from '../../styles/pages/OutboundPrintDocument.module.css';
+import { apiErrorMessage } from '../../utils/apiError';
 
 // 매출등록 > 거래명세서 / 송장 출력.
 // - 출력할 때마다 서버에서 저장된 전표를 다시 읽는다 (화면에서 고치고 저장하지 않은 값은 출력되지 않는다).
@@ -95,7 +96,7 @@ const toNumber = (value) => {
   return Number.isFinite(number) ? number : 0;
 };
 const amount = (value) => Math.round(toNumber(value)).toLocaleString('ko-KR');
-const quantity = (value) => toNumber(value).toLocaleString('ko-KR', { maximumFractionDigits: 3 });
+const quantity = (value) => toNumber(value).toLocaleString('ko-KR', { maximumFractionDigits: 2 });
 const dimension = (value) => (toNumber(value) > 0 ? toNumber(value).toLocaleString('ko-KR', { maximumFractionDigits: 3 }) : '');
 const text = (value) => String(value ?? '').trim();
 const join = (...values) => values.map(text).filter(Boolean).join(' / ');
@@ -357,7 +358,7 @@ export default function OutboundPrintDocument({ opened, receiptno, initialKind =
       .then(({ data }) => { if (requestId === requestIdRef.current) setDocument(data.document); })
       .catch((error) => {
         if (requestId !== requestIdRef.current) return;
-        notifications.show({ title: '출력 정보 조회 실패', message: error.response?.data?.detail || '출력할 전표 정보를 불러오지 못했습니다.', color: 'red' });
+        notifications.show({ title: '출력 정보 조회 실패', message: apiErrorMessage(error, '출력할 전표 정보를 불러오지 못했습니다.'), color: 'red' });
         onClose();
       });
     return () => { requestIdRef.current += 1; };

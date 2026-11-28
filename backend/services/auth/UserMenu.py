@@ -110,7 +110,7 @@ def get_user_menu_permissions(companyid: str, useremail: str, is_master: bool):
     with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         target = _get_target_user(cursor, companyid, useremail, is_master)
         cursor.execute(
-            """SELECT m.menuid, m.menuname, m.sort_order,
+            """SELECT m.menuid, m.menuname, m.sort_order, m.access_scope,
                       UPPER(COALESCE(m.useyn, 'N')) AS useyn,
                       CASE
                           WHEN UPPER(COALESCE(p.useyn, 'N')) = 'Y'
@@ -125,9 +125,9 @@ def get_user_menu_permissions(companyid: str, useremail: str, is_master: bool):
                 AND LOWER(p.useremail) = LOWER(%s)
                 AND p.menuid = m.menuid
                WHERE m.assignable = TRUE
-                 AND m.access_scope = 'COMPANY'
+                 AND (m.access_scope = 'COMPANY' OR (m.access_scope = 'PLATFORM' AND %s = '001'))
                ORDER BY m.sort_order, m.menuname, m.menuid""",
-            (companyid, target["email"]),
+            (companyid, target["email"], companyid),
         )
         return {"target": dict(target), "items": [dict(row) for row in cursor.fetchall()]}
 
@@ -142,24 +142,36 @@ def get_my_menuids(companyid: str, useremail: str):
                 AND p.companyid = %s
                 AND LOWER(p.useremail) = LOWER(%s)
                WHERE m.assignable = TRUE
-                 AND m.access_scope = 'COMPANY'
+                 AND (m.access_scope = 'COMPANY' OR (m.access_scope = 'PLATFORM' AND %s = '001'))
                  AND UPPER(COALESCE(m.useyn, 'N')) = 'Y'
                  AND UPPER(COALESCE(p.useyn, 'N')) = 'Y'
                ORDER BY m.sort_order, m.menuid""",
-            (companyid, useremail),
+            (companyid, useremail, companyid),
         )
         return [row["menuid"] for row in cursor.fetchall()]
 
 
-def save_user_menu_permissions(data: UserMenuPermissionInput, manager_email: str, is_master: bool):
+def save_user_menu_permissions(data: UserMenuPermissionInput, manager_email: str, is_master: bool,
+                               actor: dict | None = None):
+    actor = actor or {}
+    actor_is_platform_admin = actor.get("companyid") == "001" and str(actor.get("authority") or "").upper() == "MASTER"
+    # 권한 상승 방지 ① 자기 메뉴 권한은 스스로 바꾸지 못한다
+    if (str(actor.get("companyid") or "") == data.companyid
+            and str(actor.get("email") or manager_email).strip().lower() == data.useremail.strip().lower()):
+        raise PermissionError("자기 계정의 메뉴 권한은 직접 바꿀 수 없습니다. 다른 관리자에게 요청해 주세요.")
+    # 권한 상승 방지 ② 모스코(001) 직원의 권한(플랫폼 메뉴 포함)은 모스코 최종관리자만 바꾼다
+    if data.companyid == "001" and not actor_is_platform_admin:
+        raise PermissionError("모스코 직원의 메뉴 권한은 최종관리자(MASTER)만 바꿀 수 있습니다.")
     with _connect() as connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         target = _get_target_user(cursor, data.companyid, data.useremail, is_master)
 
+        # 모스코(001) 직원에게만 모스코 전용(PLATFORM) 메뉴를 줄 수 있다
         cursor.execute(
             """SELECT menuid
                FROM menucatalog01t
                WHERE assignable = TRUE
-                 AND access_scope = 'COMPANY'"""
+                 AND (access_scope = 'COMPANY' OR (access_scope = 'PLATFORM' AND %s = '001'))""",
+            (data.companyid,),
         )
         assignable_menuids = {row["menuid"] for row in cursor.fetchall()}
         requested_menuids = set(data.menuids)
@@ -175,7 +187,7 @@ def save_user_menu_permissions(data: UserMenuPermissionInput, manager_email: str
                  AND LOWER(useremail) = LOWER(%s)
                  AND menuid IN (
                      SELECT menuid FROM menucatalog01t
-                     WHERE assignable = TRUE AND access_scope = 'COMPANY'
+                     WHERE assignable = TRUE AND (access_scope = 'COMPANY' OR (access_scope = 'PLATFORM' AND companyid = '001'))
                  )
                  AND NOT (menuid = ANY(%s))
                  AND UPPER(COALESCE(useyn, 'N')) <> 'N'""",
@@ -203,6 +215,18 @@ def save_user_menu_permissions(data: UserMenuPermissionInput, manager_email: str
                 rows,
                 template="(%s, %s, %s, 'Y', %s, NULL, NULL)",
             )
+
+        # 잠김 방지: 모스코가 아닌 회사는 메뉴권한관리 권한을 가진 활성 직원이 한 명은 남아야 한다
+        if data.companyid != "001":
+            cursor.execute(
+                """SELECT 1 FROM usermenupermission01t p
+                   JOIN user01t u ON u.companyid = p.companyid AND u.email = p.useremail AND UPPER(COALESCE(u.useyn, 'N')) = 'Y'
+                   WHERE p.companyid = %s AND p.menuid = 'USER_MENU_PERMISSION' AND UPPER(COALESCE(p.useyn, 'N')) = 'Y'
+                   LIMIT 1""",
+                (data.companyid,),
+            )
+            if cursor.fetchone() is None:
+                raise ValueError("메뉴권한관리 권한을 가진 직원이 한 명은 있어야 합니다. 다른 직원에게 먼저 부여해 주세요.")
 
         return {
             "companyid": data.companyid,

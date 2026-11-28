@@ -4,7 +4,7 @@
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import usePageReactivated from '../../components/common/usePageReactivated';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { ActionIcon, Box, Button, Group, Loader, Paper, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -20,6 +20,8 @@ import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/InboundSearch.module.css';
 import pageClasses from '../../styles/pages/GrossProfit.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
+import { apiErrorMessage } from '../../utils/apiError';
+import { kstDate } from '../../utils/dateFormat';
 
 const ORIGIN_LABELS = { INBOUND: '입고', OPENING: '기초재고', PROCESS: '가공', UNKNOWN: '확인 필요' };
 // 매입금액 = 매입단가 × 기준수량. 기준수량은 원가기준에 따라 중량(kg) · 중량÷1000(톤) · 수량 · 길이
@@ -64,7 +66,7 @@ const TR = 'm_4e7aa4fd mantine-Table-tr';
 const pad = (value) => String(value).padStart(2, '0');
 const toDateString = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 const makeFilters = () => {
-  const now = new Date();
+  const now = kstDate();
   return {
     date_from: toDateString(new Date(now.getFullYear(), now.getMonth(), 1)),
     date_to: toDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
@@ -73,7 +75,7 @@ const makeFilters = () => {
 };
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const money = (value) => Math.round(Number(value || 0)).toLocaleString('ko-KR');
-const decimal = (value) => (value === null || value === undefined || value === '' ? '' : Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 3 }));
+const decimal = (value) => (value === null || value === undefined || value === '' ? '' : Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 2 }));
 const marginText = (value) => (value === null || value === undefined ? '–' : Number(value).toFixed(2));
 const groupKey = (entry) => `${entry.customcode || ''}|${entry.customname || ''}`;
 // 칼럼 정렬 (화면에 받은 행만 브라우저에서 정렬 → 서버 다시 조회 없음). 머리글 클릭: 오름차순 → 내림차순 → 기본 순서
@@ -219,7 +221,7 @@ export default function GrossProfit() {
       setCollapsed(many ? new Set((response.data.groups || []).map(groupKey)) : new Set());
       setAutoCollapsed(many);
     } catch (error) {
-      if (id === requestId.current) notifications.show({ title: '매출이익분석 조회 실패', message: error.response?.data?.detail || '매출이익분석을 불러오지 못했습니다.', color: 'red' });
+      if (id === requestId.current) notifications.show({ title: '매출이익분석 조회 실패', message: apiErrorMessage(error, '매출이익분석을 불러오지 못했습니다.'), color: 'red' });
     } finally {
       if (id === requestId.current) setLoading(false);
     }
@@ -260,7 +262,7 @@ export default function GrossProfit() {
   }, [data, sort]);
   const total = data.total;
 
-  const exportExcel = useCallback(() => {
+  const exportExcel = useCallback(async () => {
     if (!data.items.length) { notifications.show({ title: '엑셀 데이터 없음', message: '다운로드할 데이터가 없습니다.', color: 'orange' }); return; }
     const toRow = (row, index) => Object.fromEntries(COLUMNS.map((column) => {
       if (column.key === 'no') return [column.label, index];
@@ -285,6 +287,8 @@ export default function GrossProfit() {
       sheetRows.push(summaryRow(group, `소계 (${group.customname || ''})`));
     });
     if (total) sheetRows.push(summaryRow(total, '합계'));
+    const XLSX = await loadXLSXOrNotify();
+    if (!XLSX) return;
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.json_to_sheet(sheetRows);
     applyExcelHeaderStyle(worksheet, COLUMNS.length);

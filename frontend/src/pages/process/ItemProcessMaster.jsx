@@ -1,8 +1,8 @@
-import { memo, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import usePageReactivated from '../../components/common/usePageReactivated';
 // xlsx-js-style: same API as 'xlsx', but actually writes cell styles (red header via applyExcelHeaderStyle).
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { ActionIcon, Badge, Box, Group, Loader, Paper, Popover, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconBox, IconSearch, IconTool, IconX } from '@tabler/icons-react';
@@ -16,7 +16,10 @@ import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/ItemProcessMaster.module.css';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
-import { cachedDateFormat } from '../../utils/dateFormat';
+import { cachedDateFormat, kstDate } from '../../utils/dateFormat';
+import { apiErrorMessage } from '../../utils/apiError';
+import { loadMaster, peekMaster } from '../../utils/masterCache';
+import useExcelGrid from '../ai/useExcelGrid';
 
 
 // Same Excel date-time text as the other register exports: "YYYY-MM-DD HH:mm:ss" (KST).
@@ -174,7 +177,13 @@ function ItemAutoComplete({ row, disabled, onChange, onSelect, onOpenPicker, inp
             onBlur={() => {
               if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
               setOpened(false);
-              if (draft !== row.itemname && draft !== row.itemcode) onChange();
+              if (draft !== row.itemname && draft !== row.itemcode) {
+                // 불러온 추천 중 코드·이름이 정확히 같은 품목이 하나면 그것으로, 아니면 비운다 (원소재는 마스터 품목만)
+                const normalized = draft.trim().toLocaleLowerCase();
+                const exact = items.filter((item) => [item.itemcode, item.itemname].some((value) => String(value || '').trim().toLocaleLowerCase() === normalized));
+                if (normalized && exact.length === 1) choose(exact[0]);
+                else onChange();
+              }
             }}
             onKeyDown={(event) => {
               if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && opened && items.length) {
@@ -185,10 +194,13 @@ function ItemAutoComplete({ row, disabled, onChange, onSelect, onOpenPicker, inp
               } else if (event.key === 'Enter' && opened && items.length) {
                 event.preventDefault(); event.stopPropagation(); choose(items[activeIndex >= 0 ? activeIndex : 0]);
               } else if (event.key === 'Tab' && (draft !== row.itemname && draft !== row.itemcode)) {
-                skipBlurCommitRef.current = true;
-                const selected = activeIndex >= 0 ? items[activeIndex] : null;
-                if (selected) choose(selected);
-                else { onChange(); setDraft(''); setOpened(false); setActiveIndex(-1); }
+                // Tab: 고른 항목 → 코드·이름이 정확히 같은 하나 → 후보가 하나뿐이면 그것. 못 정하면 칸을 벗어날 때와 같이 처리
+                // (원소재 품목은 마스터 품목만 들어가므로 정하지 못하면 품목이 비워진다 — 저장할 때 필수값으로 걸러짐)
+                const shown = opened ? items : [];
+                const normalized = draft.trim().toLocaleLowerCase();
+                const exact = shown.filter((item) => [item.itemcode, item.itemname].some((value) => String(value || '').trim().toLocaleLowerCase() === normalized));
+                const selected = activeIndex >= 0 ? shown[activeIndex] : exact.length === 1 ? exact[0] : shown.length === 1 ? shown[0] : null;
+                if (selected) { skipBlurCommitRef.current = true; choose(selected); }
               } else if (event.key === 'Escape') { event.stopPropagation(); setOpened(false); setActiveIndex(-1); }
             }}
             onDoubleClick={() => { if (!disabled) onOpenPicker(); }} />
@@ -232,7 +244,9 @@ function ProcessAutoComplete({ row, disabled, options, onChange, onSelect, onOpe
   const [opened, setOpened] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const skipBlurCommitRef = useRef(false);
-  const matches = options.filter((option) => draft.trim() && option.name.toLocaleLowerCase().includes(draft.trim().toLocaleLowerCase())).slice(0, 8);
+  // 목록은 글자를 쳤을 때만 연다 (값이 있는 칸에 들어오기만 해도 열려 방향키·Enter 가 표 이동 대신 목록을 움직이던 문제)
+  const typed = draft !== selectedName;
+  const matches = typed ? options.filter((option) => draft.trim() && option.name.toLocaleLowerCase().includes(draft.trim().toLocaleLowerCase())).slice(0, 8) : [];
 
   useEffect(() => { setDraft(selectedName); }, [selectedName]);
 
@@ -255,7 +269,13 @@ function ProcessAutoComplete({ row, disabled, options, onChange, onSelect, onOpe
             onBlur={() => {
               if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
               setOpened(false);
-              if (draft !== selectedName) { setDraft(''); onChange(null); }
+              if (draft !== selectedName) {
+                // 코드·이름이 정확히 같은 공정이 하나면 그것으로, 아니면 비운다 (공정은 등록된 코드만)
+                const normalized = draft.trim().toLocaleLowerCase();
+                const exact = options.filter((option) => [option.code, option.name].some((value) => String(value || '').trim().toLocaleLowerCase() === normalized));
+                if (exact.length === 1) choose(exact[0]);
+                else { setDraft(''); onChange(null); }
+              }
             }}
             onKeyDown={(event) => {
               if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && opened && matches.length) {
@@ -266,10 +286,11 @@ function ProcessAutoComplete({ row, disabled, options, onChange, onSelect, onOpe
               } else if (event.key === 'Enter' && opened && matches.length) {
                 event.preventDefault(); event.stopPropagation(); choose(matches[activeIndex >= 0 ? activeIndex : 0]);
               } else if (event.key === 'Tab' && draft !== selectedName) {
-                skipBlurCommitRef.current = true;
-                const selected = activeIndex >= 0 ? matches[activeIndex] : null;
-                if (selected) choose(selected);
-                else { setDraft(''); setOpened(false); setActiveIndex(-1); onChange(null); }
+                // Tab: 고른 항목 → 코드·이름이 정확히 같은 하나 → 후보가 하나뿐이면 그것. 못 정하면 칸을 벗어날 때와 같이 처리
+                const normalized = draft.trim().toLocaleLowerCase();
+                const exact = options.filter((option) => [option.code, option.name].some((value) => String(value || '').trim().toLocaleLowerCase() === normalized));
+                const selected = activeIndex >= 0 ? matches[activeIndex] : exact.length === 1 ? exact[0] : matches.length === 1 ? matches[0] : null;
+                if (selected) { skipBlurCommitRef.current = true; choose(selected); }
               } else if (event.key === 'Escape') { event.stopPropagation(); setOpened(false); setActiveIndex(-1); }
             }}
             onDoubleClick={() => { if (!disabled) onOpenPicker(); }} />
@@ -351,7 +372,10 @@ export default function ItemProcessMaster() {
 
   const loadOptions = useCallback(async () => {
     try {
-      const { data } = await axios.get('/api/item-process-master/options', { headers: authHeaders() });
+      // 지난번 값(메모리 캐시)으로 먼저 채우고 서버 값으로 바꾼다
+      const cached = peekMaster('item-process-master:options');
+      if (cached) setProcessOptions(cached.processes || []);
+      const data = await loadMaster('item-process-master:options', async () => (await axios.get('/api/item-process-master/options', { headers: authHeaders() })).data);
       setProcessOptions(data.processes || []);
     } catch {
       notifications.show({ title: '조회조건 조회 실패', message: '가공공정과 형태구분을 불러오지 못했습니다.', color: 'red' });
@@ -371,7 +395,7 @@ export default function ItemProcessMaster() {
       selectionAnchorRef.current = '';
     } catch (error) {
       if (requestId === loadRowsRequestRef.current) {
-        notifications.show({ title: '가공공정 조회 실패', message: error.response?.data?.detail || '목록을 불러오지 못했습니다.', color: 'red' });
+        notifications.show({ title: '가공공정 조회 실패', message: apiErrorMessage(error, '목록을 불러오지 못했습니다.'), color: 'red' });
       }
     } finally {
       if (requestId === loadRowsRequestRef.current) setLoading(false);
@@ -466,7 +490,7 @@ export default function ItemProcessMaster() {
       notifications.show({ title: '저장 완료', message: `${changed.length.toLocaleString()}개 가공공정을 저장했습니다.`, color: 'teal' });
       await loadRows();
     } catch (error) {
-      notifications.show({ title: '저장 실패', message: error.response?.data?.detail || '가공공정을 저장하지 못했습니다.', color: 'red' });
+      notifications.show({ title: '저장 실패', message: apiErrorMessage(error, '가공공정을 저장하지 못했습니다.'), color: 'red' });
     } finally {
       setSaving(false);
     }
@@ -493,13 +517,13 @@ export default function ItemProcessMaster() {
       setDeleteRequest(null);
       await loadRows();
     } catch (error) {
-      notifications.show({ title: '삭제 실패', message: error.response?.data?.detail || '가공공정을 삭제하지 못했습니다.', color: 'red' });
+      notifications.show({ title: '삭제 실패', message: apiErrorMessage(error, '가공공정을 삭제하지 못했습니다.'), color: 'red' });
     } finally {
       setSaving(false);
     }
   }, [deleteRequest, loadRows]);
 
-  const exportRows = useCallback(() => {
+  const exportRows = useCallback(async () => {
     if (!rows.length) {
       notifications.show({ title: '다운로드할 가공공정 없음', message: '조회된 가공공정이 없습니다.', color: 'orange' });
       return;
@@ -521,6 +545,8 @@ export default function ItemProcessMaster() {
       ['등록자', (row) => row.created_by || ''],
       ['수정자', (row) => row.updated_by || ''],
     ];
+    const XLSX = await loadXLSXOrNotify();
+    if (!XLSX) return;
     const worksheet = XLSX.utils.aoa_to_sheet([
       exportFields.map(([label]) => label),
       ...rows.map((row, index) => exportFields.map(([, getValue]) => getValue(row, index))),
@@ -528,7 +554,7 @@ export default function ItemProcessMaster() {
     applyExcelHeaderStyle(worksheet, exportFields.length);
     worksheet['!cols'] = exportFields.map(([label]) => ({ wch: Math.min(30, Math.max(12, String(label).length + 4)) }));
     worksheet['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: exportFields.length - 1 } }) };
-    const today = new Date();
+    const today = kstDate();
     const fileDate = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '가공공정');
@@ -619,15 +645,13 @@ export default function ItemProcessMaster() {
       return;
     }
   }, [rows]);
-  const handleGridPaste = useCallback(async (event) => {
-    const target = event.target;
-    const clipboardText = event.clipboardData?.getData('text/plain') || '';
-    if (!target?.dataset?.rowId || !target?.dataset?.field || !/[\t\r\n]/.test(clipboardText)) return;
+  // 엑셀 붙여넣기 (현재 칸 · 범위 왼쪽 위부터): 품목은 마스터 조회(신규 행만), 공정은 코드/이름, 가능·불가 칸은 Y/N 으로만.
+  // 빈 칸은 건너뛰고, 기준에 맞지 않는 값은 반영하지 않고 알려 준다. 모자란 행은 새 행으로 붙인다.
+  const pasteRuleText = useCallback(async (startRowId, startField, clipboardText) => {
     const matrix = parseClipboardTsv(clipboardText);
-    const startRow = rowsRef.current.findIndex((row) => row.id === target.dataset.rowId);
-    const startColumn = GRID_FIELDS.indexOf(target.dataset.field);
+    const startRow = rowsRef.current.findIndex((row) => row.id === startRowId);
+    const startColumn = GRID_FIELDS.indexOf(startField);
     if (startRow < 0 || startColumn < 0 || !matrix.length) return;
-    event.preventDefault();
 
     const nextRows = [...rowsRef.current];
     while (nextRows.length < startRow + matrix.length) nextRows.push(createRow());
@@ -690,6 +714,76 @@ export default function ItemProcessMaster() {
     if (unresolved) notifications.show({ title: '엑셀 붙여넣기 확인', message: `${applied}개 셀을 반영했고 ${unresolved}개 셀은 기존 품목·공정 기준에 맞지 않아 건너뛰었습니다.`, color: 'orange' });
     else notifications.show({ title: '엑셀 붙여넣기 완료', message: `${applied}개 셀을 표에 반영했습니다. 저장을 눌러 적용하세요.`, color: 'teal' });
   }, [processOptions]);
+
+  // ── 엑셀식 입력 (매입등록과 같음) ──
+  // 채우기는 원본 행에서 그대로 복사: 품목(코드·이름·형태)은 신규 행에만, 공정은 코드·이름 짝으로. 지우기는 가능·불가 목록을 빼고.
+  const ruleRowKeys = useMemo(() => rows.map((row) => row.id), [rows]);
+  const ruleCellText = useCallback((rowId, field) => {
+    const row = rowsRef.current.find((item) => item.id === rowId);
+    if (!row) return '';
+    if (field === 'processid') return processOptions.find((option) => option.code === row.processid)?.name || row.processcodename || row.processid || '';
+    if (YES_NO_FIELDS.includes(field)) return (row[field] || 'N') === 'Y' ? '가능' : '불가';
+    return String(row[field] ?? '');
+  }, [processOptions]);
+  const writeRuleCells = useCallback((cells, mode) => {
+    setRows((current) => {
+      const byId = new Map(current.map((row) => [row.id, row]));
+      cells.forEach(({ rowKey, field, sourceKey }) => {
+        const row = byId.get(rowKey);
+        if (!row) return;
+        const source = mode === 'fill' ? byId.get(sourceKey) : null;
+        if (mode === 'fill' && !source) return;
+        let next = row;
+        if (field === 'itemname') {
+          if (!row.is_new) return;   // 저장된 행의 원소재는 바꿀 수 없다 (키)
+          next = mode === 'fill'
+            ? { ...row, itemcode: source.itemcode, itemname: source.itemname, itemtypecode: source.itemtypecode || '', itemtypecodenm: source.itemtypecodenm || '' }
+            : { ...row, itemcode: '', itemname: '', itemtypecode: '', itemtypecodenm: '' };
+        } else if (field === 'processid') {
+          next = mode === 'fill' ? { ...row, processid: source.processid, processcodename: source.processcodename } : { ...row, processid: '', processcodename: '' };
+        } else if (YES_NO_FIELDS.includes(field)) {
+          if (mode !== 'fill') return;   // 가능·불가는 목록이라 지우지 않는다
+          next = { ...row, [field]: source[field] || 'N' };
+        } else next = { ...row, [field]: mode === 'fill' ? source[field] ?? '' : '' };
+        byId.set(rowKey, { ...next, is_dirty: !next.is_new });
+      });
+      return current.map((row) => byId.get(row.id) || row);
+    });
+  }, []);
+  const focusRuleCell = (rowId, field) => requestAnimationFrame(() => {
+    tableViewportRef.current?.querySelector(`[data-row-id="${CSS.escape(rowId)}"][data-field="${field}"]`)?.focus();
+  });
+  // Ctrl+Enter: 아래에 빈 행 · Ctrl+Shift+Enter: 현재 행 복제 ([복사]와 같은 값 — 품목·공정 중복을 막으려 공정은 비운다)
+  const insertRule = useCallback((rowId, field, duplicate) => {
+    if (saving) return;
+    const source = rowsRef.current.find((row) => row.id === rowId);
+    if (!source) return;
+    const row = duplicate ? { ...createRow(), itemcode: source.itemcode, itemname: source.itemname,
+      itemtypecode: source.itemtypecode, itemtypecodenm: source.itemtypecodenm,
+      processnm: source.processnm, steelgradeyn: source.steelgradeyn, surfaceyn: source.surfaceyn,
+      thicknessyn: source.thicknessyn, widthyn: source.widthyn, lengthyn: source.lengthyn,
+      description: source.description } : createRow();
+    setRows((current) => {
+      const index = current.findIndex((item) => item.id === rowId);
+      const next = [...current];
+      next.splice(index < 0 ? next.length : index + 1, 0, row);
+      return next;
+    });
+    focusRuleCell(row.id, duplicate ? 'processid' : field);
+  }, [saving]);
+  const appendRule = useCallback((field) => {
+    if (saving) return;
+    const row = createRow();
+    setRows((current) => [...current, row]);
+    focusRuleCell(row.id, field);
+  }, [saving]);
+  const { gridProps: ruleGridProps } = useExcelGrid({
+    wrapRef: tableViewportRef, rowKeys: ruleRowKeys, fields: GRID_FIELDS, rowAttr: 'data-row-id', fieldAttr: 'data-field',
+    getCellText: ruleCellText, writeCells: writeRuleCells,
+    pasteText: (rowId, field, text) => { void pasteRuleText(rowId, field, text); },
+    insertRow: insertRule, appendRow: appendRule, checkedRowKeys: selectedIds,
+    disabled: saving || loading, rangeClass: classes.rangeCell,
+  });
   const startColumnResize = (event, index) => {
     event.preventDefault();
     event.stopPropagation();
@@ -729,7 +823,7 @@ export default function ItemProcessMaster() {
               <span className={classes.chipHint}>저장 전</span>
             </Group>}
           </Group>
-          <Box className={classes.tableViewport} ref={tableViewportRef} onKeyDown={handleGridKeyDown} onPaste={handleGridPaste}>
+          <Box className={classes.tableViewport} ref={tableViewportRef} onKeyDown={handleGridKeyDown} {...ruleGridProps}>
             {loading ? <Box className={classes.loading}><Loader color="red" size="sm" /></Box> : (
               <table className={classes.table} style={{ width: tableWidth, minWidth: tableWidth }}>
                 <colgroup>{columnWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>

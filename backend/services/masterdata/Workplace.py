@@ -151,6 +151,19 @@ def update_workplace(companyid: str, data: WorkplaceInput, actor: str | None) ->
     return get_workplace(companyid)
 
 
+def _detect_image_mime(content: bytes) -> str:
+    try:
+        from io import BytesIO
+        from PIL import Image
+
+        with Image.open(BytesIO(content)) as image:
+            image.verify()   # 깨진 파일 · 위장 파일 거르기
+            fmt = (image.format or "").upper()
+    except Exception:
+        return ""
+    return {"PNG": "image/png", "JPEG": "image/jpeg"}.get(fmt, "")
+
+
 def set_image(companyid: str, kind: str, content: bytes, mime: str, actor: str | None, filename: str = "") -> dict:
     image_column, mime_column, name_column, label, max_bytes = IMAGE_KINDS[kind]
     mime = (mime or "").lower()
@@ -161,6 +174,11 @@ def set_image(companyid: str, kind: str, content: bytes, mime: str, actor: str |
     if len(content) > max_bytes:
         raise ValueError(f"{label} 이미지는 {max_bytes // 1024 // 1024}MB 이하로 올려 주세요." if max_bytes >= 1024 * 1024
                          else f"{label} 이미지는 {max_bytes // 1024}KB 이하로 올려 주세요.")
+    # 브라우저가 보낸 형식(Content-Type)은 바꿔 보낼 수 있으므로 실제 파일 내용으로 다시 확인한다
+    actual_mime = _detect_image_mime(content)
+    if actual_mime not in IMAGE_TYPES:
+        raise ValueError(f"{label}은(는) JPG · PNG 이미지만 올릴 수 있습니다. (파일 내용이 이미지가 아닙니다)")
+    mime = actual_mime
     name = (filename or "").rsplit("/", 1)[-1].rsplit("\\", 1)[-1][:255]
     with _db.connect() as connection, connection.cursor() as cursor:
         cursor.execute(

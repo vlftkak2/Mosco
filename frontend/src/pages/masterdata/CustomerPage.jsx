@@ -27,13 +27,16 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import XLSX from "xlsx-js-style";
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import sharedClasses from "../../styles/pages/ManagementShared.module.css";
 import classes from "../../styles/pages/CustomerPage.module.css";
 import { MenuAccessContext, PageRibbonContext } from "../../components/layout/MainLayout";
 import OpeningBalanceModal from "./OpeningBalanceModal";
 import ExcelBulkActions from '../../components/common/ExcelBulkActions';
+import { apiErrorMessage } from '../../utils/apiError';
+import { kstDate } from '../../utils/dateFormat';
+import { invalidateMaster } from '../../utils/masterCache';
 
 const PAGE_SIZE_OPTIONS = [
   { value: "15", label: "15개씩" },
@@ -67,8 +70,6 @@ const loadPostcodeService = () => {
   return postcodeScriptPromise;
 };
 
-// 기초 미수금/미지급금은 MASTER/SUBMASTER만 설정·변경할 수 있습니다 (서버에서도 동일하게 검사).
-const OPENING_BALANCE_AUTHORITIES = ["MASTER", "SUBMASTER"];
 const OPENING_BALANCE_MAX = 9999999999999.99; // NUMERIC(15, 2)
 const OPENING_BALANCE_HELP = "원장 시작일 이전부터 남아 있던 잔액";
 
@@ -80,6 +81,17 @@ const parseOpeningAmount = (value) => {
   if (!Number.isFinite(amount) || amount < 0 || amount > OPENING_BALANCE_MAX) return null;
   return Math.round(amount * 100) / 100;
 };
+
+// 여신한도: 공급가 기준 원 단위, 빈칸/0 = 한도 없음(여신 통제 없이 통과). 잘못된 값이면 undefined.
+const CREDIT_LIMIT_MAX = 999999999999999; // NUMERIC(15, 0)
+const parseCreditLimit = (value) => {
+  const text = String(value ?? "").replaceAll(",", "").trim();
+  if (!text) return null;
+  const amount = Number(text);
+  if (!Number.isFinite(amount) || amount < 0 || amount > CREDIT_LIMIT_MAX) return undefined;
+  return amount === 0 ? null : Math.round(amount);
+};
+const CREDIT_LIMIT_HELP = "공급가 기준 · 비우면 한도 없음 (통제관리 › 여신 통제)";
 
 const displayUseyn = (value) => (value === "N" || value === "미사용" || value === "사용중지" ? "사용중지" : "사용중");
 
@@ -117,6 +129,7 @@ const emptyCustomer = () => ({
   remark: "",
   openingreceivable: 0,
   openingpayable: 0,
+  creditlimit: "",
 });
 
 const toCustomer = (row) => ({
@@ -144,6 +157,7 @@ const toCustomer = (row) => ({
   remark: row.remark ?? "",
   openingreceivable: parseOpeningAmount(row.openingreceivable) ?? 0,
   openingpayable: parseOpeningAmount(row.openingpayable) ?? 0,
+  creditlimit: row.creditlimit === null || row.creditlimit === undefined ? "" : Number(row.creditlimit),
 });
 
 // 사업자번호 · 법인번호 검증번호 확인 (서버 · 사업장관리와 같은 규칙). 엑셀 일괄등록에서 행별로 먼저 거른다.
@@ -166,7 +180,7 @@ const validCorporationNo = (value) => {
 const errorMessage = (error, fallback) => {
   const detail = error.response?.data?.detail;
   if (Array.isArray(detail)) return detail.map((item) => String(item.msg || "").replace(/^Value error,\s*/i, "")).join(", ");
-  return detail || error.response?.data?.message || error.message || fallback;
+  return apiErrorMessage(error, fallback);
 };
 
 const TRADETYPE_TONE = { 매입처: "purchase", 매출처: "sales", 매입매출처: "both" };
@@ -197,6 +211,7 @@ const CUSTOMER_EXCEL_COLUMNS = [
   { key: "manager", header: "업체 담당자", width: 12, aliases: ["manager", "업체담당자", "담당자"], guide: "20자 이내" },
   { key: "openingreceivable", header: "기초 미수금", width: 14, aliases: ["openingreceivable", "기초미수금"], guide: "0 이상 숫자 (관리자만 반영, 그 외 계정은 0으로 등록)" },
   { key: "openingpayable", header: "기초 미지급금", width: 14, aliases: ["openingpayable", "기초미지급금"], guide: "0 이상 숫자 (관리자만 반영, 그 외 계정은 0으로 등록)" },
+  { key: "creditlimit", header: "여신한도", width: 14, aliases: ["creditlimit", "여신 한도"], guide: "공급가 기준 원 단위, 비우면 한도 없음 (관리자만 반영)" },
   { key: "remark", header: "비고", width: 24, aliases: ["remark"] },
 ];
 const excelHeaderKey = (value) => String(value ?? "").replace(/\s+/g, "").toLowerCase();
@@ -204,7 +219,7 @@ const CUSTOMER_HEADER_LOOKUP = new Map(CUSTOMER_EXCEL_COLUMNS.flatMap((column) =
   [column.header, ...(column.aliases || [])].map((name) => [excelHeaderKey(name), column.key])));
 // 텍스트 칸: 양식의 빈 줄에도 텍스트 서식을 미리 넣어 둔다 (숫자로 입력돼 앞자리 0이 사라지는 것을 막음)
 const TEMPLATE_TEXT_ROWS = 300;
-const markTextColumns = (worksheet, columns, rowCount) => {
+const markTextColumns = (worksheet, columns, rowCount, XLSX) => {
   columns.forEach((column, columnIndex) => {
     if (!column.text) return;
     for (let row = 1; row <= rowCount; row += 1) {
@@ -219,7 +234,7 @@ const markTextColumns = (worksheet, columns, rowCount) => {
 };
 // 엑셀에서 숫자로 읽힌 우편번호(6234 → 06234)를 5자리로 되돌린다
 const normalizeZipcode = (value) => (/^\d{1,4}$/.test(value) ? value.padStart(5, "0") : value);
-const OPENING_BALANCE_LOCKED_TITLE = "MASTER/SUBMASTER 권한만 변경할 수 있습니다.";
+const OPENING_BALANCE_LOCKED_TITLE = "기능 권한 '거래처 기초잔액 · 여신한도 변경'이 있어야 바꿀 수 있습니다.";
 
 // 상세 머리의 사용여부: 같은 줄의 코드 · 거래구분처럼 글자로 (사용중지는 흐리게)
 const StatusTag = ({ value }) => (
@@ -786,9 +801,27 @@ const CustomerFormPanel = memo(function CustomerFormPanel({
             hideControls
             styles={{ input: { textAlign: "right" } }}
           />
-          <p className={`${classes.lockNote} ${classes.fullRow}`}>
-            {canEditOpeningBalances ? OPENING_BALANCE_HELP : "기초 미수금·미지급금은 MASTER/SUBMASTER 권한만 변경할 수 있습니다."}
-          </p>
+          <NumberInput
+            className={classes.amountInput}
+            label="여신한도"
+            value={draft.creditlimit}
+            onChange={(value) => onChange("creditlimit", value)}
+            disabled={!canEditOpeningBalances}
+            title={canEditOpeningBalances ? CREDIT_LIMIT_HELP : OPENING_BALANCE_LOCKED_TITLE}
+            placeholder="한도 없음"
+            thousandSeparator=","
+            decimalScale={0}
+            allowNegative={false}
+            min={0}
+            max={CREDIT_LIMIT_MAX}
+            clampBehavior="strict"
+            hideControls
+            suffix="원"
+            styles={{ input: { textAlign: "right" } }}
+          />
+          {!canEditOpeningBalances && <p className={`${classes.lockNote} ${classes.fullRow}`}>
+            기초 미수금·미지급금 · 여신한도는 권한이 있는 직원만 바꿀 수 있습니다.
+          </p>}
         </FormSection>
 
         <FormSection title="비고">
@@ -823,9 +856,8 @@ export default function CustomerPage() {
   const registerPageRibbon = pageLayout?.registerPageRibbon;
   const closeActivePage = pageLayout?.closeActivePage;
   const menuAccess = useContext(MenuAccessContext);
-  const canEditOpeningBalances = OPENING_BALANCE_AUTHORITIES.includes(
-    String(menuAccess?.authority || "USER").toUpperCase(),
-  );
+  // 기초잔액 · 여신한도: 거래처등록 권한이면 수정 (막으려면 통제관리 › 거래처 수정 승인)
+  const canEditOpeningBalances = true;
   const companyid = localStorage.getItem("user_company") || "";
   const companyname = localStorage.getItem("user_companyname") || "";
   const [customers, setCustomers] = useState([]);
@@ -1124,6 +1156,8 @@ export default function CustomerPage() {
       customerCacheEpochRef.current += 1;
       customerPageCacheRef.current.clear();
       customerPageRequestsRef.current.clear();
+      // 다른 화면(매입·매출·수금 등록)이 지난 거래처 목록으로 먼저 채우지 않게 공유 캐시도 비운다
+      invalidateMaster('customers:');
       if (!resetFilters) return loadCustomers(true);
       forceTotalNextRef.current = true;
       const alreadyAtDefault =
@@ -1171,6 +1205,7 @@ export default function CustomerPage() {
       customername: draft.customername.trim(),
       openingreceivable: parseOpeningAmount(draft.openingreceivable) ?? 0,
       openingpayable: parseOpeningAmount(draft.openingpayable) ?? 0,
+      creditlimit: parseCreditLimit(draft.creditlimit) ?? null,
     };
     setSaving(true);
     try {
@@ -1190,6 +1225,7 @@ export default function CustomerPage() {
       const savedCustomer = {
         ...payload,
         customercode: data.customercode || payload.customercode,
+        creditlimit: payload.creditlimit ?? "",
       };
       notifications.show({
         title: creating ? "등록 완료" : "수정 완료",
@@ -1216,17 +1252,19 @@ export default function CustomerPage() {
     }
   }, [draft, isNew, refreshAfterWrite, startNewCustomer]);
 
-  const downloadTemplate = useCallback(() => {
+  const downloadTemplate = useCallback(async () => {
     // 1번 시트 '거래처' = 업로드할 데이터 (상세 화면 입력 순서), 2번 시트 '작성안내' = 칼럼별 입력 규칙 · 은행 목록
     const headers = CUSTOMER_EXCEL_COLUMNS.map((column) => column.header);
     const sample = {
       customercode: "", tradetype: "매입처", customername: "(예시) 모스코상사 - 이 줄은 지우고 작성", ceoname: "홍길동",
       ownertype: "법인사업자", businessno: "", corporationno: "", businesstype: "도매", industry: "철강재",
       phone: "02-1234-5678", fax: "", email: "", zipcode: "", address: "", address2: "",
-      bankcode: banks[0]?.bankname || "", accountno: "", useryn: "사용중", manager: "", openingreceivable: 0, openingpayable: 0, remark: "",
+      bankcode: banks[0]?.bankname || "", accountno: "", useryn: "사용중", manager: "", openingreceivable: 0, openingpayable: 0, creditlimit: "", remark: "",
     };
+    const XLSX = await loadXLSXOrNotify();
+    if (!XLSX) return;
     const worksheet = XLSX.utils.aoa_to_sheet([headers, CUSTOMER_EXCEL_COLUMNS.map((column) => sample[column.key])]);
-    markTextColumns(worksheet, CUSTOMER_EXCEL_COLUMNS, TEMPLATE_TEXT_ROWS);
+    markTextColumns(worksheet, CUSTOMER_EXCEL_COLUMNS, TEMPLATE_TEXT_ROWS, XLSX);
     applyExcelHeaderStyle(worksheet, headers.length);
     worksheet["!cols"] = CUSTOMER_EXCEL_COLUMNS.map((column) => ({ wch: column.width }));
 
@@ -1275,8 +1313,11 @@ export default function CustomerPage() {
         }
         if (key === "useryn") return displayUseyn(customer.useryn ?? customer.useyn);
         if (key === "openingreceivable" || key === "openingpayable") return parseOpeningAmount(customer[key]) ?? 0;
+        if (key === "creditlimit") return customer.creditlimit === null || customer.creditlimit === undefined ? "" : Number(customer.creditlimit);
         return customer[key] ?? "";
       };
+      const XLSX = await loadXLSXOrNotify();
+      if (!XLSX) return;
       const worksheet = XLSX.utils.aoa_to_sheet([
         headers,
         ...(data.data || []).map((customer) => [
@@ -1287,12 +1328,12 @@ export default function CustomerPage() {
           customer.updatedbyname ?? "",
         ]),
       ]);
-      markTextColumns(worksheet, CUSTOMER_EXCEL_COLUMNS, (data.data || []).length);
+      markTextColumns(worksheet, CUSTOMER_EXCEL_COLUMNS, (data.data || []).length, XLSX);
       applyExcelHeaderStyle(worksheet, headers.length);
       worksheet["!cols"] = [...CUSTOMER_EXCEL_COLUMNS.map((column) => ({ wch: column.width })), { wch: 17 }, { wch: 10 }, { wch: 17 }, { wch: 10 }];
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "거래처목록");
-      const now = new Date(); // 파일 이름 날짜: 한국 시간 기준 (toISOString 은 UTC 라 새벽에는 전날로 찍힌다)
+      const now = kstDate(); // 파일 이름 날짜: 한국 시간 기준 (toISOString 은 UTC 라 새벽에는 전날로 찍힌다)
       const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
       XLSX.writeFile(workbook, `거래처목록_${date}.xlsx`);
       notifications.show({
@@ -1330,6 +1371,8 @@ export default function CustomerPage() {
 
       setUploadProgress("엑셀 파일 읽는 중");
       try {
+        const XLSX = await loadXLSXOrNotify();
+        if (!XLSX) return;
         const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
@@ -1360,11 +1403,15 @@ export default function CustomerPage() {
             const openingPayable = canEditOpeningBalances ? parseOpeningAmount(customer.openingpayable) : 0;
             customer.openingreceivable = openingReceivable ?? 0;
             customer.openingpayable = openingPayable ?? 0;
+            // 여신한도도 관리자만 (그 외 계정은 비워서 등록, 서버도 같은 규칙)
+            const creditLimit = canEditOpeningBalances ? parseCreditLimit(customer.creditlimit) : null;
+            customer.creditlimit = creditLimit ?? null;
             return {
               customer,
               excelRow: rowIndex + 2,
               bankError: Boolean(importedBankValue && !bankMatch),
               openingError: openingReceivable === null || openingPayable === null,
+              creditError: creditLimit === undefined,
             };
           })
           .filter(({ customer }) => customer.customercode || customer.customername);
@@ -1376,7 +1423,7 @@ export default function CustomerPage() {
         const failures = [];
         const validCustomers = [];
         const codesInFile = new Map();
-        imported.forEach(({ customer, excelRow, bankError, openingError }) => {
+        imported.forEach(({ customer, excelRow, bankError, openingError, creditError }) => {
           const rowErrors = [];
           const code = customer.customercode.trim();
           if (code) {
@@ -1398,6 +1445,7 @@ export default function CustomerPage() {
           else rowErrors.push("사용여부는 사용중 / 사용중지");
           if (customer.manager.length > 20) rowErrors.push("업체 담당자는 20자 이내");
           if (bankError) rowErrors.push("기본정보관리에 등록되지 않은 은행");
+          if (creditError) rowErrors.push("여신한도는 0 이상 숫자");
           if (openingError) rowErrors.push("기초 미수금 / 기초 미지급금은 0 이상의 숫자");
           if (customer.businessno && !validBusinessNo(customer.businessno)) rowErrors.push(`사업자번호 확인(${customer.businessno})`);
           if (customer.ownertype === "INDIV") customer.corporationno = ""; // 개인사업자는 법인번호 없음 (서버도 같은 규칙)

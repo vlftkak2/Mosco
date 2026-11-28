@@ -34,12 +34,13 @@ def get_settings(user: dict = Depends(security_module.get_current_user)):
 
 @router.put("/settings")
 def update_settings(payload: StartDateRequest, user: dict = Depends(security_module.get_current_user)):
-    # 원장 시작일은 회사 전체 잔액을 바꾸므로 회사 관리자만 바꿀 수 있다.
-    authority = str(user.get("authority") or "").upper()
-    if authority not in ("MASTER", "SUBMASTER") and not security_module.has_platform_admin_role(user):
-        raise HTTPException(status_code=403, detail="원장 시작일은 관리자(MASTER·SUBMASTER)만 변경할 수 있습니다.")
+    # 원장 시작일: 전체 잔액이 바뀌므로 관리자(최종관리자 · 고객사 관리자)만 바꾼다 (라우터가 메뉴 권한도 확인)
+    if not (security_module.has_platform_admin_role(user) or str(user.get("authority") or "").upper() in {"MASTER", "SUBMASTER"}):
+        raise HTTPException(status_code=403, detail="원장 시작일은 관리자만 바꿀 수 있습니다.")
     try:
         return {"success": True, **ledger_module.update_start_date(user["companyid"], payload.ledgerstartdate, user.get("email", ""))}
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
         raise HTTPException(status_code=500, detail="원장 시작일을 저장하지 못했습니다.") from error
 

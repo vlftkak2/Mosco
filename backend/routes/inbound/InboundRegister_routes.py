@@ -58,7 +58,11 @@ def save_receipt(
     user: dict = Depends(security_module.get_current_user),
 ):
     try:
-        is_create = data.is_new or not data.receiptno
+        # 저장된 매입은 다시 저장(수정)할 수 없다 (서비스 규칙) → 승인요청을 만들기 전에 알려 준다
+        #  (안 그러면 승인해도 반영될 수 없는 요청이 생긴다. 매입 '수정' 통제 = 담당자 변경)
+        if not data.is_new:
+            raise ValueError("저장된 입고전표는 수정할 수 없습니다. 신규 전표로 등록해 주세요.")
+        is_create = True
         weight = sum((item.weight or 0) for item in data.items)
         pending = approval_module.intercept(
             user, "INBOUND", "CREATE" if is_create else "UPDATE", "save", {"item": data.model_dump(mode="json")},

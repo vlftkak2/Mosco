@@ -16,7 +16,8 @@ router = APIRouter(
 # 공통코드 수정은 공통코드관리(DATA_CODE) 권한만 할 수 있다.
 # 그룹 목록은 품목코드관리 화면이, 그룹별 코드 목록은 코드를 골라 쓰는 화면들이 조회한다.
 CODE_GROUPS_MENUS = ("DATA_CODE", "DATA_ITEM")
-CODE_ITEMS_MENUS = ("DATA_CODE", "INBOUND_REGISTER", "OUTBOUND_REGISTER", "STOCK_INITIAL",
+# DATA_ITEM: 품목코드관리가 형태구분(SHAPE) 한 그룹만 받는다. 이미 /groups(전체 그룹)를 읽을 수 있는 메뉴라 새로 열리는 권한은 없다.
+CODE_ITEMS_MENUS = ("DATA_CODE", "DATA_ITEM", "INBOUND_REGISTER", "OUTBOUND_REGISTER", "STOCK_INITIAL",
                     "RECEIPT_PAYMENT", "AI_ORDER_RECOGNITION", "AI_ORDER_MANAGEMENT")
 require_code_master = security_module.require_menu_access("DATA_CODE")
 

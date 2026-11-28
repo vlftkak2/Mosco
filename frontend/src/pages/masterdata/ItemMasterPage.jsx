@@ -4,7 +4,7 @@ import { ActionIcon, Box, Group, Loader, Modal, Pagination, Paper, Popover, Scro
 import { notifications } from '@mantine/notifications';
 import { IconDatabaseOff, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
 import { TableVirtuoso } from 'react-virtuoso';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
 import ExcelBulkActions from '../../components/common/ExcelBulkActions';
@@ -20,6 +20,14 @@ import codeClasses from '../../styles/pages/CodeMasterPage.module.css';
 // 품목코드 관리 화면 전용 스타일 (공유 CSS는 수정하지 않고 이 모듈로 덮어씁니다)
 import s from '../../styles/pages/ItemMasterScreen.module.css';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
+import { apiErrorMessage } from '../../utils/apiError';
+import { todayKST } from '../../utils/dateFormat';
+import { fetchAllPages, loadMaster, peekMaster } from '../../utils/masterCache';
+
+// 품목 목록 · 형태구분: 지난번 값(메모리 캐시)으로 화면을 바로 채우고 서버 값으로 곧바로 바꾼다
+const ITEM_ROWS_CACHE = 'item-master:items';
+const SHAPE_OPTIONS_CACHE = 'item-master:shape-options';
+const toItemRows = (items) => (items || []).map((item) => ({ ...item, id: `item:${item.itemcode}`, is_new: false, is_dirty: false }));
 
 const authHeaders = () => ({
   Authorization: `Bearer ${localStorage.getItem('access_token') || ''}`,
@@ -351,7 +359,11 @@ export default function ItemMaster() {
   const pageLayout = useContext(PageRibbonContext);
   const registerPageRibbon = pageLayout?.registerPageRibbon;
   const closeActivePage = pageLayout?.closeActivePage;
-  const [rows, setRows] = useState([]);
+  const [rows, setRows] = useState(() => toItemRows(peekMaster(ITEM_ROWS_CACHE)));
+  // 캐시 행으로 연 첫 새로고침 동안만 표를 보인다 (저장 뒤 다시 불러올 때는 예전처럼 불러오는 중 표시)
+  const [showCachedRows, setShowCachedRows] = useState(() => rows.length > 0);
+  const rowsRef = useRef(rows);
+  useEffect(() => { rowsRef.current = rows; }, [rows]);
   const [selectedIds, setSelectedIds] = useState([]);
   const [queryInput, setQueryInput] = useState('');
   const [query, setQuery] = useState('');
@@ -363,7 +375,7 @@ export default function ItemMaster() {
   const [exporting, setExporting] = useState(false);
   const [filterOpen, setFilterOpen] = useState(true);
   const [columnWidths, setColumnWidths] = useState({});
-  const [shapeOptions, setShapeOptions] = useState([]);
+  const [shapeOptions, setShapeOptions] = useState(() => peekMaster(SHAPE_OPTIONS_CACHE) || []);
   const [shapeLoading, setShapeLoading] = useState(false);
   const [shapePickerTarget, setShapePickerTarget] = useState('');
   const uploadRef = useRef(null);
@@ -398,28 +410,40 @@ export default function ItemMaster() {
     window.addEventListener('pointercancel', finishResize);
   }, [columnWidths]);
 
-  const loadItems = useCallback(async () => {
+  // background: 캐시로 먼저 띄운 뒤의 새로고침. 그 사이 사용자가 이미 고치기 시작했으면 입력을 덮지 않는다
+  const loadItems = useCallback(async ({ background = false } = {}) => {
     setLoading(true);
     try {
-      const { data } = await axios.get('/api/item-master/items/export', { headers: authHeaders() });
-      setRows((data.items || []).map((item) => ({ ...item, id: `item:${item.itemcode}`, is_new: false, is_dirty: false })));
+      const items = await loadMaster(ITEM_ROWS_CACHE, async () => {
+        const { data } = await axios.get('/api/item-master/items/export', { headers: authHeaders() });
+        return data.items || [];
+      });
+      if (background && rowsRef.current.some((row) => row.is_new || row.is_dirty)) return;
+      setRows(toItemRows(items));
       setSelectedIds([]);
       selectionAnchorRef.current = '';
     } catch {
       notifications.show({ title: '품목 목록 조회 실패', message: '품목 목록을 불러오지 못했습니다.', color: 'red' });
     } finally {
       setLoading(false);
+      setShowCachedRows(false);
     }
   }, []);
 
   const loadShapeOptions = useCallback(async () => {
     setShapeLoading(true);
     try {
-      const { data } = await axios.get('/api/code-master/groups', { headers: authHeaders() });
-      const shapeGroup = (data.groups || []).find((group) => group.groupcode === 'SHAPE');
-      setShapeOptions((shapeGroup?.rows || [])
-        .filter((row) => row.use)
-        .map((row) => ({ code: row.code, name: row.name, property: row.properties?.[0] || '' })));
+      // 형태구분(SHAPE) 그룹만 받는다 (예전: 회사 공통코드 전체 약 165KB 를 받아 SHAPE 만 골라 씀). 정렬·사용여부 규칙은 같음
+      const options = await loadMaster(SHAPE_OPTIONS_CACHE, async () => {
+        const items = await fetchAllPages(async (pageNumber) => {
+          const { data } = await axios.get('/api/code-master/groups/SHAPE/items', {
+            headers: authHeaders(), params: { page: pageNumber, page_size: 200, include_total: true },
+          });
+          return { items: data.items || [], total: data.total || 0 };
+        }, 200);
+        return items.filter((row) => row.use).map((row) => ({ code: row.code, name: row.name, property: row.properties?.[0] || '' }));
+      });
+      setShapeOptions(options);
     } catch {
       notifications.show({ title: '형태구분 조회 실패', message: '형태구분 목록을 불러오지 못했습니다.', color: 'red' });
       setShapeOptions([]);
@@ -428,7 +452,7 @@ export default function ItemMaster() {
     }
   }, []);
 
-  useEffect(() => { loadItems(); void loadShapeOptions(); }, [loadItems, loadShapeOptions]);
+  useEffect(() => { void loadItems({ background: true }); void loadShapeOptions(); }, [loadItems, loadShapeOptions]);
 
   const filteredRows = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -708,7 +732,7 @@ export default function ItemMaster() {
       return true;
     } catch (error) {
       // 409 = the item is still used by stock / documents; show the server's reason (where it is used).
-      notifications.show({ title: '삭제 실패', message: error.response?.data?.detail || '품목 삭제 중 오류가 발생했습니다.', color: 'red', autoClose: 10000 });
+      notifications.show({ title: '삭제 실패', message: apiErrorMessage(error, '품목 삭제 중 오류가 발생했습니다.'), color: 'red', autoClose: 10000 });
       return false;
     } finally {
       setSaving(false);
@@ -758,9 +782,11 @@ export default function ItemMaster() {
     setSelectedIds([copy.id]);
   }, [selectedIds, filteredRows]);
 
-  const downloadTemplate = useCallback(() => {
+  const downloadTemplate = useCallback(async () => {
     const headers = FIELDS.map(({ label }) => label);
     const exampleRow = FIELDS.map(({ key }) => key === 'use_yn' ? 'Y' : '');
+    const XLSX = await loadXLSXOrNotify();
+    if (!XLSX) return;
     const sheet = XLSX.utils.aoa_to_sheet([headers, exampleRow]);
     applyExcelHeaderStyle(sheet, headers.length);
     sheet['!cols'] = FIELDS.map(({ width }) => ({ wch: Math.max(12, Math.round(width / 8)) }));
@@ -780,12 +806,14 @@ export default function ItemMaster() {
         return item[key] ?? '';
       }).concat(item.created_by ?? '', item.updated_by ?? ''));
       const headers = [...FIELDS.map(({ label }) => label), '등록자', '수정자'];
+      const XLSX = await loadXLSXOrNotify();
+      if (!XLSX) return;
       const sheet = XLSX.utils.aoa_to_sheet([headers, ...values]);
       applyExcelHeaderStyle(sheet, headers.length);
       sheet['!cols'] = [...FIELDS.map(({ width }) => ({ wch: Math.max(12, Math.round(width / 8)) })), { wch: 14 }, { wch: 14 }];
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, sheet, '품목목록');
-      const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+      const date = todayKST().replaceAll('-', '');
       XLSX.writeFile(workbook, `품목목록_${date}.xlsx`);
     } catch {
       notifications.show({ title: '엑셀 다운로드 실패', message: '엑셀 파일을 생성하지 못했습니다.', color: 'red' });
@@ -822,6 +850,8 @@ export default function ItemMaster() {
     let imported = [];
     setUploading(true);
     try {
+      const XLSX = await loadXLSXOrNotify();
+      if (!XLSX) return;
       const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       if (!sheet) throw new Error('엑셀 첫 번째 시트를 확인해 주세요.');
@@ -981,7 +1011,8 @@ export default function ItemMaster() {
         </div>
 
         <Box className={`${codeClasses.tableWrap} ${s.tableWrap}`} style={{ '--code-table-min-width': `${Math.max(900, tableWidth)}px` }}>
-          {loading ? <Box className={s.loading}><Loader color="red" size="sm" /></Box> : (
+          {/* 캐시로 먼저 띄운 행이 있으면 새로고침 중에도 표를 그대로 보인다 (처음 열 때만 불러오는 중 표시) */}
+          {loading && !showCachedRows ? <Box className={s.loading}><Loader color="red" size="sm" /></Box> : (
             <TableVirtuoso
               ref={virtuosoRef}
               data={filteredRows}

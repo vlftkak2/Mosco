@@ -13,6 +13,8 @@ from psycopg2.extras import execute_values
 from pydantic import BaseModel, Field, field_validator
 import xlsxwriter
 
+from excel_safety import safe_workbook_options
+
 
 logger = logging.getLogger(__name__)
 
@@ -879,11 +881,11 @@ def write_current_stock_excel(companyid: str, output_path: str, **filters):
     headers = ["No.", *(title for _, title, _ in EXCEL_COLUMNS)]
     with _connect() as connection, connection.cursor() as cursor:
         options = _excel_options(cursor, f"SELECT COUNT(*) FROM CurrentStock01t AS stock WHERE {where}", params)
-    workbook = xlsxwriter.Workbook(output_path, options)
+    workbook = xlsxwriter.Workbook(output_path, safe_workbook_options(options))
     worksheet = workbook.add_worksheet("현재고현황")
     header_format = workbook.add_format({"bold": True, "font_color": "#B4232D", "bg_color": "#FFF3F3", "border": 1, "border_color": "#E5BFC2"})
     integer_format = workbook.add_format({"num_format": "#,##0;[Red]-#,##0;0"})
-    number_format = workbook.add_format({"num_format": "#,##0.###"})
+    number_format = workbook.add_format({"num_format": "#,##0.##"})
     date_format = workbook.add_format({"num_format": "yyyy-mm-dd"})
     datetime_format = workbook.add_format({"num_format": "yyyy-mm-dd hh:mm"})
     worksheet.write_row(0, 0, headers, header_format)

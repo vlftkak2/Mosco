@@ -25,6 +25,7 @@ class PolicyInput(BaseModel):
 class SettingsInput(BaseModel):
     policies: list[PolicyInput] = Field(default_factory=list, max_length=20)
     approvers: list[str] | None = Field(default=None, max_length=500)   # 승인자 이메일 (None 이면 그대로)
+    credit_on: bool | None = None   # 여신 통제 켜기 (None 이면 그대로)
 
 
 class RejectInput(BaseModel):
@@ -55,7 +56,7 @@ def get_settings(user: dict = Depends(security_module.get_current_user)):
 
 @router.put("/settings")
 def save_settings(data: SettingsInput, user: dict = Depends(security_module.get_current_user)):
-    return _call(approval_module.save_settings, user, [p.model_dump() for p in data.policies], data.approvers)
+    return _call(approval_module.save_settings, user, [p.model_dump() for p in data.policies], data.approvers, data.credit_on)
 
 
 @router.get("/requests")

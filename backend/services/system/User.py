@@ -81,9 +81,8 @@ class UserInfoInput(BaseModel):
 
 
 def can_use_menu(user: dict) -> bool:
+    """직원관리(USER_MANAGEMENT) 메뉴 권한 (모스코 MASTER 는 항상)."""
     authority = str(user.get("authority") or "").upper()
-    if authority == "SUBMASTER" and user.get("companyid") != PLATFORM_COMPANY:
-        return True
     if authority == "MASTER" and user.get("companyid") == PLATFORM_COMPANY:
         return True
     return MENU_ID in user.get("menuids", ())

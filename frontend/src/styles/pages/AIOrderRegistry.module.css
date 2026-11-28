@@ -249,3 +249,8 @@
 .editForm input:focus { border-color: #f0a3a7; background: #fff; box-shadow: 0 0 0 3px #fde3e4; outline: none; }
 .editForm input { box-sizing: border-box; width: 100%; min-width: 0; }
 .editForm label { min-width: 0; }
+
+/* 엑셀식 셀 범위 선택 (Shift+방향키 · Shift+클릭) */
+.rangeCell { background: #fdecec !important; box-shadow: inset 0 0 0 1px #e8a3a6; }
+.rangeCell :global(input),
+.rangeCell :global(select) { background-color: #fdecec !important; }

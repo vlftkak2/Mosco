@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Loader, Modal } from '@mantine/core';
 import classes from '../../styles/pages/StockCostHistoryModal.module.css';
+import { apiErrorMessage } from '../../utils/apiError';
 
 // 현재고 > 행 더블클릭: 재고 원가 이력.
 // - 원가 구성: 원 전표(매입 · 기초)부터 재고이전 · 가공을 거쳐 이 재고가 만들어지기까지
@@ -14,7 +15,7 @@ const toNumber = (value) => {
   return Number.isFinite(number) ? number : 0;
 };
 const won = (value) => toNumber(value).toLocaleString('ko-KR', { maximumFractionDigits: 2 });
-const kg = (value) => toNumber(value).toLocaleString('ko-KR', { maximumFractionDigits: 3 });
+const kg = (value) => toNumber(value).toLocaleString('ko-KR', { maximumFractionDigits: 2 });
 const perKg = (amount, weight) => (toNumber(weight) > 0 ? (Math.round((toNumber(amount) / toNumber(weight)) * 100) / 100).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-');
 const day = (value) => String(value || '').slice(0, 10);
 const docNo = (no, line) => (no ? `${no}-${line}` : '');
@@ -61,7 +62,7 @@ export default function StockCostHistoryModal({ lot, onClose }) {
         }
         setState({ key, data, error: '' });
       })
-      .catch((error) => { if (!cancelled) setState({ key, data: null, error: error.response?.data?.detail || '원가 이력을 불러오지 못했습니다.' }); });
+      .catch((error) => { if (!cancelled) setState({ key, data: null, error: apiErrorMessage(error, '원가 이력을 불러오지 못했습니다.') }); });
     return () => { cancelled = true; };
   }, [lot, key]);
 

@@ -8,7 +8,7 @@
 import { memo, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useLocation } from 'react-router-dom';
-import { Box, Group, Loader, NumberInput, Pagination, Paper, Select, Switch, Text, TextInput, Textarea } from '@mantine/core';
+import { Box, Group, Loader, NumberInput, Pagination, Paper, Popover, Select, Switch, Text, TextInput, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { ColumnResizeHandle, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
@@ -18,14 +18,12 @@ import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/InboundRegister.module.css';
 import own from '../../styles/pages/ControlManagement.module.css';
+import { apiErrorMessage } from '../../utils/apiError';
+import { loadMaster, peekMaster } from '../../utils/masterCache';
 
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
-const errorText = (error, fallback = '처리하지 못했습니다.') => {
-  const detail = error.response?.data?.detail;
-  if (typeof detail === 'string') return detail;
-  if (Array.isArray(detail) && detail[0]?.msg) return String(detail[0].msg).replace(/^Value error, /, '');
-  return fallback;
-};
+const CONTROL_SUMMARY_KEY = 'control:summary';
+const errorText = (error, fallback = '처리하지 못했습니다.') => apiErrorMessage(error, fallback);
 // 시각은 한국시간 'YYYY-MM-DD HH:mm' (포맷터는 한 번만 만든다)
 const KST_FORMAT = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
@@ -35,9 +33,7 @@ const kst = (value) => {
   const p = Object.fromEntries(KST_FORMAT.formatToParts(new Date(value)).map((part) => [part.type, part.value]));
   return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
 };
-// 목록용 짧은 시각 'MM-DD HH:mm'
-const kstShort = (value) => kst(value).slice(5);
-const num = (value, digits = 3) => (value === null || value === undefined || value === '' ? ''
+const num = (value, digits = 2) => (value === null || value === undefined || value === '' ? ''
   : Number(value).toLocaleString('ko-KR', { maximumFractionDigits: digits }));
 const won = (value) => (value === null || value === undefined ? '' : `${num(value, 0)}원`);
 
@@ -59,41 +55,37 @@ const thisMonth = () => {
 };
 // 한 번 본 요청 상세는 바로 다시 보여 준다 (대기 건은 매번 새로 받고, 처리하면 지움)
 const DETAIL_CACHE = new Map();
+const DETAIL_INFLIGHT = new Map();
+function fetchDetail(requestno) {
+  if (DETAIL_INFLIGHT.has(requestno)) return DETAIL_INFLIGHT.get(requestno);
+  const promise = axios.get(`/api/control/requests/${encodeURIComponent(requestno)}`, authConfig())
+    .then(({ data }) => { DETAIL_CACHE.set(requestno, data); return data; })
+    .finally(() => DETAIL_INFLIGHT.delete(requestno));
+  DETAIL_INFLIGHT.set(requestno, promise);
+  return promise;
+}
+const prefetchDetail = (requestno) => { if (requestno && !DETAIL_CACHE.has(requestno)) fetchDetail(requestno).catch(() => {}); };
 
 // ── 표 칸 (너비는 끌어서 바꿈) ──
-const LIST_COLUMNS = [
-  { key: 'requested_at', label: '요청일시', width: 108 },
-  { key: 'kind', label: '구분', width: 78 },
-  { key: 'summary', label: '내용', width: 164 },
-  { key: 'amount', label: '금액', width: 92, align: 'right' },
-  { key: 'requester', label: '요청자', width: 60 },
-  { key: 'status', label: '상태', width: 58, align: 'center' },
+const listColumns = (personLabel) => [
+  { key: 'status', label: '상태', width: 60, align: 'center' },
+  { key: 'requestno', label: '요청번호', width: 168 },
+  { key: 'kind', label: '구분', width: 70 },
+  { key: 'action', label: '유형', width: 56, align: 'center' },
+  { key: 'party', label: '거래처', width: 124 },
+  { key: 'docdate', label: '전표일자', width: 98, align: 'center' },
+  { key: 'lines', label: '건수', width: 48, align: 'right' },
+  { key: 'weight', label: '중량(kg)', width: 84, align: 'right' },
+  { key: 'amount', label: '금액', width: 104, align: 'right' },
+  { key: 'note', label: '내용', width: 140 },
+  { key: 'person', label: personLabel, width: 62 },
+  { key: 'requested_at', label: '요청일시', width: 134 },
 ];
-const CUSTOMER_COLUMNS = [
-  { key: 'code', label: '거래처코드', width: 100 }, { key: 'name', label: '거래처명', width: 150 }, { key: 'bizno', label: '사업자번호', width: 120 },
-  { key: 'ceo', label: '대표자', width: 90 }, { key: 'manager', label: '담당자', width: 90 }, { key: 'phone', label: '전화', width: 120 },
-];
-const OUT_COLUMNS = [
-  { key: 'sourceno', label: '원천전표', width: 124 }, { key: 'sourceline', label: '순번', width: 48, align: 'right' },
-  { key: 'qty', label: '수량', width: 64, align: 'right' }, { key: 'weight', label: '중량(kg)', width: 92, align: 'right' },
-  { key: 'price', label: '단가', width: 84, align: 'right' },
-];
-const IN_COLUMNS = [
-  { key: 'item', label: '품명', width: 80 }, { key: 'thick', label: '두께', width: 46, align: 'right' }, { key: 'width', label: '폭', width: 56, align: 'right' },
-  { key: 'length', label: '길이', width: 54, align: 'right' }, { key: 'qty', label: '수량', width: 48, align: 'right' },
-  { key: 'weight', label: '중량(kg)', width: 70, align: 'right' }, { key: 'price', label: '단가', width: 66, align: 'right' },
-];
-const RP_KEYS = [['cashamt', '현금'], ['instrumentamt', '어음/수표'], ['bankamt', '은행'], ['cardamt', '카드'], ['offsetamt', '상계'], ['lossamt', '잡손실'], ['chargeamt', '수수료']];
-const RP_COLUMNS = [...RP_KEYS.map(([key, label]) => ({ key, label, width: 92, align: 'right' })), { key: 'desc', label: '비고', width: 140 }];
-const RESERVE_COLUMNS = [
-  { key: 'sourceno', label: '원천전표', width: 124 }, { key: 'sourceline', label: '순번', width: 48, align: 'right' },
-  { key: 'item', label: '품명', width: 96 }, { key: 'spec', label: '규격', width: 104 },
-  { key: 'qty', label: '수량', width: 56, align: 'right' }, { key: 'weight', label: '중량(kg)', width: 84, align: 'right' },
-];
+const LIST_COLUMNS = { inbox: listColumns('요청자'), mine: listColumns('처리자') };
 const APPROVER_COLUMNS = [
-  { key: 'check', label: '승인자', width: 64, align: 'center' },
-  { key: 'name', label: '이름', width: 120 }, { key: 'email', label: '이메일', width: 220 }, { key: 'team', label: '부서', width: 120 },
-  { key: 'position', label: '직급', width: 100 }, { key: 'authority', label: '권한', width: 110 },
+  { key: 'check', label: '승인자', width: 90, align: 'center' },
+  { key: 'name', label: '이름', width: 130 }, { key: 'email', label: '이메일', width: 280 }, { key: 'team', label: '부서', width: 180 },
+  { key: 'position', label: '직급', width: 120 }, { key: 'action', label: '설정', width: 100, align: 'center' },
 ];
 
 const alignClass = (column) => (column.align === 'right' ? own.num : column.align === 'center' ? own.center : '');
@@ -116,33 +108,45 @@ const StatusPill = ({ status, label }) => <span className={`${own.pill} ${STATUS
 function requestFacts(item) {
   const data = item.data || {};
   const body = data.item || {};
-  const facts = [];
-  if (item.op === 'delete' || item.op === 'manager' || item.op === 'sales_fields') {
-    facts.push(['전표', data.receiptno]);
-    if (item.op === 'manager') facts.push(['바꿀 담당자', data.manager || '(없음)']);
-    if (item.op === 'sales_fields') {
-      if (body.manager !== null && body.manager !== undefined) facts.push(['담당자', body.manager || '(없음)']);
-      if (body.destination !== null && body.destination !== undefined) facts.push(['착지', body.destination || '(없음)']);
-      if ((body.prices || []).length) facts.push(['단가 변경', `${body.prices.length}행`]);
-    }
-    return facts;
-  }
   if (item.target === 'CUSTOMER') {
-    const rows = item.op === 'bulk_create' ? (data.items || []) : [body];
-    if (rows.length > 1) return [['일괄 등록', `${rows.length.toLocaleString('ko-KR')}곳`], ['첫 거래처', rows[0]?.customername]];
-    return [['거래처명', body.customername], ['거래처코드', body.customercode || '자동'], ['사업자번호', body.businessno || '-'], ['대표자', body.ceoname || '-']];
+    if (item.op === 'bulk_create') {
+      const rows = data.items || [];
+      const count = (type) => rows.filter((row) => (row.tradetype || '매입처') === type).length;
+      return [['등록', `${rows.length.toLocaleString('ko-KR')}곳`], ['매출처', `${count('매출처')}곳`], ['매입처', `${count('매입처')}곳`], ['매입매출처', `${count('매입매출처')}곳`]];
+    }
+    // 거래처 공용 양식 (등록 · 수정): 코드 · 거래구분 · 사업자 · 대표자 · 업태/업종 · 담당자 · 사용여부
+    return [
+      ['거래처코드', body.customercode || item.ref_no || '자동 부여'],
+      ['거래구분', body.tradetype || '-'],
+      ['사업자유형', body.ownertype === 'INDIV' ? '개인사업자' : '법인사업자'],
+      ['사업자번호', body.businessno || '-'],
+      ['대표자', body.ceoname || '-'],
+      ['업태 · 업종', [body.businesstype, body.industry].filter(Boolean).join(' · ') || '-'],
+      ['업체 담당자', body.manager || '-'],
+      ['사용여부', String(body.useryn || 'Y').toUpperCase() === 'N' || body.useryn === '사용중지' ? '사용중지' : '사용중'],
+    ];
   }
-  const lines = body.items || [];
-  facts.push(['일자', String(body.receptdate || body.receiptdate || '').slice(0, 10)]);
-  facts.push(['거래처', body.customname || lines[0]?.customname || '-']);
+  // 전표 공용 양식: 등록 · 수정 · 삭제 모두 같은 칸 · 같은 순서
+  //  등록 · 수정 = 입력한 내용, 삭제 · 담당자 변경 · 단가 수정 = 요청 때 보관한 전표 머리
+  const lines = item.lines || [];
+  const header = item.op === 'save'
+    ? { date: body.receptdate || body.receiptdate, party: body.customname || (body.items || [])[0]?.customname, manager: body.manager,
+      destination: body.destination, description: body.description, transactiontype: body.transactiontype }
+    : (item.doc_header || {});
+  const docno = item.ref_no || item.result_no || '승인 후 부여';
+  const facts = [
+    ['거래처', header.party || item.party || '-'],
+    ['전표일자', String(header.date || item.doc_date || '').slice(0, 10) || '-'],
+    ['전표', docno],
+  ];
   if (item.target === 'RECEIPT_PAYMENT') {
-    facts.push(['구분', body.transactiontype === 'RECEIPT' ? '수금' : '지급']);
+    facts.push(['구분', header.transactiontype === 'RECEIPT' ? '수금' : header.transactiontype === 'PAYMENT' ? '지급' : '-']);
   } else {
     facts.push(['품목', `${lines.length.toLocaleString('ko-KR')}건`]);
     facts.push(['중량', `${num(lines.reduce((sum, row) => sum + Number(row.weight || 0), 0), 1)}kg`]);
   }
-  if (body.receiptno) facts.push(['수정 전표', body.receiptno]);
-  if (body.manager) facts.push(['담당자', body.manager]);
+  facts.push(['담당자', header.manager || '-']);
+  if (item.target === 'OUTBOUND') facts.push(['착지', header.destination || '-']);
   return facts;
 }
 
@@ -151,31 +155,106 @@ function RequestLines({ item }) {
   const data = item.data || {};
   const body = data.item || {};
   if (item.target === 'CUSTOMER') {
-    const rows = item.op === 'bulk_create' ? (data.items || []) : [];
-    if (rows.length < 2) return null;
-    return <div className={own.tableWrap}><GridTable columns={CUSTOMER_COLUMNS}>
-      {rows.slice(0, 200).map((row, index) => <tr key={index}>
-        <td>{row.customercode || '자동'}</td><td>{row.customername}</td><td>{row.businessno}</td><td>{row.ceoname}</td><td>{row.manager}</td><td>{row.phone}</td>
-      </tr>)}
-    </GridTable>{rows.length > 200 && <div className={own.more}>외 {rows.length - 200}건</div>}</div>;
+    if (item.op === 'bulk_create') {
+      const rows = data.items || [];
+      return <>
+        <div className={own.sectionTitle}>거래처 <small>{rows.length}곳</small></div>
+        <div className={own.lineList}>
+          {rows.slice(0, 200).map((row, index) => <div key={index} className={own.lineItem}>
+            <div className={own.lineTop}>
+              <b className={own.lineName}>{row.customername}</b>
+              <span className={own.lineSpec}>{row.customercode || '코드 자동'}</span>
+              <span className={own.lineAmount}>{row.tradetype || '매입처'}</span>
+            </div>
+            <div className={own.lineSub}>
+              {row.businessno && <span>{row.businessno}</span>}{row.ceoname && <span>대표 {row.ceoname}</span>}{row.phone && <span>{row.phone}</span>}
+            </div>
+          </div>)}
+        </div>
+        {rows.length > 200 && <div className={own.more}>외 {rows.length - 200}곳</div>}
+      </>;
+    }
+    const bank = body.bankcode ? (item.bank_names?.[body.bankcode] || body.bankcode) : '';
+    const money = (value) => (Number(value || 0) ? won(value) : '-');
+    const info = [
+      ['주소', [body.zipcode && `(${body.zipcode})`, body.address, body.address2].filter(Boolean).join(' ')],
+      ['연락처', [body.phone && `전화 ${body.phone}`, body.fax && `팩스 ${body.fax}`, body.email].filter(Boolean).join(' · ')],
+      ['은행', [bank, body.accountno].filter(Boolean).join(' ')],
+      ['비고', body.remark],
+    ];
+    return <>
+      <div className={own.sectionTitle}>거래처 정보</div>
+      <div className={own.lineList}>
+        {info.map(([label, value]) => <div key={label} className={own.lineItem}>
+          <div className={own.lineTop}><b className={own.lineName}>{label}</b><span className={own.lineValue}>{value || '-'}</span></div>
+        </div>)}
+        {[['기초 미수금', body.openingreceivable], ['기초 미지급금', body.openingpayable], ['여신한도', body.creditlimit]].map(([label, value]) => <div key={label} className={own.lineItem}>
+          <div className={own.lineTop}><b className={own.lineName}>{label}</b><b className={own.lineAmount}>{label === '여신한도' && !Number(value || 0) ? '한도 없음' : money(value)}</b></div>
+        </div>)}
+      </div>
+    </>;
   }
-  if (['delete', 'manager', 'sales_fields'].includes(item.op)) return null;
+  if (['delete', 'manager', 'sales_fields'].includes(item.op) && !(item.lines || []).length) return null;   // 수금/지급 삭제 등 품목 없는 전표
   const lines = body.items || [];
   if (item.target === 'RECEIPT_PAYMENT') {
-    return <div className={own.tableWrap}><GridTable columns={RP_COLUMNS}>
-      {lines.map((row, index) => <tr key={index}>
-        {RP_KEYS.map(([key]) => <td key={key} className={own.num}>{num(row[key], 0)}</td>)}<td>{row.description}</td>
-      </tr>)}
-    </GridTable></div>;
+    // 매입처럼 한 줄씩: [결제수단 · 어음 종류/번호 ······ 금액] / [수단별 금액 · 만기 · 발행처 · 비고]
+    const rpRows = item.lines || [];
+    return <>
+      <div className={own.sectionTitle}>{item.target_label === '지급' ? '지급' : item.target_label === '수금' ? '수금' : '결제'} 내역 <small>{rpRows.length}건</small></div>
+      <div className={own.lineList}>
+        {rpRows.map((row, index) => <div key={index} className={own.lineItem}>
+          <div className={own.lineTop}>
+            <b className={own.lineName}>{(row.methods || []).map((m) => m.label).join(' · ') || '결제'}</b>
+            {row.instrumenttype && <span className={own.lineSpec}>{row.instrumenttype}{row.instrumentno ? ` ${row.instrumentno}` : ''}</span>}
+            <b className={own.lineAmount}>{won(row.supply)}</b>
+          </div>
+          <div className={own.lineSub}>
+            {(row.methods || []).length > 1 && row.methods.map((m) => <span key={m.label}>{m.label} {num(m.amount, 0)}</span>)}
+            {row.maturitydate && <span>만기 {row.maturitydate}</span>}
+            {row.issuer && <span>발행 {row.issuer}</span>}
+            {row.description && <span>{row.description}</span>}
+          </div>
+        </div>)}
+      </div>
+    </>;
   }
-  const isOut = item.target === 'OUTBOUND';
-  return <><div className={own.tableWrap}><GridTable columns={isOut ? OUT_COLUMNS : IN_COLUMNS}>
-    {lines.map((row, index) => <tr key={index}>
-      {isOut ? <><td>{row.stocksourceno}</td><td className={own.num}>{row.stocksourceline}</td></>
-        : <><td title={row.itemname}>{row.itemname}</td><td className={own.num}>{num(row.thickness)}</td><td className={own.num}>{num(row.width)}</td><td className={own.num}>{num(row.length)}</td></>}
-      <td className={own.num}>{num(row.qty)}</td><td className={own.num}>{num(row.weight)}</td><td className={own.num}>{num(row.unitprice, 2)}</td>
-    </tr>)}
-  </GridTable></div>{(body.expenses || []).length > 0 && <div className={own.more}>기타비용 {body.expenses.length}건 포함</div>}</>;
+  // 품목: (매출은 원천 전표번호 · 순번) 품명 · 두께 · 폭 · 길이 · 수량 · 중량 · 단가 · 공급가 — 매출 품명 · 규격은 서버가 재고에서 찾아 붙인다
+  const rows = item.lines || [];
+  const reserved = (item.reservations || []).length > 0;
+  return <>
+    <div className={own.sectionTitle}>품목 <small>{rows.length}건</small>{reserved && <span className={own.reserveTag}>재고 예약 중</span>}</div>
+    {/* 승인자가 한눈에: 줄마다 [품명 · 규격 ······ 공급가] / [수량 · 중량 · 단가 · 원천 전표] — 가로 스크롤 없음 */}
+    <div className={own.lineList}>
+      {rows.map((row, index) => {
+        const spec = [row.thickness, row.width, row.length].filter((v) => Number(v) > 0).map((v, i) => num(v, i ? 0 : 3)).join(' × ');
+        return <div key={index} className={own.lineItem}>
+          <div className={own.lineTop}>
+            <b className={own.lineName}>{row.itemname || '품명 없음'}</b>
+            {spec && <span className={own.lineSpec}>{spec}</span>}
+            <b className={own.lineAmount}>{won(row.supply)}</b>
+          </div>
+          <div className={own.lineSub}>
+            <span>{num(row.qty, 0)}개</span><span>{num(row.weight, 1)}kg</span><span>단가 {num(row.unitprice, 0)}</span>
+            {row.sourceno && <span className={own.lineSource}>{row.sourceno} · {row.sourceline}</span>}
+          </div>
+        </div>;
+      })}
+    </div>
+    {(body.expenses || []).length > 0 && <>
+      <div className={own.sectionTitle}>기타비용</div>
+      <div className={own.lineList}>
+        {body.expenses.map((row, index) => <div key={index} className={own.lineItem}>
+          <div className={own.lineTop}>
+            <b className={own.lineName}>{row.costname || '기타비용'}</b>
+            {row.customname && <span className={own.lineSpec}>{row.customname}</span>}
+            <b className={own.lineAmount}>{won(row.supplyamt)}</b>
+          </div>
+          {(row.description || String(row.purchaseyn || '').toUpperCase() === 'Y') && <div className={own.lineSub}>
+            {String(row.purchaseyn || '').toUpperCase() === 'Y' && <span>비용 처리</span>}{row.description && <span>{row.description}</span>}
+          </div>}
+        </div>)}
+      </div>
+    </>}</>;
 }
 
 // 상세: 목록 행(preview)을 먼저 보여 주고, 내용은 받아오는 대로 채운다
@@ -186,15 +265,19 @@ function RequestDetail({ preview }) {
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
 
+  const currentNo = useRef(requestno);
+  currentNo.current = requestno;
   const load = useCallback(async (force = false) => {
     if (!requestno) return;
-    if (!force && DETAIL_CACHE.has(requestno)) { setItem(DETAIL_CACHE.get(requestno)); return; }
+    const cached = DETAIL_CACHE.get(requestno);
+    if (cached) setItem(cached);          // 받아 둔 내용은 바로
+    if (cached && !force) return;
+    if (force) DETAIL_CACHE.delete(requestno);
     try {
-      const { data } = await axios.get(`/api/control/requests/${encodeURIComponent(requestno)}`, authConfig());
-      DETAIL_CACHE.set(requestno, data);
-      setItem(data);
+      const data = await fetchDetail(requestno);
+      if (currentNo.current === requestno) setItem(data);   // 그새 다른 요청을 골랐으면 버린다
     } catch (error) {
-      notifications.show({ title: '요청 조회 실패', message: errorText(error), color: 'red' });
+      if (currentNo.current === requestno) notifications.show({ title: '요청 조회 실패', message: errorText(error), color: 'red' });
     }
   }, [requestno]);
   const runLoad = useEffectEvent((force) => { void load(force); });
@@ -221,53 +304,102 @@ function RequestDetail({ preview }) {
 
   if (!preview) return <div className={own.empty}>목록에서 요청을 선택하세요.</div>;
   const view = item?.requestno === requestno ? item : null;
-  const head = view || preview;
-  const facts = view ? requestFacts(view) : [];
+  // 새 요청을 받는 동안에는 이전 화면을 흐리게 그대로 두고, 오면 부드럽게 바꾼다 (글자가 사라졌다 나타나지 않게)
+  const shown = view || item;
+  if (!shown) return <div className={own.detail}><div className={own.loadingRow}><Loader size="xs" color="red" /></div></div>;
+  const head = shown;
+  const facts = requestFacts(shown);
   const hasAmount = head.amount !== null && head.amount !== undefined;
-  return <div className={own.detail}>
+  // 매입 · 매출: 금액 아래에 물품 / 기타비용 (예전 요청은 품목 · 기타비용을 더해서)
+  const methodTotals = head.target === 'RECEIPT_PAYMENT'
+    ? Object.entries((head.lines || []).flatMap((row) => row.methods || []).reduce((acc, m) => ({ ...acc, [m.label]: (acc[m.label] || 0) + Number(m.amount || 0) }), {}))
+    : [];
+  const split = hasAmount && ['INBOUND', 'OUTBOUND'].includes(head.target)
+    ? (head.amounts || {
+      goods: (head.lines || []).reduce((sum, row) => sum + Number(row.supply || 0), 0),
+      expenses: (head.data?.item?.expenses || []).reduce((sum, row) => sum + Number(row.supplyamt || 0), 0),
+    })
+    : null;
+  // 머리 큰 글씨: 전표는 금액(수금 · 지급은 그 이름으로), 거래처는 거래처명
+  const isCustomer = head.target === 'CUSTOMER';
+  const heroLabel = isCustomer ? (head.op === 'bulk_create' ? '일괄 등록' : '거래처')
+    : head.target === 'RECEIPT_PAYMENT' ? `${head.target_label === '지급' ? '지급' : '수금'}액` : '금액';
+  const heroValue = isCustomer
+    ? (head.op === 'bulk_create' ? `${(head.data?.items || []).length.toLocaleString('ko-KR')}곳` : (head.data?.item?.customername || head.party || '-'))
+    : hasAmount ? won(head.amount) : '-';
+  const creditOver = head.credit && Number(head.credit.over) > 0;
+  // 확인할 것: 모든 요청에서 같은 자리 · 같은 모양 (위험한 것부터)
+  const alerts = [
+    head.action === 'DELETE' && { tone: 'danger', label: '삭제 요청', text: `승인하면 ${isCustomer ? '거래처' : '전표'}가 삭제됩니다.` },
+    creditOver && { tone: 'danger', label: '여신 초과', text: `한도를 ${won(head.credit.over)} 넘습니다.` },
+    head.status === 'PENDING' && head.last_error && { tone: 'danger', label: '승인 실패', text: head.last_error },
+    head.reject_reason && { tone: 'muted', label: '반려 사유', text: head.reject_reason },
+    (head.reservations || []).length > 0 && { tone: 'warn', label: '재고 예약', text: '승인 전까지 이 품목들의 재고를 잡아 두고 있습니다.' },
+    head.action === 'UPDATE' && head.op !== 'delete' && !(head.changes || []).length && { tone: 'muted', label: '변경 내용', text: '바뀐 내용이 없거나, 변경 내용 기록 전에 요청된 건입니다.' },
+  ].filter(Boolean);
+  return <div key={shown.requestno} className={`${own.detail} ${own.detailFade} ${view ? '' : own.detailSwitching}`}>
+    {/* ① 무엇을 · 상태 */}
     <div className={own.detailHead}>
       <div className={own.detailTitle}>
-        <span className={own.kind}>{head.target_label} {head.action_label}</span>
+        <span className={own.kind}>{head.target_label} <em className={own[`act_${head.action}`] || ''}>{head.action_label}</em></span>
         <StatusPill status={head.status} label={head.status_label} />
-        {head.self_approved && <span className={`${own.pill} ${own.muted}`}>본인 승인</span>}
       </div>
       <span className={own.reqNo}>{head.requestno}</span>
     </div>
+    {/* ② 누가 · 언제 (한 줄) */}
+    <div className={own.metaLine}>
+      <span><b>{head.requested_name}</b> 요청 · {kst(head.requested_at)}</span>
+      {head.decided_at && <span><b>{head.decided_name}</b> {head.self_approved ? '본인 승인' : head.status_label} · {kst(head.decided_at)}</span>}
+      {head.result_no && <span>반영 번호 <b>{head.result_no}</b></span>}
+    </div>
+    {/* ③ 확인할 것 */}
+    {alerts.length > 0 && <div className={own.alerts}>
+      {alerts.map((a) => <div key={a.label} className={`${own.alert} ${own[`alert_${a.tone}`] || ''}`}><b>{a.label}</b><span>{a.text}</span></div>)}
+    </div>}
 
-    {/* 핵심: 금액(있으면 크게) + 일자 · 거래처 · 품목 · 중량 칸 */}
+    {/* ④ 요약: 큰 글씨 + 같은 순서의 칸 */}
     <div className={own.factCard}>
-      {hasAmount && <div className={own.factAmount}><span>금액</span><b>{won(head.amount)}</b></div>}
-      {view ? <div className={own.factGrid}>
-        {facts.map(([label, value]) => <div key={label} className={own.fact}><span>{label}</span><b title={String(value ?? '')}>{value}</b></div>)}
-      </div> : <div className={own.factPending}>{head.summary}</div>}
+      <div className={own.factAmount}>
+        <span>{heroLabel}{!isCustomer && hasAmount && head.target !== 'RECEIPT_PAYMENT' && <small>공급가</small>}</span>
+        <b className={isCustomer ? own.heroText : ''} title={String(heroValue)}>{heroValue}</b>
+      </div>
+      {methodTotals.length > 0 && <div className={own.factSplit}>
+        {methodTotals.map(([label, amount]) => <span key={label}>{label} <b>{won(amount)}</b></span>)}
+      </div>}
+      {split && <div className={own.factSplit}>
+        <span>물품 <b>{won(split.goods)}</b></span><span>기타비용 <b>{won(split.expenses)}</b></span>
+      </div>}
+      <div className={own.factGrid}>
+        {facts.map(([label, value, wide]) => <div key={label} className={`${own.fact} ${wide ? own.factWide : ''}`}><span>{label}</span><b title={String(value ?? '')}>{value}</b></div>)}
+      </div>
     </div>
 
-    {/* 누가 · 언제 */}
-    <div className={own.people}>
-      <div className={own.fact}><span>요청자</span><b>{head.requested_name}</b></div>
-      <div className={own.fact}><span>요청일시</span><b>{kst(head.requested_at)}</b></div>
-      {head.decided_at && <>
-        <div className={own.fact}><span>{head.self_approved ? '본인 승인' : `${head.status_label}자`}</span><b>{head.decided_name}</b></div>
-        <div className={own.fact}><span>{head.status_label}일시</span><b>{kst(head.decided_at)}</b></div>
-      </>}
-      {head.result_no && <div className={own.fact}><span>반영 번호</span><b>{head.result_no}</b></div>}
-    </div>
-    {head.reject_reason && <div className={own.notice}><span>반려 사유</span>{head.reject_reason}</div>}
-    {head.status === 'PENDING' && head.last_error && <div className={own.notice}><span>승인 실패</span>{head.last_error}</div>}
+    {/* ⑤ 수정 요청: 무엇을 바꾸는지 (변경 전 → 변경 후) */}
+    {(head.changes || []).length > 0 && <div className={own.changeBox}>
+      <div className={own.changeHead}>변경 내용 <small>{head.changes.length}건</small></div>
+      {head.changes.map((change, index) => <div key={index} className={own.changeRow}>
+        <span className={own.changeLabel} title={change.label}>{change.label}</span>
+        <span className={own.changeBefore} title={String(change.before)}>{change.before}</span>
+        <span className={own.changeArrow} aria-hidden="true">→</span>
+        <span className={own.changeAfter} title={String(change.after)}>{change.after}</span>
+      </div>)}
+    </div>}
 
-    {!view ? <div className={own.loadingRow}><Loader size="xs" color="red" /></div> : <>
-      <RequestLines item={view} />
-      {view.reservations?.length > 0 && <>
-        <div className={own.sectionTitle}>예약 재고</div>
-        <div className={own.tableWrap}><GridTable columns={RESERVE_COLUMNS}>
-          {view.reservations.map((row) => <tr key={`${row.sourcetype}:${row.sourceno}:${row.sourceline}`}>
-            <td>{row.sourceno}</td><td className={own.num}>{row.sourceline}</td><td>{row.itemname}</td>
-            <td>{[row.thickness, row.width, row.length].filter((v) => Number(v) > 0).map((v) => num(v)).join('×')}</td>
-            <td className={own.num}>{num(row.qty)}</td><td className={own.num}>{num(row.weight)}</td>
-          </tr>)}
-        </GridTable></div>
-      </>}
-    </>}
+    {/* ⑥ 여신: 한도 · 미수 잔액 · 대기 중 매출요청 · 이번 매출 → 합계 */}
+    {head.credit && <div className={`${own.creditCard} ${creditOver ? own.creditOver : ''}`}>
+      <div className={own.creditHead}><b>여신</b>{creditOver ? <span>한도 {won(head.credit.over)} 초과</span> : <span className={own.creditOk}>한도 안</span>}</div>
+      <div className={own.creditGrid}>
+        <div className={own.fact}><span>여신한도</span><b>{won(head.credit.limit)}</b></div>
+        <div className={own.fact}><span>미수 잔액</span><b>{won(head.credit.balance)}</b></div>
+        <div className={own.fact}><span>대기 중 매출요청</span><b>{won(head.credit.pending)}</b></div>
+        <div className={own.fact}><span>이번 매출</span><b>{won(head.credit.this)}</b></div>
+        <div className={own.fact}><span>합계</span><b>{won(head.credit.used)}</b></div>
+      </div>
+    </div>}
+
+    {/* ⑦ 내역 */}
+    <RequestLines item={shown} />
+    {/* ⑧ 승인 · 반려: 창 아래에 붙어 있다 */}
     {view && (view.can_approve || view.can_reject || view.can_cancel) && <div className={own.actions}>
       {rejecting ? <>
         <Textarea className={own.reasonInput} placeholder="반려 사유" autosize minRows={2} maxLength={500} data-autofocus
@@ -285,15 +417,28 @@ function RequestDetail({ preview }) {
   </div>;
 }
 
-const RequestRow = memo(function RequestRow({ row, selected, onSelect }) {
-  return <tr className={`${own.clickRow} ${selected ? own.selected : ''}`} onClick={() => onSelect(row)} tabIndex={0}
+const RequestRow = memo(function RequestRow({ row, scope, selected, onSelect }) {
+  const person = scope === 'mine' ? (row.decided_name || '') : row.requested_name;
+  // 다른 화면에서 넘어와 골라진 요청이 목록 아래쪽에 있어도 보이게
+  const rowRef = useRef(null);
+  useEffect(() => { if (selected) rowRef.current?.scrollIntoView({ block: 'nearest' }); }, [selected]);
+  return <tr ref={rowRef} className={`${own.clickRow} ${selected ? own.selected : ''}`} onClick={() => onSelect(row)} tabIndex={0}
+    onMouseEnter={() => prefetchDetail(row.requestno)}
     onKeyDown={(event) => { if (event.key === 'Enter') onSelect(row); }}>
-    <td className={own.mono} title={kst(row.requested_at)}>{kstShort(row.requested_at)}</td>
-    <td>{row.target_label} {row.action_label}</td>
-    <td className={own.ellipsis} title={row.summary}>{row.summary}</td>
-    <td className={own.num}>{row.amount === null || row.amount === undefined ? '' : num(row.amount, 0)}</td>
-    <td className={own.ellipsis}>{row.requested_name}</td>
     <td className={own.center}><StatusPill status={row.status} label={row.status_label} /></td>
+    <td className={own.mono} title={row.requestno}>{row.requestno}</td>
+    <td>{row.target_label}</td>
+    <td className={`${own.center} ${own[`act_${row.action}`] || ''}`}>{row.action_label}</td>
+    <td className={`${own.ellipsis} ${own.party}`} title={row.party || ''}>{row.party || <span className={own.emptyDash}>-</span>}</td>
+    <td className={`${own.center} ${own.mono}`}>{row.doc_date || ''}</td>
+    <td className={own.num}>{row.lines ?? ''}</td>
+    <td className={own.num}>{row.weight === null || row.weight === undefined ? '' : num(row.weight, 1)}</td>
+    <td className={own.num}>{row.amount === null || row.amount === undefined ? '' : num(row.amount, 0)}</td>
+    <td className={own.ellipsis} title={row.summary}>
+      {String(row.note || '').replace(' · 여신 초과', '')}{(row.reasons || []).includes('CREDIT') && <span className={own.creditTag}>여신 초과</span>}
+    </td>
+    <td className={own.ellipsis}>{person}</td>
+    <td className={own.mono}>{kst(row.requested_at)}</td>
   </tr>;
 });
 
@@ -351,8 +496,8 @@ function RequestsTab({ scope, reloadKey, initialRequest = null }) {
         {loading && <Loader size={12} color="red" />}
       </div>
       <div className={own.listScroll}>
-        <GridTable columns={LIST_COLUMNS} empty={result.items.length ? null : loading ? '조회 중' : scope === 'inbox' ? '승인요청이 없습니다' : '요청 내역이 없습니다'}>
-          {result.items.map((row) => <RequestRow key={row.requestno} row={row} selected={selected?.requestno === row.requestno} onSelect={select} />)}
+        <GridTable columns={LIST_COLUMNS[scope] || LIST_COLUMNS.inbox} empty={result.items.length ? null : loading ? '조회 중' : scope === 'inbox' ? '승인요청이 없습니다' : '요청 내역이 없습니다'}>
+          {result.items.map((row) => <RequestRow key={row.requestno} row={row} scope={scope} selected={selected?.requestno === row.requestno} onSelect={select} />)}
         </GridTable>
       </div>
       {result.total > PAGE_SIZE && <div className={own.pager}>
@@ -360,7 +505,7 @@ function RequestsTab({ scope, reloadKey, initialRequest = null }) {
       </div>}
     </Paper>
     <Paper className={`${sharedClasses.panel} ${own.detailPanel}`} withBorder>
-      <RequestDetail key={selected?.requestno || 'none'} preview={selected} />
+      <RequestDetail preview={selected} />
     </Paper>
   </div>;
 }
@@ -381,32 +526,38 @@ const koreanWon = (value) => {
 const AMOUNT_PRESETS = [1000000, 5000000, 10000000];
 const ACTIONS = [['create', '등록'], ['update', '수정'], ['delete', '삭제']];
 
-// 동작 하나: [켜기] → (금액 대상이면) [모든 금액 | 금액 이상] → 금액 입력 · 빠른 선택
-function ActionRule({ policy, action, label, onChange }) {
+// 표의 칸 하나: [스위치] 조건 한 줄. 금액 대상은 조건 글자를 누르면 작은 창에서 [모든 금액 | 금액 이상] · 금액 · 빠른 선택
+function RuleCell({ policy, action, label, onChange }) {
+  const [opened, setOpened] = useState(false);
   const on = policy[`on_${action}`];
   const min = policy[`${action}_min`];
   const withAmount = min !== null && min !== undefined;
-  return <div className={`${own.rule} ${on ? own.ruleOn : ''}`}>
-    <label className={own.ruleHead}>
-      <Switch color="red" size="sm" checked={on} className={own.switch} withThumbIndicator={false}
-        onChange={(event) => onChange(`on_${action}`, event.currentTarget.checked)} aria-label={`${policy.label} ${label} 승인`} />
-      <span className={own.ruleLabel}>{label}</span>
-      <span className={own.ruleState}>{!on ? '바로 저장' : !policy.amount_enabled || !withAmount ? '모두 승인' : `${koreanWon(min) || '금액'} 이상 승인`}</span>
-    </label>
-    {on && policy.amount_enabled && <div className={own.ruleBody}>
-      <div className={own.seg} role="radiogroup" aria-label={`${label} 금액 조건`}>
-        <button type="button" role="radio" aria-checked={!withAmount} className={!withAmount ? own.segOn : ''} onClick={() => onChange(`${action}_min`, null)}>모든 금액</button>
-        <button type="button" role="radio" aria-checked={withAmount} className={withAmount ? own.segOn : ''} onClick={() => onChange(`${action}_min`, min || 1000000)}>금액 이상</button>
-      </div>
-      {withAmount && <>
-        <NumberInput className={own.amountInput} value={min ?? ''} min={0} step={100000} thousandSeparator="," hideControls
-          rightSection={<span className={own.unit}>원</span>} rightSectionWidth={28}
-          onChange={(value) => onChange(`${action}_min`, value === '' ? 0 : Number(value))} aria-label={`${policy.label} ${label} 금액 조건`} />
-        <div className={own.presets}>
-          {AMOUNT_PRESETS.map((value) => <button key={value} type="button" className={min === value ? own.presetOn : ''} onClick={() => onChange(`${action}_min`, value)}>{koreanWon(value).replace('원', '')}</button>)}
+  const text = !on ? '바로 저장' : !policy.amount_enabled || !withAmount ? '모든 건' : `${koreanWon(min) || '금액'} 이상`;
+  return <div className={`${own.cell} ${on ? own.cellOn : ''}`}>
+    <Switch color="red" size="sm" checked={on} className={own.switch} withThumbIndicator={false}
+      onChange={(event) => onChange(`on_${action}`, event.currentTarget.checked)} aria-label={`${policy.label} ${label} 승인`} />
+    {on && policy.amount_enabled ? <Popover opened={opened} onChange={setOpened} position="bottom-start" offset={6} width={250} shadow="md" withinPortal>
+      <Popover.Target>
+        <button type="button" className={own.cellText} onClick={() => setOpened((value) => !value)} title="금액 조건 바꾸기">
+          {text}<span className={own.cellEdit} aria-hidden="true">✎</span>
+        </button>
+      </Popover.Target>
+      <Popover.Dropdown className={own.cellPop}>
+        <div className={own.cellPopTitle}>{policy.label} · {label}</div>
+        <div className={own.seg} role="radiogroup" aria-label={`${label} 금액 조건`}>
+          <button type="button" role="radio" aria-checked={!withAmount} className={!withAmount ? own.segOn : ''} onClick={() => onChange(`${action}_min`, null)}>모든 금액</button>
+          <button type="button" role="radio" aria-checked={withAmount} className={withAmount ? own.segOn : ''} onClick={() => onChange(`${action}_min`, min || 1000000)}>금액 이상</button>
         </div>
-      </>}
-    </div>}
+        {withAmount && <>
+          <NumberInput className={own.amountInput} value={min ?? ''} min={0} step={100000} thousandSeparator="," hideControls
+            rightSection={<span className={own.unit}>원</span>} rightSectionWidth={28}
+            onChange={(value) => onChange(`${action}_min`, value === '' ? 0 : Number(value))} aria-label={`${policy.label} ${label} 금액 조건`} />
+          <div className={own.presets}>
+            {AMOUNT_PRESETS.map((value) => <button key={value} type="button" className={min === value ? own.presetOn : ''} onClick={() => onChange(`${action}_min`, value)}>{koreanWon(value).replace('원', '')}</button>)}
+          </div>
+        </>}
+      </Popover.Dropdown>
+    </Popover> : <span className={own.cellText} data-static="true">{text}</span>}
   </div>;
 }
 
@@ -426,6 +577,12 @@ function SettingsTab({ reloadKey, saveRef }) {
 
   const save = useCallback(async () => {
     if (!settings || saving) return;
+    // 승인 대상(또는 여신 통제)을 켰는데 승인자가 없으면 아무도 승인할 수 없다 → 저장 전에 알려 준다 (서버도 같은 규칙)
+    const anyOn = Boolean(settings.credit?.on) || settings.policies.some((policy) => policy.on_create || policy.on_update || policy.on_delete);
+    if (anyOn && !settings.users.some((user) => user.approver)) {
+      notifications.show({ title: '승인자 미지정', message: '승인자 1명 이상 지정 필요', color: 'red' });
+      return;
+    }
     setSaving(true);
     try {
       const { data } = await axios.put('/api/control/settings', {
@@ -436,6 +593,7 @@ function SettingsTab({ reloadKey, saveRef }) {
           on_delete: policy.on_delete, delete_min: policy.delete_min || null,
         })),
         approvers: settings.users.filter((user) => user.approver).map((user) => user.email),
+        credit_on: Boolean(settings.credit?.on),
       }, authConfig());
       setSettings(data);
       window.dispatchEvent(new Event('approval-changed'));
@@ -458,25 +616,57 @@ function SettingsTab({ reloadKey, saveRef }) {
   return <Paper className={`${sharedClasses.panel} ${own.sheet}`} withBorder>
     <section className={own.block}>
       <div className={own.blockHead}><h3>승인 대상</h3></div>
-      <div className={own.policyList}>
-        {settings.policies.map((policy) => <div key={policy.target} className={own.policyRow}>
-          <div className={own.policyName}>
-            <b>{policy.label}</b>
-          </div>
-          {ACTIONS.map(([action, label]) => <ActionRule key={action} policy={policy} action={action} label={label}
-            onChange={(key, value) => setPolicy(policy.target, key, value)} />)}
-        </div>)}
-      </div>
+      {/* 한 장의 표: 대상 × 등록 · 수정 · 삭제 + 여신 통제 (켜진 칸만 빨간 스위치, 금액 조건은 글자를 눌러 바꿈) */}
+      <table className={own.ruleTable}>
+        <colgroup><col style={{ width: 150 }} /><col /><col /><col /></colgroup>
+        <thead><tr><th>대상</th>{ACTIONS.map(([action, label]) => <th key={action}>{label}</th>)}</tr></thead>
+        <tbody>
+          {settings.policies.map((policy) => <tr key={policy.target}>
+            <th scope="row">{policy.label}</th>
+            {ACTIONS.map(([action, label]) => <td key={action}>
+              {/* 거래처는 삭제 기능이 없다 (사용중지로 관리) */}
+              {policy.target === 'CUSTOMER' && action === 'delete'
+                ? <span className={own.cellNone}>—</span>
+                : <RuleCell policy={policy} action={action} label={label} onChange={(key, value) => setPolicy(policy.target, key, value)} />}
+            </td>)}
+          </tr>)}
+          <tr className={own.creditRow}>
+            <th scope="row">여신 통제</th>
+            <td colSpan={3}>
+              <div className={`${own.cell} ${settings.credit?.on ? own.cellOn : ''}`}>
+                <Switch color="red" size="sm" checked={Boolean(settings.credit?.on)} className={own.switch} withThumbIndicator={false}
+                  onChange={(event) => { const on = event.currentTarget.checked; setSettings((current) => ({ ...current, credit: { ...(current.credit || {}), on } })); }}
+                  aria-label="여신 통제" />
+                <span className={own.cellText} data-static="true">{settings.credit?.on ? '한도 초과 시 승인' : '사용 안 함'}</span>
+                <span className={own.creditHint}>여신한도를 넘는 매출은 승인 후 등록</span>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </section>
 
     <section className={own.block}>
-      <div className={own.blockHead}><h3>승인자</h3></div>
+      <div className={own.blockHead}><h3>승인자</h3>
+      </div>
+      {/* 현재 승인자: 이름 칩 (× 로 바로 해제) */}
+      <div className={own.approverBar}>
+        <span className={own.approverBarLabel}>현재 승인자</span>
+        {settings.users.filter((user) => user.approver).map((user) => <span key={user.email} className={own.approverChip}>
+          {user.username}
+          <button type="button" aria-label={`${user.username} 승인자 해제`} onClick={() => setApprover(user.email, false)}>×</button>
+        </span>)}
+        {!settings.users.some((user) => user.approver) && <span className={own.approverNone}>지정된 승인자가 없습니다</span>}
+      </div>
       <div className={`${own.tableWrap} ${own.userTableWrap}`}><GridTable columns={APPROVER_COLUMNS} empty={settings.users.length ? null : '사용 중인 직원이 없습니다'}>
-        {settings.users.map((user) => <tr key={user.email} className={`${own.clickRow} ${user.approver ? own.selected : ''}`} onClick={() => setApprover(user.email, !user.approver)}>
-          <td className={own.center} onClick={(event) => event.stopPropagation()}>
-            <input type="checkbox" className={own.check} checked={user.approver} onChange={(event) => setApprover(user.email, event.currentTarget.checked)} aria-label={`${user.username} 승인자`} />
+        {settings.users.map((user) => <tr key={user.email} className={user.approver ? own.selected : ''}>
+          <td className={own.center}>{user.approver ? <span className={own.approverBadge}>승인자</span> : <span className={own.approverDash}>-</span>}</td>
+          <td><b>{user.username}</b></td><td className={own.ellipsis}>{user.email}</td><td>{user.team}</td><td>{user.position}</td>
+          <td className={own.center}>
+            <button type="button" className={`${own.approverBtn} ${user.approver ? own.approverBtnOff : ''}`} onClick={() => setApprover(user.email, !user.approver)}>
+              {user.approver ? '해제' : '지정'}
+            </button>
           </td>
-          <td><b>{user.username}</b></td><td className={own.ellipsis}>{user.email}</td><td>{user.team}</td><td>{user.position}</td><td>{user.authority}</td>
         </tr>)}
       </GridTable></div>
     </section>
@@ -484,14 +674,15 @@ function SettingsTab({ reloadKey, saveRef }) {
 }
 
 export default function ControlManagement() {
-  const [summary, setSummary] = useState(null);
+  // 탭 구성(승인함 · 내 요청 · 통제 설정)은 지난번 요약으로 바로 그려 목록을 곧바로 부른다 (요약 응답을 기다리지 않음).
+  // 서버 요약이 오면 그 값으로 바뀌고, 권한은 목록 · 설정 API 가 다시 확인한다.
+  const [summary, setSummary] = useState(() => peekMaster(CONTROL_SUMMARY_KEY) || null);
   const location = useLocation();
   const [tab, setTab] = useState(() => new URLSearchParams(location.search).get('tab') || '');   // 승인요청 안내 창 → ?tab=mine
   const [reloadKey, setReloadKey] = useState(0);
   const loadSummary = useCallback(async () => {
     try {
-      const { data } = await axios.get('/api/control/summary', authConfig());
-      setSummary(data);
+      setSummary(await loadMaster(CONTROL_SUMMARY_KEY, async () => (await axios.get('/api/control/summary', authConfig())).data));
     } catch {
       setSummary({ active: false, can_manage: false, pending: 0, my_pending: 0, my_rejected: 0 });
     }

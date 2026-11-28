@@ -138,6 +138,7 @@ def process_instruments(
 ):
     """결제·할인·부도·처리취소 (저장된 전표의 증권 행)."""
     try:
+        approval_module.assert_no_pending(user, "RECEIPT_PAYMENT", receiptno)   # 승인 대기 중인 전표는 처리 불가
         return {"success": True, **receipt_payment_module.process_instruments(
             user["companyid"], receiptno, data.model_dump(), actor=user.get("email"),
         )}

@@ -59,8 +59,10 @@ def _finish(entry: dict) -> dict:
 _EMPTY = {"sales": 0, "profit": 0, "cost_of_goods": 0, "selling_cost": 0, "weight": 0, "line_count": 0}
 
 
-def dashboard(companyid: str, date_from: date, date_to: date, customcode: str | None = None):
-    """customcode 가 있으면 그 거래처 하나만 (매출이익분석의 그 거래처와 같은 숫자)."""
+def dashboard(companyid: str, date_from: date, date_to: date, customcode: str | None = None,
+              include_last_year: bool = True):
+    """customcode 가 있으면 그 거래처 하나만 (매출이익분석의 그 거래처와 같은 숫자).
+    include_last_year=False: 전년 동월 · 추이의 전년 같은 달을 계산하지 않는다 (홈처럼 쓰지 않는 화면, 계산량 절반)."""
     prev_from, prev_to = previous_period(date_from, date_to)
     yoy_from, yoy_to = previous_period(date_from, date_to, 12)
     trend_from = _shift_month(date(date_to.year, date_to.month, 1), -11, False)
@@ -70,8 +72,13 @@ def dashboard(companyid: str, date_from: date, date_to: date, customcode: str | 
         # 네 기간(현재·전월·전년 동월·24개월 추이)을 모두 덮는 범위로 한 번만 계산해 임시 테이블에 담고,
         # 기간별로 날짜만 걸러 묶는다. 출고 행의 금액은 그 전표(같은 출고일) 안에서만 정해지므로
         # 기간을 따로 계산한 것과 숫자가 같다.
-        span_from = min(date_from, prev_from, yoy_from, trend_prev_from)
-        table = gross_profit.materialize(cursor, {"companyid": companyid, "date_from": span_from, "date_to": date_to})
+        if include_last_year:
+            span_from = min(date_from, prev_from, yoy_from, trend_prev_from)
+        else:
+            span_from = min(date_from, prev_from, trend_from)
+            trend_prev_from = trend_from
+        # 현황판은 금액 합계만 필요하므로 표시용 칸을 뺀 경량 계산 (금액 계산식은 매출이익분석과 같다)
+        table = gross_profit.materialize_summary(cursor, {"companyid": companyid, "date_from": span_from, "date_to": date_to})
 
         def fetch(sql, start, end):
             cursor.execute(sql, {"start": start, "end": end, "cust": customcode or None})
@@ -90,7 +97,7 @@ def dashboard(companyid: str, date_from: date, date_to: date, customcode: str | 
                    customcode, customname, {_MEASURES}
             FROM {table} WHERE {period} GROUP BY GROUPING SETS ((customcode, customname), ())""", prev_from, prev_to)
         # 전년 동월: 전체만
-        yoy = fetch(f"SELECT {_MEASURES} FROM {table} WHERE {period}", yoy_from, yoy_to)
+        yoy = fetch(f"SELECT {_MEASURES} FROM {table} WHERE {period}", yoy_from, yoy_to) if include_last_year else []
         # 최근 12개월 + 그 전년 12개월 (월별)
         trend = fetch(f"""
             SELECT TO_CHAR(DATE_TRUNC('month', receptdate), 'YYYY-MM') AS month, {_MEASURES}

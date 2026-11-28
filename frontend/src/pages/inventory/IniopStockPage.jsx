@@ -11,10 +11,11 @@ import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/InboundSearch.module.css';
-import { cachedDateFormat } from '../../utils/dateFormat';
+import { cachedDateFormat, kstDate } from '../../utils/dateFormat';
+import { apiErrorMessage } from '../../utils/apiError';
 
 const monthFilters = () => {
-  const now = new Date(); const y = now.getFullYear(); const m = now.getMonth(); const pad = (v) => String(v).padStart(2, '0');
+  const now = kstDate(); const y = now.getFullYear(); const m = now.getMonth(); const pad = (v) => String(v).padStart(2, '0');
   return { date_from: `${y}-${pad(m + 1)}-01`, date_to: `${y}-${pad(m + 1)}-${pad(new Date(y, m + 1, 0).getDate())}`, iniotype: "", receiptno: "", customname: "", item_search: "", product_search: "", warehouse_search: "", thickness: "", width: "", length: "" };
 };
 const PAGE_OPTIONS = [{ value: '15', label: '15개씩' }, { value: '50', label: '50개씩' }, { value: '100', label: '100개씩' }, { value: '200', label: '200개씩' }];
@@ -22,7 +23,9 @@ const PAGE_OPTIONS = [{ value: '15', label: '15개씩' }, { value: '50', label: 
 const TYPE_NAMES = { ST: "기초", IN: "매입입고", OUT: "매출출고", PROCESS_OUT: "가공투입", PROCESS_IN: "가공입고", MOVE_OUT: "이동출고", MOVE_IN: "이동입고" };
 const TYPE_OPTIONS = [{ value: "ALL", label: "전체" }, ...Object.entries(TYPE_NAMES).map(([value, label]) => ({ value, label }))];
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
-const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
+const numberText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
+// 규격(두께·폭·길이·마이)은 금액이 아니므로 소수 셋째 자리까지 그대로 보여 준다
+const specText = (value) => value === null || value === undefined || value === '' ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
 const moneyText = (value) => value === null || value === undefined ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const timestampText = (value) => { if (!value) return ''; const d = new Date(value); return Number.isNaN(d.getTime()) ? String(value) : cachedDateFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d); };
 // 칸 표시: 숫자 오른쪽 정렬, 글자는 넘치면 … + 마우스를 올리면 전체 표시
@@ -35,6 +38,39 @@ const typeBadge = (value) => {
   return name ? center(<span className={`${classes.typeBadge} ${TYPE_BADGE[value] || ''}`}>{name}</span>) : '';
 };
 const periodText = (from, to) => (from || to ? `${from || '처음'} ~ ${to || '끝'}` : '전체 기간');
+// 표 칸 정의·행 키는 화면 밖에 둔다 (화면이 다시 그려질 때마다 새로 만들면 memo 표가 매번 모든 행을 다시 그린다)
+const iniopRowKey = (_index, item) => `${item.iniotype}:${item.receiptno}:${item.lineno}`;
+const INIOP_COLUMNS = [
+          // 칸 순서: 현재고현황과 같게 (수불유형/수불일자/창고/품명/강종/표면/도금량/두께/폭/길이/수량/중량/거래처/제품번호/
+          //          원가단가/원가금액/수량단위/담당자/수불전표/순번/등록·수정, 전표·순번은 등록일자 왼쪽)
+          { key: 'no', label: 'No.', width: 48, minWidth: 45, render: (_item, index) => center(index + 1) },
+          { key: 'iniotype', label: '수불유형', width: 80, minWidth: 70, render: (item) => typeBadge(item.iniokind || item.iniotype) },
+          { key: 'iniodate', label: '수불일자', width: 100, minWidth: 90, render: (item) => center(String(item.iniodate || '').slice(0, 10)) },
+          { key: 'warehousecodename', label: '창고명', width: 110, minWidth: 95, render: (item) => text(item.warehousecodename || '') },
+          { key: 'itemname', label: '품명', width: 120, minWidth: 102, render: (item) => text(item.itemname || '') },
+          { key: 'materialname', label: '강종', width: 85, minWidth: 72, render: (item) => text(item.materialname || '') },
+          { key: 'surfacename', label: '표면', width: 75, minWidth: 65, render: (item) => text(item.surfacename || '') },
+          { key: 'myrtle', label: '도금량(g/㎡)', width: 100, minWidth: 90, render: (item) => num(specText(item.myrtle)) },
+          { key: 'thickness', label: '두께', width: 75, minWidth: 65, render: (item) => num(specText(item.thickness)) },
+          { key: 'width', label: '폭', width: 75, minWidth: 65, render: (item) => num(specText(item.width)) },
+          { key: 'length', label: '길이', width: 75, minWidth: 65, render: (item) => num(specText(item.length)) },
+          { key: 'qty', label: '수량', width: 80, minWidth: 68, render: (item) => num(numberText(item.qty)) },
+          { key: 'weight', label: '중량(KG)', width: 90, minWidth: 78, render: (item) => num(numberText(item.weight)) },
+          { key: 'customname', label: '거래처명', width: 125, minWidth: 105, render: (item) => text(item.customname || '') },
+          { key: 'productname', label: '제품번호', width: 105, minWidth: 90, render: (item) => text(item.productname || '') },
+          // 재고수불은 원가 기준으로만 본다 (거래 단가·공급가·부가세·합계는 매입·매출현황에서 확인, 데이터는 그대로 둠)
+          { key: 'costprice', label: '원가단가(kg)', width: 100, minWidth: 85, render: (item) => <span title='원가단가 = 원가금액 ÷ 중량을 소수 둘째 자리에서 반올림한 값입니다. 금액이 기준이라 단가 × 중량과 끝전이 다를 수 있습니다.'>{num(moneyText(item.costprice))}</span> },
+          { key: 'costamt', label: '원가금액', width: 110, minWidth: 92, render: (item) => num(moneyText(item.costamt)) },
+          { key: 'qtyunit', label: '수량단위', width: 75, minWidth: 65, render: (item) => center(item.qtyunit || '') },
+          { key: 'manager', label: '담당자', width: 80, minWidth: 68, render: (item) => text(item.manager || '') },
+          { key: 'receiptno', label: '수불전표', width: 160, minWidth: 140, render: (item) => text(item.receiptno || '') },
+          { key: 'lineno', label: '순번', width: 55, minWidth: 48, render: (item) => num(item.lineno ?? '') },
+          { key: 'created_at', label: '등록일자', width: 145, minWidth: 130, render: (item) => center(timestampText(item.created_at)) },
+          { key: 'created_by', label: '등록자', width: 90, minWidth: 70, render: (item) => text(item.created_by || '') },
+          { key: 'updated_at', label: '수정일자', width: 145, minWidth: 130, render: (item) => center(timestampText(item.updated_at)) },
+          { key: 'updated_by', label: '수정자', width: 90, minWidth: 70, render: (item) => text(item.updated_by || '') },
+        ];
+
 export default function IniopStockPage() {
   const [inputs, setInputs] = useState(monthFilters);
   const [filters, setFilters] = useState(monthFilters);
@@ -46,7 +82,7 @@ export default function IniopStockPage() {
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const requestId = useRef(0);
-  const load = useCallback(async () => { const id = ++requestId.current; setLoading(true); try { const params = { page, page_size: pageSize, ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)) }; const { data } = await axios.get('/api/iniop-stock/items', { ...authConfig(), params }); if (id !== requestId.current) return; setItems(data.items || []); setTotal(data.total || 0); } catch (error) { if (id === requestId.current) notifications.show({ title: '수불장 조회 실패', message: error.response?.data?.detail || '수불 내역을 조회하지 못했습니다.', color: 'red' }); } finally { if (id === requestId.current) setLoading(false); } }, [page, pageSize, filters]);
+  const load = useCallback(async () => { const id = ++requestId.current; setLoading(true); try { const params = { page, page_size: pageSize, ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)) }; const { data } = await axios.get('/api/iniop-stock/items', { ...authConfig(), params }); if (id !== requestId.current) return; setItems(data.items || []); setTotal(data.total || 0); } catch (error) { if (id === requestId.current) notifications.show({ title: '수불장 조회 실패', message: apiErrorMessage(error, '수불 내역을 조회하지 못했습니다.'), color: 'red' }); } finally { if (id === requestId.current) setLoading(false); } }, [page, pageSize, filters]);
   // 탭에 돌아오면 지금 조건 그대로 다시 불러온다 (다른 탭에서 데이터가 바뀌었을 수 있음)
   usePageReactivated(() => { void load(); });
   useEffect(() => { void load(); }, [load]);
@@ -85,36 +121,7 @@ export default function IniopStockPage() {
           <span className={classes.toolbarMeta} title="조회 기간 (수불일자)"><IconCalendar size={13} />{periodText(filters.date_from, filters.date_to)}</span>
         </Box>
       </Group>
-      <Box className={classes.tableWrap}>{loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}{items.length ? <ResizableVirtualTable data={items} computeItemKey={(_index, item) => `${item.iniotype}:${item.receiptno}:${item.lineno}`} rowOffset={(page - 1) * pageSize} minTableWidth={0} columns={[
-          // 칸 순서: 현재고현황과 같게 (수불유형/수불일자/창고/품명/강종/표면/도금량/두께/폭/길이/수량/중량/거래처/제품번호/
-          //          원가단가/원가금액/수량단위/담당자/수불전표/순번/등록·수정, 전표·순번은 등록일자 왼쪽)
-          { key: 'no', label: 'No.', width: 48, minWidth: 45, render: (_item, index) => center(index + 1) },
-          { key: 'iniotype', label: '수불유형', width: 80, minWidth: 70, render: (item) => typeBadge(item.iniokind || item.iniotype) },
-          { key: 'iniodate', label: '수불일자', width: 100, minWidth: 90, render: (item) => center(String(item.iniodate || '').slice(0, 10)) },
-          { key: 'warehousecodename', label: '창고명', width: 110, minWidth: 95, render: (item) => text(item.warehousecodename || '') },
-          { key: 'itemname', label: '품명', width: 120, minWidth: 102, render: (item) => text(item.itemname || '') },
-          { key: 'materialname', label: '강종', width: 85, minWidth: 72, render: (item) => text(item.materialname || '') },
-          { key: 'surfacename', label: '표면', width: 75, minWidth: 65, render: (item) => text(item.surfacename || '') },
-          { key: 'myrtle', label: '도금량(g/㎡)', width: 100, minWidth: 90, render: (item) => num(numberText(item.myrtle)) },
-          { key: 'thickness', label: '두께', width: 75, minWidth: 65, render: (item) => num(numberText(item.thickness)) },
-          { key: 'width', label: '폭', width: 75, minWidth: 65, render: (item) => num(numberText(item.width)) },
-          { key: 'length', label: '길이', width: 75, minWidth: 65, render: (item) => num(numberText(item.length)) },
-          { key: 'qty', label: '수량', width: 80, minWidth: 68, render: (item) => num(numberText(item.qty)) },
-          { key: 'weight', label: '중량(KG)', width: 90, minWidth: 78, render: (item) => num(numberText(item.weight)) },
-          { key: 'customname', label: '거래처명', width: 125, minWidth: 105, render: (item) => text(item.customname || '') },
-          { key: 'productname', label: '제품번호', width: 105, minWidth: 90, render: (item) => text(item.productname || '') },
-          // 재고수불은 원가 기준으로만 본다 (거래 단가·공급가·부가세·합계는 매입·매출현황에서 확인, 데이터는 그대로 둠)
-          { key: 'costprice', label: '원가단가(kg)', width: 100, minWidth: 85, render: (item) => <span title='원가단가 = 원가금액 ÷ 중량을 소수 둘째 자리에서 반올림한 값입니다. 금액이 기준이라 단가 × 중량과 끝전이 다를 수 있습니다.'>{num(moneyText(item.costprice))}</span> },
-          { key: 'costamt', label: '원가금액', width: 110, minWidth: 92, render: (item) => num(moneyText(item.costamt)) },
-          { key: 'qtyunit', label: '수량단위', width: 75, minWidth: 65, render: (item) => center(item.qtyunit || '') },
-          { key: 'manager', label: '담당자', width: 80, minWidth: 68, render: (item) => text(item.manager || '') },
-          { key: 'receiptno', label: '수불전표', width: 160, minWidth: 140, render: (item) => text(item.receiptno || '') },
-          { key: 'lineno', label: '순번', width: 55, minWidth: 48, render: (item) => num(item.lineno ?? '') },
-          { key: 'created_at', label: '등록일자', width: 145, minWidth: 130, render: (item) => center(timestampText(item.created_at)) },
-          { key: 'created_by', label: '등록자', width: 90, minWidth: 70, render: (item) => text(item.created_by || '') },
-          { key: 'updated_at', label: '수정일자', width: 145, minWidth: 130, render: (item) => center(timestampText(item.updated_at)) },
-          { key: 'updated_by', label: '수정자', width: 90, minWidth: 70, render: (item) => text(item.updated_by || '') },
-        ]} /> : <Box className={classes.emptyState}>
+      <Box className={classes.tableWrap}>{loading && <Box className={classes.loadingOverlay}><Loader color="red" size="sm" /></Box>}{items.length ? <ResizableVirtualTable data={items} computeItemKey={iniopRowKey} rowOffset={(page - 1) * pageSize} minTableWidth={0} columns={INIOP_COLUMNS} /> : <Box className={classes.emptyState}>
           <span className={classes.emptyIcon}><IconInbox size={22} stroke={1.6} /></span>
           <span className={classes.emptyTitle}>조회된 수불 내역이 없습니다.</span>
           <span>재고기간이나 조회조건을 바꿔 다시 조회해 보세요.</span>

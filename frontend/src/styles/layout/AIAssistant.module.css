@@ -1,0 +1,73 @@
+/* AI 업무비서 (시안: STEEL119_AI비서_챗봇.html 의 .bot / .bp 와 같은 모양 · 크기 · 색) */
+.root {
+  --ab-pop: #ffffff; --ab-ln: #e2e5e9; --ab-t1: #111317; --ab-t2: #4b525e; --ab-t3: #8e95a2;
+  --ab-pill: #ebedf0; --ab-fld: #f0f1f3; --ab-fb: #d5d9df; --ab-inp: #ffffff;
+  --ab-aib: #e6eefd; --ab-aic: #2563eb; --ab-red: #d9343a; --ab-gl: #dde0e6; --ab-th: #f3f4f6;
+  --ab-shadow: 0 6px 18px rgba(17, 19, 23, .14);
+  font-family: 'Malgun Gothic', '맑은 고딕', -apple-system, 'Apple SD Gothic Neo', 'Segoe UI', sans-serif;
+  font-size: 13px;
+}
+
+/* 화면 오른쪽 가장자리 탭 */
+.bot {
+  position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+  transition: width .18s; height: 60px; width: 30px; padding: 0; box-sizing: border-box;
+  border: 0; border-radius: 12px 0 0 12px; background: rgba(37, 99, 235, .5); color: #fff;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: hidden;
+  z-index: 150;
+}
+.bot::before {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(160deg, #4f8df7 0%, #2563eb 55%, #1d4ed8 100%);
+  opacity: 0; transition: opacity .2s;
+}
+.bot:hover::before, .bot:focus-visible::before { opacity: 1; }
+.bot > * { position: relative; }
+.bot:hover { width: 34px; }
+.bot svg { width: 26px; height: 26px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* 대화 창 */
+.panel {
+  position: fixed; right: 14px; bottom: 14px; width: 360px; height: 480px; max-height: calc(100vh - 28px);
+  background: color-mix(in srgb, var(--ab-pop) 94%, transparent); border: 1px solid var(--ab-ln); border-radius: 12px;
+  box-shadow: var(--ab-shadow); display: flex; flex-direction: column; z-index: 151; color: var(--ab-t1);
+}
+.head {
+  height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--ab-ln); font-weight: 700; flex: none;
+}
+.head > svg { color: var(--ab-aic); flex: none; }
+.close {
+  margin-left: auto; width: 28px; height: 28px; border-radius: 7px; border: 0; background: none;
+  display: grid; place-items: center; color: var(--ab-t3); cursor: pointer; padding: 0;
+}
+.close:hover { background: var(--ab-pill); color: var(--ab-t1); }
+
+.body { flex: 1; padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow: auto; min-height: 0; }
+.bubble { max-width: 85%; padding: 8px 12px; border-radius: 10px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+.assistant { background: var(--ab-fld); align-self: flex-start; }
+.user { background: var(--ab-aib); color: var(--ab-aic); align-self: flex-end; }
+.wide { max-width: 100%; width: 100%; box-sizing: border-box; }
+.pending { color: var(--ab-t3); }
+.error { color: var(--ab-red); }
+
+.inputRow {
+  margin: 0 12px 12px; height: 36px; border: 1px solid var(--ab-fb); border-radius: 8px; background: var(--ab-inp);
+  display: flex; align-items: center; padding: 0 6px 0 10px; gap: 6px; flex: none;
+}
+.inputRow input {
+  flex: 1; min-width: 0; border: 0; background: none; outline: none; font: inherit; color: var(--ab-t1); padding: 0;
+}
+.inputRow input::placeholder { color: var(--ab-t3); }
+.send { border: 0; background: none; padding: 0; display: grid; place-items: center; color: var(--ab-aic); cursor: pointer; }
+.send:disabled { opacity: .4; cursor: default; }
+
+/* 답변 안 차트 · 표 */
+.chart { margin-top: 8px; background: var(--ab-inp); border: 1px solid var(--ab-ln); border-radius: 8px; padding: 8px 6px 4px; white-space: normal; }
+.chartTitle { font-size: 12px; font-weight: 700; color: var(--ab-t2); padding: 0 4px 4px; }
+.chartTitle span { font-weight: 500; color: var(--ab-t3); margin-left: 4px; }
+.tableWrap { max-height: 220px; overflow: auto; }
+.table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.table th { position: sticky; top: 0; background: var(--ab-th); color: var(--ab-t2); font-weight: 600; }
+.table th, .table td { border: 1px solid var(--ab-gl); padding: 3px 6px; white-space: nowrap; text-align: left; }
+.table td.num { text-align: right; font-variant-numeric: tabular-nums; }

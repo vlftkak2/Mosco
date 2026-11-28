@@ -1,7 +1,7 @@
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { useLocation } from 'react-router-dom';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { ActionIcon, Badge, Box, Button, Checkbox, Group, Loader, Paper, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconCopy, IconDeviceFloppy, IconFileSpreadsheet, IconFilter, IconPlus, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
@@ -13,6 +13,8 @@ import searchClasses from '../../styles/pages/InboundSearch.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/CustomerLedger.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
+import { apiErrorMessage } from '../../utils/apiError';
+import { kstDate } from '../../utils/dateFormat';
 
 // 거래처원장: 위 = 거래처별 잔액(미수금 / 미지급금), 아래 = 고른 거래처의 원장(이월 → 전표별 잔액 누계).
 // 원장 계산 규칙은 backend/services/receiptpayment/CustomerLedger.py 설명 참고.
@@ -28,14 +30,14 @@ const dateText = (value) => (value ? String(value).slice(0, 10) : '');
 const localDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 // 기본 조회기간: 당월 1일 ~ 당월 말일 (매입등록 조회조건과 같음)
 const makeDefaultFilters = () => {
-  const today = new Date();
+  const today = kstDate();
   return {
     date_from: localDate(new Date(today.getFullYear(), today.getMonth(), 1)),
     date_to: localDate(new Date(today.getFullYear(), today.getMonth() + 1, 0)),
     keyword: '', balance_only: false, with_vat: false,
   };
 };
-const errorMessage = (error, fallback) => error.response?.data?.detail || fallback;
+const errorMessage = (error, fallback) => apiErrorMessage(error, fallback);
 
 const BALANCE_COLUMNS = [
   { key: 'customcode', label: '거래처코드', width: 110 },
@@ -210,8 +212,10 @@ export default function CustomerLedger() {
   const ribbon = useContext(PageRibbonContext);
   const registerRibbon = ribbon?.registerPageRibbon;
   const closePage = ribbon?.closeActivePage;
-  const { authority } = useContext(MenuAccessContext);
-  const canEditStart = ['MASTER', 'SUBMASTER'].includes(String(authority || '').toUpperCase());
+  // 원장 시작일: 관리자(MASTER · SUBMASTER)만 바꿀 수 있다 (서버도 같은 규칙 · 월마감이 있으면 서버가 거절)
+  const menuAccess = useContext(MenuAccessContext);
+  const authority = String(menuAccess?.authority || localStorage.getItem('user_authority') || '').toUpperCase();
+  const canEditStart = authority === 'MASTER' || authority === 'SUBMASTER';
 
   const [filterInputs, setFilterInputs] = useState(makeDefaultFilters);
   const [filters, setFilters] = useState(makeDefaultFilters);
@@ -300,10 +304,12 @@ export default function CustomerLedger() {
   const selectCustomer = useCallback((ckey) => setSelectedKey(ckey), []);
   const selectedItem = balances.items.find((item) => item.ckey === selectedKey);
 
-  const exportExcel = useCallback(() => {
+  const exportExcel = useCallback(async () => {
     if (!balances.items.length || exporting) return;
     setExporting(true);
     try {
+      const XLSX = await loadXLSXOrNotify();
+      if (!XLSX) return;
       const workbook = XLSX.utils.book_new();
       const balanceRows = balances.items.map((item) => ({
         거래처코드: item.customcode, 거래처명: item.customname,

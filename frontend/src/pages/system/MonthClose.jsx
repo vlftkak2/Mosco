@@ -14,14 +14,11 @@ import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/InboundRegister.module.css';
 import own from '../../styles/pages/MonthClose.module.css';
+import { apiErrorMessage } from '../../utils/apiError';
+import { yearKST } from '../../utils/dateFormat';
 
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
-const errorText = (error, fallback) => {
-  const detail = error.response?.data?.detail;
-  if (typeof detail === 'string') return detail;
-  if (Array.isArray(detail) && detail[0]?.msg) return String(detail[0].msg).replace(/^Value error, /, '');
-  return fallback;
-};
+const errorText = (error, fallback) => apiErrorMessage(error, fallback);
 const dateTime = (value) => (value ? String(value).replace('T', ' ').slice(0, 16) : '');
 const dateOnly = (value) => (value ? String(value).slice(0, 10) : '');
 const monthLabel = (value) => (value ? `${value.slice(0, 4)}-${value.slice(5, 7)}` : '');
@@ -42,7 +39,7 @@ const COLUMNS = [
   { key: 'action', label: '처리', width: 100 },
 ];
 const TABLE_WIDTH = COLUMNS.reduce((sum, column) => sum + column.width, 0);
-const thisYear = new Date().getFullYear();
+const thisYear = yearKST();
 // 조회 연도: 올해부터 7년 전까지 (아직 오지 않은 해는 마감할 수 없으므로 넣지 않는다)
 const YEAR_OPTIONS = Array.from({ length: 8 }, (_, index) => String(thisYear - index)).map((value) => ({ value, label: `${value}년` }));
 

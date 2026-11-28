@@ -2,6 +2,8 @@ from datetime import date
 
 import xlsxwriter
 
+from excel_safety import safe_workbook_options
+
 from services.inoutmove import inoutmoveRegister as transfer_register_module
 from services.inventory.CurrentStock import user_name_sql
 
@@ -219,7 +221,7 @@ def write_transfer_details_excel(
         WHERE {where_sql}
         ORDER BY h.receptdate ASC, h.receiptno ASC, d.lineno"""
 
-    workbook = xlsxwriter.Workbook(output_path, {"constant_memory": True})
+    workbook = xlsxwriter.Workbook(output_path, safe_workbook_options({"constant_memory": True}))
     worksheet = workbook.add_worksheet("재고이동현황")
     # Same header style as the other search exports (입고/출고현황, 현재고, 재고수불).
     header_format = workbook.add_format({
@@ -228,7 +230,7 @@ def write_transfer_details_excel(
     })
     date_format = workbook.add_format({"num_format": "yyyy-mm-dd"})
     datetime_format = workbook.add_format({"num_format": "yyyy-mm-dd hh:mm"})
-    number_format = workbook.add_format({"num_format": "#,##0.###"})
+    number_format = workbook.add_format({"num_format": "#,##0.##"})
     worksheet.write_row(0, 0, headers, header_format)
     worksheet.freeze_panes(1, 0)
     worksheet.set_column("A:A", 8)

@@ -318,3 +318,109 @@
 /* 상세 품목 합계 줄: 셀 여백 (.resultGrid td 의 padding 0 을 덮음) · 합계 글자는 가운데, 수량 · 중량은 오른쪽에서 띄움 */
 .resultGrid tfoot td { padding: 0 14px !important; }
 .resultGrid tfoot td.subtotalLabel { text-align: center !important; }
+
+/* 이번 달 AI 분석 횟수 (분석 버튼 옆 작은 글자) */
+.aiqText { display: block; margin: 0 2px 8px; color: #8b95a3; font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.aiqText b { color: #3f4d61; font-weight: 700; }
+.aiqTextFull, .aiqTextFull b { color: #c4363f; font-weight: 700; }
+
+/* 엑셀식 셀 범위 선택 (Shift+방향키 · Shift+클릭) */
+.rangeCell { background: #fdecec !important; box-shadow: inset 0 0 0 1px #e8a3a6; }
+.rangeCell :global(input),
+.rangeCell :global(select) { background-color: #fdecec !important; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   AI 주문서인식 전용 AI ERP 화면 (배치 · 데이터 순서는 그대로, 겉모습만 · 그라데이션 없음)
+   - 브랜드 빨강(#e0434b) = 동작(버튼 · 지금 단계). AI 가 읽은 값 · AI 표시 = 옅은 보라 단색.
+   - SimpleTheme(.simple)의 평평한 규칙보다 우선하도록 모두 .page.aiLook 으로 시작한다 (이 화면만 적용).
+   ══════════════════════════════════════════════════════════════════════ */
+.page.aiLook {
+  --ai-red: #e0434b;
+  --ai-violet: #6a4fe0;
+  --ai-violet-bg: #f5f2ff;
+  --ai-violet-line: #e3dcfb;
+  --ai-ink: #16213a;
+  --ai-line: #e6e9f2;
+}
+
+/* 판넬: 얇은 테두리 + 아주 옅은 그림자 */
+.page.aiLook .uploadPanel,
+.page.aiLook .batchListPanel,
+.page.aiLook .comparisonArea .workPanel,
+.page.aiLook .noSelection {
+  border-color: var(--ai-line) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 1px 2px #1b25440a, 0 6px 18px #1b25440d !important;
+}
+.page.aiLook .noSelection { background: #fff !important; }
+
+/* 이번 달 AI 분석 횟수 → 작은 알약 */
+.page.aiLook .aiqText {
+  display: inline-flex; align-items: center; gap: 6px; margin: 0 0 12px; padding: 4px 11px 4px 9px;
+  border: 1px solid var(--ai-violet-line); border-radius: 999px; background: var(--ai-violet-bg); color: #5b5f78;
+}
+.page.aiLook .aiqText::before { width: 7px; height: 7px; border-radius: 50%; background: var(--ai-violet); content: ''; }
+.page.aiLook .aiqText b { color: var(--ai-ink); }
+.page.aiLook .aiqTextFull { border-color: #f6c9cc; background: #fff4f5; }
+
+/* 진행 단계: 아이콘 다시 보이게, 지금 단계는 빨간 테두리 */
+.page.aiLook .stepIcon { display: inline-flex !important; width: 36px; height: 36px; flex: 0 0 36px; border-radius: 10px; background: #f1f3f8; color: #9aa3b5; }
+.page.aiLook .step { padding: 12px 14px !important; border: 1px solid var(--ai-line) !important; border-radius: 10px !important; background: #fff !important; box-shadow: none !important; }
+.page.aiLook .step_active { border-color: #f0a8ac !important; background: #fff !important; box-shadow: 0 2px 8px #e0434b14 !important; }
+.page.aiLook .step_active .stepIcon { background: var(--ai-red); color: #fff; }
+.page.aiLook .step_active .stepNo { color: var(--ai-red) !important; }
+.page.aiLook .step_active .stepCopy b { color: var(--ai-ink) !important; }
+.page.aiLook .step_active .stepCopy small { color: #c4363f !important; }
+.page.aiLook .step_done { border-color: #cdebdc !important; background: #f6fcf9 !important; }
+.page.aiLook .step_done .stepIcon { background: #1f9d6c; color: #fff; }
+.page.aiLook .step_done .stepNo { color: #17845a !important; }
+.page.aiLook .stepNo { color: #9aa3b5 !important; }
+.page.aiLook .stepCopy b { color: #3a465c !important; }
+
+/* 파일 놓는 곳 */
+.page.aiLook .uploadDropzone { border: 1.5px dashed #d5d0ee !important; border-radius: 10px !important; background: #fcfbff !important; }
+.page.aiLook .uploadDropzone:hover { border-color: #b3a5f2 !important; background: #f8f5ff !important; }
+.page.aiLook .uploadDragging, .page.aiLook .uploadDragging:hover { border-color: var(--ai-violet) !important; box-shadow: inset 0 0 0 3px #6a4fe01a !important; }
+.page.aiLook .uploadIcon { display: grid !important; width: 44px; height: 44px; border: 0; border-radius: 12px; background: var(--ai-violet-bg); color: var(--ai-violet); }
+.page.aiLook .typeChip { border-radius: 5px !important; }
+
+/* 버튼: AI 일괄 분석 · 주문확정 = 빨강 채움 (글자만) · 보조 = 흰 바탕 */
+.page.aiLook .analyzeButton, .page.aiLook .confirmButton { border-radius: 8px !important; background: var(--ai-red) !important; box-shadow: 0 2px 6px #e0434b33 !important; color: #fff; }
+.page.aiLook .analyzeButton { height: 38px; padding: 0 18px 0 14px; }
+.page.aiLook .confirmButton { height: 34px; }
+.page.aiLook .analyzeButton:hover:not(:disabled), .page.aiLook .confirmButton:hover:not(:disabled) { background: #c93840 !important; }
+.page.aiLook .analyzeButton:disabled, .page.aiLook .confirmButton:disabled { background: #f3b3b6 !important; box-shadow: none !important; }
+.page.aiLook .pickButton, .page.aiLook .clearButton { height: 38px; border-radius: 8px !important; border-color: var(--ai-line) !important; }
+
+/* 판넬 머리: 아이콘 칸 다시 보이게, AI 결과 쪽은 보라 칸 */
+.page.aiLook .panelHeader { min-height: 48px; padding: 8px 14px; border-bottom-color: #eef0f6; }
+.page.aiLook .panelIcon { display: inline-flex !important; width: 30px; height: 30px; flex-basis: 30px; border: 0; border-radius: 8px; background: #f1f3f8; color: #5b6478; }
+.page.aiLook .panelIconAi { background: var(--ai-violet-bg); color: var(--ai-violet); }
+.page.aiLook .panelTitle { color: var(--ai-ink) !important; font-size: 14px !important; letter-spacing: -.2px; }
+.page.aiLook .listIcon { display: inline-flex !important; }
+
+/* AI 추출 표시: 옅은 보라 알약 */
+.page.aiLook .aiExtractTag,
+.page.aiLook .sectionAiBadge { border: 1px solid var(--ai-violet-line) !important; background: var(--ai-violet-bg) !important; color: var(--ai-violet) !important; font-weight: 700 !important; }
+/* AI 가 읽은 칸: 회색 대신 아주 옅은 보라 (사람이 확인할 값이라는 표시) */
+.page.aiLook .aiExtractedCell { background: #fbf9ff; }
+.page.aiLook .aiExtractedCell:hover { background: #f5f1ff; }
+.page.aiLook .aiExtractedCell .cellInput:hover { background: #f3eeff; }
+
+/* 상세 품목 표 · 발주서 목록 */
+.page.aiLook .detailSection { border-color: var(--ai-line) !important; border-radius: 10px !important; }
+.page.aiLook .resultGrid thead th, .page.aiLook .orderListTable th { background: #f7f8fc; color: #4a5468; border-color: #eceef5; }
+.page.aiLook .countBadge { background: #f1f3f8 !important; color: #4a5468 !important; }
+.page.aiLook .activeDocumentRow, .page.aiLook .activeDocumentRow:hover { background: #fff3f4 !important; }
+
+/* 분석 중 · 빈 화면 안내 */
+.page.aiLook .analysisLoading { background: #fff; }
+.page.aiLook .analysisLoadingTrack span { background: var(--ai-red); }
+.page.aiLook .emptyKicker { border: 1px solid var(--ai-violet-line); background: var(--ai-violet-bg); color: var(--ai-violet); }
+.page.aiLook .flowArrowIcon { background: var(--ai-red); box-shadow: none; }
+.page.aiLook .flowArrowLabel { color: var(--ai-red); }
+.page.aiLook .flowCardIcon { display: inline-flex !important; }
+.page.aiLook .flowCardResult { border-color: var(--ai-violet-line); box-shadow: 0 4px 14px #1b25440d; }
+.page.aiLook .resultMock { border-color: var(--ai-violet-line); background: #fcfbff; }
+.page.aiLook .resultMockRow i { background: #ddd3ff; }
+.page.aiLook .promptIcon { display: inline-flex !important; }

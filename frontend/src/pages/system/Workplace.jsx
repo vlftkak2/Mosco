@@ -15,18 +15,15 @@ import usePageReactivated from '../../components/common/usePageReactivated';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import classes from '../../styles/pages/CustomerPage.module.css';
 import own from '../../styles/pages/Workplace.module.css';
+import { apiErrorMessage } from '../../utils/apiError';
+import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const EMPTY = {
   ceoname: '', ownertype: 'CORP', businessno: '', corporationno: '', businesstype: '', industry: '',
   openingdate: '', ledgerstartdate: '', phone: '', fax: '', zipcode: '', address1: '', address2: '',
 };
-const errorText = (error, fallback) => {
-  const detail = error.response?.data?.detail;
-  if (typeof detail === 'string') return detail;
-  if (Array.isArray(detail) && detail[0]?.msg) return String(detail[0].msg).replace(/^Value error, /, '');
-  return fallback;
-};
+const errorText = (error, fallback) => apiErrorMessage(error, fallback);
 const digits = (value) => String(value || '').replace(/\D/g, '');
 const dateOnly = (value) => (value ? String(value).slice(0, 10) : '');
 
@@ -218,7 +215,10 @@ export default function Workplace() {
       setImageBusy('');
     }
   };
+  // 이미지 삭제는 확인 창을 거친다 (지우면 바로 저장되어 되돌릴 수 없음)
+  const [deleteCard, setDeleteCard] = useState(null);
   const deleteImage = async (card) => {
+    setDeleteCard(null);
     setImageBusy(card.kind);
     try {
       const response = await axios.delete(`/api/workplace/${card.kind}`, authConfig());
@@ -321,11 +321,15 @@ export default function Workplace() {
           <p className={own.imageRule}><i>*</i> JPG, PNG만 등록 가능합니다.</p>
           <div className={own.imageCards}>
             {IMAGE_CARDS.map((card) => <ImageCard key={card.kind} card={card} image={images[card.kind]} name={images[`${card.kind}name`]}
-              busy={imageBusy === card.kind} onUpload={uploadImage} onDelete={deleteImage} />)}
+              busy={imageBusy === card.kind} onUpload={uploadImage} onDelete={setDeleteCard} />)}
           </div>
         </section>
       </div>
     </Paper>
+
+    <ConfirmDeleteModal opened={Boolean(deleteCard)} onClose={() => setDeleteCard(null)} onConfirm={() => { if (deleteCard) void deleteImage(deleteCard); }}
+      title={`${deleteCard?.title || '이미지'}를 삭제할까요?`} target={deleteCard ? images[`${deleteCard.kind}name`] || deleteCard.title : undefined}
+      message="등록한 이미지가 바로 지워지며" note="삭제한 이미지는 복구할 수 없습니다." />
 
     <Modal opened={addressOpen} onClose={() => setAddressOpen(false)} onEnterTransitionEnd={embedPostcode} title="주소 검색" size="lg" centered>
       <div ref={postcodeRef} style={{ height: 520, width: '100%' }} />

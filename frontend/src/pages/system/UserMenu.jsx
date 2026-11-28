@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { apiErrorMessage } from '../../utils/apiError';
+import { loadMaster, peekMaster } from '../../utils/masterCache';
+
+// 관리할 수 있는 고객사 목록: 지난번 목록으로 바로 그리고 첫 고객사 사용자를 곧바로 부른다 (목록 응답을 기다리지 않음). 서버 값으로 곧 바뀐다.
+const MENU_COMPANIES_KEY = 'user-menu:companies';
 import usePageReactivated from '../../components/common/usePageReactivated';
 import {
   Badge, Box, Checkbox, Group, Pagination, Paper, ScrollArea, Select, Table, Text, TextInput,
@@ -54,7 +58,11 @@ const MENU_SECTIONS = [
   { label: '자금관리', menuids: ['RECEIPT_PAYMENT', 'RECEIPT_PAYMENT_SEARCH', 'INSTRUMENT_STATUS'] },
   { label: '기준정보', menuids: ['DATA_CODE', 'DATA_ITEM', 'WORKPLACE_MANAGEMENT', 'MONTH_CLOSING', 'USER_MANAGEMENT'] },
   { label: '게시판', menuids: ['CUSTOMER_SUPPORT'] },
-  { label: '어드민', menuids: ['CONTROL_MANAGEMENT'] },
+  { label: '전자결재', menuids: ['EAPPROVAL', 'EAPPROVAL_FORM'] },
+  { label: '급여관리', menuids: ['PAYROLL', 'PAYROLL_MY'] },
+  { label: '어드민', menuids: ['CONTROL_MANAGEMENT', 'COMPANY_USER_MANAGEMENT', 'USER_MENU_PERMISSION'] },
+  // 모스코(001) 직원을 고를 때만 서버가 내려준다
+  { label: '모스코 전용', menuids: ['COMPANY_REGISTRATION', 'LICENSE_REVENUE', 'AI_COST', 'SHARED_STOCK', 'AI_ASSISTANT'] },
 ];
 const MENU_SECTION_BY_ID = Object.fromEntries(
   MENU_SECTIONS.flatMap((section, index) => section.menuids.map((menuid) => [menuid, index])),
@@ -91,12 +99,12 @@ export default function UserMenu() {
   const userCols = useResizableColumns(MENU_USER_COLUMNS);
   const permCols = useResizableColumns(PERM_COLUMNS);
   const location = useLocation();
-  const currentAuthority = String(localStorage.getItem('user_authority') || 'USER').toUpperCase();
-  const isPlatformMaster = currentAuthority === 'MASTER';
-  const [companies, setCompanies] = useState([]);
+  // 모스코(001) 직원이 메뉴권한관리 권한을 받으면 전체 고객사, 다른 회사 직원은 자기 회사만 (서버 규칙과 같게)
+  const isPlatformMaster = (localStorage.getItem('user_company') || '') === '001';
+  const [companies, setCompanies] = useState(() => peekMaster(MENU_COMPANIES_KEY) || []);
   const [companyid, setCompanyid] = useState(() => (
     isPlatformMaster
-      ? location.state?.companyid || ''
+      ? location.state?.companyid || peekMaster(MENU_COMPANIES_KEY)?.[0]?.companyid || ''
       : localStorage.getItem('user_company') || ''
   ));
   const [companyInfo, setCompanyInfo] = useState(null);
@@ -145,8 +153,10 @@ export default function UserMenu() {
   const loadCompanies = useCallback(async () => {
     setLoadingCompanies(true);
     try {
-      const { data } = await axios.get('/api/user-menu/companies', authConfig());
-      const rows = data.items || [];
+      const rows = await loadMaster(MENU_COMPANIES_KEY, async () => {
+        const { data } = await axios.get('/api/user-menu/companies', authConfig());
+        return data.items || [];
+      });
       setCompanies(rows);
       setCompanyid((current) => (
         rows.some((row) => row.companyid === current)
@@ -405,7 +415,7 @@ export default function UserMenu() {
                             : !companyid
                               ? '고객사를 선택해 주세요.'
                               : isPlatformMaster && companyid === '001'
-                                ? '플랫폼 관리자 계정은 전체 메뉴 권한이 있어 개별 설정 대상이 아닙니다.'
+                                ? '최종관리자(MASTER) 말고는 등록된 모스코 계정이 없습니다. 최종관리자는 전체 권한이 있어 설정 대상이 아닙니다.'
                                 : isPlatformMaster
                                   ? '선택한 고객사에 메뉴 권한을 관리할 계정이 없습니다.'
                                   : '등록된 계정이 없습니다. 고객사관리에서 계정을 추가해 주세요.'}

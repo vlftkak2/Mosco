@@ -14,6 +14,7 @@ import { IconCheck, IconChevronDown, IconHistory, IconSearch } from '@tabler/ico
 import PickerModal, { ColumnResizeHandle, PickerEmpty, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
 import classes from '../../styles/pages/AIOrderOptimization.module.css';
 import m from '../../styles/pages/AIOrderManage.module.css';
+import { apiErrorMessage } from '../../utils/apiError';
 
 const API = '/api/ai-optimization';
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
@@ -79,7 +80,7 @@ function useHistory(opened, kind, material, itemname, months, query) {
         const rows = await fetchHistory(kind, material, itemname, months, query);
         if (alive) setState({ key, rows, loading: false, error: '' });
       } catch (err) {
-        if (alive) setState({ key, rows: [], loading: false, error: typeof err?.response?.data?.detail === 'string' ? err.response.data.detail : '이력을 불러오지 못했습니다.' });
+        if (alive) setState({ key, rows: [], loading: false, error: apiErrorMessage(err, '이력을 불러오지 못했습니다.') });
       }
     })();
     return () => { alive = false; };

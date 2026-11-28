@@ -127,8 +127,9 @@
 .fullWidth { grid-column: 1 / -1; }
 
 /* 계정 사용량 */
-.usage { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid #e7ecf2; border-radius: 7px; background: #f8fafc; color: #64758d; font-size: 11px; }
-.usage b { color: #1e2e45; font-size: 12px; font-variant-numeric: tabular-nums; }
+.usage { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid #e7ecf2; border-radius: 7px; background: #f8fafc; }
+.usageLabel { flex: none; color: #222; font-size: 13.5px; font-weight: 700; }
+.usage b { flex: none; color: #1e2e45; font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .usageBar { flex: 1; min-width: 60px; }
 
 @media (max-width: 1050px) {
@@ -141,9 +142,6 @@
 /* 요금제·이용상태 등 짧은 선택값: 내용 폭에 맞춘 작은 입력 */
 .compactSelect { flex: 0 0 auto; }
 .compactSelect :global(.mantine-Input-input) { height: 33px; min-height: 33px; padding-right: 26px; }
-.compactRow { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 9px 12px; }
-.compactField { flex: 0 0 auto; width: 118px; }
-.compactField :global(.mantine-Input-input) { height: 33px; min-height: 33px; }
 
 /* 패널 머리 · 폼 안 보조 버튼: 흰 바탕 + 빨간 아이콘, 마우스를 올리면 연한 빨강 (사업장관리 주소 검색과 같은 모양) */
 .softButton.softButton { height: 32px; padding: 0 12px 0 10px; border: 1px solid #dfe5ec; border-radius: 9px; background: #fff; color: #34445a; font-size: 12px; font-weight: 700; transition: background 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 140ms ease; }

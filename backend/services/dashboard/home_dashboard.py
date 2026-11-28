@@ -23,6 +23,30 @@ _STEEL_NEWS_CACHE = {"expires_at": None, "items": [], "available": False}
 _STEEL_NEWS_LOCK = threading.Lock()
 logger = logging.getLogger(__name__)
 
+# 지난 값 먼저 (stale-while-revalidate): 30분이 지나 만료된 날씨·뉴스는 지난 값을 바로 돌려주고, 새 값은 뒤에서 받는다.
+# → 만료 직후 대시보드를 연 사람이 외부 사이트(1초 이상)를 기다리지 않는다. 서버가 켜진 뒤 첫 요청만 기다린다.
+_REFRESHING = set()
+_REFRESHING_LOCK = threading.Lock()
+
+
+def _refresh_in_background(name, refresh):
+    """같은 이름의 새로 받기는 한 번에 하나만 돌린다."""
+    with _REFRESHING_LOCK:
+        if name in _REFRESHING:
+            return
+        _REFRESHING.add(name)
+
+    def run():
+        try:
+            refresh()
+        except Exception as error:   # 뒤에서 받다 실패해도 지난 값은 그대로 둔다
+            logger.warning("Background refresh failed (%s): %s", name, type(error).__name__)
+        finally:
+            with _REFRESHING_LOCK:
+                _REFRESHING.discard(name)
+
+    threading.Thread(target=run, name=f"dashboard-refresh-{name}", daemon=True).start()
+
 
 def _fetch_text(url, timeout=6, encoding="utf-8"):
     request = Request(url, headers=HEADERS)
@@ -98,16 +122,26 @@ def get_weather():
     }
 
 
-def get_steel_news(limit=8):
-    now = datetime.now()
-    with _STEEL_NEWS_LOCK:
-        if _STEEL_NEWS_CACHE["expires_at"] and now < _STEEL_NEWS_CACHE["expires_at"]:
-            return {
-                "items": copy.deepcopy(_STEEL_NEWS_CACHE["items"][:limit]),
-                "available": _STEEL_NEWS_CACHE["available"],
-                "cached": True,
-            }
+_STEEL_NEWS_FETCH_LOCK = threading.Lock()
 
+
+def _news_snapshot(limit):
+    with _STEEL_NEWS_LOCK:
+        snapshot = {
+            "items": copy.deepcopy(_STEEL_NEWS_CACHE["items"][:limit]),
+            "available": _STEEL_NEWS_CACHE["available"],
+            "cached": True,
+        }
+        return snapshot, _STEEL_NEWS_CACHE["expires_at"]
+
+
+def _load_steel_news(limit):
+    """외부에서 뉴스를 받아 캐시에 넣는다 (받는 동안에도 다른 요청은 지난 값을 읽는다)."""
+    with _STEEL_NEWS_FETCH_LOCK:
+        snapshot, expires_at = _news_snapshot(limit)
+        now = datetime.now()
+        if expires_at and now < expires_at:   # 기다리는 동안 다른 요청이 이미 새로 받음
+            return snapshot
         articles = []
         available = False
         try:
@@ -153,12 +187,23 @@ def get_steel_news(limit=8):
         except Exception as error:
             logger.warning("Steel news RSS unavailable: %s", type(error).__name__)
 
-        _STEEL_NEWS_CACHE.update({
-            "expires_at": now + CACHE_TTL,
-            "items": copy.deepcopy(articles),
-            "available": available,
-        })
+        with _STEEL_NEWS_LOCK:
+            _STEEL_NEWS_CACHE.update({
+                "expires_at": now + CACHE_TTL,
+                "items": copy.deepcopy(articles),
+                "available": available,
+            })
         return {"items": articles, "available": available, "cached": False}
+
+
+def get_steel_news(limit=8):
+    snapshot, expires_at = _news_snapshot(limit)
+    if expires_at and datetime.now() < expires_at:
+        return snapshot
+    if expires_at is not None:   # 만료: 지난 값을 바로 주고 뒤에서 새로 받는다
+        _refresh_in_background("news", lambda: _load_steel_news(limit))
+        return snapshot
+    return _load_steel_news(limit)   # 서버가 켜진 뒤 처음: 받을 때까지 기다린다
 
 
 
@@ -205,8 +250,17 @@ def get_weather_wttr():
 def _cached_weather():
     now = datetime.now()
     with _WEATHER_LOCK:
-        if _WEATHER_CACHE["expires_at"] and now < _WEATHER_CACHE["expires_at"]:
-            return copy.deepcopy(_WEATHER_CACHE["data"])
+        expires_at, cached = _WEATHER_CACHE["expires_at"], copy.deepcopy(_WEATHER_CACHE["data"])
+    if expires_at and now < expires_at:
+        return cached
+    if expires_at is not None:   # 만료: 지난 값(실패였으면 빈 값)을 바로 주고 뒤에서 새로 받는다
+        _refresh_in_background("weather", _load_weather)
+        return cached
+    return _load_weather()   # 서버가 켜진 뒤 처음: 받을 때까지 기다린다
+
+
+def _load_weather():
+    now = datetime.now()
     data = None
     # open-meteo → 안 되면 wttr.in. 둘 다 안 되면 날씨 칸만 비운다
     for name, getter in (("open-meteo", get_weather), ("wttr.in", get_weather_wttr)):
@@ -219,6 +273,24 @@ def _cached_weather():
         # 실패도 10분은 기억해 매번 기다리지 않게 한다
         _WEATHER_CACHE.update({"expires_at": now + (CACHE_TTL if data else timedelta(minutes=10)), "data": copy.deepcopy(data)})
     return data
+
+
+def warm_today_info_in_background():
+    """서버를 켤 때 날씨·뉴스를 미리 받아 둔다 → 서버를 켠 뒤 처음 대시보드를 연 사람도 기다리지 않는다.
+    뒤에서(데몬 스레드) 받으므로 서버 시작은 늦어지지 않는다. 실패해도 첫 요청 때 예전처럼 다시 받는다.
+    끄려면 환경변수 DASHBOARD_WARMUP=0."""
+    import os
+
+    if os.getenv("DASHBOARD_WARMUP", "1").strip().lower() in {"0", "false", "no", "off"}:
+        return
+
+    def run():
+        try:
+            get_today_info()   # 화면 요청(/today)과 같은 기본값(뉴스 6건) → 같은 캐시를 채운다
+        except Exception as error:
+            logger.warning("Dashboard warm-up failed: %s", type(error).__name__)
+
+    threading.Thread(target=run, name="dashboard-warmup", daemon=True).start()
 
 
 def get_today_info(news_limit=6):

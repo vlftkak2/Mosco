@@ -10,7 +10,7 @@ from services.inventory import SharedStock as shared_stock_module
 router = APIRouter(
     prefix="/api/shared-stock",
     tags=["shared-stock"],
-    dependencies=[Depends(security_module.require_platform_company)],
+    dependencies=[Depends(security_module.audit_platform_access), Depends(security_module.require_platform_company), Depends(security_module.require_menu_access("SHARED_STOCK"))],   # 모스코 전용 메뉴 (모스코 직원만 받을 수 있음)
 )
 
 

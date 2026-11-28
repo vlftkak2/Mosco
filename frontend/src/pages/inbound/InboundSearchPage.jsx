@@ -14,7 +14,8 @@ import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/InboundSearch.module.css';
-import { cachedDateFormat } from '../../utils/dateFormat';
+import { cachedDateFormat, kstDate, todayKST } from '../../utils/dateFormat';
+import { apiErrorMessage } from '../../utils/apiError';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' },
@@ -53,7 +54,7 @@ const renderCell = (key, item) => {
 };
 
 const makeDefaultFilters = () => {
-  const today = new Date();
+  const today = kstDate();
   const year = today.getFullYear();
   const month = today.getMonth();
   const pad = (value) => String(value).padStart(2, '0');
@@ -206,7 +207,7 @@ export default function InboundSearchPage() {
         summaryKeyRef.current = '';
         notifications.show({
           title: '입고현황 조회 실패',
-          message: error.response?.data?.detail || '입고 내역을 불러오지 못했습니다.',
+          message: apiErrorMessage(error, '입고 내역을 불러오지 못했습니다.'),
           color: 'red',
         });
       }
@@ -248,7 +249,7 @@ export default function InboundSearchPage() {
       });
       const downloadUrl = URL.createObjectURL(data);
       const link = document.createElement('a');
-      const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+      const date = todayKST().replaceAll('-', '');
       link.href = downloadUrl;
       link.download = `매입현황_${date}.xlsx`;
       document.body.appendChild(link);

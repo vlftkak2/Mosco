@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
+import idempotency
 import db as _shared_db
 from services.closing import MonthClose as month_close_module
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -83,6 +84,8 @@ class ReceiptPaymentSaveRequest(BaseModel):
     manager: str = Field(default="", max_length=100)
     description: str = Field(default="", max_length=500)
     items: list[ReceiptPaymentDetailInput] = Field(min_length=1, max_length=1000)
+    request_key: str | None = Field(default=None, max_length=64)   # 중복 저장 방지 (화면이 새 전표마다 만드는 UUID)
+    expected_updated_at: str | None = Field(default=None, max_length=40)   # 동시 수정 감지 (전표를 열 때의 수정시각)
 
     @field_validator("receiptno", "transactiontype", "customcode", "customname", "manager", "description")
     @classmethod
@@ -718,6 +721,8 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
     is_new = not receiptno
     items = payload["items"]
     with _connect() as connection, connection.cursor() as cursor:
+        if is_new:
+            idempotency.claim(cursor, companyid, payload, "RECEIPTPAYMENT", actor)
         original_date = None
         if not is_new:
             cursor.execute(
@@ -726,8 +731,28 @@ def save_document(companyid: str, companyname: str, payload: dict, actor: str | 
             )
             found = cursor.fetchone()
             original_date = found[0] if found else None
+            idempotency.ensure_unchanged(cursor, "RECEIPTPAYMENT", companyid, receiptno, payload)
         # 수정이면 원래 일자와 바뀐 일자 둘 다 마감 전이어야 한다
         month_close_module.ensure_open(cursor, companyid, [payload["receiptdate"], original_date], "등록" if is_new else "수정")
+        # 거래처는 마스터에 있는 코드만 (원장 · 잔액의 기준 키). 이름은 마스터 값으로 저장한다.
+        # 새 전표이거나 거래처를 바꾸면 사용 중인 거래처여야 하고, 기존 전표의 같은 거래처는 사용중지여도 수정할 수 있다.
+        cursor.execute(
+            """SELECT customername, UPPER(BTRIM(COALESCE(useyn, 'N'))) FROM customer01t
+               WHERE companyid = %s AND customercode = %s LIMIT 1""",
+            (companyid, payload["customcode"]),
+        )
+        customer = cursor.fetchone()
+        if not customer:
+            raise ValueError(f"등록되지 않은 거래처 코드입니다: {payload['customcode']}")
+        previous_code = None
+        if not is_new:
+            cursor.execute("SELECT customcode FROM ReceiptPayment01t WHERE companyid = %s AND receiptno = %s",
+                           (companyid, receiptno))
+            previous = cursor.fetchone()
+            previous_code = previous[0] if previous else None
+        if customer[1] != "Y" and previous_code != payload["customcode"]:
+            raise ValueError(f"사용 중지된 거래처입니다: {customer[0] or payload['customcode']}")
+        payload["customname"] = (customer[0] or payload["customname"]).strip()
         if is_new:
             receiptno = _next_receiptno(cursor, companyid, payload["receiptdate"])
             cursor.execute(

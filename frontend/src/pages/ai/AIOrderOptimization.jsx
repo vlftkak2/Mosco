@@ -23,10 +23,11 @@ import { HistoryModal, prefetchHistory } from './AIOrderOptimizationHistory';
 import { CalcPopover, coilCalcSections, sheetCalcSections } from './AIOrderCalcExplain';
 import OptimizationGuideModal from './AIOrderOptimizationGuide';
 import PickerModal, { ColumnResizeHandle, PickerEmpty as SharedPickerEmpty, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';
+import { apiErrorMessage } from '../../utils/apiError';
 
 const API = '/api/ai-optimization';
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
-const errorText = (error, fallback) => (typeof error?.response?.data?.detail === 'string' ? error.response.data.detail : fallback);
+const errorText = (error, fallback) => apiErrorMessage(error, fallback);
 const fmt = (value, digits = 1) => (value === null || value === undefined || value === '' ? '–'
   : Number(value).toLocaleString('ko-KR', { maximumFractionDigits: digits }));
 const dateText = (value) => (value ? String(value).slice(0, 10) : '');

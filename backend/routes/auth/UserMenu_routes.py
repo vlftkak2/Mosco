@@ -4,22 +4,18 @@ from services.auth import UserMenu as user_menu_module
 import security as security_module
 
 
-router = APIRouter(prefix="/api/user-menu", tags=["user-menu"])
+router = APIRouter(prefix="/api/user-menu", tags=["user-menu"], dependencies=[Depends(security_module.audit_platform_access)])
 
 
 def require_menu_manager(user: dict = Depends(security_module.get_current_user)) -> dict:
-    if user["companyid"] == "001" and user["authority"] == "MASTER":
+    """메뉴권한관리(USER_MENU_PERMISSION) 권한. 모스코 직원이면 전체 고객사, 다른 회사 직원이면 자기 회사만."""
+    if security_module.has_menu(user, "USER_MENU_PERMISSION"):
         return user
-    if user["companyid"] != "001" and user["authority"] == "SUBMASTER":
-        return user
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="플랫폼 관리자 또는 고객사 관리자만 메뉴 권한을 관리할 수 있습니다.",
-    )
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="메뉴권한관리 권한이 없습니다.")
 
 
 def ensure_company_scope(user: dict, companyid: str):
-    if user["authority"] == "SUBMASTER" and companyid != user["companyid"]:
+    if not security_module.is_platform_company(user) and companyid != user["companyid"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="자기 회사의 사용자 메뉴 권한만 관리할 수 있습니다.",
@@ -59,7 +55,7 @@ def get_manageable_companies(user: dict = Depends(require_menu_manager)):
     return {
         "success": True,
         "items": user_menu_module.list_manageable_companies(
-            user["companyid"], user["authority"] == "MASTER"
+            user["companyid"], security_module.is_platform_company(user)
         ),
     }
 
@@ -73,7 +69,7 @@ def get_manageable_users(
     try:
         return {
             "success": True,
-            **user_menu_module.list_manageable_users(companyid, user["authority"] == "MASTER"),
+            **user_menu_module.list_manageable_users(companyid, security_module.is_platform_company(user)),
         }
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -90,7 +86,7 @@ def get_permissions(
         return {
             "success": True,
             **user_menu_module.get_user_menu_permissions(
-                companyid, useremail, user["authority"] == "MASTER"
+                companyid, useremail, security_module.is_platform_company(user)
             ),
         }
     except LookupError as error:
@@ -109,7 +105,8 @@ def update_permissions(
         result = user_menu_module.save_user_menu_permissions(
             data,
             user["email"],
-            user["authority"] == "MASTER",
+            security_module.is_platform_company(user),
+            actor=user,
         )
         security_module.invalidate_user_access_cache(data.companyid, result["useremail"])
         return {

@@ -6,6 +6,8 @@ import { Button, Pagination, Select, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconPackageExport, IconSearch } from '@tabler/icons-react';
 import PickerModal, { PickerEmpty, pickerClasses } from '../../components/common/PickerModal';
+import { apiErrorMessage } from '../../utils/apiError';
+import { kstDate } from '../../utils/dateFormat';
 
 const PAGE_SIZE = 50;
 const PAGE_OPTIONS = [{ value: '25', label: '25개씩' }, { value: '50', label: '50개씩' }, { value: '100', label: '100개씩' }];
@@ -33,7 +35,7 @@ const STOCK_COLUMNS = [
 const RIGHT_COLUMNS = new Set(['thickness', 'width', 'length', 'sourceline', 'currentqty', 'currentweight']);
 const initialColumnWidths = () => Object.fromEntries(STOCK_COLUMNS.map(({ key, width }) => [key, width]));
 const createDefaultFilters = () => {
-  const today = new Date();
+  const today = kstDate();
   const formatDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   return {
     date_from: formatDate(new Date(today.getFullYear(), today.getMonth(), 1)),
@@ -52,7 +54,7 @@ const NUMBER_FILTERS = ['thickness', 'width', 'length'];
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const sourceKey = (stock) => [stock.sourcetype || stock.stocksourcetype, stock.sourceno || stock.stocksourceno, stock.sourceline ?? stock.stocksourceline].join('\u001f');
 const num = (value) => Number(value) || 0;
-const numberText = (value) => num(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
+const numberText = (value) => num(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const cleanDraftNumber = (value) => String(value ?? '').replace(/,/g, '').replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
 // The API accepts qty/weight with 3 decimals and unit prices with 2, so extra digits are not typed in.
 const limitFraction = (value, digits) => {
@@ -137,8 +139,7 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
       setPage(nextPage);
     } catch (error) {
       if (id === requestId.current) {
-        const detail = error.response?.data?.detail;
-        const message = typeof detail === 'string' ? detail : '매출 가능한 현재고를 조회하지 못했습니다.';
+        const message = apiErrorMessage(error, '매출 가능한 현재고를 조회하지 못했습니다.');
         setStocks([]);
         setTotal(0);
         notifications.show({ title: '현재고 조회 실패', message, color: 'red' });
@@ -268,7 +269,8 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
   const stockDisabledReason = (stock, alreadyAdded, available) => {
     if (alreadyAdded) return '이미 매출 상세에 담긴 재고입니다.';
     if (stock.linked_orders) return '주문서에 연결된 재고입니다.';
-    if ((available.qty <= 0 || available.weight <= 0) && Number(stock.reserved_weight || 0) > 0) return `다른 승인요청에 예약된 재고입니다 (${stock.reserved_requests || ''}).`;
+    // 승인 대기 중인 요청에 예약된 재고(LOT)는 남은 양이 있어도 고를 수 없다 (서버도 같은 규칙으로 막는다)
+    if (Number(stock.reserved_weight || 0) > 0 || Number(stock.reserved_qty || 0) > 0) return `승인 대기 중인 요청에 예약된 재고입니다 (${stock.reserved_requests || ''}).`;
     if (available.qty <= 0 || available.weight <= 0) return '매출 가능한 잔량이 없습니다.';
     return '';
   };
@@ -337,9 +339,9 @@ export default function OutboundStockPickerModal({ opened, receiptno = '', exist
             </td>
             <td className={pickerClasses.right}>{numberText(stock.current_qty)}</td>
             <td className={pickerClasses.right}>{numberText(stock.current_weight)}</td>
-            <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'unitprice')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.unitprice)} disabled={alreadyAdded} onChange={(event) => updateUnitPriceDraft(stock, event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'unitprice', event)} aria-label={`${stock.itemname} 매출단가`} /></td>
-            <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'qty')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.qty)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'qty', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'qty', event)} aria-label={`${stock.itemname} 매출수량`} /></td>
-            <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'weight')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.weight, 3)} disabled={alreadyAdded} onChange={(event) => updateDraft(stock, 'weight', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'weight', event)} aria-label={`${stock.itemname} 매출중량`} /></td>
+            <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'unitprice')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.unitprice)} disabled={alreadyAdded || Boolean(reason)} onChange={(event) => updateUnitPriceDraft(stock, event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'unitprice', event)} aria-label={`${stock.itemname} 매출단가`} /></td>
+            <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'qty')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.qty)} disabled={alreadyAdded || Boolean(reason)} onChange={(event) => updateDraft(stock, 'qty', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'qty', event)} aria-label={`${stock.itemname} 매출수량`} /></td>
+            <td onClick={stopRowToggle}><input ref={draftInputRef(key, 'weight')} className={pickerClasses.cellInput} type="text" inputMode="decimal" value={draftNumberText(draft.weight, 3)} disabled={alreadyAdded || Boolean(reason)} onChange={(event) => updateDraft(stock, 'weight', event.currentTarget.value)} onKeyDown={(event) => focusNextDraftInput(stock, 'weight', event)} aria-label={`${stock.itemname} 매출중량`} /></td>
             <td title={stock.productname || ''}>{stock.productname || ''}</td>
           </tr>;
         })}

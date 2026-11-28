@@ -3,7 +3,7 @@ import axios from 'axios';
 import { usePageActivation } from '../../components/common/usePageReactivated';
 import ErpDateInput from '../../components/common/ErpDateInput';
 import { SelectPickerModal } from '../../components/common/PickerModal';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { ActionIcon, Badge, Box, Button, Group, Loader, Notification, Pagination, Paper, Popover, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconBox, IconBuildingStore, IconListDetails, IconX } from '@tabler/icons-react';
@@ -20,7 +20,19 @@ import useErpPageRibbon from '../../components/common/useErpPageRibbon';
 import ErpBreadcrumb from '../../components/common/ErpBreadcrumb';
 import ExcelBulkActions from '../../components/common/ExcelBulkActions';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
-import { cachedDateFormat } from '../../utils/dateFormat';
+import { cachedDateFormat, kstDate } from '../../utils/dateFormat';
+import { useUnsavedChanges } from '../../utils/dirtyRegistry';
+import { apiErrorMessage } from '../../utils/apiError';
+import { fetchAllPages, loadMaster, peekMaster } from '../../utils/masterCache';
+
+// 지난번에 받은 코드 목록 (없으면 빈 목록) — 화면 첫 그림부터 창고·단위·강종 선택지가 보이게
+const cachedStandMasters = () => ({
+  quantity: peekMaster('code-all-use:QTY') || [], warehouse: peekMaster('code-all-use:WAREHOUSE') || [],
+  price: peekMaster('code-all-use:PRICE_UNIT') || [], material: peekMaster('code-all-use:MATERIAL') || [],
+  surface: peekMaster('code-all-use:SURFACE') || [],
+});
+// 기초재고가 등록된 기초일자 (지난번 조회에서 서버가 알려 준 값). 처음 열 때 이 날짜로 바로 조회해 요청 한 번을 줄인다.
+const REGISTERED_DATE_KEY = 'stock-stand:registered-date';
 
 const STOCK_EXCEL_COLUMNS = [
   ['standdate', '기초일자'], ['customname', '거래처'], ['warehousecodename', '창고'], ['productname', '제품번호'],
@@ -68,7 +80,7 @@ const MASTER_TITLE = { qtyunit: '수량단위 선택', warehousecode: '창고 �
 
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const localDate = () => {
-  const now = new Date();
+  const now = kstDate();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 };
 const isValidDateInput = (value) => {
@@ -83,7 +95,7 @@ const isValidDateInput = (value) => {
   return check.getUTCFullYear() === year && check.getUTCMonth() === month - 1 && check.getUTCDate() === day;
 };
 const currentMonthRange = () => {
-  const now = new Date();
+  const now = kstDate();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   return { from: `${year}-${month}-01`, to: localDate() };
@@ -194,11 +206,70 @@ const errorText = (error) => {
     if (item.type === 'float_parsing' || item.type === 'int_parsing') return `${label || '입력 항목'}에 숫자를 입력해 주세요.`;
     return label ? `${label}: ${item.msg || '입력값을 확인해 주세요.'}` : item.msg || String(item);
   }))].join(' / ');
-  return detail || error.message || '요청을 처리하지 못했습니다.';
+  return apiErrorMessage(error, '요청을 처리하지 못했습니다.');
 };
 
+// ── 엑셀식 입력 도우미 (범위 채우기 · 지우기 · 복사) ──
+// 값을 옮길 때도 직접 입력(updateRow)·붙여넣기(pasteRange)와 같은 규칙을 쓴다:
+//   저장된 행은 단가기준·기초단가만, 거래처·품명·창고·강종·표면은 코드와 이름을 함께,
+//   단가기준·기초단가가 바뀌면 공급가·부가세는 자동계산으로, 공급가·부가세는 '직접 입력' 여부까지 함께 옮기고,
+//   마지막에 금액(공급가·부가세·합계)을 다시 계산한다. 합계금액은 계산값이라 건너뛴다.
+const STAND_FIELD_INDEX = Object.fromEntries(GRID_FIELDS.map((key, index) => [key, index]));
+const STAND_CODE_NAME = { customname: 'customcode', itemname: 'itemcode', warehousecode: 'warehousecodename', materialcode: 'materialname', surfacecode: 'surfacename' };
+const STAND_FIRST_FIELD_CELL = 2;   // 표 칸 순서: 선택 · No. 다음부터 GRID_FIELDS
+const standFieldWritable = (row, field) => field !== 'unitamt' && (!row.lineno || EDITABLE_PRICE_FIELDS.has(field));
+// 금액을 자동계산으로 되돌리는 칸을 먼저 처리해야 같은 범위의 공급가·부가세 직접 입력값이 남는다
+const orderStandFields = (fields) => [
+  ...fields.filter((field) => field === 'unit' || field === 'unitprice'),
+  ...fields.filter((field) => field !== 'unit' && field !== 'unitprice'),
+];
+const copyStandField = (target, source, field) => {
+  if (!standFieldWritable(target, field)) return;
+  const pair = STAND_CODE_NAME[field];
+  if (pair) { target[field] = source[field] || ''; target[pair] = source[pair] || ''; return; }
+  if (field === 'unit' || field === 'unitprice') {
+    target[field] = source[field] ?? '';
+    target.supplyamt_manual = false;
+    target.vat_manual = false;
+    return;
+  }
+  if (field === 'supplyamt' || field === 'vat') {
+    const manual = Boolean(source[`${field}_manual`]);
+    target[field] = manual ? source[field] ?? '' : '';
+    target[`${field}_manual`] = manual;
+    return;
+  }
+  target[field] = source[field] ?? '';
+};
+const clearStandField = (target, field) => {
+  // 기본값이 있는 목록(단가기준 KG · 수량단위 EA)은 지우지 않는다
+  if (!standFieldWritable(target, field) || field === 'unit' || field === 'qtyunit') return;
+  const pair = STAND_CODE_NAME[field];
+  if (pair) { target[field] = ''; target[pair] = ''; return; }
+  target[field] = '';
+  if (field === 'unitprice') { target.supplyamt_manual = false; target.vat_manual = false; }
+  if (field === 'supplyamt' || field === 'vat') target[`${field}_manual`] = false;   // 지우면 자동계산으로
+};
+// 복사(Ctrl+C) 글자: 엑셀에 붙이거나 다시 이 표에 붙여넣을 수 있는 값 (코드 칸은 코드명, 금액은 화면 값)
+const standCopyText = (row, field, masters) => {
+  let value;
+  if (field === 'unit' || field === 'qtyunit') {
+    const fallback = field === 'unit' ? 'KG' : 'EA';
+    const code = resolveMasterCode(field, row[field] || fallback, masters) || row[field] || fallback;
+    value = (masters[MASTER_KIND[field]] || []).find((option) => option.code === code)?.name || code;
+  } else if (field === 'warehousecode') value = row.warehousecodename || row.warehousecode;
+  else if (field === 'materialcode') value = (masters.material || []).find((option) => option.code === row.materialcode)?.name || row.materialname || row.materialcode;
+  else if (field === 'surfacecode') value = (masters.surface || []).find((option) => option.code === row.surfacecode)?.name || row.surfacename || row.surfacecode;
+  else if (field === 'supplyamt' || field === 'vat' || field === 'unitamt') {
+    const amount = calculateAmounts(row, masters.price || [])[field];
+    value = amount === '' ? '' : String(Number(amount));
+  } else value = row[field] ?? '';
+  return String(value ?? '').replace(/[\t\r\n]+/g, ' ');
+};
+const isMultiCellText = (text) => /[\t\n]/.test(String(text || '').replace(/\r?\n$/, ''));
+
 const StockVirtualRow = ({ item, className, ...props }) => (
-  <Table.Tr {...props} className={[className, !item?.lineno && codeClasses.newRow, !item?.lineno && classes.newRow].filter(Boolean).join(' ')} />
+  <Table.Tr {...props} data-row-id={item?.id} className={[className, !item?.lineno && codeClasses.newRow, !item?.lineno && classes.newRow].filter(Boolean).join(' ')} />
 );
 
 const stockVirtuosoComponents = {
@@ -270,11 +341,15 @@ function ItemPicker({ opened, onClose, onSelect }) {
 
 // Tab in an open suggestion list fills: the ↑/↓-highlighted entry, else an exact match of the typed text,
 // else the first suggestion. Returns undefined when nothing applies.
+// Tab 으로 고를 항목: 방향키로 고른 항목 → 이름·코드가 정확히 같은 항목 하나 → 후보가 하나뿐이면 그것.
+// 정할 수 없으면 고르지 않는다 (칸을 벗어날 때처럼 확정: 친 글자는 그대로 두고, 코드가 안 맞으면 저장할 때 걸러진다).
 const pickSuggestionForTab = (list, activeIndex, typed, valuesOf) => {
   if (!list.length) return undefined;
   if (activeIndex >= 0 && list[activeIndex]) return list[activeIndex];
   const normalized = String(typed || '').trim().toLocaleLowerCase();
-  return list.find((entry) => valuesOf(entry).some((value) => String(value || '').trim().toLocaleLowerCase() === normalized)) || list[0];
+  const exact = list.filter((entry) => valuesOf(entry).some((value) => String(value || '').trim().toLocaleLowerCase() === normalized));
+  if (exact.length === 1) return exact[0];
+  return list.length === 1 ? list[0] : undefined;
 };
 
 function ItemNameAutocompleteCell({ row, disabled, registerCellInput, onChange, onSelect, onFindItem, onFocus, onPaste }) {
@@ -282,11 +357,19 @@ function ItemNameAutocompleteCell({ row, disabled, registerCellInput, onChange, 
   const [draft, setDraft] = useState(row.itemname || '');
   const [items, setItems] = useState([]);
   const [activeIndex, setActiveIndex] = useState(-1);
+  // 목록은 글자를 쳤을 때만 연다 (값이 있는 칸에 들어오기만 해도 목록이 열려 방향키·Enter 가 행 이동 대신 목록을 움직이지 않게)
+  const [typed, setTyped] = useState(false);
   const requestIdRef = useRef(0);
   const skipBlurCommitRef = useRef(false);
+  // 채우기·범위 붙여넣기로 바깥에서 값이 바뀌면, 아직 손대지 않은 입력칸은 새 값을 따른다
+  const [syncedName, setSyncedName] = useState(row.itemname);
+  if (syncedName !== row.itemname) {
+    setSyncedName(row.itemname);
+    if (editing) setDraft((current) => (current === (syncedName || '') ? row.itemname || '' : current));
+  }
   const query = String(draft || '').trim();
-  const opened = editing && !disabled && query.length > 0 && items.length > 0;
-  const idle = !editing || disabled || !query;
+  const opened = editing && typed && !disabled && query.length > 0 && items.length > 0;
+  const idle = !editing || !typed || disabled || !query;
   if (idle && items.length) setItems([]);
 
   useEffect(() => {
@@ -308,6 +391,7 @@ function ItemNameAutocompleteCell({ row, disabled, registerCellInput, onChange, 
   const chooseItem = (item) => {
     requestIdRef.current += 1;
     onSelect(row.id, item);
+    setTyped(false);
     setDraft(item.itemname || '');
     setItems([]);
     setEditing(false);
@@ -357,6 +441,7 @@ function ItemNameAutocompleteCell({ row, disabled, registerCellInput, onChange, 
             skipBlurCommitRef.current = false;
             requestIdRef.current += 1;
             setDraft(row.itemname || '');
+            setTyped(false);
             setEditing(true);
             onFocus();
             event.currentTarget.select();
@@ -364,11 +449,14 @@ function ItemNameAutocompleteCell({ row, disabled, registerCellInput, onChange, 
           onBlur={() => {
             // A Tab pick already filled the cell; committing the typed text now would undo it.
             if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
+            // 손대지 않고 지나가기만 한 칸은 다시 확정하지 않는다 (지금 값 그대로)
+            if (!typed) { setEditing(false); return; }
             void commitExactMatch();
           }}
           onChange={(event) => {
             const value = event.currentTarget.value;
             skipBlurCommitRef.current = false;
+            setTyped(true);
             setDraft(value);
             setActiveIndex(-1);
             setEditing(true);
@@ -388,22 +476,25 @@ function ItemNameAutocompleteCell({ row, disabled, registerCellInput, onChange, 
               event.preventDefault();
               onFindItem(row.id);
             } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-              if (!items.length) return;
+              // 목록이 열려 있을 때만 목록 이동. 닫혀 있으면 표의 위/아래 행 이동으로 넘긴다
+              if (!opened) return;
               event.preventDefault();
               event.stopPropagation();
               setActiveIndex((current) => event.key === 'ArrowDown'
                 ? (current + 1) % items.length
                 : (current <= 0 ? items.length - 1 : current - 1));
-            } else if (event.key === 'Enter' && activeIndex >= 0 && items[activeIndex]) {
+            } else if (event.key === 'Enter' && opened && activeIndex >= 0 && items[activeIndex]) {
               event.preventDefault();
               event.stopPropagation();
               chooseItem(items[activeIndex]);
             } else if (event.key === 'Tab' && !event.shiftKey && opened) {
+              // 고른 항목 → 정확히 같은 이름/코드 하나 → 후보가 하나뿐이면 그것. 못 정하면 칸을 벗어날 때처럼 확정
               const item = pickSuggestionForTab(items, activeIndex, draft, (entry) => [entry.itemname, entry.itemcode]);
               if (item) { skipBlurCommitRef.current = true; chooseItem(item); }
             } else if (event.key === 'Escape' && opened) {
               event.preventDefault();
               event.stopPropagation();
+              setTyped(false);
               setEditing(false);
             }
           }}
@@ -478,11 +569,18 @@ function CustomerNameAutocompleteCell({ row, disabled, registerCellInput, onChan
   const [draft, setDraft] = useState(row.customname || '');
   const [customers, setCustomers] = useState([]);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [typed, setTyped] = useState(false);   // 목록은 글자를 쳤을 때만 연다
   const requestIdRef = useRef(0);
   const skipBlurCommitRef = useRef(false);
+  // 채우기·범위 붙여넣기로 바깥에서 값이 바뀌면, 아직 손대지 않은 입력칸은 새 값을 따른다
+  const [syncedName, setSyncedName] = useState(row.customname);
+  if (syncedName !== row.customname) {
+    setSyncedName(row.customname);
+    if (editing) setDraft((current) => (current === (syncedName || '') ? row.customname || '' : current));
+  }
   const query = String(draft || '').trim();
-  const opened = editing && !disabled && query.length > 0 && customers.length > 0;
-  const idle = !editing || disabled || !query;
+  const opened = editing && typed && !disabled && query.length > 0 && customers.length > 0;
+  const idle = !editing || !typed || disabled || !query;
   if (idle && customers.length) setCustomers([]);
 
   useEffect(() => {
@@ -504,6 +602,7 @@ function CustomerNameAutocompleteCell({ row, disabled, registerCellInput, onChan
   const chooseCustomer = (customer) => {
     requestIdRef.current += 1;
     onSelect(row.id, customer);
+    setTyped(false);
     setDraft(customer.customername || '');
     setEditing(false);
     setActiveIndex(-1);
@@ -552,17 +651,20 @@ function CustomerNameAutocompleteCell({ row, disabled, registerCellInput, onChan
             skipBlurCommitRef.current = false;
             requestIdRef.current += 1;
             setDraft(row.customname || '');
+            setTyped(false);
             setEditing(true);
             onFocus();
             event.currentTarget.select();
           }}
           onBlur={() => {
             if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
+            if (!typed) { setEditing(false); return; }   // 손대지 않은 칸은 그대로
             void commitExactMatch();
           }}
           onChange={(event) => {
             const value = event.currentTarget.value;
             skipBlurCommitRef.current = false;
+            setTyped(true);
             setDraft(value);
             setActiveIndex(-1);
             setEditing(true);
@@ -581,7 +683,7 @@ function CustomerNameAutocompleteCell({ row, disabled, registerCellInput, onChan
               event.preventDefault();
               onFindCustomer(row.id);
             } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-              if (!customers.length) return;
+              if (!opened) return;   // 목록이 닫혀 있으면 표의 위/아래 행 이동
               event.preventDefault();
               event.stopPropagation();
               setActiveIndex((current) => event.key === 'ArrowDown'
@@ -599,6 +701,7 @@ function CustomerNameAutocompleteCell({ row, disabled, registerCellInput, onChan
               event.preventDefault();
               event.stopPropagation();
               setDraft(row.customname || '');
+              setTyped(false);
               setEditing(false);
               setActiveIndex(-1);
             }
@@ -634,16 +737,24 @@ function MasterNameAutocompleteCell({ row, field, options, disabled, registerCel
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(getDisplayValue());
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [typed, setTyped] = useState(false);   // 목록은 글자를 쳤을 때만 연다
   const pickerOpenRef = useRef(false);
   const skipBlurCommitRef = useRef(false);
+  // 채우기·범위 붙여넣기로 바깥에서 값이 바뀌면, 아직 손대지 않은 입력칸은 새 값을 따른다
+  const [syncedDisplay, setSyncedDisplay] = useState(displayValue);
+  if (syncedDisplay !== displayValue) {
+    setSyncedDisplay(displayValue);
+    if (editing) setDraft((current) => (current === (syncedDisplay || '') ? displayValue : current));
+  }
   const query = String(draft || '').trim().toLocaleLowerCase();
-  const matches = useMemo(() => editing && !disabled && query
+  const matches = useMemo(() => editing && typed && !disabled && query
     ? options.filter((option) => `${option.name || ''} ${option.code || ''}`.toLocaleLowerCase().includes(query)).slice(0, 8)
-    : [], [options, query, editing, disabled]);
+    : [], [options, query, editing, typed, disabled]);
   const opened = editing && !disabled && matches.length > 0;
 
   const choose = (option) => {
     onChange(row.id, field, option.code);
+    setTyped(false);
     setDraft(option.name || '');
     setEditing(false);
     setActiveIndex(-1);
@@ -686,15 +797,17 @@ function MasterNameAutocompleteCell({ row, field, options, disabled, registerCel
             skipBlurCommitRef.current = false;
             pickerOpenRef.current = false;
             setDraft(getDisplayValue());
+            setTyped(false);
             setEditing(true);
             onFocus();
             event.currentTarget.select();
           }}
           onBlur={() => {
             if (skipBlurCommitRef.current) { skipBlurCommitRef.current = false; return; }
+            if (!typed) { setEditing(false); return; }   // 손대지 않은 칸은 그대로
             if (!pickerOpenRef.current) commit();
           }}
-          onChange={(event) => { skipBlurCommitRef.current = false; setDraft(event.currentTarget.value); setActiveIndex(-1); setEditing(true); }}
+          onChange={(event) => { skipBlurCommitRef.current = false; setTyped(true); setDraft(event.currentTarget.value); setActiveIndex(-1); setEditing(true); }}
           onClick={(event) => {
             if (event.nativeEvent.offsetX >= event.currentTarget.clientWidth - 28) {
               event.preventDefault();
@@ -715,7 +828,7 @@ function MasterNameAutocompleteCell({ row, field, options, disabled, registerCel
               event.stopPropagation();
               if (!disabled) openPicker();
             } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-              if (!matches.length) return;
+              if (!opened) return;   // 목록이 닫혀 있으면 표의 위/아래 행 이동
               event.preventDefault();
               event.stopPropagation();
               setActiveIndex((current) => event.key === 'ArrowDown'
@@ -733,6 +846,7 @@ function MasterNameAutocompleteCell({ row, field, options, disabled, registerCel
               event.preventDefault();
               event.stopPropagation();
               setDraft(getDisplayValue());
+              setTyped(false);
               setEditing(false);
               setActiveIndex(-1);
             }
@@ -978,7 +1092,7 @@ export default function StockStandPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [selectedIds, setSelectedIds] = useState([]);
-  const [masters, setMasters] = useState({ quantity: [], warehouse: [], price: [], material: [], surface: [] });
+  const [masters, setMasters] = useState(cachedStandMasters);
   const [hasSavedStock, setHasSavedStock] = useState(false);
   const [hasTransactions, setHasTransactions] = useState(false);
   const [hasStockMovements, setHasStockMovements] = useState(false);
@@ -990,6 +1104,7 @@ export default function StockStandPage() {
   const [customerPickerId, setCustomerPickerId] = useState('');
   const [masterPickerTarget, setMasterPickerTarget] = useState(null);
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [deleteBlocked, setDeleteBlocked] = useState('');   // 서버가 삭제를 거절한 사유 (삭제 창에 표시)
   const [deleteLinesOpen, setDeleteLinesOpen] = useState(false);
   // Bottom-right "discard unsaved changes?" confirm (replaces the browser's window.confirm).
   const [discardMessage, setDiscardMessage] = useState('');
@@ -1027,6 +1142,7 @@ export default function StockStandPage() {
     });
     return { hasNewRows: hasNew, changedPriceRows: changedPrices, hasChanges: hasNew || changedPrices.length > 0 };
   }, [rows]);
+  useUnsavedChanges(hasChanges);   // 탭 닫기 · 브라우저 닫기 전에 확인
   const displayRowCount = hasSavedStock ? totalRows : rows.length;
   const visibleRows = hasSavedStock ? rows : rows.slice((page - 1) * pageSize, page * pageSize);
   const pageCount = Math.max(1, Math.ceil(displayRowCount / pageSize));
@@ -1059,7 +1175,7 @@ export default function StockStandPage() {
     window.addEventListener('pointercancel', finish);
   }, [columnWidths]);
 
-  const loadRows = useCallback(async (nextDate = standdate, nextQuery = query, confirmDiscard = true, useRegisteredDate = false, nextPage = page, nextPageSize = pageSize, nextDateFrom = dateFrom, nextDateTo = dateTo, nextWarehouse = warehouseQuery) => {
+  const loadRows = useCallback(async (nextDate = standdate, nextQuery = query, confirmDiscard = true, useRegisteredDate = false, nextPage = page, nextPageSize = pageSize, nextDateFrom = dateFrom, nextDateTo = dateTo, nextWarehouse = warehouseQuery, expectRegistered = false) => {
     if (confirmDiscard && hasChanges && !(await askDiscard('조회하면'))) return;
     const requestId = ++listRequestIdRef.current;
     loadingMoreRef.current = false;
@@ -1072,6 +1188,9 @@ export default function StockStandPage() {
       let response = await axios.get('/api/stock-stand/items', { ...authConfig(), params: { standdate: nextDate, date_from: nextDateFrom || undefined, date_to: nextDateTo || undefined, q: nextQuery || undefined, warehouse: nextWarehouse || undefined, cursor: 0, limit: nextPageSize, offset } });
       let data = response.data;
       const registeredDate = data.registered_standdate ? String(data.registered_standdate).slice(0, 10) : '';
+      if (data.has_stock_rows && registeredDate) void loadMaster(REGISTERED_DATE_KEY, () => registeredDate);
+      // 지난번 등록일로 바로 조회했는데 지금 등록일과 다르면(삭제·재등록 등) 아무것도 바꾸지 않고 예전 방식으로 다시 조회한다
+      if (expectRegistered && !(data.has_stock_rows && registeredDate === nextDate)) return 'mismatch';
       if (useRegisteredDate && data.has_stock_rows && registeredDate && registeredDate !== nextDate) {
         const today = localDate();
         setStanddate(registeredDate);
@@ -1130,20 +1249,27 @@ export default function StockStandPage() {
     setPage(1);
   };
 
-  const loadCodes = useCallback(async (groupcode) => {
-    const all = [];
-    let page = 1;
-    let total = 0;
-    do {
-      const { data } = await axios.get(`/api/code-master/groups/${groupcode}/items`, { ...authConfig(), params: { page, page_size: 200, include_total: true } });
-      all.push(...(data.items || []));
-      total = data.total || 0;
-      page += 1;
-    } while (all.length < total && page <= 100);
+  // 코드 목록: 지난번 값(메모리 캐시)으로 화면을 바로 채우고 서버 값으로 곧바로 바꾼다. 여러 쪽은 병렬로 받는다 (값 모양은 예전과 같음)
+  const loadCodes = useCallback((groupcode) => loadMaster(`code-all-use:${groupcode}`, async () => {
+    const all = await fetchAllPages(async (pageNumber) => {
+      const { data } = await axios.get(`/api/code-master/groups/${groupcode}/items`, { ...authConfig(), params: { page: pageNumber, page_size: 200, include_total: true } });
+      return { items: data.items || [], total: data.total || 0 };
+    }, 200);
     return all.filter((item) => item.use).map((item) => ({ code: item.code, name: item.name }));
-  }, []);
+  }), []);
 
   useEffect(() => {
+    // 처음 열 때: 지난번에 알게 된 등록 기초일자가 있으면 그 날짜로 바로 한 번에 조회한다
+    // (예전: 오늘 날짜로 한 번 조회 → 등록일이 다르면 등록일로 다시 조회 = 요청 두 번). 결과는 예전 두 번째 조회와 같다.
+    const guess = peekMaster(REGISTERED_DATE_KEY);
+    if (guess) {
+      const today = localDate();
+      void loadRows(guess, '', false, false, 1, pageSize, guess, today, '', true).then((result) => {
+        if (result === true) { setStanddate(guess); setDateFrom(guess); setDateTo(today); }
+        else if (result === 'mismatch') void loadRows(standdate, '', false, true);
+      });
+      return;
+    }
     loadRows(standdate, '', false, true);
   // Initial load; date changes are explicitly searched to protect edits.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1309,59 +1435,10 @@ export default function StockStandPage() {
     return true;
   }, [visibleRows, focusGridCell]);
 
-  const fillDown = useCallback(() => {
-    const active = activeCellRef.current;
-    if (!active || !selectedIds.length) return;
-    const sourceIndex = rows.findIndex((row) => row.id === active.id);
-    if (sourceIndex < 0) return;
-    const targetRows = rows.filter((row, index) => index > sourceIndex && selectedSet.has(row.id) && !row.lineno);
-    if (!targetRows.length) return;
-    const source = rows[sourceIndex];
-    if (active.field === 'itemname' || source.lineno) return;
-    const value = source[active.field] ?? '';
-    const targetIds = new Set(targetRows.map((row) => row.id));
-    setRows((current) => current.map((row) => {
-      if (!targetIds.has(row.id)) return row;
-      const next = { ...row, [active.field]: value };
-      if (active.field === 'warehousecode') next.warehousecodename = masters.warehouse.find((option) => option.code === value)?.name || '';
-      if (active.field === 'materialcode') next.materialname = masters.material.find((option) => option.code === value)?.name || '';
-      if (active.field === 'surfacecode') next.surfacename = masters.surface.find((option) => option.code === value)?.name || '';
-      return next;
-    }));
-    notifications.show({ title: '아래로 채우기 완료', message: `${targetRows.length}개 행에 현재 셀의 값을 복사했습니다.`, color: 'teal' });
-  }, [rows, selectedIds.length, selectedSet, masters.warehouse, masters.material, masters.surface]);
-
-  const handleTableKeyDown = useCallback((event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') {
-      event.preventDefault();
-      fillDown();
-      return;
-    }
-    const target = event.target instanceof HTMLInputElement ? event.target : null;
-    const active = target?.dataset.rowId && target?.dataset.field
-      ? { id: target.dataset.rowId, field: target.dataset.field }
-      : activeCellRef.current;
-    if (!active) return;
-    let rowDelta = 0;
-    let columnDelta = 0;
-    if (event.key === 'Enter') rowDelta = event.shiftKey ? -1 : 1;
-    else if (event.key === 'Tab') columnDelta = event.shiftKey ? -1 : 1;
-    else if (event.key === 'ArrowDown') rowDelta = 1;
-    else if (event.key === 'ArrowUp') rowDelta = -1;
-    else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-      const hasSelection = target && target.selectionStart !== target.selectionEnd;
-      const atBoundary = !target || target.readOnly || hasSelection
-        ? !hasSelection
-        : event.key === 'ArrowLeft' ? target.selectionStart === 0 : target.selectionEnd === target.value.length;
-      if (!atBoundary) return;
-      columnDelta = event.key === 'ArrowLeft' ? -1 : 1;
-    } else return;
-    if (moveGridCell(active.id, active.field, rowDelta, columnDelta)) event.preventDefault();
-  }, [fillDown, moveGridCell]);
-
   const pasteRange = useCallback(async (startId, startField, pastedText) => {
     const matrix = pastedText.replace(/\r/g, '').split('\n').filter((line, index, all) => line || index < all.length - 1).map((line) => line.split('\t'));
-    const startIndex = rows.findIndex((row) => row.id === startId);
+    // startId 가 없으면 빈 표에 처음부터 붙여넣는다 (모든 행을 새로 만든다)
+    const startIndex = startId == null && !rows.length ? 0 : rows.findIndex((row) => row.id === startId);
     const startColumn = GRID_FIELDS.indexOf(startField);
     if (startIndex < 0 || startColumn < 0) return;
     const targetRowCount = startIndex + matrix.length;
@@ -1451,14 +1528,322 @@ export default function StockStandPage() {
     });
   }, [rows]);
 
+  // ── 셀 범위 선택 (Shift+방향키 · Shift+클릭). 포커스는 시작 칸에 두고 범위는 표 칸(td)에 클래스로만 칠한다 ──
+  // activeCellRef: 현재 칸 (입력칸 포커스 또는 저장된 행 칸 클릭). rangeRef: { anchorId, anchorColumn, focusId, focusColumn }
+  const gridWrapRef = useRef(null);
+  const visibleRowsRef = useRef(visibleRows);
+  useLayoutEffect(() => { visibleRowsRef.current = visibleRows; });
+  const rangeRef = useRef(null);
+  const paintedCellsRef = useRef(new Set());
+  const paintFrameRef = useRef(0);
+  const getRangeBounds = useCallback(() => {
+    const range = rangeRef.current;
+    if (!range) return null;
+    const list = visibleRowsRef.current;
+    const anchorIndex = list.findIndex((row) => row.id === range.anchorId);
+    const focusIndex = range.focusId === range.anchorId ? anchorIndex : list.findIndex((row) => row.id === range.focusId);
+    if (anchorIndex < 0 || focusIndex < 0) return null;
+    return {
+      top: Math.min(anchorIndex, focusIndex), bottom: Math.max(anchorIndex, focusIndex),
+      left: Math.min(range.anchorColumn, range.focusColumn), right: Math.max(range.anchorColumn, range.focusColumn), focusIndex,
+    };
+  }, []);
+  const isMultiCellRange = useCallback((bounds = getRangeBounds()) => Boolean(bounds && (bounds.top !== bounds.bottom || bounds.left !== bounds.right)), [getRangeBounds]);
+  const rowElement = useCallback((id) => {
+    const escaped = window.CSS?.escape ? window.CSS.escape(String(id)) : String(id).replace(/"/g, '\\"');
+    return gridWrapRef.current?.querySelector(`tr[data-row-id="${escaped}"]`) || null;
+  }, []);
+  const paintRange = useCallback(() => {
+    paintFrameRef.current = 0;
+    paintedCellsRef.current.forEach((cell) => cell.classList.remove(classes.rangeCell));
+    paintedCellsRef.current.clear();
+    const bounds = getRangeBounds();
+    if (!isMultiCellRange(bounds)) return;
+    const list = visibleRowsRef.current;
+    for (let rowIndex = bounds.top; rowIndex <= bounds.bottom; rowIndex += 1) {
+      const rowEl = rowElement(list[rowIndex].id);
+      if (!rowEl) continue;
+      for (let column = bounds.left; column <= bounds.right; column += 1) {
+        const cell = rowEl.cells[STAND_FIRST_FIELD_CELL + column];
+        if (cell) { cell.classList.add(classes.rangeCell); paintedCellsRef.current.add(cell); }
+      }
+    }
+  }, [getRangeBounds, isMultiCellRange, rowElement]);
+  const schedulePaintRange = useCallback(() => {
+    if (rangeRef.current && !paintFrameRef.current) paintFrameRef.current = requestAnimationFrame(paintRange);
+  }, [paintRange]);
+  const clearRange = useCallback(() => {
+    if (!rangeRef.current && !paintedCellsRef.current.size) return;
+    rangeRef.current = null;
+    paintRange();
+  }, [paintRange]);
+  useEffect(() => { schedulePaintRange(); }, [visibleRows, schedulePaintRange]);
+  useEffect(() => () => { if (paintFrameRef.current) cancelAnimationFrame(paintFrameRef.current); }, []);
+  const setActiveCell = useCallback((id, field) => {
+    const previous = activeCellRef.current;
+    activeCellRef.current = { id, field };
+    if (previous?.id !== id || previous?.field !== field) clearRange();
+  }, [clearRange]);
+  const rangeFields = (bounds, fallbackField) => (bounds ? GRID_FIELDS.slice(bounds.left, bounds.right + 1) : [fallbackField]);
+  const busy = saving || loading || uploading;
+
+  // 행 쓰기: 바뀐 칸이 있는 행만 바꾸고 금액을 다시 계산한다 (updateRow · pasteRange 와 같음)
+  const writeRows = (targets, apply) => {
+    const updates = new Map();
+    targets.forEach((row) => {
+      const next = { ...row };
+      if (!apply(next)) return;
+      Object.assign(next, calculateAmounts(next, masters.price));
+      updates.set(row.id, next);
+    });
+    if (updates.size) setRows((current) => current.map((row) => updates.get(row.id) || row));
+    return updates.size;
+  };
+
+  // Ctrl+D 아래로 채우기 (엑셀과 같음)
+  //  - 셀 범위가 여러 행이면: 범위 맨 윗행 값을 범위 안 아래 행들에 (열마다)
+  //  - 체크한 행이 있으면: 현재 칸 값을 그 아래 체크한 신규 행들에 (예전과 같음)
+  //  - 그 밖에는: 바로 윗행 값을 현재 칸에
+  const fillDown = () => {
+    const active = activeCellRef.current;
+    if (!active || busy) return;
+    const list = visibleRowsRef.current;
+    const activeIndex = list.findIndex((row) => row.id === active.id);
+    if (activeIndex < 0) return;
+    const bounds = getRangeBounds();
+    let source;
+    let targets;
+    let mode;
+    if (bounds && bounds.bottom > bounds.top) {
+      mode = 'range';
+      source = list[bounds.top];
+      targets = list.slice(bounds.top + 1, bounds.bottom + 1);
+    } else if (selectedIds.length) {
+      mode = 'selected';
+      source = list[activeIndex];
+      const sourceIndex = rows.findIndex((row) => row.id === source.id);
+      targets = rows.filter((row, index) => index > sourceIndex && selectedSet.has(row.id) && !row.lineno);
+    } else {
+      mode = 'above';
+      source = list[activeIndex - 1];
+      targets = [list[activeIndex]];
+    }
+    const fields = orderStandFields(rangeFields(mode === 'range' ? bounds : (bounds && isMultiCellRange(bounds) ? bounds : null), active.field).filter((field) => field !== 'unitamt'));
+    if (!source || !targets.length || !fields.length) return;
+    const changed = writeRows(targets, (next) => fields.reduce((any, field) => {
+      if (!standFieldWritable(next, field)) return any;
+      copyStandField(next, source, field);
+      return true;
+    }, false));
+    if (mode !== 'above' && changed) notifications.show({ title: '아래로 채우기 완료', message: `${changed.toLocaleString()}개 행에 ${mode === 'range' ? '범위 맨 윗행' : '현재 칸'}의 값을 복사했습니다.`, color: 'teal' });
+  };
+
+  // 범위 지우기 (Delete · 잘라내기). 저장된 행은 단가만, 단가기준·수량단위(기본값 있는 목록)와 합계금액은 그대로 둔다.
+  const clearRangeCells = () => {
+    if (busy) return;
+    const bounds = getRangeBounds();
+    if (!bounds) return;
+    const fields = rangeFields(bounds);
+    writeRows(visibleRowsRef.current.slice(bounds.top, bounds.bottom + 1), (next) => fields.reduce((any, field) => {
+      if (!standFieldWritable(next, field) || field === 'unit' || field === 'qtyunit') return any;
+      clearStandField(next, field);
+      return true;
+    }, false));
+  };
+
+  const rangeCopyText = () => {
+    const bounds = getRangeBounds();
+    if (!bounds) return '';
+    const fields = rangeFields(bounds);
+    return visibleRowsRef.current.slice(bounds.top, bounds.bottom + 1)
+      .map((row) => fields.map((field) => standCopyText(row, field, masters)).join('\t')).join('\n');
+  };
+
+  // 새 행 넣기 (추가 버튼과 같은 기본값) · 현재 행 복제 (복사 버튼과 같은 값 — 신규 행만)
+  const newStandRow = () => makeRow({
+    standdate: localDate(),
+    qtyunit: resolveMasterCode('qtyunit', 'EA', masters) || 'EA',
+    unit: resolveMasterCode('unit', 'KG', masters) || 'KG',
+  });
+  const placeRow = (row, position, field) => {
+    setRows((current) => {
+      const next = [...current];
+      next.splice(Math.min(position, next.length), 0, row);
+      return next;
+    });
+    if (!hasSavedStock) setPage(Math.floor(position / pageSize) + 1);
+    pendingCellFocusRef.current = { key: `${row.id}:${field}` };
+    const visibleIndex = hasSavedStock ? position : position % pageSize;
+    requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: visibleIndex, align: 'center', behavior: 'auto' }));
+  };
+  const insertRowBelow = (rowId, field, duplicate) => {
+    if (busy) return;
+    const index = rows.findIndex((row) => row.id === rowId);
+    if (index < 0) return;
+    const source = rows[index];
+    if (duplicate && source.lineno) {
+      notifications.show({ title: '행 복제', message: '저장된 기초재고 행은 복제할 수 없습니다. 신규 입력 행에서 Ctrl+Shift+Enter 를 눌러 주세요.', color: 'orange' });
+      return;
+    }
+    const row = duplicate
+      ? makeRow(Object.fromEntries(Object.entries(source)
+        .filter(([key]) => !['id', 'lineno', 'isNew', 'has_movements', 'delete_block', 'created_at', 'updated_at', 'created_by', 'updated_by'].includes(key))))
+      : newStandRow();
+    placeRow(row, index + 1, field);
+  };
+
+  const focusFieldOf = (id, field) => {
+    const input = cellInputRefs.current.get(`${id}:${field}`);
+    if (input && !input.disabled) { input.focus(); input.select?.(); return true; }
+    return false;
+  };
+
+  // 엑셀식 단축키 — 칸 자체 처리(자동완성 목록 등)보다 먼저 받는다
+  const handleGridKeyDownCapture = (event) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229 || event.altKey) return;
+    const ctrl = event.ctrlKey || event.metaKey;
+    const { key } = event;
+    if (ctrl && key.toLowerCase() === 'd') event.preventDefault();   // 표 안의 Ctrl+D 는 브라우저 즐겨찾기로 넘기지 않는다
+    const active = activeCellRef.current;
+    const list = visibleRowsRef.current;
+    if (!active || STAND_FIELD_INDEX[active.field] === undefined || !list.some((row) => row.id === active.id)) return;
+    const stop = () => { event.preventDefault(); event.stopPropagation(); };
+    const arrow = key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight';
+
+    if (event.shiftKey && !ctrl && arrow) {
+      // 좌/우는 글자 안에서 커서가 움직일 수 있으면 글자 선택으로 둔다 (이미 범위가 있거나 글자 끝·전체 선택일 때만 범위 확장)
+      const target = event.target;
+      if ((key === 'ArrowLeft' || key === 'ArrowRight') && !isMultiCellRange() && target instanceof HTMLInputElement && !target.readOnly && target.selectionStart !== null) {
+        const { selectionStart: start, selectionEnd: end, value } = target;
+        const allSelected = start === 0 && end === value.length;
+        if (!allSelected && (key === 'ArrowLeft' ? start !== 0 : end !== value.length)) return;
+      }
+      const column = STAND_FIELD_INDEX[active.field];
+      const range = rangeRef.current || { anchorId: active.id, anchorColumn: column, focusId: active.id, focusColumn: column };
+      const focusIndex = list.findIndex((row) => row.id === range.focusId);
+      if (focusIndex < 0) return;
+      const nextIndex = Math.max(0, Math.min(list.length - 1, focusIndex + (key === 'ArrowDown' ? 1 : key === 'ArrowUp' ? -1 : 0)));
+      const nextColumn = Math.max(0, Math.min(GRID_FIELDS.length - 1, range.focusColumn + (key === 'ArrowRight' ? 1 : key === 'ArrowLeft' ? -1 : 0)));
+      stop();
+      rangeRef.current = { ...range, focusId: list[nextIndex].id, focusColumn: nextColumn };
+      paintRange();
+      const cell = rowElement(list[nextIndex].id)?.cells[STAND_FIRST_FIELD_CELL + nextColumn];
+      if (cell) cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      else virtuosoRef.current?.scrollToIndex({ index: nextIndex, align: 'center', behavior: 'auto' });
+      return;
+    }
+    if (ctrl && !event.shiftKey && (key === 'ArrowUp' || key === 'ArrowDown')) {
+      // Ctrl+위/아래: 이 쪽의 첫 행 / 마지막 행으로
+      stop();
+      const targetRow = list[key === 'ArrowUp' ? 0 : list.length - 1];
+      if (!focusFieldOf(targetRow.id, active.field)) focusGridCell(targetRow.id, active.field);
+      return;
+    }
+    if (ctrl && key.toLowerCase() === 'd') { stop(); fillDown(); return; }
+    if (ctrl && key === 'Enter') { stop(); insertRowBelow(active.id, active.field, event.shiftKey); return; }
+    if (key === 'Delete' && !ctrl && isMultiCellRange()) { stop(); clearRangeCells(); return; }
+    if (key === 'Escape' && rangeRef.current) clearRange();   // 칸의 Esc(입력 취소)도 그대로 동작
+  };
+
+  // 칸 클릭: 현재 칸으로 (저장된 행의 글자 칸 포함). Shift+클릭: 현재 칸부터 클릭한 칸까지 범위 (포커스는 그대로)
+  const handleGridMouseDownCapture = (event) => {
+    const cell = event.target instanceof Element ? event.target.closest('td') : null;
+    const rowEl = cell?.parentElement;
+    const id = rowEl?.dataset?.rowId;
+    const column = cell ? cell.cellIndex - STAND_FIRST_FIELD_CELL : -1;
+    if (!id || column < 0 || column >= GRID_FIELDS.length || !gridWrapRef.current?.contains(cell)) {
+      if (!event.shiftKey) clearRange();
+      return;
+    }
+    const active = activeCellRef.current;
+    if (event.shiftKey && active && STAND_FIELD_INDEX[active.field] !== undefined && visibleRowsRef.current.some((row) => row.id === active.id)) {
+      event.preventDefault();
+      rangeRef.current = {
+        anchorId: rangeRef.current?.anchorId || active.id,
+        anchorColumn: rangeRef.current?.anchorColumn ?? STAND_FIELD_INDEX[active.field],
+        focusId: id, focusColumn: column,
+      };
+      paintRange();
+      return;
+    }
+    setActiveCell(id, GRID_FIELDS[column]);
+  };
+
+  // 범위 복사·잘라내기: 엑셀에 그대로 붙일 수 있는 탭 구분 글자
+  const handleGridCopyCapture = (event) => {
+    if (!isMultiCellRange()) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', rangeCopyText());
+  };
+  const handleGridCutCapture = (event) => {
+    if (!isMultiCellRange()) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', rangeCopyText());
+    clearRangeCells();
+  };
+  // 범위를 고른 채 붙여넣기: 엑셀 범위는 범위 왼쪽 위부터, 값 하나는 범위 전체에 채운다 (pasteRange 규칙 그대로)
+  const handleGridPasteCapture = (event) => {
+    if (busy || !isMultiCellRange()) return;
+    const bounds = getRangeBounds();
+    const text = event.clipboardData.getData('text/plain');
+    event.preventDefault();
+    event.stopPropagation();
+    const startId = visibleRowsRef.current[bounds.top].id;
+    const startField = GRID_FIELDS[bounds.left];
+    if (isMultiCellText(text)) { void latestRowActionsRef.current.pasteRange(startId, startField, text); return; }
+    const value = text.replace(/\r?\n$/, '');
+    if (!value.trim()) { clearRangeCells(); return; }
+    const line = Array(bounds.right - bounds.left + 1).fill(value).join('\t');
+    void latestRowActionsRef.current.pasteRange(startId, startField, Array(bounds.bottom - bounds.top + 1).fill(line).join('\n'));
+  };
+  // 빈 표에 엑셀 범위 붙여넣기 (기초일자 칸부터 — 샘플 양식과 같은 칸 순서)
+  const handleEmptyGridPaste = (event) => {
+    if (busy || rows.length) return;
+    const text = event.clipboardData.getData('text/plain');
+    if (!text.trim()) return;
+    event.preventDefault();
+    void latestRowActionsRef.current.pasteRange(null, GRID_FIELDS[0], text);
+  };
+
+  const handleTableKeyDown = (event) => {
+    const target = event.target instanceof HTMLInputElement ? event.target : null;
+    const active = target?.dataset.rowId && target?.dataset.field
+      ? { id: target.dataset.rowId, field: target.dataset.field }
+      : activeCellRef.current;
+    if (!active) return;
+    let rowDelta = 0;
+    let columnDelta = 0;
+    if (event.key === 'Enter') rowDelta = event.shiftKey ? -1 : 1;
+    else if (event.key === 'Tab') columnDelta = event.shiftKey ? -1 : 1;
+    else if (event.key === 'ArrowDown') rowDelta = 1;
+    else if (event.key === 'ArrowUp') rowDelta = -1;
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      const hasSelection = target && target.selectionStart !== target.selectionEnd;
+      const atBoundary = !target || target.readOnly || hasSelection
+        ? !hasSelection
+        : event.key === 'ArrowLeft' ? target.selectionStart === 0 : target.selectionEnd === target.value.length;
+      if (!atBoundary) return;
+      columnDelta = event.key === 'ArrowLeft' ? -1 : 1;
+    } else return;
+    if (moveGridCell(active.id, active.field, rowDelta, columnDelta)) { event.preventDefault(); return; }
+    // 마지막 행에서 Enter: 새 행을 이어 붙이고 같은 칸으로 (엑셀처럼 계속 입력)
+    if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.nativeEvent.isComposing && !busy
+      && visibleRows.at(-1)?.id === active.id && (hasSavedStock || rows.at(-1)?.id === active.id)) {
+      event.preventDefault();
+      placeRow(newStandRow(), rows.findIndex((row) => row.id === active.id) + 1, active.field);
+    }
+  };
+
   const chooseMaster = useCallback((option) => {
     if (!masterPickerTarget) return;
     updateRow(masterPickerTarget.id, masterPickerTarget.field, option.code);
     setMasterPickerTarget(null);
   }, [masterPickerTarget, updateRow]);
 
-  const downloadTemplate = useCallback(() => {
+  const downloadTemplate = useCallback(async () => {
     const headers = STOCK_EXCEL_COLUMNS.map(([, label]) => label);
+    const XLSX = await loadXLSXOrNotify();
+    if (!XLSX) return;
     const worksheet = XLSX.utils.aoa_to_sheet([headers, Array(headers.length).fill('')]);
     applyExcelHeaderStyle(worksheet, headers.length);
     worksheet['!cols'] = STOCK_EXCEL_COLUMNS.map(([key]) => ({ wch: ['itemname', 'customname', 'warehousecodename', 'materialname', 'surfacename', 'description'].includes(key) ? 24 : 16 }));
@@ -1489,6 +1874,8 @@ export default function StockStandPage() {
         rowsForExport = rowsForExport.map((row) => currentRowsById.get(row.id) || row);
       }
       const headers = STOCK_EXPORT_COLUMNS.map(([, label]) => label);
+      const XLSX = await loadXLSXOrNotify();
+      if (!XLSX) return;
       const worksheet = XLSX.utils.aoa_to_sheet([
         headers,
         ...rowsForExport.map((row) => STOCK_EXPORT_COLUMNS.map(([key]) => {
@@ -1520,6 +1907,8 @@ export default function StockStandPage() {
     }
     setUploading(true);
     try {
+      const XLSX = await loadXLSXOrNotify();
+      if (!XLSX) return;
       const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       if (!sheet) throw new Error('엑셀 첫 번째 시트를 확인해 주세요.');
@@ -1851,7 +2240,7 @@ export default function StockStandPage() {
       setHasStockMovements(false);
       notifications.show({ title: '기초재고 전체 삭제 완료', message: `${Number(data.deleted_count || 0).toLocaleString()}건을 삭제했습니다.`, color: 'teal' });
     } catch (error) {
-        notifications.show({ title: '기초재고 전체 삭제 실패', message: errorText(error), color: 'red' });
+      setDeleteBlocked(errorText(error));   // 월마감 · 이후 거래 등: 같은 창에서 사유
     } finally { setSaving(false); }
   };
 
@@ -1875,7 +2264,7 @@ export default function StockStandPage() {
   });
   const rowHandlers = useMemo(() => ({
     registerCellInput,
-    setActiveCell: (id, field) => { activeCellRef.current = { id, field }; },
+    setActiveCell,
     updateRow: (...args) => latestRowActionsRef.current.updateRow(...args),
     pasteRange: (...args) => latestRowActionsRef.current.pasteRange(...args),
     selectItem: (...args) => latestRowActionsRef.current.selectItem(...args),
@@ -1885,7 +2274,7 @@ export default function StockStandPage() {
     openItemPicker: setItemPickerId,
     openCustomerPicker: setCustomerPickerId,
     openMasterPicker: (id, field) => setMasterPickerTarget({ id, field }),
-  }), [registerCellInput]);
+  }), [registerCellInput, setActiveCell]);
   const autoColumnWidths = useMemo(() => Object.fromEntries(STOCK_GRID_COLUMNS.map(([key, label]) => {
     const minWidth = key === 'select' ? 42 : key === 'number' ? 48 : 70;
     const width = fitColumnWidth(label, rows.map((row) => row[key]), GRID_COLUMN_WIDTHS[key], minWidth);
@@ -1942,7 +2331,7 @@ export default function StockStandPage() {
       }
       notifications.show({ title: '기초재고 삭제 완료', message: `${Number(data.deleted_count || savedRows.length).toLocaleString()}건을 삭제했습니다. 현재고·재고수불 내역도 함께 삭제했습니다.`, color: 'teal' });
     } catch (error) {
-      notifications.show({ title: '기초재고 삭제 실패', message: errorText(error), color: 'red', autoClose: 9000 });
+      setDeleteBlocked(errorText(error));   // 같은 창에서 사유
     } finally { setSaving(false); }
   };
 
@@ -1994,12 +2383,14 @@ export default function StockStandPage() {
           />
         </Group>
       </Group>
-      <Box className={`${codeClasses.tableWrap} ${classes.tableViewport} ${hasSavedStock ? classes.savedTableViewport : ''}`} style={{ '--code-table-min-width': `${Math.max(1730, tableWidth)}px` }} onKeyDown={handleTableKeyDown}>
+      <Box className={`${codeClasses.tableWrap} ${classes.tableViewport} ${hasSavedStock ? classes.savedTableViewport : ''}`} style={{ '--code-table-min-width': `${Math.max(1730, tableWidth)}px`, outline: 'none' }} onKeyDown={handleTableKeyDown}
+        ref={gridWrapRef} tabIndex={-1} onKeyDownCapture={handleGridKeyDownCapture} onMouseDownCapture={handleGridMouseDownCapture}
+        onCopyCapture={handleGridCopyCapture} onCutCapture={handleGridCutCapture} onPasteCapture={handleGridPasteCapture}>
         {loading ? <Box className={classes.loading}><Loader color="red" /></Box> : visibleRows.length ? (hasSavedStock ? (
           <Table className={`${sharedClasses.table} ${codeClasses.codeTable} ${classes.table}`} highlightOnHover withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing={0}
             style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
             <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
-            <Table.Tbody>{visibleRows.map((row, index) => <Table.Tr key={row.id} className={row.lineno ? undefined : `${codeClasses.newRow} ${classes.newRow}`}>{itemContent(index, row)}</Table.Tr>)}</Table.Tbody>
+            <Table.Tbody>{visibleRows.map((row, index) => <Table.Tr key={row.id} data-row-id={row.id} className={row.lineno ? undefined : `${codeClasses.newRow} ${classes.newRow}`}>{itemContent(index, row)}</Table.Tr>)}</Table.Tbody>
           </Table>
         ) : (
           <TableVirtuoso
@@ -2012,6 +2403,7 @@ export default function StockStandPage() {
             increaseViewportBy={{ top: 160, bottom: 240 }}
             fixedHeaderContent={() => <Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr>}
             itemContent={itemContent}
+            rangeChanged={schedulePaintRange}
           />
         )) : (
           <Box className={classes.emptyTableState}>
@@ -2019,7 +2411,11 @@ export default function StockStandPage() {
               style={{ width: '100%', minWidth: 'var(--code-table-min-width)', tableLayout: 'fixed' }}>
               <Table.Thead><Table.Tr>{headerColumns.map(renderHeader)}</Table.Tr></Table.Thead>
             </Table>
-            <Box className={classes.emptyTableMessage}>{'표시할 기초재고가 없습니다.'}</Box>
+            {busy ? <Box className={classes.emptyTableMessage}>{'표시할 기초재고가 없습니다.'}</Box> : (
+              <Box className={`${classes.emptyTableMessage} ${classes.emptyPasteTarget}`} tabIndex={0} role="textbox" aria-label="기초재고 붙여넣기" onPaste={handleEmptyGridPaste}>
+                {'표시할 기초재고가 없습니다. 추가를 누르거나, 여기를 클릭하고 엑셀 범위를 붙여넣으세요 (Ctrl+V · 기초일자 칸부터).'}
+              </Box>
+            )}
           </Box>
         )}
       </Box>
@@ -2060,9 +2456,9 @@ export default function StockStandPage() {
       onClose={() => setMasterPickerTarget(null)}
       onSelect={chooseMaster}
     />
-    <ConfirmDeleteModal opened={deleteAllOpen} onClose={() => setDeleteAllOpen(false)} onConfirm={deleteAll} loading={saving}
+    <ConfirmDeleteModal opened={deleteAllOpen} onClose={() => { setDeleteAllOpen(false); setDeleteBlocked(''); }} onConfirm={deleteAll} loading={saving} blocked={deleteBlocked}
       title="기초재고를 전체 삭제할까요?" target="기초재고 전체" message="이 회사에 등록된 기초재고가 모두 삭제되며" note="삭제한 데이터는 복구할 수 없습니다." confirmLabel="전체 삭제" />
-    <ConfirmDeleteModal opened={deleteLinesOpen} onClose={() => setDeleteLinesOpen(false)} onConfirm={deleteSelectedLines} loading={saving}
+    <ConfirmDeleteModal opened={deleteLinesOpen} onClose={() => { setDeleteLinesOpen(false); setDeleteBlocked(''); }} onConfirm={deleteSelectedLines} loading={saving} blocked={deleteBlocked}
       title="기초재고를 삭제할까요?" target={`저장된 기초재고 ${selectedSavedCount.toLocaleString()}건`}
       message={`현재고와 재고수불 내역에서도 함께 삭제됩니다.${selectedNewCount > 0 ? ` 선택한 신규 입력 행 ${selectedNewCount.toLocaleString()}건도 함께 제거됩니다.` : ''}`}
       note="삭제한 데이터는 복구할 수 없습니다." />

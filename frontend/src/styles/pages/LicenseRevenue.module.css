@@ -69,3 +69,20 @@
 .table td { border-right: 1px solid #edf0f4; }
 .table tfoot td { border-right-color: #e3e8ef; }
 .table th:last-child, .table td:last-child { border-right: 0; }
+
+/* AI 비용현황 (같은 화면 틀을 함께 쓴다) */
+.toolGroup { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.toolGroup .viewTabs { margin-left: 0; }
+.quotaCell { display: inline-flex; align-items: center; gap: 8px; color: #374151; font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.quotaBar { position: relative; display: inline-block; width: 54px; height: 5px; overflow: hidden; border-radius: 999px; background: #eef1f5; }
+.quotaBar b { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 999px; background: #52607a; }
+.quotaWarn { color: #b45309; font-weight: 600; }
+.quotaWarn .quotaBar b { background: #f59e0b; }
+.down .quotaBar b { background: #e0434b; }
+.failNote { color: #c4363f; font-size: 11px; }
+.rateBox { display: inline-flex; align-items: center; gap: 6px; color: #6b7280; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.rateBox :global(.mantine-NumberInput-root) { width: 84px; }
+.rateBox :global(.mantine-Input-input) { height: 32px; min-height: 32px; text-align: right; }
+.rateBox em { color: #9aa3af; font-size: 12px; font-style: normal; }
+.estimateNote { display: inline-flex; align-items: center; gap: 7px; color: #8b95a3; font-size: 12px; font-weight: 500; }
+.estimateNote b { padding: 1px 8px; border-radius: 9px; background: #fdf3dc; color: #a16207; font-size: 11.5px; font-weight: 700; }

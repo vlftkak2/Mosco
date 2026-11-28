@@ -4,7 +4,7 @@ from threading import Lock
 from time import monotonic
 
 import db as _shared_db
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from config import DB_CONFIG
 from security import ACCESS_TOKEN_MINUTES, create_access_token, invalidate_user_access_cache
 from services.auth import User as user_module
@@ -21,10 +21,12 @@ conn_str = (
 
 # ── 로그인 시도 제한 (프로세스 메모리, 워커마다 따로 센다) ──
 LOGIN_WINDOW_SECONDS = 10 * 60
-LOGIN_MAX_FAILURES_PER_EMAIL = 10
+LOGIN_MAX_FAILURES_PER_EMAIL = 10          # 같은 이메일 + 같은 IP
+LOGIN_MAX_FAILURES_PER_EMAIL_ANY_IP = 50   # 같은 이메일, 여러 IP 합계 (분산 대입 방지)
 LOGIN_MAX_FAILURES_PER_IP = 30
 LOGIN_LIMITER_MAX_KEYS = 20000
 LOGIN_LOCKED_MESSAGE = "로그인 실패가 너무 많습니다. 10분 후 다시 시도해 주세요."
+LICENSE_EXPIRED_MESSAGE = "이용 기간(라이선스)이 종료되었습니다. 관리자에게 문의해 주세요."
 LOGIN_FAILED_MESSAGE = "계정 정보가 일치하지 않거나 회사 이용 상태를 확인할 수 없습니다."
 
 
@@ -93,18 +95,23 @@ def _burn_password_check(password: str) -> None:
 
 # 데이터 규격은 main.py에서 검증을 위해 유지하거나 main으로 옮겨도 됩니다.
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=128)
 
 def process_login(item: LoginRequest, client_ip: str = ""):
-    email_key = "email:" + str(item.email or "").strip().lower()
+    normalized_email = str(item.email or "").strip().lower()
+    # 이메일만으로 잠그면 남이 일부러 틀려 정상 사용자를 잠글 수 있으므로 (이메일 + IP) 로 센다.
+    email_key = "email:" + normalized_email + "|" + (client_ip or "unknown")
+    email_any_key = "email-any:" + normalized_email
     ip_key = "ip:" + (client_ip or "unknown")
     if (login_limiter.is_blocked(email_key, LOGIN_MAX_FAILURES_PER_EMAIL)
+            or login_limiter.is_blocked(email_any_key, LOGIN_MAX_FAILURES_PER_EMAIL_ANY_IP)
             or login_limiter.is_blocked(ip_key, LOGIN_MAX_FAILURES_PER_IP)):
         raise LoginRateLimited(LOGIN_LOCKED_MESSAGE)
 
     def fail():
         login_limiter.add_failure(email_key, LOGIN_MAX_FAILURES_PER_EMAIL)
+        login_limiter.add_failure(email_any_key, LOGIN_MAX_FAILURES_PER_EMAIL_ANY_IP)
         login_limiter.add_failure(ip_key, LOGIN_MAX_FAILURES_PER_IP)
         return {"success": False, "message": LOGIN_FAILED_MESSAGE}
 
@@ -115,7 +122,9 @@ def process_login(item: LoginRequest, client_ip: str = ""):
         cursor = conn.cursor()
 
         cursor.execute(
-            """SELECT u.companyid, c.companyname, u.username, u.email, u.password, u.authority
+            """SELECT u.companyid, c.companyname, u.username, u.email, u.password, u.authority,
+                      (c.companyid <> '001' AND c.license_end IS NOT NULL
+                       AND c.license_end < (now() AT TIME ZONE 'Asia/Seoul')::date) AS license_expired
                FROM user01t u
                JOIN company01t c ON c.companyid = u.companyid
                WHERE LOWER(u.email) = LOWER(%s)
@@ -132,7 +141,11 @@ def process_login(item: LoginRequest, client_ip: str = ""):
 
         user = matches[0]
         if user_module.verify_password(item.password, user[4]):
+            if user[6]:
+                # 비밀번호가 맞은 경우에만 사유를 알려 준다 (계정 존재 여부 노출 방지)
+                return {"success": False, "message": LICENSE_EXPIRED_MESSAGE}
             login_limiter.reset(email_key)
+            login_limiter.reset(email_any_key)
             # 계정당 활성 세션 1개: 새 세션 ID 를 저장하면 이전에 발급한 토큰은 다음 요청부터 거절된다.
             session_id = secrets.token_urlsafe(32)
             cursor.execute(
@@ -160,3 +173,13 @@ def process_login(item: LoginRequest, client_ip: str = ""):
     finally:
         if conn:
             conn.close()
+
+
+def process_logout(companyid: str, email: str, sid: str) -> None:
+    """서버 세션을 끊는다 (이 토큰과 같은 세션일 때만 — 다른 곳에서 새로 로그인한 세션은 건드리지 않는다)."""
+    with _shared_db.connect() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "UPDATE user01t SET session_id = NULL WHERE companyid = %s AND email = %s AND session_id = %s",
+            (companyid, email, sid),
+        )
+    invalidate_user_access_cache(companyid, email)

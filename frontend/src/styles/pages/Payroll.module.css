@@ -1,0 +1,327 @@
+/* 급여관리 (pages/payroll: 급여입력 · 급여대장 · 내 급여현황) — 골격은 User.module.css, 모양은 파로스형 간결 디자인
+   버튼은 3색만: 주 동작 빨강 #e0434b · 보조 남색 #3b4a62 · 취소 회색 #8b95a3 */
+
+/* 조회 조건 줄 */
+.filterBar { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 10px; padding: 10px 14px; border: 1px solid #e1e5ea; border-radius: 8px; background: #fff; }
+.filterLabel { color: #222; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.filterInput { height: 32px; padding: 0 10px; border: 1px solid #ccc; border-radius: 4px; color: #333; font: inherit; font-size: 13px; }
+.filterInput:focus { border-color: #e0434b; outline: 0; box-shadow: 0 0 0 2px #e0434b26; }
+.filterGap { flex: 1 1 auto; }
+.status { color: #888; font-size: 12.5px; white-space: nowrap; }
+.status b { color: #222; }
+.statusClosed b { color: #e0434b; }
+.check { display: inline-flex; align-items: center; gap: 6px; color: #333; font-size: 13px; cursor: pointer; user-select: none; }
+.check input { width: 15px; height: 15px; margin: 0; accent-color: #e0434b; }
+
+/* 버튼 3색 */
+.btn { height: 32px; padding: 0 14px; border: 0; border-radius: 4px; color: #fff; font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btnRed { background: #e0434b; }
+.btnRed:hover:not(:disabled) { background: #c9363e; }
+.btnNavy { background: #3b4a62; }
+.btnNavy:hover:not(:disabled) { background: #2e3b50; }
+.btnGray { background: #8b95a3; }
+.btnGray:hover:not(:disabled) { background: #77818f; }
+.btnSmall { height: 26px; padding: 0 10px; font-size: 12px; }
+
+/* 급여입력: 왼쪽 목록 : 오른쪽 상세 */
+.workspace.workspace { grid-template-columns: minmax(560px, 1.35fr) minmax(430px, 0.65fr); }
+.count { color: #888; font-size: 12px; font-variant-numeric: tabular-nums; }
+.count b { color: #222; }
+
+/* 표 (공통) */
+.gridWrap { min-width: 0; min-height: 0; flex: 1 1 0; overflow: auto; background: #fff; }
+.grid { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; table-layout: fixed; }
+.grid th { position: sticky !important; z-index: 2; top: 0; height: 34px; padding: 0 8px; border-right: 1px solid #e6e8ec; border-bottom: 1px solid #dcdfe4; background: #f7f8fa; color: #333; font-weight: 600; text-align: center; white-space: nowrap; }
+.grid thead tr + tr th { top: 34px; }
+.grid td { height: 34px; padding: 0 8px; overflow: hidden; border-right: 1px solid #eef0f3; border-bottom: 1px solid #eef0f3; color: #333; text-overflow: ellipsis; white-space: nowrap; }
+.grid th:last-child, .grid td:last-child { border-right: 0; }
+.grid tbody tr { cursor: pointer; }
+.grid tbody tr:hover td { background: #fafafa; }
+.grid tbody tr.selected td { background: #fff0f1; }
+.grid tbody tr.selected td:first-child { box-shadow: inset 3px 0 #e0434b; }
+.grid tfoot td { position: sticky; bottom: 0; z-index: 1; border-top: 1px solid #dcdfe4; background: #f7f8fa; color: #222; font-weight: 700; }
+.grid .subtotal td { background: #fbfbfc; color: #222; font-weight: 600; cursor: default; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.center { text-align: center; }
+.emptyCell { height: 160px !important; color: #999; text-align: center; cursor: default; }
+.faded td { color: #9aa3af; }
+
+/* 오른쪽 상세 */
+.detailHead { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #e4e4e4; background: #fff; }
+.detailHead h3 { margin: 0; color: #222; font-size: 16px; font-weight: 700; letter-spacing: -.3px; }
+.detailHead span { color: #888; font-size: 12px; }
+.detailHead .btn { margin-left: auto; }
+.detailBody { min-height: 0; flex: 1 1 0; overflow: auto; padding: 14px 16px 18px; background: #fff; }
+.placeholder { padding: 40px 20px; color: #999; font-size: 13px; text-align: center; }
+
+.form { display: grid; grid-template-columns: 84px minmax(0, 1fr) 84px minmax(0, 1fr); align-items: center; gap: 8px 12px; }
+.label { color: #222; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.input { width: 100%; height: 32px; padding: 0 9px; border: 1px solid #ccc; border-radius: 4px; background: #fff; color: #333; font: inherit; font-size: 13px; }
+.input:focus { border-color: #e0434b; outline: 0; box-shadow: 0 0 0 2px #e0434b26; }
+.input:disabled, .input[readonly] { border-color: #e4e4e4; background: #f1f2f5; color: #777; }
+.input.num { text-align: right; }
+.wide { grid-column: span 3; }
+
+.section { margin-top: 16px; padding-top: 12px; border-top: 1px solid #e4e4e4; }
+.sectionHead { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.sectionHead h4 { margin: 0; color: #222; font-size: 14px; font-weight: 700; }
+.sectionHead span { color: #888; font-size: 12px; }
+.sectionHead .btn { margin-left: auto; }
+
+/* 지급 | 공제 두 표 */
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.items { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.items th { height: 30px; padding: 0 8px; border: 1px solid #e6e8ec; background: #f7f8fa; color: #333; font-weight: 600; }
+.items td { height: 34px; padding: 2px 6px; border: 1px solid #eef0f3; color: #333; }
+.items td:first-child { padding-left: 8px; white-space: nowrap; }
+.items .input { height: 28px; }
+.items tfoot td { background: #f7f8fa; font-weight: 700; }
+.hint { color: #999; font-size: 11px; font-weight: 400; }
+
+.totals { display: grid; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #e4e4e4; }
+.totals div { display: flex; justify-content: space-between; color: #555; font-size: 13px; }
+.totals b { color: #222; font-variant-numeric: tabular-nums; }
+.totals .net { margin-top: 4px; padding-top: 8px; border-top: 1px dashed #ddd; color: #222; font-weight: 700; }
+.totals .net b { color: #e0434b; font-size: 17px; }
+
+/* 급여대장 */
+.ledgerTitle { flex: 0 0 auto; margin: 2px 0 8px; color: #222; font-size: 17px; font-weight: 700; text-align: center; }
+.ledgerPane { display: flex; min-height: 0; flex: 1 1 0; flex-direction: column; overflow: hidden; border: 1px solid #e1e5ea; border-radius: 8px; background: #fff; }
+.ledgerHead { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; padding: 9px 14px; border-bottom: 1px solid #e4e4e4; }
+.groupPay { background: #fbf5f5 !important; }
+.groupDed { background: #f5f7fb !important; }
+
+/* 내 급여현황 */
+.myLayout { display: grid; min-height: 0; flex: 1 1 0; grid-template-columns: 260px minmax(0, 1fr); gap: 11px; }
+.myList { display: flex; min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid #e1e5ea; border-radius: 8px; background: #fff; }
+.myListHead { flex: 0 0 auto; padding: 12px 14px; border-bottom: 1px solid #e4e4e4; color: #222; font-size: 14px; font-weight: 700; }
+.myMonths { min-height: 0; flex: 1 1 0; overflow: auto; }
+.myMonth { display: flex; width: 100%; align-items: center; justify-content: space-between; padding: 11px 14px; border: 0; border-bottom: 1px solid #f0f1f3; background: #fff; color: #333; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.myMonth:hover { background: #fafafa; }
+.myMonthOn { background: #fff0f1; box-shadow: inset 3px 0 #e0434b; }
+.myMonth b { font-weight: 600; }
+.myMonth span { color: #555; font-variant-numeric: tabular-nums; }
+.slipPane { min-height: 0; overflow: auto; border: 1px solid #e1e5ea; border-radius: 8px; background: #fff; }
+.slip { max-width: 760px; margin: 0 auto; padding: 22px 26px 28px; }
+.slipTitle { display: flex; align-items: center; margin-bottom: 14px; }
+.slipTitle h3 { margin: 0; color: #222; font-size: 18px; font-weight: 700; }
+.slipTitle .btn { margin-left: auto; }
+.slipInfo { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 14px; border-top: 1px solid #ddd; border-left: 1px solid #ddd; font-size: 12.5px; }
+.slipInfo div { display: flex; border-right: 1px solid #ddd; border-bottom: 1px solid #ddd; }
+.slipInfo dt { flex: 0 0 72px; padding: 7px 8px; background: #f7f8fa; color: #555; font-weight: 600; }
+.slipInfo dd { min-width: 0; margin: 0; padding: 7px 8px; color: #222; }
+.slipNote { margin-top: 12px; color: #777; font-size: 12px; line-height: 1.6; }
+
+@media (max-width: 1100px) {
+  .workspace.workspace { grid-template-columns: minmax(0, 1fr); }
+  .myLayout { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── 급여입력 (2차: 월 머리 + 목록 | 상세) ───────────────────────── */
+.monthCard { flex: 0 0 auto; margin-bottom: 10px; border: 1px solid #e1e5ea; border-radius: 8px; background: #fff; }
+.monthTop { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 12px 16px; border-bottom: 1px solid #eef0f3; }
+.monthNav { display: flex; align-items: center; gap: 4px; }
+.navBtn { width: 30px; height: 32px; border: 1px solid #ccc; border-radius: 4px; background: #fff; color: #555; font-size: 17px; line-height: 1; cursor: pointer; }
+.navBtn:hover { border-color: #e0434b; color: #e0434b; }
+.monthPick { position: relative; display: inline-flex; min-width: 128px; height: 32px; align-items: center; justify-content: center; padding: 0 10px; cursor: pointer; }
+.monthPick span { color: #222; font-size: 18px; font-weight: 700; letter-spacing: -.4px; }
+.monthPick input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.paydate { display: inline-flex; align-items: center; gap: 8px; color: #222; font-size: 13px; font-weight: 600; }
+
+/* 단계: ① 급여 만들기 → ② 입력 · 확인 → ③ 마감 */
+.steps { display: flex; align-items: center; gap: 0; margin: 0 0 0 auto; padding: 0; list-style: none; }
+.steps li { display: inline-flex; align-items: center; gap: 6px; color: #aaa; font-size: 13px; white-space: nowrap; }
+.steps li + li::before { content: ''; width: 26px; height: 1px; margin: 0 10px; background: #ddd; }
+.steps li b { display: inline-grid; width: 20px; height: 20px; place-items: center; border: 1px solid #ccc; border-radius: 50%; color: #aaa; font-size: 11px; font-weight: 700; }
+.steps li.stepNow { color: #222; font-weight: 700; }
+.steps li.stepNow b { border-color: #e0434b; background: #e0434b; color: #fff; }
+.steps li.stepDone { color: #555; }
+.steps li.stepDone b { border-color: #3b4a62; background: #3b4a62; color: #fff; }
+.monthActions { display: flex; gap: 6px; }
+
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 0; }
+.kpis > div { padding: 10px 16px; }
+.kpis > div + div { border-left: 1px solid #eef0f3; }
+.kpis dt { margin-bottom: 2px; color: #888; font-size: 12px; }
+.kpis dd { display: flex; align-items: baseline; gap: 3px; margin: 0; color: #222; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpis small { color: #888; font-size: 12px; font-weight: 500; }
+.kpis em { margin-left: 8px; color: #e0434b; font-size: 12px; font-style: normal; font-weight: 600; }
+.kpiNet dd { color: #e0434b; }
+.closedText { color: #e0434b !important; }
+
+/* 본문: 목록 | 상세 */
+.entryLayout { display: grid; min-height: 0; flex: 1 1 0; grid-template-columns: minmax(520px, 1fr) minmax(500px, 560px); gap: 10px; }
+.listCard, .detailCard { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid #e1e5ea; border-radius: 8px; background: #fff; }
+.listHead { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #e4e4e4; }
+.tabs { display: flex; gap: 2px; }
+.tabs button { height: 30px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: none; color: #777; font: inherit; font-size: 13px; cursor: pointer; }
+.tabs button span { margin-left: 2px; color: #aaa; font-size: 12px; font-variant-numeric: tabular-nums; }
+.tabs button:hover { color: #222; }
+.tabs .tabOn { border-bottom-color: #e0434b; color: #222; font-weight: 700; }
+.tabs .tabOn span { color: #e0434b; }
+.listHead .btn { margin-left: auto; }
+.name { color: #222; font-weight: 600; }
+.stateDone { color: #555; }
+.stateTodo { color: #e0434b; font-weight: 600; }
+.startBox { display: flex; height: 100%; min-height: 260px; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center; }
+.startBox h4 { margin: 0; color: #222; font-size: 16px; font-weight: 700; }
+.startBox p { margin: 0; color: #777; font-size: 13px; line-height: 1.7; }
+
+/* 상세: 사람 머리 */
+.personHead { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 12px 16px; border-bottom: 1px solid #e4e4e4; }
+.personHead h3 { margin: 0; color: #222; font-size: 18px; font-weight: 700; letter-spacing: -.4px; }
+.personSelect { width: 220px; }
+.personMeta { color: #888; font-size: 12.5px; }
+.dirtyMark { padding: 1px 6px; border-radius: 3px; background: #fdeced; color: #e0434b; font-size: 11.5px; font-weight: 600; }
+.personNav { display: flex; align-items: center; gap: 6px; margin-left: auto; color: #888; font-size: 12px; font-variant-numeric: tabular-nums; }
+.lockNote { flex: 0 0 auto; padding: 8px 16px; border-bottom: 1px solid #f3d6d8; background: #fdf3f4; color: #a33; font-size: 12.5px; }
+.detailScroll { min-height: 0; flex: 1 1 0; overflow: auto; padding: 14px 16px 16px; }
+
+/* 지급 | 공제 */
+.itemBox { min-width: 0; }
+.itemHead { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 2px solid #222; }
+.itemHead h4 { margin: 0; color: #222; font-size: 14px; font-weight: 700; }
+.itemHead span { margin-left: auto; color: #222; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.itemRow { display: grid; grid-template-columns: minmax(0, 1fr) 128px; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid #f2f3f5; cursor: text; }
+.itemRow > span { display: flex; flex-direction: column; color: #333; font-size: 13px; line-height: 1.25; }
+.itemRow small { color: #aaa; font-size: 11px; }
+.itemRow .input { height: 30px; }
+.itemNote { margin: 8px 0 0; color: #999; font-size: 11.5px; line-height: 1.5; }
+.linkBtn { padding: 0; border: 0; background: none; color: #3b4a62; font: inherit; font-size: 12px; font-weight: 600; text-decoration: underline; cursor: pointer; }
+.linkBtn:hover { color: #e0434b; }
+
+.subSection { margin-top: 16px; padding-top: 12px; border-top: 1px solid #e4e4e4; }
+.subSection h4 { margin: 0 0 8px; color: #222; font-size: 14px; font-weight: 700; }
+.inlineFields { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 8px; }
+.inlineFields label { display: inline-flex; min-width: 0; align-items: center; gap: 6px; }
+.inlineFields label > span { color: #222; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.inlineFields em { color: #888; font-size: 12px; font-style: normal; }
+.inlineFields .grow { flex: 1 1 200px; }
+.inlineFields .grow .input { flex: 1 1 auto; }
+.short { width: 70px !important; }
+.inlineFields select.short { width: 84px !important; }
+
+/* 아래 고정 줄 */
+.saveBar { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 16px; border-top: 1px solid #e4e4e4; background: #fafafa; }
+.equation { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; color: #777; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.equation b { color: #333; font-weight: 600; }
+.equation i { color: #bbb; font-style: normal; }
+.netValue { color: #222; font-weight: 600; }
+.netValue b { color: #e0434b; font-size: 18px; font-weight: 700; }
+.netValue b.minus { color: #b00020; }
+.saveActions { display: flex; gap: 6px; margin-left: auto; }
+
+@media (max-width: 1200px) {
+  .entryLayout { grid-template-columns: minmax(0, 1fr); }
+  .steps { margin-left: 0; }
+  .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* ── 급여대장 (2차) ─────────────────────────────────────────── */
+.search { width: 240px; }
+.sortable { cursor: pointer; user-select: none; }
+.sortable:hover { color: #e0434b !important; }
+.sortMark { color: #e0434b; font-size: 10px; }
+.stickyCol { position: sticky !important; z-index: 1; background: #fff; }
+.grid th.stickyCol { background: #f7f8fa; }
+.grid tbody tr:hover td.stickyCol { background: #fafafa; }
+.grid .subtotal td.stickyCol, .grid tfoot td.stickyCol { background: #f7f8fa; z-index: 3; }
+.ledgerGrid tbody tr { cursor: default; }
+.ledgerGrid td:nth-child(2) { box-shadow: inset -1px 0 #dcdfe4; }
+
+/* ── 내 급여현황 (2차: 연도 요약 + 차트 | 명세서 + 월별 표) ───────── */
+.myScroll { display: flex; min-height: 0; flex: 1 1 0; flex-direction: column; gap: 10px; overflow: auto; padding-bottom: 6px; }
+.myScroll > .monthCard { margin-bottom: 0; }
+.myEmpty { padding: 80px 20px; text-align: center; }
+.myEmpty h4 { margin: 0 0 8px; color: #222; font-size: 16px; }
+.myEmpty p { margin: 0; color: #888; font-size: 13px; }
+.kpiHint { margin: 2px 0 0; color: #aaa; font-size: 11px; }
+.myGrid { display: grid; flex: 0 0 auto; grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr); gap: 10px; }
+.card { display: flex; min-width: 0; flex-direction: column; padding: 12px 16px 14px; border: 1px solid #e1e5ea; border-radius: 8px; background: #fff; }
+.cardHead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.cardHead h4 { margin: 0; color: #222; font-size: 15px; font-weight: 700; letter-spacing: -.3px; }
+.segment { display: inline-flex; margin-left: auto; overflow: hidden; border: 1px solid #ccc; border-radius: 4px; }
+.segment button { height: 28px; padding: 0 12px; border: 0; background: #fff; color: #555; font: inherit; font-size: 12.5px; cursor: pointer; }
+.segment button + button { border-left: 1px solid #ccc; }
+.segment .segmentOn { background: #3b4a62; color: #fff; font-weight: 600; }
+.chartWrap { position: relative; width: 100%; }
+.chartAxis { fill: #888; font-size: 11px; font-variant-numeric: tabular-nums; }
+.chartAxisOn { fill: #222; font-weight: 700; }
+.chartTip { position: absolute; z-index: 5; display: flex; min-width: 150px; flex-direction: column; gap: 2px; padding: 8px 10px; transform: translateX(-50%); border: 1px solid #dcdfe4; border-radius: 6px; background: #fff; box-shadow: 0 4px 14px rgb(0 0 0 / 10%); color: #333; font-size: 12px; pointer-events: none; }
+.chartTip b { margin-bottom: 2px; color: #222; }
+.chartTip span { display: flex; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }
+.chartTip i { color: #888; font-style: normal; }
+.chartTipNet { color: #222; font-weight: 700; }
+.chartNote { margin: 4px 0 0; color: #aaa; font-size: 11.5px; }
+.slipNet { margin-top: 12px; color: #555; font-size: 13px; text-align: right; }
+.slipNet b { color: #e0434b; font-size: 20px; font-variant-numeric: tabular-nums; }
+.slipMeta { margin-top: 6px; color: #999; font-size: 12px; text-align: right; }
+.myTableCard { flex: 0 0 auto; }
+.myTableCard .gridWrap { max-height: 460px; flex: 0 0 auto; }
+
+@media (max-width: 1100px) {
+  .myGrid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* 차트 svg: 화면의 noIcons(꾸밈 아이콘 숨김) 규칙에 가려지지 않게 */
+.chartWrap svg.chartSvg { display: block !important; }
+
+/* 월별 실지급액 차트: 옆 명세서 카드 높이만큼 늘려 아래 여백을 없앤다 */
+.chartCard .chartWrap { min-height: 200px; flex: 1 1 auto; }
+.chartCard .chartWrap svg.chartSvg { position: absolute; inset: 0; }
+
+/* 월별 · 연간 전환: 미끄러지는 남색 바탕 */
+.slideSeg { position: relative; display: inline-grid; grid-template-columns: 1fr 1fr; overflow: hidden; padding: 2px; border: 1px solid #ccc; border-radius: 5px; background: #fff; }
+.slideThumb { position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); border-radius: 3px; background: #3b4a62; transition: transform .25s cubic-bezier(.4, 0, .2, 1); }
+.slideSegRight .slideThumb { transform: translateX(100%); }
+.slideSeg button { position: relative; z-index: 1; min-width: 52px; height: 28px; padding: 0 14px; border: 0; background: none; color: #666; font: inherit; font-size: 13px; cursor: pointer; transition: color .25s; }
+.slideSeg button:hover:not(.slideOn) { color: #222; }
+.slideSeg .slideOn { color: #fff; font-weight: 600; }
+/* 보기를 바꿀 때 표가 살짝 떠오르며 나타난다 */
+.fadeIn { animation: payrollFadeIn .28s ease-out; }
+@keyframes payrollFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .slideThumb, .slideSeg button { transition: none; }
+  .fadeIn { animation: none; }
+}
+
+/* ── 급여입력 3차: 목록 입력 · 지급항목 설정 ── */
+.entryFull { grid-template-columns: minmax(0, 1fr) !important; }
+.listHead .slideSeg { margin-left: 4px; }
+.editGrid tbody tr { cursor: default; }
+.editGrid tbody tr:hover td { background: inherit; }
+.editCell { padding: 3px 4px !important; }
+.editCell .input { height: 28px; border-color: #dcdfe4; }
+.editedRow td { background: #fffaf0 !important; }
+.editedRow td:first-child { box-shadow: inset 3px 0 #e0a43b; }
+
+/* 지급항목 설정 창 (공통 삭제 확인 창과 같은 모양 + 항목 칩) */
+.chipArea { padding: 0 22px 18px; }
+.chipGroupHead { margin: 4px 0 8px; color: #18212f; font-size: 12.5px; font-weight: 700; }
+.chipGroupHead small { margin-left: 4px; color: #9aa3af; font-size: 11.5px; font-weight: 500; }
+.chipGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 14px; }
+.chip { display: flex; min-width: 0; height: 38px; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid #e3e7ed; border-radius: 10px; background: #fff;
+        color: #6b7889; font: inherit; font-size: 13px; text-align: left; cursor: pointer; transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease; }
+.chip:hover:not(:disabled) { border-color: #f0a3a7; }
+.chip:focus-visible { outline: 2px solid #f0a3a7; outline-offset: 1px; }
+.chipBox { display: inline-grid; width: 18px; height: 18px; flex: 0 0 auto; place-items: center; border: 1.5px solid #cfd5dd; border-radius: 5px; background: #fff; color: #fff; font-size: 12px; font-weight: 800; line-height: 1; transition: background-color 120ms ease, border-color 120ms ease; }
+.chipLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chipOn { border-color: #f3b3b6; background: #fff4f4; color: #18212f; font-weight: 700; }
+.chipOn .chipBox { border-color: #ef444c; background: #ef444c; }
+.chipFixed { cursor: default; opacity: .75; }
+.chipTag { margin-left: auto; padding: 1px 6px; border-radius: 999px; background: #f2f4f7; color: #6b7889; font-size: 10.5px; font-weight: 700; }
+.chipNote { margin: 0; color: #9aa3af; font-size: 11.5px; text-align: center; }
+
+
+/* 지급일: 대시보드 조회기간 칸(DashboardKit .rangeBox)을 그대로 쓰고, 이 화면의 noIcons 규칙에 달력 아이콘만 가려지지 않게 */
+.dateIcon svg { display: inline-block !important; }
+
+/* 급여대장 연간: 시작월 ~ 끝월 (대시보드 조회기간 칸 · 조회 버튼과 같은 모양) */
+.periodBar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.monthRange input { width: 128px; height: 30px; padding: 0 10px; border: 0; border-radius: 4px; background: transparent; color: #222; font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; outline: none; }
+.rangeHint { color: #e0434b; font-size: 12px; }
+.kpis dd.kpiText { font-size: 15px; }
+.kpis dd.kpiText small { margin-left: 6px; }
+/* 소계 · 합계 이름 칸: 옆 고정 칸까지 글자가 이어지게 */
+.nowrapCell { overflow: visible !important; white-space: nowrap; font-weight: 700; }

@@ -148,3 +148,7 @@
 /* 이전 수량 입력칸: 칸 여백 없이 칸 전체를 채운다 (포커스 테두리는 상세표 공통 규칙) */
 .detailTable tbody td.qtyInputCell { padding: 0 !important; }
 .detailTable tbody td.qtyInputCell input { width: 100%; height: 34px; padding: 0 8px; text-align: right; font-size: 11px; }
+
+/* 재고이전 상세 셀 범위 선택 (Shift+방향키 · Shift+클릭) */
+.detailTable tbody tr > td.rangeCell { background: #fdecec !important; box-shadow: inset 0 0 0 1px #e8a3a6; }
+.detailTable tbody tr > td.rangeCell input:not([type="checkbox"]) { background-color: #fdecec !important; }

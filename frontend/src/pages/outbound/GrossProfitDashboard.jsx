@@ -5,7 +5,7 @@
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import usePageReactivated from '../../components/common/usePageReactivated';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { useNavigate } from 'react-router-dom';
 import { Box, Button, Group, Loader, Paper, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -23,6 +23,8 @@ import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/InboundSearch.module.css';
 import pageClasses from '../../styles/pages/GrossProfitDashboard.module.css';
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
+import { apiErrorMessage } from '../../utils/apiError';
+import { kstDate } from '../../utils/dateFormat';
 
 // 검증된 범주 팔레트 (순서 고정) · 기타 = 회색 · 손실 = 상태색 critical
 const PALETTE = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300'];
@@ -35,13 +37,13 @@ const AXIS_TICK = { fontSize: 11, fill: '#52514e' };
 const pad = (value) => String(value).padStart(2, '0');
 const toDate = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 const monthRange = (offset) => {
-  const now = new Date();
+  const now = kstDate();
   return { date_from: toDate(new Date(now.getFullYear(), now.getMonth() + offset, 1)), date_to: toDate(new Date(now.getFullYear(), now.getMonth() + offset + 1, 0)) };
 };
 const PRESETS = {
   this: () => monthRange(0),
   last: () => monthRange(-1),
-  quarter: () => { const now = new Date(); return { date_from: toDate(new Date(now.getFullYear(), now.getMonth() - 2, 1)), date_to: toDate(new Date(now.getFullYear(), now.getMonth() + 1, 0)) }; },
+  quarter: () => { const now = kstDate(); return { date_from: toDate(new Date(now.getFullYear(), now.getMonth() - 2, 1)), date_to: toDate(new Date(now.getFullYear(), now.getMonth() + 1, 0)) }; },
   year: () => { const now = new Date(); return { date_from: `${now.getFullYear()}-01-01`, date_to: toDate(new Date(now.getFullYear(), now.getMonth() + 1, 0)) }; },
 };
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
@@ -261,7 +263,7 @@ export default function GrossProfitDashboard() {
       const response = await axios.get('/api/gross-profit-dashboard/summary', { ...authConfig(), params });
       if (id === requestId.current) setData(response.data);
     } catch (error) {
-      if (id === requestId.current) notifications.show({ title: '매출이익 현황판 조회 실패', message: error.response?.data?.detail || '현황판을 불러오지 못했습니다.', color: 'red' });
+      if (id === requestId.current) notifications.show({ title: '매출이익 현황판 조회 실패', message: apiErrorMessage(error, '현황판을 불러오지 못했습니다.'), color: 'red' });
     } finally {
       if (id === requestId.current) setLoading(false);
     }
@@ -295,7 +297,7 @@ export default function GrossProfitDashboard() {
     navigate(`/GrossProfit?${query.toString()}`);
   }, [navigate, period]);
 
-  const exportExcel = useCallback(() => {
+  const exportExcel = useCallback(async () => {
     if (!data?.customers?.length) { notifications.show({ title: '엑셀 데이터 없음', message: '다운로드할 데이터가 없습니다.', color: 'orange' }); return; }
     const sheetRows = data.customers.map((row) => ({
       거래처: row.customname, 매출: Math.round(row.sales), 매출원가: Math.round(row.cost_of_goods), 판매비용: Math.round(row.selling_cost),
@@ -305,6 +307,8 @@ export default function GrossProfitDashboard() {
       'KG당 매출(원)': row.sales_per_ton === null || row.sales_per_ton === undefined ? '' : Math.round(perKg(row.sales_per_ton) * 10) / 10,
       'KG당 이익(원)': row.profit_per_ton === null || row.profit_per_ton === undefined ? '' : Math.round(perKg(row.profit_per_ton) * 10) / 10,
     }));
+    const XLSX = await loadXLSXOrNotify();
+    if (!XLSX) return;
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.json_to_sheet(sheetRows);
     applyExcelHeaderStyle(worksheet, Object.keys(sheetRows[0]).length);

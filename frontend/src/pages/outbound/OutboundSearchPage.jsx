@@ -15,7 +15,8 @@ import { PageRibbonContext } from '../../components/layout/MainLayout';
 import sharedClasses from '../../styles/pages/ManagementShared.module.css';
 import simpleTheme from '../../styles/pages/SimpleTheme.module.css';
 import classes from '../../styles/pages/InboundSearch.module.css';
-import { cachedDateFormat } from '../../utils/dateFormat';
+import { cachedDateFormat, kstDate, todayKST } from '../../utils/dateFormat';
+import { apiErrorMessage } from '../../utils/apiError';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' },
@@ -48,7 +49,7 @@ const TABLE_COLUMNS = [
 ].map(([key, label]) => ({ key, label, width: TABLE_COLUMN_WIDTHS[key], minWidth: Math.min(TABLE_COLUMN_WIDTHS[key], 72) }));
 
 const makeDefaultFilters = () => {
-  const today = new Date();
+  const today = kstDate();
   const year = today.getFullYear();
   const month = today.getMonth();
   const pad = (value) => String(value).padStart(2, '0');
@@ -207,7 +208,7 @@ export default function OutboundSearchPage() {
         summaryKeyRef.current = '';
         notifications.show({
           title: '출고현황 조회 실패',
-          message: error.response?.data?.detail || '출고 내역을 불러오지 못했습니다.',
+          message: apiErrorMessage(error, '출고 내역을 불러오지 못했습니다.'),
           color: 'red',
         });
       }
@@ -249,7 +250,7 @@ export default function OutboundSearchPage() {
       });
       const downloadUrl = URL.createObjectURL(data);
       const link = document.createElement('a');
-      const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+      const date = todayKST().replaceAll('-', '');
       link.href = downloadUrl;
       link.download = `매출현황_${date}.xlsx`;
       document.body.appendChild(link);

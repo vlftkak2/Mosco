@@ -5,7 +5,7 @@
 //  창고 · 매입처 · 단가 · 원가 · 전표번호는 서버가 아예 보내지 않는다
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import XLSX from 'xlsx-js-style';
+import { loadXLSXOrNotify } from '../../utils/excelSafe';
 import { ActionIcon, Badge, Box, Group, Loader, Pagination, Paper, Select, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconX } from '@tabler/icons-react';
@@ -20,6 +20,7 @@ import classes from '../../styles/pages/SharedStock.module.css';
 import outboundClasses from '../../styles/pages/OutboundRegister.module.css';   // 탭: 매출등록 상세 탭과 같은 모양
 import { applyExcelHeaderStyle } from '../../utils/excelHeaderStyle';
 import { ColumnResizeHandle, pickerClasses, useResizableColumns } from '../../components/common/PickerModal';   // 머리글 오른쪽 끝을 끌어 칸 너비 조절
+import { apiErrorMessage } from '../../utils/apiError';
 
 const PAGE_OPTIONS = [{ value: '50', label: '50개씩' }, { value: '100', label: '100개씩' }, { value: '200', label: '200개씩' }];
 const KIND_OPTIONS = [{ value: '', label: '전체' }, { value: 'OPENING', label: '기초' }, { value: 'INBOUND', label: '입고' }, { value: 'PROCESS', label: '가공' }, { value: 'TRANSFER', label: '이동' }];
@@ -32,7 +33,9 @@ const TREND_VIEWS = [{ value: 'ending', label: '월말 재고' }, { value: 'inbo
 const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } });
 const toNumber = (value) => { const number = Number(value); return Number.isFinite(number) ? number : 0; };
 const kg = (value) => Math.round(toNumber(value)).toLocaleString('ko-KR');
-const numberText = (value) => (value === null || value === undefined || value === '' ? '' : Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 3 }));
+const numberText = (value) => (value === null || value === undefined || value === '' ? '' : Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 2 }));
+// 규격(두께·폭·길이·마이)은 금액이 아니므로 소수 셋째 자리까지 그대로 보여 준다
+const specText = (value) => value === null || value === undefined || value === '' ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
 const dateText = (value) => (value ? String(value).slice(0, 10) : '');
 const todayText = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date());
 const pad = (value) => String(value).padStart(2, '0');
@@ -58,9 +61,9 @@ const GROUPED_COLUMNS = [
   { key: 'itemname', label: '품명', width: 140, className: 'strong', render: (row) => row.itemname || '' },
   { key: 'materialname', label: '강종', width: 100, render: (row) => row.materialname || '' },
   { key: 'surfacename', label: '표면', width: 100, render: (row) => row.surfacename || '' },
-  { key: 'thickness', label: '두께', width: 70, className: 'num', render: (row) => numberText(row.thickness) },
-  { key: 'width', label: '폭', width: 80, className: 'num', render: (row) => numberText(row.width) },
-  { key: 'length', label: '길이', width: 80, className: 'num', render: (row) => numberText(row.length) },
+  { key: 'thickness', label: '두께', width: 70, className: 'num', render: (row) => specText(row.thickness) },
+  { key: 'width', label: '폭', width: 80, className: 'num', render: (row) => specText(row.width) },
+  { key: 'length', label: '길이', width: 80, className: 'num', render: (row) => specText(row.length) },
   { key: 'qty', label: '현재수량', width: 90, className: 'num', render: (row) => numberText(row.qty) },
   { key: 'qtyunit', label: '수량단위', width: 80, className: 'center', render: (row) => row.qtyunit || '' },
   { key: 'weight', label: '현재중량(KG)', width: 120, className: 'num weightCell', render: (row) => numberText(row.weight) },
@@ -76,10 +79,10 @@ const LOT_COLUMNS = [
   { key: 'itemname', label: '품명', width: 140, render: (row) => row.itemname || '' },
   { key: 'materialname', label: '강종', width: 100, render: (row) => row.materialname || '' },
   { key: 'surfacename', label: '표면', width: 100, render: (row) => row.surfacename || '' },
-  { key: 'myrtle', label: '도금량(g/㎡)', width: 100, className: 'num', render: (row) => numberText(row.myrtle) },
-  { key: 'thickness', label: '두께', width: 70, className: 'num', render: (row) => numberText(row.thickness) },
-  { key: 'width', label: '폭', width: 80, className: 'num', render: (row) => numberText(row.width) },
-  { key: 'length', label: '길이', width: 80, className: 'num', render: (row) => numberText(row.length) },
+  { key: 'myrtle', label: '도금량(g/㎡)', width: 100, className: 'num', render: (row) => specText(row.myrtle) },
+  { key: 'thickness', label: '두께', width: 70, className: 'num', render: (row) => specText(row.thickness) },
+  { key: 'width', label: '폭', width: 80, className: 'num', render: (row) => specText(row.width) },
+  { key: 'length', label: '길이', width: 80, className: 'num', render: (row) => specText(row.length) },
   { key: 'qty', label: '현재수량', width: 90, className: 'num', render: (row) => numberText(row.qty) },
   { key: 'weight', label: '현재중량(KG)', width: 120, className: 'num weightCell', render: (row) => numberText(row.weight) },
   { key: 'productname', label: '제품번호', width: 170, render: (row) => row.productname || '' },
@@ -104,14 +107,14 @@ function StockTable({ rows, columns, rowOffset, emptyText }) {
 
 // 엑셀 보기 좋게: 열 너비를 머리글 · 값 길이에 맞추고(한글은 2칸), 숫자는 천 단위 쉼표 (소수 3자리까지)
 const textWidth = (value) => [...String(value ?? '')].reduce((sum, char) => sum + (/[ㄱ-힝]/.test(char) ? 2 : 1), 0);
-const fitExcelSheet = (sheet, rows) => {
+const fitExcelSheet = (sheet, rows, XLSX) => {
   const keys = Object.keys(rows[0]);
-  sheet['!cols'] = keys.map((key) => ({ wch: Math.min(Math.max(textWidth(key), ...rows.map((row) => textWidth(typeof row[key] === 'number' ? row[key].toLocaleString('ko-KR', { maximumFractionDigits: 3 }) : row[key]))) + 2, 40) }));
+  sheet['!cols'] = keys.map((key) => ({ wch: Math.min(Math.max(textWidth(key), ...rows.map((row) => textWidth(typeof row[key] === 'number' ? row[key].toLocaleString('ko-KR', { maximumFractionDigits: 2 }) : row[key]))) + 2, 40) }));
   const range = XLSX.utils.decode_range(sheet['!ref']);
   for (let r = 1; r <= range.e.r; r += 1) {
     for (let c = 0; c <= range.e.c; c += 1) {
       const cell = sheet[XLSX.utils.encode_cell({ r, c })];
-      if (cell && cell.t === 'n') cell.z = Number.isInteger(cell.v) ? '#,##0' : '#,##0.###';
+      if (cell && cell.t === 'n') cell.z = Number.isInteger(cell.v) ? '#,##0' : '#,##0.##';
     }
   }
 };
@@ -234,7 +237,7 @@ export default function SharedStock() {
       const response = await axios.get('/api/shared-stock/items', { ...authConfig(), params: params({ page, page_size: pageSize }) });
       if (id === requestRef.current) setList(response.data);
     } catch (error) {
-      if (id === requestRef.current) notifications.show({ title: '타사 재고 조회 실패', message: error.response?.data?.detail || '타사 재고를 불러오지 못했습니다.', color: 'red' });
+      if (id === requestRef.current) notifications.show({ title: '타사 재고 조회 실패', message: apiErrorMessage(error, '타사 재고를 불러오지 못했습니다.'), color: 'red' });
     } finally {
       if (id === requestRef.current) setLoading(false);
     }
@@ -247,7 +250,7 @@ export default function SharedStock() {
       const response = await axios.get('/api/shared-stock/summary', { ...authConfig(), params: clean(trendFilters) });
       if (id === summaryRef.current) setSummary(response.data);
     } catch (error) {
-      if (id === summaryRef.current) notifications.show({ title: '재고 추이 조회 실패', message: error.response?.data?.detail || '재고 추이를 불러오지 못했습니다.', color: 'red' });
+      if (id === summaryRef.current) notifications.show({ title: '재고 추이 조회 실패', message: apiErrorMessage(error, '재고 추이를 불러오지 못했습니다.'), color: 'red' });
     } finally {
       if (id === summaryRef.current) setSummaryLoading(false);
     }
@@ -279,12 +282,14 @@ export default function SharedStock() {
         axios.get('/api/shared-stock/items', { ...authConfig(), params: { ...clean(filters), export: true } }),
         axios.get('/api/shared-stock/summary', { ...authConfig(), params: clean(trendFilters) }),
       ]);
+      const XLSX = await loadXLSXOrNotify();
+      if (!XLSX) return;
       const workbook = XLSX.utils.book_new();
       const addSheet = (rows, name) => {
         if (!rows.length) return;
         const sheet = XLSX.utils.json_to_sheet(rows);
         applyExcelHeaderStyle(sheet, Object.keys(rows[0]).length);
-        fitExcelSheet(sheet, rows);
+        fitExcelSheet(sheet, rows, XLSX);
         XLSX.utils.book_append_sheet(workbook, sheet, name);
       };
       addSheet(groupedResponse.data.items.map((row) => ({
@@ -313,7 +318,7 @@ export default function SharedStock() {
       XLSX.writeFile(workbook, `타사재고현황_${todayText().replaceAll('-', '')}.xlsx`);
       if (lotResponse.data.truncated) notifications.show({ title: '엑셀 일부만 저장', message: `재고가 많아 앞의 ${lotResponse.data.page_size.toLocaleString('ko-KR')}건만 저장했습니다. 고객사나 조건으로 줄여 주세요.`, color: 'orange' });
     } catch (error) {
-      notifications.show({ title: '엑셀 저장 실패', message: error.response?.data?.detail || '엑셀을 만들지 못했습니다.', color: 'red' });
+      notifications.show({ title: '엑셀 저장 실패', message: apiErrorMessage(error, '엑셀을 만들지 못했습니다.'), color: 'red' });
     }
   }, [filters, trendFilters]);
 

@@ -13,3 +13,9 @@ backend/instance/
 
 # 시연 터널 주소 (demo_tunnel.ps1 이 생성)
 public-site-react/public/erp-url.json
+
+# Playwright MCP 실행 기록 (이미 추적 중인 파일은 git rm -r --cached .playwright-mcp 로 해제)
+.playwright-mcp/
+
+# deploy.ps1 배포 기록 (배포 PC 전용)
+.deploy/

@@ -66,6 +66,9 @@ CREATE TABLE IF NOT EXISTS approval_request01t (
 );
 CREATE INDEX IF NOT EXISTS approval_request01t_status_idx ON approval_request01t (companyid, status, createdat DESC);
 CREATE INDEX IF NOT EXISTS approval_request01t_requester_idx ON approval_request01t (companyid, created_by, createdat DESC);
+-- 목록 기간 조회 · 요청번호 발급 (올해 것만) / 알림: 내 요청 최근 처리 순
+CREATE INDEX IF NOT EXISTS approval_request01t_created_idx ON approval_request01t (companyid, createdat DESC);
+CREATE INDEX IF NOT EXISTS approval_request01t_recent_idx ON approval_request01t (companyid, created_by, (COALESCE(decided_at, createdat)) DESC);
 
 -- 메뉴 카탈로그: 통제관리 (고객사에 부여 가능 · 이 권한이 있으면 통제 설정 + 승인)
 INSERT INTO menucatalog01t (menuid, menuname, access_scope, assignable, sort_order, useyn)
@@ -78,5 +81,74 @@ DROP TABLE IF EXISTS stock_reservation01t;
 DROP TABLE IF EXISTS control_history01t;
 ALTER TABLE company01t DROP CONSTRAINT IF EXISTS company01t_approval_yn_check;
 ALTER TABLE company01t DROP COLUMN IF EXISTS approval_yn;
+
+-- 2026-11-27 ── 요청번호 양식: 회사명-년도-00001 (회사명이 길 수 있어 칸을 넓힌다)
+ALTER TABLE approval_request01t ALTER COLUMN requestno TYPE varchar(150);
+COMMENT ON COLUMN approval_request01t.requestno IS '요청번호: 회사명-년도(KST)-00001, 회사 · 년도별 일련번호';
+-- 예전 번호(APR-YYYYMMDD-0001)는 새 양식으로 바꾼다 (요청 순서대로, 같은 회사 · 년도의 새 번호 뒤에 이어서)
+WITH old AS (
+    SELECT q.companyid, q.requestno,
+           REGEXP_REPLACE(COALESCE(c.companyname, q.companyid), '\s', '', 'g') || '-'
+             || TO_CHAR(q.createdat AT TIME ZONE 'Asia/Seoul', 'YYYY') || '-' AS prefix,
+           q.createdat
+    FROM approval_request01t q
+    LEFT JOIN company01t c ON c.companyid = q.companyid
+    WHERE q.requestno ~ '^APR-[0-9]{8}-[0-9]+$'
+), numbered AS (
+    SELECT o.companyid, o.requestno,
+           o.prefix || LPAD((COALESCE((SELECT MAX(CAST(SUBSTRING(n.requestno FROM LENGTH(o.prefix) + 1) AS integer))
+                                       FROM approval_request01t n
+                                       WHERE n.companyid = o.companyid AND LEFT(n.requestno, LENGTH(o.prefix)) = o.prefix
+                                         AND SUBSTRING(n.requestno FROM LENGTH(o.prefix) + 1) ~ '^[0-9]+$'), 0)
+                             + ROW_NUMBER() OVER (PARTITION BY o.companyid, o.prefix ORDER BY o.createdat, o.requestno))::text, 5, '0') AS newno
+    FROM old o
+)
+UPDATE approval_request01t q SET requestno = numbered.newno
+FROM numbered WHERE q.companyid = numbered.companyid AND q.requestno = numbered.requestno;
+
+-- 대기 중인 요청이 걸린 전표 · 거래처 찾기 (다른 수정 · 삭제를 막는 데 씀)
+CREATE INDEX IF NOT EXISTS approval_request01t_pending_ref_idx
+    ON approval_request01t (companyid, target, ref_no) WHERE status IN ('PENDING', 'PROCESSING') AND ref_no IS NOT NULL;
+
+-- 예약 재고 보호: 어떤 화면 · 스크립트에서든 재고(currentstock01t)를 줄이거나 지운 결과가
+-- 대기 중인 매출 승인요청의 예약 수량보다 적어지면 저장(커밋)을 막는다.
+-- 승인 실행 중인 요청 자신의 예약은 빼고 본다 (실행 트랜잭션이 mosco.approval_request 에 요청번호를 넣는다).
+CREATE OR REPLACE FUNCTION fn_check_stock_reservation() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+    k        record;
+    rsv      record;
+    stock    record;
+    running  text := NULLIF(current_setting('mosco.approval_request', true), '');
+BEGIN
+    IF TG_OP = 'DELETE' THEN k := OLD; ELSE k := NEW; END IF;
+    SELECT COALESCE(SUM(r.qty), 0) AS qty, COALESCE(SUM(r.weight), 0) AS weight,
+           STRING_AGG(DISTINCT q.requestno, ', ') AS requests
+      INTO rsv
+      FROM approval_request01t q
+      CROSS JOIN LATERAL jsonb_to_recordset(q.reservations)
+           AS r(sourcetype varchar, sourceno varchar, sourceline integer, qty numeric, weight numeric)
+     WHERE q.companyid = k.companyid AND q.status IN ('PENDING', 'PROCESSING')
+       AND q.requestno IS DISTINCT FROM running
+       AND r.sourcetype = k.sourcetype AND r.sourceno = k.sourceno AND r.sourceline = k.sourceline;
+    IF rsv.requests IS NULL THEN
+        RETURN NULL;
+    END IF;
+    SELECT COALESCE(SUM(s.qty), 0) AS qty, COALESCE(SUM(s.weight), 0) AS weight
+      INTO stock
+      FROM currentstock01t s
+     WHERE s.companyid = k.companyid AND s.sourcetype = k.sourcetype AND s.sourceno = k.sourceno AND s.sourceline = k.sourceline;
+    IF stock.weight + 0.0005 < rsv.weight OR (rsv.qty > 0 AND stock.qty + 0.0005 < rsv.qty) THEN
+        RAISE EXCEPTION 'MOSCO:재고 % / 순번 %은(는) 승인 대기 중인 요청(%)에 예약되어 있어 줄이거나 지울 수 없습니다. 요청이 승인 · 반려 · 취소된 뒤 다시 저장해 주세요.',
+            k.sourceno, k.sourceline, rsv.requests USING ERRCODE = 'P0001';
+    END IF;
+    RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_currentstock_reservation ON currentstock01t;
+CREATE CONSTRAINT TRIGGER trg_currentstock_reservation
+    AFTER UPDATE OF qty, weight OR DELETE ON currentstock01t
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION fn_check_stock_reservation();
 
 COMMIT;

@@ -18,6 +18,9 @@ import { CodePickerModal, CodeSuggestInput, ItemNameAutocomplete, ItemNameSugges
 import manageClasses from '../../styles/pages/AIOrderManage.module.css';
 import ConfirmDeleteModal from '../../components/common/ConfirmDeleteModal';
 import ConfirmActionModal from '../../components/common/ConfirmActionModal';
+import { apiErrorMessage } from '../../utils/apiError';
+import { kstDate } from '../../utils/dateFormat';
+import useExcelGrid from './useExcelGrid';
 
 const PAGE_SIZE_OPTIONS = [
   { value: '15', label: '15개씩' },
@@ -77,7 +80,7 @@ const authConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.get
 const dateText = (value) => value ? String(value).slice(0, 10) : '';
 const number = (value) => Number(value || 0).toLocaleString('ko-KR');
 const dimension = (value) => (value === null || value === undefined || value === ''
-  ? '' : Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 3 }));
+  ? '' : Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 2 }));
 const STOCK_MATCH_PAGE_SIZE = 50;
 // Stock source type shown as 입고유형 (same wording as the outbound stock picker).
 const STOCK_SOURCE_LABELS = { OPENING: '기초', INBOUND: '입고', PROCESS: '가공' };
@@ -120,10 +123,7 @@ const formatNumericValue = (value) => {
   const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return fraction === undefined ? grouped : `${grouped}.${fraction}`;
 };
-const errorMessage = (error, fallback) => {
-  const detail = error?.response?.data?.detail;
-  return typeof detail === 'string' ? detail : fallback;
-};
+const errorMessage = (error, fallback) => apiErrorMessage(error, fallback);
 const stockKey = (source) => [source.sourcetype, source.sourceno, source.sourceline].join('|');
 // 시트 주문 품목에 이 재고를 가공할 수 없으면 이유 (서버 stock_fit_problem 과 같은 규칙)
 // 기본: 제품 폭 ≤ 재고 폭 · 제품 길이 ≤ 재고 길이 / 90도 회전: 제품 폭 ≤ 재고 길이 · 제품 길이 ≤ 재고 폭
@@ -788,7 +788,7 @@ export default function AIOrderManage() {
       setSelectedId(DRAFT_ID);
       return notify('저장하지 않은 주문이 있습니다. 먼저 [저장]하거나 [삭제]로 취소한 뒤 새 주문을 추가해 주세요.', '저장 전 주문 확인');
     }
-    const now = new Date();
+    const now = kstDate();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const draft = { manual: true, header: { order_date: today, buyer: null, recipient: null, due_date: null, delivery_location: null },
       items: [{ source_product_name: '', steel_grade: '', surface: '', spec_raw: '', thickness: null, width: null, length: null,
@@ -847,6 +847,96 @@ export default function AIOrderManage() {
     setItemDrafts((rows) => rows.filter((row) => !selected.has(row._rowKey)));
     setSelectedItemKeys([]);
   };
+
+  // ── 상세 품목 엑셀식 입력 (매입등록과 같음) ──
+  // 값 쓰기는 직접 입력과 같은 규칙: 숫자 칸은 숫자만(소수 셋째 자리) · 쉼표 제거, 수량·중량을 바꾸면 원문(_raw)을 비우고,
+  // 두께는 칸을 벗어날 때처럼 소수 한 자리 표시(1 → 1.0). 가공 최적화로 보낸 품목(잠김)은 쓰지 않는다. 연결 재고(stock_matches)는 그대로.
+  const detailGridRef = useRef(null);
+  const blankItemDraft = () => ({
+    _rowKey: `new-${selectedId}-${nextDraftKey.current++}`, lineno: null, itemname: '', steelgrade: '', surface: '', size: '', thickness: '',
+    width: '', length: '', quantity: '', quantity_unit: '', weight_kg: '', notes: '',
+  });
+  const NUMERIC_ITEM_KEYS = new Set(['thickness', 'width', 'length', 'quantity', 'weight_kg']);
+  const NUMERIC_ITEM_LABELS = { thickness: '두께', width: '폭', length: '길이', quantity: '수량', weight_kg: '중량' };
+  const writeItemCells = (cells) => {
+    if (!selectedOrder) return;
+    const normalized = [];
+    for (const cell of cells) {
+      if (!DETAIL_NAV_FIELDS.includes(cell.field)) continue;
+      let value = String(cell.text ?? '');
+      if (NUMERIC_ITEM_KEYS.has(cell.field)) {
+        value = value.replaceAll(',', '').trim();
+        if (value !== '' && !/^\d*(?:\.\d{0,3})?$/.test(value)) {
+          notify(`${cell.rowNumber}행 ${NUMERIC_ITEM_LABELS[cell.field]}은 숫자만 입력해 주세요. 소수점은 셋째 자리까지 가능합니다.`, '숫자 입력 확인');
+          return;
+        }
+        if (cell.field === 'thickness') value = thicknessText(value);
+      }
+      normalized.push({ ...cell, value });
+    }
+    if (!normalized.length) return;
+    setItemDrafts((rows) => {
+      const next = [...rows];
+      normalized.forEach(({ rowKey, field, value, append }) => {
+        let index = next.findIndex((row) => row._rowKey === rowKey);
+        if (index < 0 && append) { next.push({ ...blankItemDraft(), _rowKey: rowKey }); index = next.length - 1; }
+        if (index < 0 || isLocked(next[index])) return;
+        next[index] = {
+          ...next[index], [field]: value,
+          ...(field === 'quantity' ? { quantity_raw: null } : {}),
+          ...(field === 'weight_kg' ? { weight_raw: null } : {}),
+        };
+      });
+      return next;
+    });
+  };
+  const itemRowKeys = itemDrafts.map((row) => row._rowKey);
+  const itemCellText = (rowKey, field) => String(itemDrafts.find((row) => row._rowKey === rowKey)?.[field] ?? '');
+  // 붙여넣기: 현재 칸부터 오른쪽 · 아래로, 모자란 행은 새 품목 행으로 붙인다
+  const pasteItemText = (rowKey, field, text) => {
+    const startIndex = itemDrafts.findIndex((row) => row._rowKey === rowKey);
+    const startColumn = DETAIL_NAV_FIELDS.indexOf(field);
+    if (startIndex < 0 || startColumn < 0) return;
+    const matrix = String(text || '').replace(/\r/g, '').split('\n').filter((line, index, all) => line || index < all.length - 1).map((line) => line.split('\t'));
+    if (startIndex + matrix.length > itemDrafts.length + 1000) return notify('한 번에 최대 1,000행까지 붙여넣을 수 있습니다.', '붙여넣기 제한');
+    const cells = matrix.flatMap((line, rowOffset) => {
+      const index = startIndex + rowOffset;
+      let key = itemDrafts[index]?._rowKey;
+      const append = !key;
+      if (append) key = `new-${selectedId}-${nextDraftKey.current++}`;
+      return line.map((value, columnOffset) => ({ rowKey: key, rowNumber: index + 1, field: DETAIL_NAV_FIELDS[startColumn + columnOffset], text: value, append }))
+        .filter((cell) => cell.field);
+    });
+    writeItemCells(cells);
+  };
+  const insertItemDraft = (rowKey, field, duplicate) => {
+    if (!selectedOrder) return;
+    const row = blankItemDraft();
+    setItemDrafts((rows) => {
+      const index = rows.findIndex((item) => item._rowKey === rowKey);
+      if (index < 0) return rows;
+      // 복제: 입력 칸 값만 (주문 순번 · 최적화 상태 · 연결 재고는 새 행에 옮기지 않는다)
+      const copy = duplicate ? { ...row, ...Object.fromEntries(EDIT_KEYS.map((key) => [key, rows[index][key] ?? ''])), quantity_unit: rows[index].quantity_unit ?? '', size: rows[index].size ?? '' } : row;
+      const next = [...rows];
+      next.splice(index + 1, 0, copy);
+      return next;
+    });
+    requestAnimationFrame(() => detailGridRef.current?.querySelector(`[data-grid-row="${row._rowKey}"][data-grid-field="${field}"]`)?.focus());
+  };
+  const appendItemDraft = (field) => {
+    if (!selectedOrder) return;
+    const row = blankItemDraft();
+    setItemDrafts((rows) => [...rows, row]);
+    requestAnimationFrame(() => detailGridRef.current?.querySelector(`[data-grid-row="${row._rowKey}"][data-grid-field="${field}"]`)?.focus());
+  };
+  const { gridProps: detailGridProps } = useExcelGrid({
+    wrapRef: detailGridRef, rowKeys: itemRowKeys, fields: DETAIL_NAV_FIELDS,
+    getCellText: itemCellText,
+    canWrite: (field) => DETAIL_NAV_FIELDS.includes(field),
+    writeCells: (cells) => writeItemCells(cells.map((cell) => ({ ...cell, rowNumber: itemRowKeys.indexOf(cell.rowKey) + 1 }))),
+    pasteText: pasteItemText, insertRow: insertItemDraft, appendRow: appendItemDraft, enterMoves: true,
+    checkedRowKeys: selectedItemKeys, disabled: !selectedOrder || saving || detailLoading, rangeClass: classes.rangeCell,
+  });
 
   const requestDelete = () => {
     if (selectedItemKeys.length) {
@@ -1008,6 +1098,8 @@ export default function AIOrderManage() {
       title={isLocked(item) ? '가공 최적화로 보낸 품목은 수정할 수 없습니다.' : undefined}
       data-detail-row={displayIndex}
       data-detail-column={DETAIL_NAV_FIELDS.indexOf(key)}
+      data-grid-row={item._rowKey}
+      data-grid-field={key}
       value={numeric ? formatNumericValue(item[key]) : item[key] ?? ''}
       inputMode={numeric ? 'decimal' : undefined}
       onChange={(event) => {
@@ -1303,7 +1395,7 @@ export default function AIOrderManage() {
             })()}
           </Group>
         </header>
-        <div className={`${classes.tableScroll} ${classes.detailsScroll}`}><table className={classes.detailsTable} style={{ width: `max(100%, ${detailTableWidth}px)`, minWidth: `${detailTableWidth}px` }}><colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{DETAIL_COLUMNS.map((column) => column.key === 'select' ? <th key={column.key} className={`${classes.checkColumn} ${classes.resizableHeader}`} style={{ width: detailColumnWidths[column.key] ?? column.width }}><input type="checkbox" aria-label="Select all order details" checked={itemDrafts.length > 0 && selectedItemKeys.length === itemDrafts.length} onChange={toggleAllItemSelection} disabled={!itemDrafts.length || detailLoading} /><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'details', column)} role="separator" aria-label="Resize selection column" /></th> : <th key={column.key} className={`${classes.resizableHeader} ${column.key === 'progress' ? classes.center : ''}`} style={{ width: detailColumnWidths[column.key] ?? column.width }}><span>{column.label}{column.required && <span className={classes.requiredMark}> *</span>}</span><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'details', column)} role="separator" aria-label={`Resize ${column.label} column`} /></th>)}</tr></thead>
+        <div ref={detailGridRef} className={`${classes.tableScroll} ${classes.detailsScroll}`} {...detailGridProps}><table className={classes.detailsTable} style={{ width: `max(100%, ${detailTableWidth}px)`, minWidth: `${detailTableWidth}px` }}><colgroup>{DETAIL_COLUMNS.map((column) => <col key={column.key} data-column-key={column.key} style={{ width: `${detailColumnWidths[column.key] ?? column.width}px` }} />)}</colgroup><thead><tr>{DETAIL_COLUMNS.map((column) => column.key === 'select' ? <th key={column.key} className={`${classes.checkColumn} ${classes.resizableHeader}`} style={{ width: detailColumnWidths[column.key] ?? column.width }}><input type="checkbox" aria-label="Select all order details" checked={itemDrafts.length > 0 && selectedItemKeys.length === itemDrafts.length} onChange={toggleAllItemSelection} disabled={!itemDrafts.length || detailLoading} /><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'details', column)} role="separator" aria-label="Resize selection column" /></th> : <th key={column.key} className={`${classes.resizableHeader} ${column.key === 'progress' ? classes.center : ''}`} style={{ width: detailColumnWidths[column.key] ?? column.width }}><span>{column.label}{column.required && <span className={classes.requiredMark}> *</span>}</span><span className={classes.columnResizeHandle} onPointerDown={(event) => resizeTableColumn(event, 'details', column)} role="separator" aria-label={`Resize ${column.label} column`} /></th>)}</tr></thead>
           <tbody>{itemDrafts.length ? itemDrafts.map((item, index) => <tr key={item._rowKey} className={selectedItemKeys.includes(item._rowKey) ? classes.selectedDetailRow : ''}>
             <td className={classes.checkColumn}><input type="checkbox" aria-label={`${index + 1}행 선택`} checked={selectedItemKeys.includes(item._rowKey)} onChange={(event) => toggleItemSelection(item._rowKey, event.nativeEvent.shiftKey)} /></td>
             <td className={`${classes.center} ${classes.detailTextCell}`}>{index + 1}</td>
@@ -1316,6 +1408,8 @@ export default function AIOrderManage() {
                 title: isLocked(item) ? '가공 최적화로 보낸 품목은 수정할 수 없습니다.' : undefined,
                 'data-detail-row': index,
                 'data-detail-column': DETAIL_NAV_FIELDS.indexOf('itemname'),
+                'data-grid-row': item._rowKey,
+                'data-grid-field': 'itemname',
                 'aria-label': `${index + 1}행 itemname`,
               }} /></td>
             <td title={item.steelgrade || ''}><CodeSuggestInput value={item.steelgrade} options={codeOptions.steelgrade} readOnly={isLocked(item)}
@@ -1327,6 +1421,8 @@ export default function AIOrderManage() {
                 title: isLocked(item) ? '가공 최적화로 보낸 품목은 수정할 수 없습니다.' : '입력하면 강종 공통코드 추천 · 돋보기 클릭 또는 더블클릭(F2)으로 강종 선택',
                 'data-detail-row': index,
                 'data-detail-column': DETAIL_NAV_FIELDS.indexOf('steelgrade'),
+                'data-grid-row': item._rowKey,
+                'data-grid-field': 'steelgrade',
                 'aria-label': `${index + 1}행 강종`,
               }} /></td>
             <td title={item.surface || ''}><CodeSuggestInput value={item.surface} options={codeOptions.surface} readOnly={isLocked(item)}
@@ -1338,6 +1434,8 @@ export default function AIOrderManage() {
                 title: isLocked(item) ? '가공 최적화로 보낸 품목은 수정할 수 없습니다.' : '입력하면 표면 공통코드 추천 · 돋보기 클릭 또는 더블클릭(F2)으로 표면 선택',
                 'data-detail-row': index,
                 'data-detail-column': DETAIL_NAV_FIELDS.indexOf('surface'),
+                'data-grid-row': item._rowKey,
+                'data-grid-field': 'surface',
                 'aria-label': `${index + 1}행 표면`,
               }} /></td>
             <td className={classes.numeric}>{detailInput(item, 'thickness', true, index)}</td>

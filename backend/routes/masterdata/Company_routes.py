@@ -3,12 +3,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from services.masterdata import Company as company_module
 import security as security_module
 
-router = APIRouter(prefix="/api/companies", tags=["companies"])
+router = APIRouter(prefix="/api/companies", tags=["companies"], dependencies=[Depends(security_module.audit_platform_access)])
 
-def require_master(user: dict = Depends(security_module.get_current_user)) -> dict:
-    if user["companyid"] != "001" or user["authority"] != "MASTER":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Steel119 최종관리자만 사용할 수 있습니다.")
-    return user
+require_master = security_module.require_menu_access("COMPANY_REGISTRATION")   # 모스코 전용 메뉴 (메뉴권한관리에서 부여)
+
+
+def require_company_list(user: dict = Depends(security_module.get_current_user)) -> dict:
+    """고객사 목록 조회: 고객사등록 권한, 또는 모스코 직원의 계정관리 권한 (고객계정관리에서 회사를 고를 때)."""
+    if security_module.has_menu(user, "COMPANY_REGISTRATION") or (
+            security_module.is_platform_company(user) and security_module.has_menu(user, "COMPANY_USER_MANAGEMENT")):
+        return user
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="고객사 목록을 볼 권한이 없습니다.")
 
 
 @router.get("")
@@ -18,7 +23,7 @@ def get_companies(
     company_status: str = Query("", max_length=20),
     page: int = Query(1, ge=1),
     page_size: int = Query(30, ge=1, le=200),
-    user: dict = Depends(require_master),
+    user: dict = Depends(require_company_list),
 ):
     del user
     return {"success": True, **company_module.list_companies(q, plan_code, company_status, page, page_size)}

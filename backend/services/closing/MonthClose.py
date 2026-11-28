@@ -159,6 +159,33 @@ def _parse_month(value: str) -> date:
         raise ValueError("마감월을 YYYY-MM 형식으로 입력해 주세요.") from error
 
 
+# 승인 통제: 마감하면 그 날짜까지의 전표는 바꿀 수 없어 대기 중인 승인요청이 의미 없어진다 → 먼저 처리하게 한다.
+#  요청의 전표일자(입력한 일자) 또는 수정 · 삭제 대상 전표의 지금 일자가 마감일 이하이면 대상.
+_PENDING_IN_PERIOD_SQL = """
+SELECT q.requestno
+FROM approval_request01t q
+WHERE q.companyid = %(companyid)s AND q.status IN ('PENDING', 'PROCESSING')
+  AND (
+        NULLIF(COALESCE(NULLIF(q.payload->>'doc_date', ''), q.payload#>>'{data,item,receptdate}',
+                        q.payload#>>'{data,item,receiptdate}', q.payload#>>'{doc_header,date}'), '')::date <= %(through)s
+     OR (q.target = 'INBOUND' AND EXISTS (SELECT 1 FROM inbound01t h WHERE h.companyid = q.companyid AND h.receiptno = q.ref_no AND h.receptdate <= %(through)s))
+     OR (q.target = 'OUTBOUND' AND EXISTS (SELECT 1 FROM outbound01t h WHERE h.companyid = q.companyid AND h.receiptno = q.ref_no AND h.receptdate <= %(through)s))
+     OR (q.target = 'RECEIPT_PAYMENT' AND EXISTS (SELECT 1 FROM receiptpayment01t h WHERE h.companyid = q.companyid AND h.receiptno = q.ref_no AND h.receiptdate <= %(through)s))
+  )
+ORDER BY q.createdat
+"""
+
+
+def _ensure_no_pending_requests(cursor, companyid: str, through: date) -> None:
+    cursor.execute("SELECT to_regclass('approval_request01t') IS NOT NULL")
+    if not cursor.fetchone()[0]:
+        return
+    cursor.execute(_PENDING_IN_PERIOD_SQL, {"companyid": companyid, "through": through})
+    rows = [row[0] for row in cursor.fetchall()]
+    if rows:
+        raise ValueError(f"승인 대기 {len(rows)}건을 먼저 처리해 주세요. (통제관리 › 승인함: {', '.join(rows[:3])}{' 외' if len(rows) > 3 else ''})")
+
+
 def close_month(companyid: str, companyname: str, month: str, actor: str | None) -> dict:
     target = _parse_month(month)
     with _connect() as connection, connection.cursor() as cursor:
@@ -170,6 +197,7 @@ def close_month(companyid: str, companyname: str, month: str, actor: str | None)
             raise ValueError(f"{target:%Y-%m}월은 이미 마감되었습니다.")
         if last and target != _next_month(last):
             raise ValueError(f"마감은 순서대로 해야 합니다. 먼저 {_next_month(last):%Y-%m}월을 마감해 주세요.")
+        _ensure_no_pending_requests(cursor, companyid, _month_end(target))
         cursor.execute(
             "INSERT INTO monthclose01t (companyid, companyname, closemonth, closed_by) VALUES (%s, %s, %s, %s)",
             (companyid, str(companyname or "")[:100], target, actor or None),

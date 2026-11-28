@@ -6,7 +6,7 @@ from time import monotonic
 
 import jwt
 import psycopg2
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from config import JWT_SECRET_KEY
@@ -20,6 +20,8 @@ AUTH_CACHE_TTL_SECONDS = 20
 AUTH_CACHE_MAX_ENTRIES = 5000
 # 같은 계정으로 다른 곳에서 로그인하면 먼저 접속한 쪽 토큰은 이 문구로 거절된다 (프론트가 이 문구로 구분한다).
 SESSION_REPLACED_MESSAGE = "다른 곳에서 같은 계정으로 로그인하여 접속이 종료되었습니다."
+# 로그아웃 · 비밀번호 변경 · 사용 중지로 서버 세션이 끊긴 경우
+SESSION_ENDED_MESSAGE = "접속이 종료되었습니다. 다시 로그인해 주세요."
 bearer_scheme = HTTPBearer(auto_error=False)
 
 _auth_cache: OrderedDict[tuple[str, str], tuple[float, dict]] = OrderedDict()
@@ -41,6 +43,9 @@ def _load_auth_snapshot(companyid: str, email: str) -> dict | None:
                       UPPER(COALESCE(u.useyn, 'N')) AS user_useyn,
                       UPPER(COALESCE(c.company_status, '')) AS company_status,
                       u.session_id,
+                      -- 이용 기간(라이선스) 종료일이 지났으면 운영사(001)를 빼고 접속을 막는다 (KST 기준)
+                      (c.companyid <> '001' AND c.license_end IS NOT NULL
+                       AND c.license_end < (now() AT TIME ZONE 'Asia/Seoul')::date) AS license_expired,
                       COALESCE(ARRAY_AGG(DISTINCT m.menuid) FILTER (WHERE m.menuid IS NOT NULL), ARRAY[]::varchar[]) AS menuids
                FROM user01t u
                JOIN company01t c ON c.companyid = u.companyid
@@ -50,21 +55,22 @@ def _load_auth_snapshot(companyid: str, email: str) -> dict | None:
                 AND UPPER(COALESCE(p.useyn, 'N')) = 'Y'
                LEFT JOIN menucatalog01t m
                  ON m.menuid = p.menuid
-                AND m.access_scope = 'COMPANY'
+                AND (m.access_scope = 'COMPANY' OR (m.access_scope = 'PLATFORM' AND u.companyid = '001'))
                 AND m.assignable = TRUE
                 AND UPPER(COALESCE(m.useyn, 'N')) = 'Y'
                WHERE u.companyid = %s
                  AND u.email = %s
                GROUP BY u.companyid, c.companyname, u.username, u.email,
-                        u.authority, u.useyn, c.company_status, u.session_id
+                        u.authority, u.useyn, c.companyid, c.company_status, u.session_id, c.license_end
                LIMIT 1""",
             (companyid, email),
         )
         row = cursor.fetchone()
     if not row:
         return None
-    companyid_value, companyname, username, db_email, authority, user_useyn, company_status, session_id, menuids = row
-    if str(user_useyn).upper() != "Y" or str(company_status).upper() != "ACTIVE":
+    (companyid_value, companyname, username, db_email, authority, user_useyn, company_status, session_id,
+     license_expired, menuids) = row
+    if str(user_useyn).upper() != "Y" or str(company_status).upper() != "ACTIVE" or license_expired:
         return None
     return {
         "companyid": str(companyid_value),
@@ -190,14 +196,25 @@ def get_current_user(
     if not _session_matches(sid, snapshot):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=SESSION_REPLACED_MESSAGE,
+            detail=SESSION_REPLACED_MESSAGE if snapshot["session_id"] else SESSION_ENDED_MESSAGE,
             headers={"WWW-Authenticate": "Bearer"},
         )
     return snapshot
 
 
 def has_platform_admin_role(user: dict) -> bool:
+    """모스코(001) MASTER: 잠김 방지를 위해 모든 메뉴 · 기능을 연다. 그 밖의 권한은 모두 메뉴권한(menuids)으로 판단한다."""
     return user.get("companyid") == "001" and user.get("authority") == "MASTER"
+
+
+def has_menu(user: dict, menuid: str) -> bool:
+    """메뉴 · 기능 권한이 있는지 (모스코 MASTER 는 항상 있음)."""
+    return has_platform_admin_role(user) or menuid in (user.get("menuids") or ())
+
+
+def is_platform_company(user: dict) -> bool:
+    """모스코(001) 직원: 관리자 메뉴 권한을 받으면 전체 고객사를 다룬다 (다른 회사 직원은 자기 회사만)."""
+    return user.get("companyid") == "001"
 
 
 def user_has_menu_access(companyid: str, email: str, menuid: str) -> bool:
@@ -245,3 +262,19 @@ def require_any_menu_access(*menuids: str):
         return user
 
     return dependency
+
+
+def audit_platform_access(request: Request, user: dict = Depends(get_current_user)) -> dict:
+    """운영사(001) 직원이 고객사 관리 · 타사 데이터 화면을 쓴 기록 (access_log01t). 고객사 계정은 남기지 않는다."""
+    path = request.url.path
+    if user.get("companyid") == "001" and not path.endswith(("/mine", "/favorites")):
+        import access_log
+
+        target = request.query_params.get("companyid") or request.path_params.get("companyid")
+        access_log.record(
+            "PLATFORM_ACCESS", companyid="001", email=user.get("email"),
+            client_ip=request.client.host if request.client else None,
+            target_companyid=target, method=request.method, path=path,
+            detail=(request.url.query or "")[:500] or None,
+        )
+    return user
